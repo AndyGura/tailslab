@@ -606,6 +606,8 @@ for obj in bpy.context.selected_objects:
                     mtl_name='terrain',
                     bake_textures=False,
                     skip_mtl_export=True,
+                    # nfs-web draws the terrain unlit
+                    export_normals=False,
                 )
                 if self.settings.maps__add_props_to_obj:
                     (meshes, txs) = self.render_tnfs_props(id, data, is_opened, i * 4, (i + 1) * 4 - 1, position)
@@ -1722,7 +1724,7 @@ class NfsuTrackBundleSerializer(BaseFileSerializer):
         import numpy as np
         from library.loader import id_to_path
         from resources.blackbox.maps.nfsu import NfsuChunkBundle
-        from serializers.bitmaps import nfsu_texture_to_image
+        from serializers.bitmaps import ImageSerializer, nfsu_texture_to_image
         from serializers.geometries import texture_alpha_mode
 
         super().serialize(data, path, id, block, **kwargs)
@@ -1751,9 +1753,9 @@ class NfsuTrackBundleSerializer(BaseFileSerializer):
                 texture_names[texture_id] = 'untextured'
                 if texture_id in world.textures:
                     try:
-                        image = nfsu_texture_to_image(*world.textures[texture_id])
+                        image = nfsu_texture_to_image(*world.textures[texture_id], indexed=True)
                         name = f'{texture_id:08x}'
-                        image.save(path_join(path, f'textures/{name}.png'))
+                        ImageSerializer.save_png(image, path_join(path, f'textures/{name}.png'))
                         texture_names[texture_id] = name
                         alpha_modes[name] = texture_alpha_mode(image)
                     except Exception:

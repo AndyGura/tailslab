@@ -166,6 +166,8 @@ class OripGeometrySerializer(BaseFileSerializer):
             if isinstance(texture_block, EacImage) and not c['alias'].startswith('!'):
                 scene.mtl_texture_names.append(c['alias'])
         scene.mtl_texture_path_func = lambda name: f'assets/{name}.png'
+        # nfs-web draws TNFS models unlit
+        scene.export_normals = False
 
         from serializers import ShpiArchiveSerializer
 
@@ -535,7 +537,7 @@ def compose_texture_page(
 def texture_alpha_mode(image: Image.Image) -> str:
     """Alpha mode of a texture for `Scene.mtl_texture_alpha_modes`: "blend" for translucent textures (glass, smoke:
     more than 10% of pixels have partial alpha), "cutout" for others (alpha is 0 or 255 except anti-aliased edges)"""
-    histogram = image.getchannel('A').histogram()
+    histogram = image.convert('RGBA').getchannel('A').histogram()
     return 'blend' if sum(histogram[17:240]) > 0.1 * image.width * image.height else 'cutout'
 
 
@@ -741,7 +743,7 @@ class CrpGeometrySerializer(BaseFileSerializer):
                 continue
             image_data, image_block, image_id = images[alias]
             try:
-                image = ImageSerializer().to_image(image_data, image_block, image_id)
+                image = ImageSerializer().to_png_image(image_data, image_block, image_id)
             except Exception:
                 # meshes with a texture which cannot be converted stay untextured
                 traceback.print_exc()
@@ -749,7 +751,7 @@ class CrpGeometrySerializer(BaseFileSerializer):
             name = re.sub(r'[^0-9A-Za-z_-]', '_', alias.strip()) or 'texture'
             while name in alpha_modes:
                 name += '_'
-            image.save(path_join(path, f'textures/{name}.png'))
+            ImageSerializer.save_png(image, path_join(path, f'textures/{name}.png'))
             textures[tag] = name
             alpha_modes[name] = texture_alpha_mode(image)
         return textures, alpha_modes
@@ -1120,7 +1122,7 @@ class NfsuBinGeometrySerializer(BaseFileSerializer):
 
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
         from library.loader import id_to_path
-        from serializers.bitmaps import nfsu_texture_to_image
+        from serializers.bitmaps import ImageSerializer, nfsu_texture_to_image
 
         super().serialize(data, path)
 
@@ -1134,12 +1136,12 @@ class NfsuBinGeometrySerializer(BaseFileSerializer):
                 if texture_id in textures:
                     try:
                         info = textures[texture_id][0]
-                        image = nfsu_texture_to_image(*textures[texture_id])
+                        image = nfsu_texture_to_image(*textures[texture_id], indexed=True)
                         name = re.sub(r'[^A-Za-z0-9_]', '_', info['name']) or f'{texture_id:08x}'
                         if name in texture_names.values():
                             name += f'_{texture_id:08x}'
                         os.makedirs(path_join(path, 'textures'), exist_ok=True)
-                        image.save(path_join(path, f'textures/{name}.png'))
+                        ImageSerializer.save_png(image, path_join(path, f'textures/{name}.png'))
                         texture_names[texture_id] = name
                         alpha_modes[name] = texture_alpha_mode(image)
                     except Exception:
@@ -1465,12 +1467,12 @@ def export_fsh_textures(
             continue
         image_data, image_block, image_id = images[alias]
         try:
-            image = ImageSerializer().to_image(image_data, image_block, image_id)
+            image = ImageSerializer().to_png_image(image_data, image_block, image_id)
         except Exception:
             traceback.print_exc()
             continue
         name = name_prefix + re.sub(r'[^0-9A-Za-z-]', '-', alias.strip())
-        image.save(path_join(path, f'textures/{name}.png'))
+        ImageSerializer.save_png(image, path_join(path, f'textures/{name}.png'))
         names[alias] = name
         alpha_modes[name] = texture_alpha_mode(image)
     return names, alpha_modes
@@ -1634,7 +1636,14 @@ def _find_nfs6_car_skeleton(id: str):
 
 
 def _save_opaque(file_path: str):
-    image = Image.open(file_path).convert('RGBA')
+    with Image.open(file_path) as image:
+        image.load()
+    if image.mode == 'P':
+        # an indexed image stays indexed: its palette without tRNS
+        image.info.pop('transparency', None)
+        image.save(file_path, compress_level=9)
+        return
+    image = image.convert('RGBA')
     image.putalpha(255)
     image.save(file_path)
 
