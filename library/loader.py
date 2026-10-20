@@ -37,6 +37,11 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.configs import TnfsConfigDat
 
             return TnfsConfigDat
+        elif file_path.upper().endswith('.INF') and header_bytes == b'#ver':
+            # PSX TNFS horizon settings Z<track><time>.INF
+            from resources.eac.psx import TnfsPsxHorizonInfo
+
+            return TnfsPsxHorizonInfo
         elif file_path.upper().endswith('.RPL'):
             from resources.eac.replays import TnfsReplay
 
@@ -104,6 +109,10 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.archives import ShpiBlock
 
             return ShpiBlock
+        elif header_str == 'SHPP':
+            from resources.eac.archives import ShppBlock
+
+            return ShppBlock
         elif header_str == 'wwww':
             from resources.eac.archives import WwwwBlock
 

@@ -14,6 +14,7 @@ from library.read_blocks import (
 from library.read_blocks.strings import LengthPrefixedUtf8Block, UTF8Block
 from library.utils.docs import add_doc_numbers
 from resources import eac, blackbox
+from resources.eac import psx as eac_psx, psx_bitmaps as eac_psx_bitmaps
 from resources.blackbox.bitmaps import nfsu as blackbox_bitmaps_nfsu
 from resources.blackbox.maps import nfsu as blackbox_maps_nfsu
 
@@ -186,6 +187,31 @@ EXPORT_RESOURCES = {
         'blocks': {
             'Physics': [
                 eac.car_specs.Tnfs3doCarPhysics(),
+            ],
+        },
+    },
+    'tnfs_psx': {
+        'file_name': 'TNFS_PSX.md',
+        'title': 'TNFS (PlayStation) file specs',
+        'file_list': f"""File names on the disc (SLUS-00204) are upper case. Most files end with a CRC footer: {render_type(eac_psx.PsxCrcFooter())}
+
+**\\*.PSH** image archive. {render_type(eac.archives.ShppBlock())}. `Z<track><A|B|C>.PSH` are the textures of a track at a time of day (A morning, B midday, C evening), with the horizon images `hrz0`..`hrz7` and `rhrz`; `ZG*.PSH` are German versions of some files. The converter writes the sky sphere texture `spherical.png` next to the PNGs of a track's textures, from the horizon images and the `.INF` file of the same name
+
+**\\*.INF** horizon settings of a track at a time of day, plain text. {render_type(eac_psx.TnfsPsxHorizonInfo())}
+
+**Z<track>_PSH.FAM** {render_type(eac.archives.WwwwBlock())} of {render_type(eac.archives.ShppBlock())} items. The CRC footer follows its last item""",
+        'blocks': {
+            'Archives': [
+                eac.archives.ShppBlock(),
+                eac.archives.WwwwBlock(),
+            ],
+            'Images': [
+                eac_psx_bitmaps.PsxImage(),
+                eac_psx_bitmaps.PsxClut(),
+            ],
+            'Misc': [
+                eac_psx.TnfsPsxHorizonInfo(),
+                eac_psx.PsxCrcFooter(),
             ],
         },
     },

@@ -52,7 +52,7 @@ you always see the whole file.
 
 | Game | Highlights |
 |---|---|
-| **The Need for Speed** (SE PC, 3DO) | Cars (CFM), tracks (TRI, FAM), car specs (PBS, PDN, 3DO BigSpecsFam), images (FSH, QFS), fonts (FFN), audio (BNK, ASF, EAS), videos (TGV), replays (RPL), saved config |
+| **The Need for Speed** (SE PC, 3DO, PlayStation) | Cars (CFM), tracks (TRI, FAM), car specs (PBS, PDN, 3DO BigSpecsFam), images (FSH, QFS, PSX PSH), PSX horizon settings (INF) and skies, fonts (FFN), audio (BNK, ASF, EAS), videos (TGV), replays (RPL), saved config |
 | **NFS II / II SE** | Cars (GEO), tracks (TRK, COL), archives (VIV, MSK), images, fonts, sound banks, videos (UV) |
 | **NFS III Hot Pursuit** | Cars (FCE in VIV), tracks (FRD, COL), images, fonts, sound banks |
 | **NFS High Stakes** | Cars (FCE4), tracks (FRD), images, fonts, sound banks |

@@ -313,6 +313,91 @@ class TargaImageSerializer(BaseFileSerializer):
         return tga_buffer.getvalue()
 
 
+class PsxImageSerializer(BaseFileSerializer):
+    """PNG of a PSX image (`PsxImage`) as the game shows it: a rotated image is turned back, 4-bit and 8-bit images are
+    indexed PNGs with their CLUT colors (like PC 8Bit images, `ImageSerializer.indexed_image`), 16-bit ones RGBA. The
+    PSX color 0x0000 is transparent, every other one opaque (`psx_color_to_rgba`)"""
+
+    def ui_serialization(self):
+        return {
+            'file_type': 'png',
+            'is_directory': False,
+            'output_file_name_suffix': '.png',
+            'reversible': False,
+            'reversible_settings_patch': {},
+        }
+
+    @staticmethod
+    def palette_colors(data: dict) -> Optional[List[int]]:
+        """The CLUT colors as RGBA, None for a 16-bit image"""
+        from resources.eac.psx_bitmaps import psx_color_to_rgba
+
+        if data['resource_id'] == '16Bit PSX' or data.get('clut') is None:
+            return None
+        return [psx_color_to_rgba(c) for c in data['clut']['colors']]
+
+    @staticmethod
+    def pixel_values(data: dict) -> np.ndarray:
+        """Pixels as stored (height x width): CLUT indexes, or PSX colors of a 16-bit image"""
+        from resources.eac.psx_bitmaps import psx_row_bytes
+
+        width, height, resource_id = data['width'], data['height'], data['resource_id']
+        row_bytes = psx_row_bytes(resource_id, width)
+        rows = np.frombuffer(bytes(data['bitmap'])[: row_bytes * height], dtype=np.uint8).reshape(height, row_bytes)
+        if resource_id == '4Bit PSX':
+            values = np.stack([rows & 0x0F, rows >> 4], axis=-1).reshape(height, row_bytes * 2)
+        elif resource_id == '8Bit PSX':
+            values = rows
+        elif resource_id == '16Bit PSX':
+            values = rows.view('<u2').reshape(height, row_bytes // 2)
+        else:
+            raise NotImplementedError(f'Unknown PSX image type {resource_id}')
+        return values[:, :width]
+
+    @staticmethod
+    def _as_shown(image: Image.Image, data: dict) -> Image.Image:
+        from resources.eac.psx_bitmaps import psx_image_is_rotated
+
+        # stored rotated: the left column, bottom to top, is the top row
+        return image.transpose(Image.Transpose.ROTATE_270) if psx_image_is_rotated(data) else image
+
+    def to_image(self, data: dict, **kwargs) -> Image.Image:
+        """The image as the game shows it, RGBA"""
+        return self.to_png_image(data).convert('RGBA')
+
+    def to_png_image(self, data: dict) -> Image.Image:
+        from resources.eac.psx_bitmaps import psx_color_to_rgba
+
+        values = self.pixel_values(data)
+        palette = self.palette_colors(data)
+        height, width = values.shape
+        if palette is not None:
+            image = ImageSerializer.indexed_image(values.astype(np.uint8).reshape(-1).tolist(), width, height, palette)
+        else:
+            rgba = [psx_color_to_rgba(int(c)) for c in values.reshape(-1)]
+            image = Image.frombytes('RGBA', (width, height), b''.join(c.to_bytes(4, 'big') for c in rgba))
+        return self._as_shown(image, data)
+
+    def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
+        super().serialize(data, path, id=id, block=block)
+        file_path = escape_chars(path)
+        if not file_path.endswith('.png'):
+            file_path += '.png'
+        ImageSerializer.save_png(self.to_png_image(data), file_path)
+        saved_files = [file_path]
+        palette = self.palette_colors(data)
+        if self.settings.images__save_embedded_palette and palette is not None:
+            pal_path = f'{file_path[:-4]}_pal.pal.txt'
+            with open(pal_path, 'w') as f:
+                f.write('PsxClut\n')
+                f.write('Color model: PSX 16-bit (exported as RGBA)\n')
+                for i, (raw, color) in enumerate(zip(data['clut']['colors'], palette)):
+                    f.write(f'\n{hex(i)}:\t#{hex(color)}\t(raw {hex(raw)})')
+                f.write('\n')
+            saved_files.append(pal_path)
+        return saved_files
+
+
 class PaletteSerializer(BaseFileSerializer):
     def ui_serialization(self):
         return {

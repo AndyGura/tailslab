@@ -78,6 +78,8 @@ export class EditorComponent implements OnDestroy {
     // Common classic Need For Speed blocks
     EacImage: ImageBlockUiComponent,
     EacPalette: PaletteBlockUiComponent,
+    // PSX images (SHPP): the image viewer only
+    PsxImage: TargaImageBlockUiComponent,
     FfnFont: FontBlockUiComponent,
 
     // TNFS-specific blocks
