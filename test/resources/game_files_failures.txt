@@ -157,7 +157,7 @@ tnfsse/SIMDATA/MISC/TR6INFO		NotImplementedError:
 tnfsse/SIMDATA/MISC/TR7INFO		NotImplementedError: 
 tnfsse/SIMDATA/MISC/TRXINFO		NotImplementedError: 
 
---- Read-again failures (Test 3): 135 ---
+--- Read-again failures (Test 3): 148 ---
 nfs2se/GAMEDATA/DASHHUD/PC/HUDDATA.VIV		Read-again data differs from original data
 nfs2se/SETUP/ENGLISH/_INST32I.EX_		Read-again data differs from original data
 nfs2se/SETUP/SPANISH/_INST32I.EX_		Read-again data differs from original data
@@ -282,6 +282,19 @@ nfsu/Cars/RX7/VINYLS.BIN		Read-again data differs from original data
 nfsu/Cars/S2000/TEXTURES.BIN		Read-again data differs from original data
 nfsu/Cars/S2000/VINYLS.BIN		Read-again data differs from original data
 nfsu/Global/HUDTEX.BIN		Read-again data differs from original data
+tnfs_psx/ZAL2.TRI		Read-again data differs from original data
+tnfs_psx/ZCL1.TRI		Read-again data differs from original data
+tnfs_psx/ZCL2.TRI		Read-again data differs from original data
+tnfs_psx/ZCL3.TRI		Read-again data differs from original data
+tnfs_psx/ZCY3.TRI		Read-again data differs from original data
+tnfs_psx/ZERGO12.PFN		Read-again data differs from original data
+tnfs_psx/ZERGO16.PFN		Read-again data differs from original data
+tnfs_psx/ZERGO18.PFN		Read-again data differs from original data
+tnfs_psx/ZFAT.PFN		Read-again data differs from original data
+tnfs_psx/ZKANJI.PFN		Read-again data differs from original data
+tnfs_psx/ZNFS.PFN		Read-again data differs from original data
+tnfs_psx/ZOSAKA10.PFN		Read-again data differs from original data
+tnfs_psx/ZOSAKA14.PFN		Read-again data differs from original data
 tnfsse/GAMEDATA/CONFIG/CONFIG.DAT		Read-again data differs from original data
 tnfsse/SIMDATA/CARFAMS/LDIABLO.CFM		Read-again data differs from original data
 tnfsse/SIMDATA/CARFAMS/MP911T.CFM		Read-again data differs from original data
@@ -294,13 +307,67 @@ tnfsse/SIMDATA/MISC/CL3.TRI		Read-again data differs from original data
 tnfsse/SIMDATA/MISC/CY3.TRI		Read-again data differs from original data
 tnfsse/SIMDATA/SOUNDBNK/COLL_SB.BNK		Read-again data differs from original data
 
---- Comparison failures (Test 4): 20 ---
+--- Comparison failures (Test 4): 74 ---
 nfs2/GAMEDATA/TMPTRK/MAIN.TRK		Output length (966706) differs from input length (1126400)
 nfs2/GAMEDATA/TRACKS/DATA/PC/TR0601.CAN		Output length (178) differs from input length (1088)
 nfs2/GAMEDATA/TRACKS/DATA/PC/TR0701.CAN		Output length (178) differs from input length (1088)
 nfs3/GameData/Render/PC/CONE.ART		Output length (16) differs from input length (32788)
 nfs4/Data/GameArt/median.art		Output length (16) differs from input length (8728)
 nfs5/GameData/Sounds/993Tcoupe36.spl		Output length (16) differs from input length (52)
+tnfs_psx/MOVIES/Z512TRAV.XA		Output length (32) differs from input length (13922304)
+tnfs_psx/MOVIES/Z911AV.XA		Output length (32) differs from input length (14135296)
+tnfs_psx/MOVIES/ZATTRAC1.XA		Output length (32) differs from input length (9924608)
+tnfs_psx/MOVIES/ZATTRAC2.XA		Output length (32) differs from input length (10874880)
+tnfs_psx/MOVIES/ZATTRAC3.XA		Output length (32) differs from input length (10547200)
+tnfs_psx/MOVIES/ZCOP1.XA		Output length (32) differs from input length (5271552)
+tnfs_psx/MOVIES/ZCOP2.XA		Output length (32) differs from input length (6991872)
+tnfs_psx/MOVIES/ZCOP3.XA		Output length (32) differs from input length (5599232)
+tnfs_psx/MOVIES/ZCREDITS.XA		Output length (32) differs from input length (53858304)
+tnfs_psx/MOVIES/ZDIABAV.XA		Output length (32) differs from input length (13348864)
+tnfs_psx/MOVIES/ZGCOP1.XA		Output length (32) differs from input length (5271552)
+tnfs_psx/MOVIES/ZGCOP2.XA		Output length (32) differs from input length (6991872)
+tnfs_psx/MOVIES/ZGCOP3.XA		Output length (32) differs from input length (5599232)
+tnfs_psx/MOVIES/ZNFSTITL.XA		Output length (32) differs from input length (5304320)
+tnfs_psx/MOVIES/ZNSXAV.XA		Output length (32) differs from input length (12824576)
+tnfs_psx/MOVIES/ZPIONEER.XA		Output length (32) differs from input length (6877184)
+tnfs_psx/MOVIES/ZREPLAY1.XA		Output length (32) differs from input length (13889536)
+tnfs_psx/MOVIES/ZREPLAY2.XA		Output length (32) differs from input length (13889536)
+tnfs_psx/MOVIES/ZREPLAY3.XA		Output length (32) differs from input length (13889536)
+tnfs_psx/MOVIES/ZRX7AV.XA		Output length (32) differs from input length (13234176)
+tnfs_psx/MOVIES/ZSUPRAAV.XA		Output length (32) differs from input length (13594624)
+tnfs_psx/MOVIES/ZVIPERAV.XA		Output length (32) differs from input length (14118912)
+tnfs_psx/MOVIES/ZWIN1AV.XA		Output length (32) differs from input length (6467584)
+tnfs_psx/MOVIES/ZWIN2AV.XA		Output length (32) differs from input length (6451200)
+tnfs_psx/MOVIES/ZWIN3AV.XA		Output length (32) differs from input length (6090752)
+tnfs_psx/MOVIES/ZWIN4AV.XA		Output length (32) differs from input length (7139328)
+tnfs_psx/MOVIES/ZWIN5AV.XA		Output length (32) differs from input length (6942720)
+tnfs_psx/MOVIES/ZWIN6AV.XA		Output length (32) differs from input length (5648384)
+tnfs_psx/MOVIES/ZWIN7AV.XA		Output length (32) differs from input length (4206592)
+tnfs_psx/MOVIES/ZZR1AV.XA		Output length (32) differs from input length (14102528)
+tnfs_psx/SHOWCASE.CNK		Output length (42) differs from input length (3032864)
+tnfs_psx/ZAL1.TRI		Output length (257448) differs from input length (257460)
+tnfs_psx/ZAL3A.LGT		Output length (16) differs from input length (23868)
+tnfs_psx/ZAL3B.LGT		Output length (16) differs from input length (23868)
+tnfs_psx/ZAL3C.LGT		Output length (16) differs from input length (23868)
+tnfs_psx/ZCY1.TRI		Output length (245928) differs from input length (245940)
+tnfs_psx/ZCY2.TRI		Output length (234408) differs from input length (234420)
+tnfs_psx/ZROCK1.CNK		Output length (42) differs from input length (4167112)
+tnfs_psx/ZROCK2.CNK		Output length (42) differs from input length (4079520)
+tnfs_psx/ZROCK3.CNK		Output length (42) differs from input length (4306136)
+tnfs_psx/ZROCK4.CNK		Output length (42) differs from input length (3935232)
+tnfs_psx/ZROCK5.CNK		Output length (42) differs from input length (4040816)
+tnfs_psx/ZROCK6.CNK		Output length (42) differs from input length (3455448)
+tnfs_psx/ZSTATROC.CNK		Output length (42) differs from input length (3031936)
+tnfs_psx/ZTECHNO1.CNK		Output length (42) differs from input length (4599408)
+tnfs_psx/ZTECHNO2.CNK		Output length (42) differs from input length (4555744)
+tnfs_psx/ZTECHNO3.CNK		Output length (42) differs from input length (4524544)
+tnfs_psx/ZTECHNO4.CNK		Output length (42) differs from input length (5207696)
+tnfs_psx/ZTECHNO5.CNK		Output length (42) differs from input length (4897528)
+tnfs_psx/ZTECHNO6.CNK		Output length (42) differs from input length (4598064)
+tnfs_psx/ZTR1.TRI		Output length (144552) differs from input length (144564)
+tnfs_psx/ZTR2.TRI		Output length (181416) differs from input length (181428)
+tnfs_psx/ZTR3.TRI		Output length (181416) differs from input length (181428)
+tnfs_psx/ZTR4.TRI		Output length (181416) differs from input length (181428)
 tnfsse/FRONTEND/GSPEECH/CON4_B16.EAS		Output length (104914) differs from input length (104916)
 tnfsse/FRONTEND/MUSIC/CREDITS.ASF		Output length (3683886) differs from input length (9134864)
 tnfsse/FRONTEND/MUSIC/PAUSE.ASF		Output length (706600) differs from input length (1415844)
@@ -316,7 +383,7 @@ tnfsse/SIMDATA/SOUNDBNK/COLLSBMT.BNK		Output length (438796) differs from input 
 tnfsse/SIMDATA/SOUNDBNK/COLLSBWT.BNK		Output length (434092) differs from input length (279340)
 tnfsse/SIMDATA/SOUNDBNK/OSUPMB3D.BNK		Output length (26638) differs from input length (17744)
 
---- Read failures (Test 1): 113 ---
+--- Read failures (Test 1): 116 ---
 nfs2/FEDATA/PC/STATS/MED.SSF		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs2/FEDATA/PC/STATS/MED.SSF/colors] Block read went out of available size
 nfs2/FEDATA/PC/STATS/MONO.SSF		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs2/FEDATA/PC/STATS/MONO.SSF/colors] Block read went out of available size
 nfs2/FEDATA/PC/STATS/MYST.SSF		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs2/FEDATA/PC/STATS/MYST.SSF/colors] Block read went out of available size
@@ -430,5 +497,8 @@ nfsu2/FRONTEND/PLATFORMS/Showroom.BIN		Exception: Unknown chunk: ChunkB3300000
 nfsu2/GLOBAL/InGameCommon.bun		Exception: Unknown chunk: ChunkB3300000
 nfsu2/TRACKS/STREAML4RH.BUN		Exception: Unknown chunk: Chunk80134000
 nfsu2/TRACKS/STREAML4RR.BUN		Exception: Unknown chunk: Chunk80034100
+tnfs_psx/ZAL3.TRI		DataIntegrityException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/tnfs_psx/ZAL3.TRI] Expected Always == "SJBO", found OBJS at objs_hdr
+tnfs_psx/ZTR5.TRI		DataIntegrityException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/tnfs_psx/ZTR5.TRI] Expected Always == "SJBO", found OBJS at objs_hdr
+tnfs_psx/ZTR6.TRI		DataIntegrityException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/tnfs_psx/ZTR6.TRI] Expected Always == "SJBO", found OBJS at objs_hdr
 
 --- Compressor round-trip failures: 0 ---

@@ -43,3 +43,29 @@ class JsonSerializer(BaseFileSerializer):
         with open(f'{path}.json', 'w') as file:
             file.write(json_str)
         return [f'{path}.json']
+
+
+class TnfsPsxHorizonInfoSerializer(BaseFileSerializer):
+    """Values of a PSX TNFS `.INF` horizon settings file (`TnfsPsxHorizonInfo`) as JSON, named as in the file"""
+
+    def ui_serialization(self):
+        return {
+            'file_type': 'json',
+            'is_directory': False,
+            'output_file_name_suffix': '.json',
+            'reversible': False,
+            'reversible_settings_patch': {},
+        }
+
+    def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
+        from resources.eac.psx import parse_psx_horizon_settings
+
+        if path.endswith('/') or path.endswith('\\'):
+            path += id[id.rindex('/') + 1 :]
+        super().serialize(data, path)
+        settings = parse_psx_horizon_settings(data['text'])
+        if settings is None:
+            raise Exception('Not a PSX horizon settings file: fewer values than the game reads')
+        with open(f'{path}.json', 'w') as file:
+            json.dump(settings.as_dict(), file, indent=4)
+        return [f'{path}.json']

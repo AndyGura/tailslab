@@ -17,6 +17,7 @@ from library.read_blocks.strings import NullTerminatedUTF8Block
 from resources.eac.audios import EacsAudioFile, SoundBankHeaderEntry, EaSoundPatch
 from resources.common.bitmaps.targa_image import TargaImage
 from .shpi_block import ShpiBlock
+from .shpp_block import ShppBlock
 from .compressed_block import EacCompressedBlock
 
 
@@ -47,6 +48,7 @@ class WwwwBlock(ArchiveBlock):
             item_block=AutoDetectBlock(
                 possible_blocks=[
                     ShpiBlock(),
+                    ShppBlock(),
                     OripGeometry(),
                     self,
                     BytesBlock(
@@ -101,6 +103,7 @@ class WwwwBlock(ArchiveBlock):
                 'block, lengths are calculated: either up to next item offset, or up to the end '
                 'of this block. Possible item types:'
                 '<br/>- [ShpiBlock](#shpiblock)'
+                '<br/>- [ShppBlock](#shppblock)'
                 '<br/>- [OripGeometry](#oripgeometry)'
                 '<br/>- [WwwwBlock](#wwwwblock)',
             },
@@ -108,7 +111,9 @@ class WwwwBlock(ArchiveBlock):
         children = (ArrayBlock(child=None, length=None), {'usage': 'ui'})
 
     def entry_kind_hint(self, head: bytes):
-        return {b'SHPI': 'ShpiBlock', b'ORIP': 'OripGeometry', b'wwww': 'WwwwBlock'}.get(head[:4], 'BytesBlock')
+        return {b'SHPI': 'ShpiBlock', b'SHPP': 'ShppBlock', b'ORIP': 'OripGeometry', b'wwww': 'WwwwBlock'}.get(
+            head[:4], 'BytesBlock'
+        )
 
     def estimate_packed_size(self, data, ctx: WriteContext = None):
         total_length = 8 + len(data.get('pre_items_payload', b''))

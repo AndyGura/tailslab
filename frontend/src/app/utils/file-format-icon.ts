@@ -12,6 +12,7 @@ const iconMap: Record<string, string> = {
 
   EacImage: 'image',
   TargaImage: 'image',
+  PsxImage: 'image',
 
   EacPalette: 'palette',
 

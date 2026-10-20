@@ -88,54 +88,61 @@ class ShpiArchiveSerializer(BaseFileSerializer):
                     f.write(f'{name}: {item["position"]["x"]}, {item["position"]["y"]}\n')
             output.append(path_join(path, 'positions.txt'))
         if self.settings.maps__save_spherical_skybox_texture:
-            try:
-                if '.FAM__' in id:
-                    # build TNFS horizon texture
-                    horz = next(x for name, x, _ in items if name == 'horz')
-                    from library.loader import id_to_path
-                    from library.utils.nfs1_panorama_to_spherical import nfs1_panorama_to_spherical
-
-                    nfs1_panorama_to_spherical(
-                        id_to_path(id),
-                        path_join(path, 'horz.png'),
-                        path_join(path, 'spherical.png'),
-                        horz['pivot']['y'],
-                    )
-                    output.append(path_join(path, 'spherical.png'))
-                elif ('TRACKS/PC/TR0' in id or 'TRACKS/SE/TR0' in id) and ('0.QFS' in id or '0M.QFS' in id):
-                    # build NFS2 horizon texture
-                    from PIL import Image, ImageOps
-                    import math
-
-                    source_images = []
-                    out_half_width = 0
-                    for i in range(0, 8):
-                        # the images have palettes of their own (indexed PNGs): pasted as RGBA
-                        img = Image.open(path_join(path, f'000{i}.png')).convert('RGBA')
-                        source_images.append(img)
-                        out_half_width += img.width
-                    out_half_height = int(out_half_width / 2)
-                    out_image = Image.new(source_images[0].mode, (out_half_width * 2, out_half_height * 2), 0xFF000000)
-                    w = 0
-                    for src in source_images:
-                        out_image.paste(src, (w, math.floor((out_image.height - src.height) / 2)))
-                        out_image.paste(src, (w, math.floor((out_image.height - src.height) / 2)))
-                        src_mirrored = ImageOps.mirror(src)
-                        out_image.paste(
-                            src_mirrored,
-                            (out_image.width - src.width - w, math.floor((out_image.height - src.height) / 2)),
-                        )
-                        w += src.width
-                    out_image.save(path_join(path, f'spherical.png'))
-                    output.append(path_join(path, 'spherical.png'))
-            except:
-                pass
+            output.extend(self.serialize_sky(items, path, id))
 
         if skipped_resources:
             with open(path_join(path, 'skipped.txt'), 'w') as f:
                 for item in skipped_resources:
                     f.write('%s\t\t%s\n' % item)
             output.append(path_join(path, 'skipped.txt'))
+        return output
+
+    def serialize_sky(self, items, path: str, id) -> List[str]:
+        """Sky sphere texture `spherical.png` of the horizon of a TNFS FAM (`horz`) or an NFS2 track (`0000`..`0007`),
+        made from the exported images. Nothing when the archive has no horizon"""
+        output = []
+        try:
+            if '.FAM__' in id:
+                # build TNFS horizon texture
+                horz = next(x for name, x, _ in items if name == 'horz')
+                from library.loader import id_to_path
+                from library.utils.nfs1_panorama_to_spherical import nfs1_panorama_to_spherical
+
+                nfs1_panorama_to_spherical(
+                    id_to_path(id),
+                    path_join(path, 'horz.png'),
+                    path_join(path, 'spherical.png'),
+                    horz['pivot']['y'],
+                )
+                output.append(path_join(path, 'spherical.png'))
+            elif ('TRACKS/PC/TR0' in id or 'TRACKS/SE/TR0' in id) and ('0.QFS' in id or '0M.QFS' in id):
+                # build NFS2 horizon texture
+                from PIL import Image, ImageOps
+                import math
+
+                source_images = []
+                out_half_width = 0
+                for i in range(0, 8):
+                    # the images have palettes of their own (indexed PNGs): pasted as RGBA
+                    img = Image.open(path_join(path, f'000{i}.png')).convert('RGBA')
+                    source_images.append(img)
+                    out_half_width += img.width
+                out_half_height = int(out_half_width / 2)
+                out_image = Image.new(source_images[0].mode, (out_half_width * 2, out_half_height * 2), 0xFF000000)
+                w = 0
+                for src in source_images:
+                    out_image.paste(src, (w, math.floor((out_image.height - src.height) / 2)))
+                    out_image.paste(src, (w, math.floor((out_image.height - src.height) / 2)))
+                    src_mirrored = ImageOps.mirror(src)
+                    out_image.paste(
+                        src_mirrored,
+                        (out_image.width - src.width - w, math.floor((out_image.height - src.height) / 2)),
+                    )
+                    w += src.width
+                out_image.save(path_join(path, f'spherical.png'))
+                output.append(path_join(path, 'spherical.png'))
+        except:
+            pass
         return output
 
     @staticmethod
@@ -253,6 +260,47 @@ class ShpiArchiveSerializer(BaseFileSerializer):
         except Exception:
             return None
         return current if isinstance(current, dict) and 'children' in current else None
+
+
+class ShppArchiveSerializer(ShpiArchiveSerializer):
+    """PSX SHPP (`.PSH`): a PNG per image (`PsxImageSerializer`), and for the track textures of a time of day
+    (`Z<track><time>.PSH` with `hrz0`..`hrz7` and the `.INF` next to it) the sky sphere texture `spherical.png`, as
+    the PC FAM export makes it"""
+
+    def ui_serialization(self):
+        return {**super().ui_serialization(), 'reversible': False, 'reversible_settings_patch': {}}
+
+    def serialize_sky(self, items, path: str, id) -> List[str]:
+        from library.loader import id_to_path
+        from library.utils.tnfs_psx_horizon_to_spherical import (
+            SECTOR_IMAGES,
+            horizon_info_path,
+            read_horizon_settings,
+            tnfs_psx_horizon_to_spherical,
+        )
+        from serializers.bitmaps import PsxImageSerializer
+
+        sectors = {}
+        for name, item_data, item_block in items:
+            if name in [f'hrz{i}' for i in range(SECTOR_IMAGES)] and name not in sectors:
+                if isinstance(item_data, Exception) or item_block.__class__.__name__ != 'PsxImage':
+                    return []
+                sectors[name] = item_data
+        if len(sectors) < SECTOR_IMAGES or not id or '__' in id:
+            # the settings file is found next to the PSH file
+            return []
+        info_path = horizon_info_path(id_to_path(id))
+        settings = read_horizon_settings(info_path) if info_path else None
+        if settings is None or settings.height_far == 0:
+            # no settings, or the game draws no horizon
+            return []
+        images = [PsxImageSerializer().to_image(sectors[f'hrz{i}']) for i in range(SECTOR_IMAGES)]
+        out_path = path_join(path, 'spherical.png')
+        tnfs_psx_horizon_to_spherical(images, settings, out_path)
+        return [out_path]
+
+    def deserialize(self, file_paths: List[str], id=None, block=None, **kwargs) -> dict:
+        raise NotImplementedError('Importing PSX images is not supported')
 
 
 class WwwwArchiveSerializer(BaseFileSerializer):

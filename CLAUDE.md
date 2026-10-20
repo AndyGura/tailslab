@@ -176,13 +176,35 @@ When you do:
 
 ## TNFS horizon (SIMDATA/*TRACKFM/*.FAM, bitmap `horz`)
 
-- `ShpiArchiveSerializer` writes `spherical.png` (2048x1024 equirectangular, eye level in the middle, heading 0 at the
+- `ShpiArchiveSerializer.serialize_sky` writes `spherical.png` (2048x1024 equirectangular, eye level in the middle, heading 0 at the
   centre) with `library/utils/nfs1_panorama_to_spherical.py`, which places `horz` as Win95 SE draws it: ring type 0
   scrolls it (1280 texels per turn, 2 px rows at 640x480, row `pivot_y` on the horizon line), ring type 1 draws a ring
   of 180 degrees per bitmap (mirrored second half with the mirror flag), texel rows 1..H-2 over
   `ring_y_offset +- ring_height` px. Screen px become angles with the focal length of the 96 degrees chase cameras
   (320 / tan(48 deg)). Settings: `MISC/<track>INFO` for `_T01` FAMs, the executable's table (`SE_HORIZON_SETTINGS`)
   otherwise. nfs-web makes cube map faces of `spherical.png`.
+
+## TNFS PlayStation (`games/tnfs_psx`, SLUS-00204, doc `resources/TNFS_PSX.md`)
+
+- `.PSH` = `ShppBlock` (`resources/eac/archives/shpp_block.py`): SHPI header and directory with magic `SHPP` (dir id
+  `GIMX`), items `PsxImage` (`resources/eac/psx_bitmaps.py`: id 0x40 / 0x41 / 0x42 = 4 / 8 / 16-bit, rows padded to
+  16-bit words, 4-bit low nibble first, `next_offset` to the attached CLUT `PsxClut` 0x23, 4-byte aligned). Bit 0x4000
+  of `vram_x` = stored rotated (PSX loader FUN_80044330): `PsxImageSerializer` turns it back (PIL `ROTATE_270`), so
+  PNGs are as shown. Color 0x0000 is transparent, all others opaque (STP not applied). Also an item of `WwwwBlock`
+  (`Z<track>_PSH.FAM`). PNG / folder import is not supported (`reversible` False).
+- Most PSX files end with a 12-byte `CRCF` footer (`PsxCrcFooter`, `resources/eac/psx.py`): CRC-16 (reflected 0x8005,
+  init 0xFBEA) of the bytes before it, recomputed on save (`with_crc_footer`). `ShppBlock` reads it only as a file of
+  its own (`ctx.parent is None`); in a FAM it stays in the last entry's `post_offset_payload`.
+- `Z<track><A|B|C>.INF` (morning / midday / evening) = `TnfsPsxHorizonInfo`: the text + footer;
+  `parse_psx_horizon_settings` gives `PsxHorizonSettings` (PC INFO layout without ring type and time of day values,
+  plus dithering flag, ratio of the blend and a last value = mirror flag; ring y offset / height halved by the game).
+  Exported as `<name>.INF.json`.
+- `ShppArchiveSerializer.serialize_sky` writes `Z<track><time>.PSH/spherical.png` (same format as the PC FAM one) from
+  `hrz0`..`hrz7` and the INF of the same name (`ZG*` German files: the `Z*` one), with
+  `library/utils/tnfs_psx_horizon_to_spherical.py`, which follows the PSX drawing code (docstring: ring of 16 sectors,
+  mirror, 160 px focal length, colour top / gradient above, faded `hrz0` texel below). Converter choice, not the game
+  (it draws nothing there): the fade goes to the average color of the ring's bottom line (texel row H - 2 of the 8
+  sectors, `bottom_line_average`) instead of black, and everything further down is that average.
 
 ## SHPI images (`EacImage`, `resources/eac/bitmaps.py`, all games up to NFS6)
 

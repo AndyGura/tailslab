@@ -102,3 +102,32 @@ grayscale images in some cases.
 - `NFS5`
 - `NFS6`
 
+
+## PlayStation Colors (SHPP archives, `.PSH`)
+
+In SHPP archives (TNFS PSX) bitmap resource ids 0x40..0x42 mean PSX images, unlike the same ids in SHPI archives. Their
+low 2 bits are the PSX texture color mode. Pixel rows are stored as uploaded to VRAM: each row is padded to whole
+16-bit words.
+
+### PSX 16-bit color (bitmap resource id 0x42, CLUT resource id 0x23)
+- **Description**: PlayStation GPU 16-bit color: 5 bits per channel in BGR order, plus the STP (semi-transparency) bit.
+- **Bit layout**: `sbbbbbgg_gggrrrrr` (2 bytes, little-endian).
+- **Special Case**: `0x0000` is fully transparent (Alpha = 0): the GPU does not draw texels of that value. Every other
+  value is opaque. STP makes a texel semi-transparent only on primitives drawn semi-transparent, which the image does
+  not tell, so the converter ignores it.
+
+**Found in games**:
+- `TNFS PSX`
+
+### 4Bit PSX (bitmap resource id 0x40)
+- **Description**: 4 bits per pixel, indexes into the image's CLUT (0x23, 16 colors). The first pixel of a byte is in
+  the low nibble.
+
+**Found in games**:
+- `TNFS PSX`
+
+### 8Bit PSX (bitmap resource id 0x41)
+- **Description**: 8 bits per pixel, indexes into the image's CLUT (0x23, 256 colors; a few images use only 16 or 64).
+
+**Found in games**:
+- `TNFS PSX`
