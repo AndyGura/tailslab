@@ -533,9 +533,10 @@ class TriMapSerializer(BaseFileSerializer):
             chunk_meshes.append(meshes)
 
         if self.settings.maps__save_as_chunked:
-            # one output file ("terrain_chunk_<n>") holds `maps__tnfs_chunks_per_file` chunks of the track, the last
-            # one can hold less
+            # one output file ("terrain_chunk_<n>", "terrain_block<per_file>_<n>" for several chunks per file) holds
+            # `maps__tnfs_chunks_per_file` chunks of the track, the last one can hold less
             per_file = max(1, int(self.settings.maps__tnfs_chunks_per_file))
+            file_prefix = 'terrain_chunk' if per_file == 1 else f'terrain_block{per_file}'
             file_count = math.ceil(len(chunk_meshes) / per_file)
             for n in range(file_count):
                 first, end = n * per_file, min((n + 1) * per_file, len(chunk_meshes))
@@ -549,7 +550,7 @@ class TriMapSerializer(BaseFileSerializer):
                     'position': position,
                     'properties': {
                         'is_chunk': True,
-                        'chunk': f'terrain_chunk_{n}',
+                        'chunk': f'{file_prefix}_{n}',
                     },
                 }
                 if n < file_count - 1:
@@ -558,14 +559,14 @@ class TriMapSerializer(BaseFileSerializer):
                     dummy['properties']['children'] = ['chunk_0']
                 map_scene.dummies.append(dummy)
                 meshes = _merge_meshes_by_texture(
-                    [mesh for meshes in chunk_meshes[first:end] for mesh in meshes], f'terrain_chunk_{n}'
+                    [mesh for meshes in chunk_meshes[first:end] for mesh in meshes], f'{file_prefix}_{n}'
                 )
                 for mesh in meshes:
                     mesh.pivot_offset = position
                 scene = Scene(
-                    name=f'terrain_chunk_{n}',
+                    name=f'{file_prefix}_{n}',
                     sub_meshes=meshes,
-                    obj_name=f'terrain_chunk_{n}',
+                    obj_name=f'{file_prefix}_{n}',
                     mtl_name='terrain',
                     bake_textures=False,
                     skip_mtl_export=True,

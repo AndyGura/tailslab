@@ -239,10 +239,10 @@ class TestTriMapSerializer(unittest.TestCase):
         # 520 TRI chunks: 74 files of 7 chunks, the last one of 2
         self.assertEqual(len(chunks_1), 520)
         self.assertEqual(len(chunks_7), 75)
-        self.assertEqual(chunks_7['terrain_chunk_1']['position'], chunks_1['terrain_chunk_7']['position'])
-        self.assertEqual(chunks_7['terrain_chunk_73']['properties']['children'], ['chunk_74'])
+        self.assertEqual(chunks_7['terrain_block7_1']['position'], chunks_1['terrain_chunk_7']['position'])
+        self.assertEqual(chunks_7['terrain_block7_73']['properties']['children'], ['chunk_74'])
         # opened track
-        self.assertNotIn('children', chunks_7['terrain_chunk_74']['properties'])
+        self.assertNotIn('children', chunks_7['terrain_block7_74']['properties'])
         self.assertEqual(props_7, props_1)
         # one mesh per texture, the texture after the last "_"
         for chunk_name, names in mesh_names.items():
