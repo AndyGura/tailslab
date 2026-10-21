@@ -79,8 +79,6 @@ class TestEacTrackSerializers(unittest.TestCase):
                 'geometry__save_obj': True,
                 'geometry__save_blend': False,
                 'geometry__export_to_gg_web_engine': False,
-                'maps__save_terrain_collisions': False,
-                'maps__save_invisible_wall_collisions': False,
                 **settings,
             }
         )
@@ -193,3 +191,61 @@ class TestEacTrackSerializers(unittest.TestCase):
                     'unk1': [4294967295, 1, 2, 992, 67372036],
                 },
             )
+
+
+class TestTriMapSerializer(unittest.TestCase):
+    def _serialize(self, out_dir, chunks_per_file):
+        import json
+        import os
+
+        from library import require_file
+
+        (name, block, data) = require_file('test/golden_corpus/AL1.TRI')
+        serializer = block.serializer_class()()
+        serializer.patch_settings(
+            {
+                'geometry__save_obj': True,
+                'geometry__save_blend': False,
+                'geometry__export_to_gg_web_engine': False,
+                'maps__save_as_chunked': True,
+                'maps__add_props_to_obj': False,
+                'maps__tnfs_chunks_per_file': chunks_per_file,
+            }
+        )
+        serializer.serialize(data, out_dir + '/', name, block)
+        with open(os.path.join(out_dir, 'map_extra.json')) as f:
+            chunks = {d['properties']['chunk']: d for d in json.load(f)['dummies'] if d['properties'].get('is_chunk')}
+        # world positions of the props by object index, mesh names of every file
+        props, mesh_names = {}, {}
+        for chunk_name, chunk in chunks.items():
+            extra_path = os.path.join(out_dir, f'{chunk_name}_extra.json')
+            if os.path.exists(extra_path):
+                with open(extra_path) as f:
+                    for d in json.load(f)['dummies']:
+                        props[d['properties']['object_index']] = [
+                            round(d['position'][k] + chunk['position'][k], 3) for k in range(3)
+                        ]
+            with open(os.path.join(out_dir, f'{chunk_name}.obj')) as f:
+                mesh_names[chunk_name] = [line[2:].strip() for line in f if line.startswith('o ')]
+        return chunks, props, mesh_names
+
+    def test_chunks_per_file_should_merge_chunks(self):
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            chunks_1, props_1, _ = self._serialize(os.path.join(tmp, 'one'), 1)
+            chunks_7, props_7, mesh_names = self._serialize(os.path.join(tmp, 'seven'), 7)
+        # 520 TRI chunks: 74 files of 7 chunks, the last one of 2
+        self.assertEqual(len(chunks_1), 520)
+        self.assertEqual(len(chunks_7), 75)
+        self.assertEqual(chunks_7['terrain_block7_1']['position'], chunks_1['terrain_chunk_7']['position'])
+        self.assertEqual(chunks_7['terrain_block7_73']['properties']['children'], ['chunk_74'])
+        # opened track
+        self.assertNotIn('children', chunks_7['terrain_block7_74']['properties'])
+        self.assertEqual(props_7, props_1)
+        # one mesh per texture, the texture after the last "_"
+        for chunk_name, names in mesh_names.items():
+            self.assertEqual(len(names), len(set(names)))
+            for name in names:
+                self.assertTrue(name.startswith(f'{chunk_name}_background/'))
