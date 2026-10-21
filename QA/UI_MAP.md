@@ -148,8 +148,8 @@ observed behavior). Fields:
   `[Conversion]`). Confirmed (live, 2026-10-09).
 - **Conversion Settings** (collapsible `mat-expansion-panel`, its description names the selected preset)
   containing: `multiprocess_processes_count`, and per-domain checkboxes — Images (save positions /
-  palettes / mipmaps / embedded palette / texts), Maps (save as chunked / invisible-wall collisions
-  / terrain collisions / spherical skybox texture / add props to obj), Geometry (save OBJ / save
+  palettes / mipmaps / embedded palette / texts), Maps (save as chunked / spherical skybox texture /
+  add props to obj, number field TNFS chunks per file), Geometry (save OBJ / save
   BLEND / export to gg-web-engine). Not expanded/inspected field-by-field this pass — Unknown
   defaults beyond what `converter.component.ts`'s form group shows in code (`maps__save_spherical_skybox_texture`
   and `geometry__save_obj`/`geometry__save_blend` default **on**; everything else defaults **off**).
