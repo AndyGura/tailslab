@@ -165,6 +165,48 @@ class TestTrkMap(unittest.TestCase):
         self.assertEqual(len(special), 34)
         self.assertEqual(special[0]['position']['data']['special_idx'], 0)
 
+    def test_trk_road_polygons_should_match_polygon_map_and_medians(self):
+        (_, _, data) = require_file('test/golden_corpus/TR02.TRK')
+        blocks = [b for sb in data['superblocks'] for b in sb['blocks']]
+        for b in blocks:
+            self.assertEqual(b['first_slice'], b['block_idx'] * 8)
+            self.assertIn(len(b['padding']), (0, 2))
+            records = {eb['type']: eb['data_records']['data'] for eb in b['extrablocks']}
+            self.assertEqual(len(records['polygon_map']), b['num_road_polygons'])
+            for median in records['median_polygons']:
+                self.assertLessEqual(median['first_polygon'] + median['num_polygons'], b['num_road_polygons'])
+        b = blocks[18]
+        self.assertEqual(
+            (b['num_extra_polygons'], b['num_road_polygons'], b['num_unk_polygons']),
+            (4, 72, 8),
+        )
+        self.assertEqual((len(b['extra_polygons']), len(b['road_polygons']), len(b['unk_polygons'])), (4, 72, 8))
+        self.assertEqual(b['road_polygons'][0]['vertices'], [65, 66, 45, 43])
+
+
+class TestTrkExtraDataRecords(unittest.TestCase):
+    def test_nfs2_se_median_record(self):
+        from resources.eac.maps import MedianExtraDataRecord
+
+        # a slice of NFS2 SE TR03.TRK block 34, at a fork
+        raw = bytes.fromhex('18000f027901ffff')
+        block = MedianExtraDataRecord()
+        data = block.unpack(ReadContext(BytesIO(raw)), read_bytes_amount=len(raw))
+        self.assertEqual(
+            data, {'first_polygon': 24, 'num_polygons': 15, 'unk': 2, 'alt_slice_1': 377, 'alt_slice_2': -1}
+        )
+        self.assertEqual(block.pack(data), raw)
+
+    def test_nfs2_se_polygon_map_record(self):
+        from resources.eac.maps import PolygonMapExtraDataRecord
+
+        # a road polygon of NFS2 SE TR03.TRK block 34
+        raw = bytes.fromhex('11ca')
+        block = PolygonMapExtraDataRecord()
+        data = block.unpack(ReadContext(BytesIO(raw)), read_bytes_amount=len(raw))
+        self.assertEqual(data, {'vectors_idx': 17, 'surface': {'barriers': True, 'objects': True, 'type': 10}})
+        self.assertEqual(block.pack(data), raw)
+
 
 class TestCollisionExtraDataRecord(unittest.TestCase):
     def test_nfs2_se_lane_fields(self):

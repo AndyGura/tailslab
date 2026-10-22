@@ -61,8 +61,9 @@ class PolygonMapExtraDataRecord(DeclarativeCompoundBlock):
     def schema(self):
         return {
             **super().schema,
-            'block_description': 'Polygon extra data: road surface orientation for a polygon of the block. Number '
-            'of items here == np1 * 2, but sometimes less. Why?',
+            'block_description': 'A record of the polygon_map extrablock (NFS2, NFS2 SE TRK blocks): road vector and '
+            "surface of a polygon of the block's `road_polygons`, one record per polygon (in every block of the NFS2 "
+            'and NFS2 SE tracks)',
         }
 
     class Fields(DeclarativeCompoundBlock.Fields):
@@ -70,14 +71,29 @@ class PolygonMapExtraDataRecord(DeclarativeCompoundBlock):
             IntegerBlock(length=1, is_signed=False),
             {'description': 'An index of entry in road_vectors extrablock'},
         )
-        car_behavior = (
-            EnumByteBlock(
-                enum_names=[
-                    (0, 'unk0'),
-                    (1, 'unk1'),
-                ]
+        surface = (
+            SubByteCompoundBlock(
+                length=1,
+                schema=[
+                    (1, 'barriers', 'boolean', [], 'The car checks barriers while on this polygon'),
+                    (1, 'objects', 'boolean', [], 'Track objects are checked while a car is on this polygon'),
+                    (
+                        6,
+                        'type',
+                        'number',
+                        [],
+                        'Surface type (0..15 in the NFS2 and NFS2 SE tracks), indexes the grip / surface tables of '
+                        'the physics. 0 = barrier / wall',
+                    ),
+                ],
             ),
-            {'is_unknown': True},
+            {
+                'description': 'Road surface byte, as NFS2 SE uses it: low 6 bits `type` the surface type, which '
+                "indexes the physics' grip / surface tables; bit 0x80 `barriers`: a car standing on the polygon checks "
+                'barriers (nfs2sen.exe 0x44e8e0), bit 0x40 `objects`: track objects are checked. Value 0x0e is not '
+                'road: the road polygon search (0x4384c0) skips it. A polygon whose `type` is 0 is a barrier / wall '
+                'for the barrier check',
+            },
         )
 
 
@@ -86,13 +102,37 @@ class MedianExtraDataRecord(DeclarativeCompoundBlock):
     def schema(self):
         return {
             **super().schema,
-            'block_description': 'A record of median_polygons extrablock: references a polygon of the block, '
-            'presumably marking it as a road median. Purpose is not confirmed',
+            'block_description': 'A record of the median_polygons extrablock (NFS2, NFS2 SE TRK blocks): the road '
+            "polygons of a slice, one record per slice of the block (record index = slice - the block's "
+            '`first_slice`). NFS2 SE searches the run of `road_polygons` for the polygon under a car (nfs2sen.exe '
+            '0x4384c0)',
         }
 
     class Fields(DeclarativeCompoundBlock.Fields):
-        polygon_idx = (IntegerBlock(length=1, is_signed=False), {'description': 'Polygon index'})
-        unk = (BytesBlock(length=7), {'is_unknown': True})
+        first_polygon = (
+            IntegerBlock(length=2, is_signed=False),
+            {'description': "Index of the slice's first polygon in the block's `road_polygons`"},
+        )
+        num_polygons = (
+            IntegerBlock(length=1, is_signed=False),
+            {'description': "Number of the slice's polygons in `road_polygons`, from `first_polygon` on"},
+        )
+        unk = (
+            IntegerBlock(length=1, is_signed=False),
+            {'description': '2..6 in the NFS2 and NFS2 SE tracks', 'is_unknown': True},
+        )
+        alt_slice_1 = (
+            IntegerBlock(length=2, is_signed=True),
+            {
+                'description': 'A slice of an alternative route (track fork), -1 when none. When no polygon is found '
+                'under a car, NFS2 SE retries the search from the nearer of `alt_slice_1` and `alt_slice_2` '
+                '(nfs2sen.exe 0x438d80)'
+            },
+        )
+        alt_slice_2 = (
+            IntegerBlock(length=2, is_signed=True),
+            {'description': 'A slice of another alternative route, -1 when none, used like `alt_slice_1`'},
+        )
 
 
 class AnimatedPropPositionFrame(DeclarativeCompoundBlock):
@@ -226,7 +266,10 @@ class ColPolygon(DeclarativeCompoundBlock):
         )
         vertices = (
             ArrayBlock(child=IntegerBlock(length=1, is_signed=False), length=4),
-            {'description': 'Polygon vertices (indexes from vertex table)'},
+            {
+                'description': 'Polygon vertices (indexes from vertex table). NFS2 SE reads them at bytes +4..+7 of '
+                'TRK road polygons (nfs2sen.exe 0x439130, 0x439200)'
+            },
         )
 
 
@@ -462,7 +505,8 @@ class ColExtraBlock(DeclarativeCompoundBlock):
             {
                 'description': 'Type of the data records. textures_map, props_7, prop_descriptions and '
                 'collision_data are found in COL file; polygon_map, block_numbers, median_polygons, '
-                'props_18, prop_descriptions, lanes and road_vectors in TRK blocks'
+                'props_18, prop_descriptions, lanes and road_vectors in TRK blocks. NFS2 and NFS2 SE TRK blocks '
+                'also have types 10, 11, 14 and 17 (meaning unknown, kept as raw bytes)'
             },
         )
         unk = (IntegerBlock(length=1, value_validator=Eq(0)), {'is_unknown': True})

@@ -20,9 +20,13 @@ class TrkBlock(DeclarativeCompoundBlock):
     def schema(self) -> Dict:
         return {
             **super().schema,
-            'block_description': 'Track block: a segment of the track with terrain mesh at 3 resolutions and '
+            'block_description': 'Track block (NFS2, NFS2 SE): a segment of the track (8 slices of the COL '
+            'collision data) with terrain mesh at 3 resolutions, the road polygons the physics uses and '
             'extrablocks (props, lanes, road vectors etc.). Vertex coordinates are relative '
-            'to the block position, defined in `block_positions` of the track file',
+            'to the block position, defined in `block_positions` of the track file. The polygon records '
+            'after the vertices are 6 consecutive sets: `polygons` (3 levels of detail), `extra_polygons`, '
+            '`road_polygons` and `unk_polygons`. NFS2 SE keeps the raw block bytes in memory (track reader '
+            'nfs2sen.exe 0x461b00..)',
         }
 
     class Fields(DeclarativeCompoundBlock.Fields):
@@ -43,7 +47,14 @@ class TrkBlock(DeclarativeCompoundBlock):
             {'description': 'Block size in bytes (duplicated)'},
         )
         num_extrablocks = (IntegerBlock(length=2, is_signed=False), {'description': 'Number of extrablocks'})
-        unk0 = (IntegerBlock(length=2, is_signed=False), {'is_unknown': True})
+        first_slice = (
+            IntegerBlock(length=2, is_signed=True),
+            {
+                'description': "Index of the block's first slice (track collision spline point) in the "
+                '`collision_data` extrablock of the COL file: `block_idx` * 8 in every NFS2 and NFS2 SE track. '
+                'NFS2 SE reads it as a signed 16-bit value (nfs2sen.exe 0x461b30)'
+            },
+        )
         block_idx = (IntegerBlock(length=4, is_signed=False), {'description': 'Block index (serial number)'})
         bounds = (
             ArrayBlock(child=Point3D(child=FixedPointBlock(length=4, fraction_bits=16, is_signed=True)), length=4),
@@ -72,7 +83,18 @@ class TrkBlock(DeclarativeCompoundBlock):
         np4 = (IntegerBlock(length=2, is_signed=False), {'description': 'Number of polygons for 1/4 resolution'})
         np2 = (IntegerBlock(length=2, is_signed=False), {'description': 'Number of polygons for 1/2 resolution'})
         np1 = (IntegerBlock(length=2, is_signed=False), {'description': 'Number of polygons for full resolution'})
-        unk1 = (IntegerBlock(length=6), {'is_unknown': True})
+        num_extra_polygons = (
+            IntegerBlock(length=2, is_signed=False),
+            {'description': 'Number of polygons in `extra_polygons`'},
+        )
+        num_road_polygons = (
+            IntegerBlock(length=2, is_signed=False),
+            {'description': 'Number of polygons in `road_polygons`'},
+        )
+        num_unk_polygons = (
+            IntegerBlock(length=2, is_signed=False),
+            {'description': 'Number of polygons in `unk_polygons` (0..16 in the NFS2 and NFS2 SE tracks)'},
+        )
         vertices = (
             ArrayBlock(
                 child=Point3D(child=FixedPointBlock(length=2, fraction_bits=8, is_signed=True)),
@@ -93,9 +115,38 @@ class TrkBlock(DeclarativeCompoundBlock):
                 'full resolution one. Vertex indexes point to `vertices`'
             },
         )
-        unk2 = (
+        extra_polygons = (
+            ArrayBlock(child=ColPolygon(), length=lambda ctx: ctx.data('num_extra_polygons')),
+            {
+                'description': 'A 4th polygon set, purpose unknown. NFS2 SE keeps a pointer to it per loaded block '
+                '(slot loader nfs2sen.exe 0x437420)',
+                'is_unknown': True,
+            },
+        )
+        road_polygons = (
+            ArrayBlock(child=ColPolygon(), length=lambda ctx: ctx.data('num_road_polygons')),
+            {
+                'description': 'The road surface polygons the physics searches for the polygon under a car (NFS2 SE: '
+                'nfs2sen.exe 0x4384c0, pointer set by the slot loader 0x437420). `median_polygons` records point '
+                'to runs of them per slice, `polygon_map` has one record per polygon of this set (road vector and '
+                'surface). Vertex indexes point to `vertices`, so indexes below nv8 are vertices of the next block'
+            },
+        )
+        unk_polygons = (
+            ArrayBlock(child=ColPolygon(), length=lambda ctx: ctx.data('num_unk_polygons')),
+            {
+                'description': 'A 6th set of polygon records (vertex indexes within `vertices`), purpose unknown. '
+                'The NFS2 SE slot loader (nfs2sen.exe 0x437420) only computes where it starts (the end of '
+                '`road_polygons`)',
+                'is_unknown': True,
+            },
+        )
+        padding = (
             Padding(to=(lambda ctx: 64 + ctx.data('extrablocks_offset'), 'extrablocks_offset + 64')),
-            {'is_unknown': True},
+            {
+                'description': '0 or 2 bytes up to `extrablock_offsets`. In NFS2 SE zeros, which align '
+                '`extrablock_offsets` to 4 bytes from the block start; some NFS2 blocks have other bytes here'
+            },
         )
         extrablock_offsets = (
             ArrayBlock(child=IntegerBlock(length=4, is_signed=False), length=lambda ctx: ctx.data('num_extrablocks')),
@@ -106,7 +157,8 @@ class TrkBlock(DeclarativeCompoundBlock):
             {
                 'description': 'Extrablocks of the block. Typically: polygon_map, block_numbers, '
                 'prop_descriptions + props_18 (props placed in this block), median_polygons, '
-                'road_vectors, lanes',
+                'road_vectors, lanes. The NFS2 SE slot loader (nfs2sen.exe 0x437420) looks up the types 5, 6, 7, '
+                '8, 10, 11, 13, 17, 18 and 19',
                 'usage': 'ui',
             },
         )
