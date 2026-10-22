@@ -181,7 +181,11 @@ class AnimatedPropPosition(DeclarativeCompoundBlock):
 class SpecialPropPosition(DeclarativeCompoundBlock):
     @property
     def schema(self):
-        return {**super().schema, 'block_description': 'Positioning of a special prop'}
+        return {
+            **super().schema,
+            'block_description': 'Positioning of a special prop: a static prop which is also a track object the car '
+            'collides with (NFS2, NFS2 SE TRK blocks)',
+        }
 
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (
@@ -191,8 +195,9 @@ class SpecialPropPosition(DeclarativeCompoundBlock):
         special_idx = (
             IntegerBlock(length=4, is_signed=False),
             {
-                'description': 'Index of a record in the extrablock of type 11 of the same TRK block. The record '
-                'repeats the prop position, followed by 8 unknown bytes'
+                'description': 'Index of a record in the track_objects extrablock (type 11) of the same TRK block: '
+                'the object the car collides with, at the same position. In the NFS2 and NFS2 SE tracks every '
+                "track_objects record is referenced by exactly one special_prop of the block's props_7"
             },
         )
 
@@ -224,7 +229,7 @@ class PropExtraDataRecord(DeclarativeCompoundBlock):
                     (4, 'special_prop'),
                 ]
             ),
-            {'description': 'Object type. special_prop is a static prop with a reference to extrablock 11'},
+            {'description': 'Object type. special_prop is a static prop with a reference to a track_objects record'},
         )
         prop_descr_idx = (
             IntegerBlock(length=1, is_signed=False),
@@ -344,6 +349,69 @@ class LanesExtraDataRecord(DeclarativeCompoundBlock):
         polygon_idx = (
             IntegerBlock(length=1, is_signed=False),
             {'description': 'Polygon number (inside full-res background 3D structure : 0 to np1)'},
+        )
+
+
+class TrackObjectExtraDataRecord(DeclarativeCompoundBlock):
+    @property
+    def schema(self):
+        return {
+            **super().schema,
+            'block_description': 'A record of the track_objects extrablock (type 11, NFS2, NFS2 SE TRK blocks): a '
+            'track object the car collides with, placed by a special_prop of the block (`special_idx` = record '
+            'index). NFS2 SE reads the records (nfs2sen.exe 0x4383f0), collides cars with them (0x441ec0), knocks '
+            'them over (0x435160) and resets their state table of 256 objects (0x435310)',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        position = (
+            Point3D(child=FixedPointBlock(length=4, fraction_bits=16, is_signed=True)),
+            {
+                'description': 'Global position of the object in meters, the same as the position of the '
+                'special_prop referencing it'
+            },
+        )
+        radius = (
+            FixedPointBlock(length=2, fraction_bits=8, is_signed=False),
+            {
+                'description': 'Collision radius in meters (NFS2 SE reads it as a signed 16-bit value `<< 8`, '
+                '16.16). A car hits the object when it is closer than its bounding radius + `radius`, and only if '
+                "2 * `radius` is more than the car's height above the ground. 0.035..14.09 m in the NFS2 and NFS2 "
+                'SE tracks; for most knockable objects (947 of 980) the horizontal extent of the prop model'
+            },
+        )
+        object_idx = (
+            IntegerBlock(length=2, is_signed=False),
+            {
+                'description': "Object number, the index in the game's object state table (standing / knocked "
+                'away, 256 entries). In the NFS2 and NFS2 SE tracks the objects of a track are numbered 0..n-1 in '
+                'block order'
+            },
+        )
+        height = (
+            FixedPointBlock(length=1, fraction_bits=1, is_signed=False),
+            {
+                'description': 'The top of the prop model (its highest vertex) in meters, unit 0.5 m rounded down, '
+                'in every record of the NFS2 and NFS2 SE tracks (0.5..26 m). Its use in the game is unknown',
+                'is_unknown': True,
+            },
+        )
+        unk0 = (IntegerBlock(length=1, is_signed=False), {'description': 'Always 0', 'is_unknown': True})
+        unk1 = (
+            IntegerBlock(length=1, is_signed=False),
+            {
+                'description': "0..16. Mostly the index of the referencing special_prop in the block's props_7 "
+                '(all but 21 of the 1504 records of the NFS2 and NFS2 SE tracks, the others in TR06)',
+                'is_unknown': True,
+            },
+        )
+        type = (
+            EnumByteBlock(enum_names=[(1, 'solid'), (2, 'knockable')]),
+            {
+                'description': 'Object behaviour (NFS2 SE: nfs2sen.exe 0x441ec0, 0x435160): knockable (2) is knocked '
+                'away when hit at abs(vx) + abs(vz) >= 11 m/s and stops being solid then; every other value is solid. '
+                'The NFS2 and NFS2 SE tracks have 1 and 2 only'
+            },
         )
 
 
@@ -496,6 +564,7 @@ class ColExtraBlock(DeclarativeCompoundBlock):
                     (7, 'props_7'),
                     (8, 'prop_descriptions'),
                     (9, 'lanes'),
+                    (11, 'track_objects'),
                     (13, 'road_vectors'),
                     (15, 'collision_data'),
                     (18, 'props_18'),
@@ -505,8 +574,8 @@ class ColExtraBlock(DeclarativeCompoundBlock):
             {
                 'description': 'Type of the data records. textures_map, props_7, prop_descriptions and '
                 'collision_data are found in COL file; polygon_map, block_numbers, median_polygons, '
-                'props_18, prop_descriptions, lanes and road_vectors in TRK blocks. NFS2 and NFS2 SE TRK blocks '
-                'also have types 10, 11, 14 and 17 (meaning unknown, kept as raw bytes)'
+                'props_18, prop_descriptions, lanes, track_objects and road_vectors in TRK blocks. NFS2 and NFS2 SE '
+                'TRK blocks also have types 10, 14 and 17 (meaning unknown, kept as raw bytes)'
             },
         )
         unk = (IntegerBlock(length=1, value_validator=Eq(0)), {'is_unknown': True})
@@ -525,6 +594,7 @@ class ColExtraBlock(DeclarativeCompoundBlock):
                     ArrayBlock(child=PropExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
                     ArrayBlock(child=PropDescriptionExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
                     ArrayBlock(child=LanesExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
+                    ArrayBlock(child=TrackObjectExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
                     ArrayBlock(child=RoadVectorsExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
                     ArrayBlock(child=CollisionExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
                     ArrayBlock(child=PropExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),

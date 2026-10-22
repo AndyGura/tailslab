@@ -183,6 +183,24 @@ class TestTrkMap(unittest.TestCase):
         self.assertEqual((len(b['extra_polygons']), len(b['road_polygons']), len(b['unk_polygons'])), (4, 72, 8))
         self.assertEqual(b['road_polygons'][0]['vertices'], [65, 66, 45, 43])
 
+    def test_trk_track_objects_should_match_special_props(self):
+        (_, _, data) = require_file('test/golden_corpus/TR02.TRK')
+        object_indexes = []
+        for b in [b for sb in data['superblocks'] for b in sb['blocks']]:
+            objects = next((eb['data_records']['data'] for eb in b['extrablocks'] if eb['type'] == 'track_objects'), [])
+            object_indexes += [o['object_idx'] for o in objects]
+            special = [
+                p['position']['data']
+                for eb in b['extrablocks']
+                if eb['type'] == 'props_7'
+                for p in eb['data_records']['data']
+                if p['type'] == 'special_prop'
+            ]
+            self.assertEqual(sorted(p['special_idx'] for p in special), list(range(len(objects))))
+            for p in special:
+                self.assertEqual(objects[p['special_idx']]['position'], p['position'])
+        self.assertEqual(object_indexes, list(range(34)))
+
 
 class TestTrkExtraDataRecords(unittest.TestCase):
     def test_nfs2_se_median_record(self):
@@ -205,6 +223,20 @@ class TestTrkExtraDataRecords(unittest.TestCase):
         block = PolygonMapExtraDataRecord()
         data = block.unpack(ReadContext(BytesIO(raw)), read_bytes_amount=len(raw))
         self.assertEqual(data, {'vectors_idx': 17, 'surface': {'barriers': True, 'objects': True, 'type': 10}})
+        self.assertEqual(block.pack(data), raw)
+
+    def test_nfs2_se_track_object_record(self):
+        from resources.eac.maps import TrackObjectExtraDataRecord
+
+        # a knockable object of NFS2 SE TR02.TRK block 95
+        raw = bytes.fromhex('fb24dd0089190000d806e2049c000e0007000002')
+        block = TrackObjectExtraDataRecord()
+        data = block.unpack(ReadContext(BytesIO(raw)), read_bytes_amount=len(raw))
+        self.assertAlmostEqual(data['position']['x'], 221.14445, places=4)
+        self.assertEqual(
+            {k: v for k, v in data.items() if k != 'position'},
+            {'radius': 0.609375, 'object_idx': 14, 'height': 3.5, 'unk0': 0, 'unk1': 0, 'type': 'knockable'},
+        )
         self.assertEqual(block.pack(data), raw)
 
 
