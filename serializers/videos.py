@@ -23,8 +23,10 @@ class FfmpegSupportedVideoSerializer(BaseFileSerializer):
                 'color=black,format=rgb24[c];[c][0]scale2ref[c][i];[c][i]overlay=format=auto:shortest=1,setsar=1',
                 '-c:v',
                 'libx264',
+                # AAC: iOS plays MP3 audio in an MP4 as silence (the picture plays, no sound); Chrome and Firefox
+                # play both
                 '-c:a',
-                'mp3',
+                'aac',
                 '-vprofile',
                 'main',
                 '-pix_fmt',
