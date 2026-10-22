@@ -21,6 +21,12 @@ def _is_nfs2_car_physics_name(file_path: str) -> bool:
     return name[:1] in ('p', 'P') and name.upper().endswith('.DAT')
 
 
+def _is_nfs2_car_ai_name(file_path: str) -> bool:
+    """NFS2 SE car AI data `<car>.dat` (4 letters or digits): a loose file, or an item of CARDATA.VIV"""
+    name = _file_or_archive_item_name(file_path)
+    return len(name) == 8 and name[:4].isalnum() and name[:4].isascii() and name.upper().endswith('.DAT')
+
+
 # this looks like a mess, but it is intended to be like that: by using local imports we dramatically increase
 # performance, because we spawn process per file, and it doesn't need to load all those classes every time
 def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=None):
@@ -56,6 +62,10 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.car_specs import Nfs2SimTune
 
             return Nfs2SimTune
+        elif length == 524 and _is_nfs2_car_ai_name(file_path):
+            from resources.eac.car_specs import Nfs2CarAi
+
+            return Nfs2CarAi
         elif file_path.endswith('CONFIG.DAT'):
             from resources.eac.configs import TnfsConfigDat
 

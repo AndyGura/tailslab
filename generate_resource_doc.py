@@ -302,6 +302,8 @@ EXPORT_RESOURCES = {
 **GAMEDATA/SIM/CARDATA/P\\*.DAT**, `p<car>.DAT` in **CARDATA.VIV** car physics. {render_type(eac.car_specs.Nfs2CarPhysics())}
 
 **simtune.dat** in **GAMEDATA/SIM/CARDATA/CARDATA.VIV** flight, bounce and collision reset tuning. {render_type(eac.car_specs.Nfs2SimTune())}
+
+**\\<car\\>.dat** (e.g. `cala.dat`) in **GAMEDATA/SIM/CARDATA/CARDATA.VIV** car AI data. {render_type(eac.car_specs.Nfs2CarAi())}
         
 **\\*.FFN** bitmap font. {render_type(eac.fonts.FfnFont())}
 
@@ -353,6 +355,8 @@ EXPORT_RESOURCES = {
                 eac.car_specs.Nfs2SimTune(),
                 eac.car_specs.Nfs2SimTuneRecord(),
                 eac.car_specs.Nfs2SimTuneGlueLogic(),
+                eac.car_specs.Nfs2CarAi(),
+                eac.car_specs.Nfs2CarAiLevers(),
             ],
             'Images': [
                 eac.bitmaps.EacImage(),

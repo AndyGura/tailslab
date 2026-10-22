@@ -80,3 +80,36 @@ class TestNfs2SimTune(unittest.TestCase):
         start = int.from_bytes(original[offset : offset + 4], 'big')
         self.assertEqual(int.from_bytes(original[offset + 4 : offset + 8], 'big'), 232)
         self.assertEqual(tune_block.pack(tune), original[start : start + 232])
+
+
+class TestNfs2CarAi(unittest.TestCase):
+    def test_viv_items_parse_and_round_trip(self):
+        (name, block, res) = require_file('test/samples/CARDATA.VIV', lazy=False)
+        ai = [
+            (child['alias'], block.item_block.possible_blocks[child['item']['choice_index']], child['item']['data'])
+            for child in res['children']
+            if block.item_block.possible_blocks[child['item']['choice_index']].__class__.__name__ == 'Nfs2CarAi'
+        ]
+        # 17 cars, each listed twice
+        self.assertEqual(34, len(ai))
+        self.assertEqual(17, len({alias for alias, _, _ in ai}))
+        ai_block, cala = next((b, d) for alias, b, d in ai if alias == 'cala.dat')
+        self.assertEqual(cala['ai_shift_duration'], 14)
+        self.assertEqual(cala['redline'], 7500.0)
+        self.assertEqual(len(cala['gear_top_speeds']), 7)
+        self.assertEqual(cala['gear_top_speeds'][6], 0)
+        self.assertEqual(len(cala['simulation']['acceleration_table']), 112)
+        self.assertEqual(cala['simulation']['acceleration_table'][0], 872 / 256)
+        self.assertEqual(cala['simulation']['grip'], 37.0)
+        self.assertEqual(cala['arcade']['grip'], 60.0)
+        self.assertEqual(cala['arcade']['turn_rate'], 0xCCCC / 0x10000)
+        self.assertEqual(cala['hi_handling_yaw'], 10)
+        self.assertEqual(cala['low_handling_yaw'], 3)
+        self.assertEqual(cala['speed_factor_2'], 1.0)
+        self.assertEqual(cala['lane_slack_prob'], 40)
+        with open('test/samples/CARDATA.VIV', 'rb') as f:
+            original = f.read()
+        offset = original.index(b'cala.dat') - 8
+        start = int.from_bytes(original[offset : offset + 4], 'big')
+        self.assertEqual(int.from_bytes(original[offset + 4 : offset + 8], 'big'), 524)
+        self.assertEqual(ai_block.pack(cala), original[start : start + 524])

@@ -1107,3 +1107,157 @@ class Nfs2SimTune(DeclarativeCompoundBlock):
         from serializers import JsonSerializer
 
         return JsonSerializer
+
+
+def _ai_accel_table():
+    return ArrayBlock(length=112, child=FixedPointBlock(length=2, fraction_bits=8, is_signed=True))
+
+
+class Nfs2CarAiLevers(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'AI levers of one game style (`.DES` chains "Sim Mode Levers" / "Arcade Mode '
+            'Levers", 232 bytes each): acceleration table, grip and turn rate. The loader (nfs2sen.exe 0x42b7b0) '
+            'keeps those of the current style only: the table at car+0x408, grip at car+0x550, turn rate at '
+            'car+0x554',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        acceleration_table = (
+            _ai_accel_table(),
+            {
+                'description': '`.DES`: "Physics acceleration Table" / "Arcade acceleration Table", an `Import` '
+                "record of 0xe0 bytes: 112 signed 16-bit values, 8.8 fixed point. Entry i is the AI car's "
+                'acceleration at a speed of i m/s: nfs2sen.exe 0x42e7d0 reads entry abs(speed) >> 16 (car+0x39c, '
+                'clamped to 0..111) and shifts it left by 8 into 16.16 (probably m/s²; mostly up to about 9.8 in the '
+                "simulation tables, with single spikes up to 27, up to about 26 in the arcade ones). The values step down at each gear's top "
+                'speed and are 0 from about the top speed on; none while a shift lasts. On load the table of car '
+                'types below 15 is scaled by a factor of the type and style (0x42efc0: value = fixmul(value << 8, '
+                'k) >> 8, factors at 0x4c4e38, 0.96 to 1.08)',
+            },
+        )
+        grip = (
+            _fixed(),
+            {
+                'description': '`.DES`: "Grip" (type `Fixed`). Read by the AI driving model (nfs2sen.exe 0x42d140) as '
+                'the cap of a lateral correction, scaled by 1 + speed (car+0x2b8) * 0x62 / 0x10000. 24 to 40 in the '
+                'simulation levers, 24 to 75 in the arcade ones',
+            },
+        )
+        turn_rate = (
+            _fixed(),
+            {
+                'description': '`.DES`: "Turn Rate". Read by the AI driving model (nfs2sen.exe 0x42d140) as the '
+                'cap of a steering term. 0.8 in every file',
+            },
+        )
+
+
+class Nfs2CarAi(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'NFS2 SE car AI data (`<car>.dat` in `GAMEDATA/SIM/CARDATA/CARDATA.VIV`, 524 '
+            'bytes, one per racing car; each is listed twice in the archive, as identical copies). `Car_Init` loads '
+            'it for every race car with nfs2sen.exe 0x42b7b0, reading the file as a little-endian stream into the '
+            'car (addresses cited in the field descriptions). Field names, types and order come from the '
+            "developers' field descriptions `GAMEDATA/SIM/CARDATA/MCF1.DES` (`Fixed` = 16.16 fixed point, "
+            '`Integer` = int), a tree of records: chain "AI" with the fields, the chains "Sim Mode Levers" and '
+            '"Arcade Mode Levers" (`Nfs2CarAiLevers`) in the middle; it also embeds a copy of `mcf1.dat`. Five '
+            'cars (futr, dayt, chev, musc, mcf1) have identical files',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        ai_shift_duration = (
+            _int(),
+            {
+                'description': '`.DES`: "AI Shift Duration (sim ticks)" (type `Integer`), car+0x3b4. A gear change '
+                'starts the shift timer (car+0x3b8) with it, which the AI engine (nfs2sen.exe 0x42e9e0) counts down '
+                'by the AI step factor; meanwhile the engine runs at 3000 rpm and the acceleration table gives '
+                'nothing. 10, cala 14, mach 8',
+            },
+        )
+        redline = (
+            _fixed(),
+            {
+                'description': '`.DES`: "Redline" (type `Fixed`), car+0x3bc: rpm in 16.16 (6300 to 8600). The AI '
+                'engine (nfs2sen.exe 0x42e9e0) sets the rpm from the speed within the gear, from 3000 rpm (0 in '
+                "the first gear) up to this at the gear's top speed",
+            },
+        )
+        gear_top_speeds = (
+            ArrayBlock(length=7, child=_fixed()),
+            {
+                'description': '`.DES`: "Top Speed in each gear (m/s)" (an `Array` record, 7 elements of 4 bytes, '
+                'no element type; the values are 16.16), car+0x3d0. Entry i is the top speed of forward gear i + 1 '
+                'of the AI gearbox (car+0x2da, from 0), increasing; 0 = no such gear (5 or 6 gears used, the '
+                "last entry is always 0). The AI shifts up above a gear's top speed when the next entry is not 0, "
+                "and down below the previous gear's (nfs2sen.exe 0x42e9e0); the loader also stores 1 / the speed "
+                'range of each gear at car+0x3ec. Top gears 80.5 to 105.6 m/s',
+            },
+        )
+        simulation = (
+            Nfs2CarAiLevers(),
+            {'description': '`.DES` chain "Sim Mode Levers": used in simulation style (game style 0)'},
+        )
+        arcade = (
+            Nfs2CarAiLevers(),
+            {'description': '`.DES` chain "Arcade Mode Levers": used in the other game styles (arcade)'},
+        )
+        speed_factor = (
+            _fixed(),
+            {
+                'description': '`.DES`: "Speed Factor" (type `Fixed`), the first of two, car+0x4e8. No reader of '
+                'car+0x4e8 found in nfs2sen.exe. 1.0 in every file',
+                'is_unknown': True,
+            },
+        )
+        hi_handling_yaw = (
+            _int(),
+            {
+                'description': '`.DES`: "Hi Handling Yaw" (type `Integer`), car+0x4f0. Upper bound of the yaw value '
+                '(0x4d7e84) that nfs2sen.exe 0x427780 turns into a speed multiplier: 1 - (clamp(abs(yaw), low, high) '
+                '- low) * handling importance / (high - low) * an opponent setting. 9 to 13',
+            },
+        )
+        low_handling_yaw = (
+            _int(),
+            {
+                'description': '`.DES`: "Low Handling Yaw" (type `Integer`), car+0x4f4. Lower bound of that yaw '
+                'value, see `hi_handling_yaw`. 1 to 3',
+            },
+        )
+        handling_importance = (
+            _fixed(),
+            {
+                'description': '`.DES`: "Handling Importance (usually around 0 - 0.3)" (type `Fixed`). The loader '
+                'stores it divided by (high - low handling yaw) at car+0x4f8; the speed multiplier of '
+                'nfs2sen.exe 0x427780 goes down by this much at the high handling yaw (up for a negative value). '
+                '-0.2 to 0.32',
+            },
+        )
+        speed_factor_2 = (
+            _fixed(),
+            {
+                'description': '`.DES`: "Speed Factor" (type `Fixed`), the second of two, car+0x560. nfs2sen.exe '
+                '0x427800 multiplies the target speed (car+0x398) of cars that are not AI racers (car kind bit 8 '
+                'clear) by it. 1.0 in every file',
+            },
+        )
+        lane_slack_prob = (
+            _int(),
+            {
+                'description': '`.DES`: "Lane Slack Prob" (type `Integer`), car+0x564. Chance of a lane change at '
+                'a checked slice for cars that are not AI racers (nfs2sen.exe 0x42c1a0: a random 16-bit value r '
+                'gives one when r * value >> 16 == 1, about 1 / value); AI racers use an opponent setting '
+                'instead. 40 in every file',
+            },
+        )
+
+    def serializer_class(self):
+        from serializers import JsonSerializer
+
+        return JsonSerializer
