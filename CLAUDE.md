@@ -325,6 +325,13 @@ When you do:
   every field, from the 3DO `LaunchMe` code (tnfs-1995 Ghidra). The PBS editor renders it through the
   `block_class_mro` fallback and switches on `is3do` (no gear efficiency column, one brake cap).
 
+## NFS2 SE car physics (GAMEDATA/SIM/CARDATA/P*.DAT, `p<car>.DAT` in CARDATA.VIV)
+
+- `Nfs2CarPhysics` (`resources/eac/car_specs.py`), 356 bytes, fields from the developers' `P*.DES` and the
+  nfs2sen.exe loader (0x459970), addresses cited in the descriptions. The loader picks it by name and size
+  (`_is_nfs2_car_physics_name` + length 356 in `library/loader.py`; the VIV's `<car>.dat` and `prsonal.dat` are other,
+  unparsed formats), and `BigfBlock` lists it among its item blocks.
+
 ## TNFS sound banks (SIMDATA/SOUNDBNK/*.BNK)
 
 - `items` / `children` are in file order, which is not always the index order of the 128-entry offset table

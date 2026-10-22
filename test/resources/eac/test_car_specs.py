@@ -28,3 +28,30 @@ class TestTnfs3doCarPhysics(unittest.TestCase):
             data[key] = None
         with open('test/samples/LDIABLO.bigSpecsFam', 'rb') as f:
             self.assertEqual(f.read(), block.pack(data, name=name))
+
+
+class TestNfs2CarPhysics(unittest.TestCase):
+    def test_viv_items_parse_and_round_trip(self):
+        (name, block, res) = require_file('test/samples/CARDATA.VIV', lazy=False)
+        physics = {
+            child['alias']: (block.item_block.possible_blocks[child['item']['choice_index']], child['item']['data'])
+            for child in res['children']
+            if child['alias'].lower().startswith('p') and child['alias'].lower().endswith('.dat')
+        }
+        # every p<car>.DAT but the 3012-byte prsonal.dat
+        self.assertEqual(35, len([x for x in physics.values() if x[0].__class__.__name__ == 'Nfs2CarPhysics']))
+        car_block, car = physics['pcala.DAT']
+        self.assertEqual(car_block.__class__.__name__, 'Nfs2CarPhysics')
+        self.assertEqual(car['mass'], 1350.0)
+        self.assertEqual(car['num_gears'], 8)
+        self.assertEqual(car['engine_redline_rpm'], 7550)
+        self.assertEqual(car['max_velocity'], 81.0)
+        self.assertEqual(car['brake_increasing_curve'], [64, 32, 16, 8, 4, 2, 1, 1])
+        self.assertEqual(car['turn_in_ramp'], 16)
+        self.assertEqual(car['push_factor'], 9000)
+        self.assertEqual(car['high_turn_factor'], 0x6A7 / 0x10000)
+        with open('test/samples/CARDATA.VIV', 'rb') as f:
+            original = f.read()
+        offset = original.index(b'pcala.DAT') - 8
+        start = int.from_bytes(original[offset : offset + 4], 'big')
+        self.assertEqual(car_block.pack(car), original[start : start + 356])

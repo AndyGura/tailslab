@@ -867,3 +867,112 @@ class Tnfs3doCarPhysics(PlayerCarPhysics):
         }
 
     Fields = _tnfs_3do_car_physics_fields()
+
+
+def _u8_curve(description: str):
+    return (ArrayBlock(length=8, child=IntegerBlock(length=1)), {'description': description})
+
+
+class Nfs2CarPhysics(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'NFS2 SE car physics (`p<car>.DAT` in `GAMEDATA/SIM/CARDATA/CARDATA.VIV`, 356 '
+            'bytes; the loose `GAMEDATA/SIM/CARDATA/P*.DAT` files are identical copies). `Car_Init` (nfs2sen.exe '
+            '0x43e2e0) loads it with 0x459970 into the car specs (car+0x2ec, 0x1dc bytes), reading the file as a '
+            'raw little-endian stream (udff.c readers 0x4628a0 for 4-byte values, 0x462850 for bytes). The specs '
+            'have the file layout, except that the loader swaps `gas_off_factor` and `g_transfer_factor`; the '
+            "specs from 0x164 on are not in the file. Field names, types and order come from the developers' "
+            'field descriptions `P*.DES` next to the loose files (`Fixed` = 16.16 fixed point, `Integer` = int), '
+            'which also embed a copy of the file. The `GAMEDATA/CARMODEL/PC/P*.DAT` files have the same layout '
+            'but other values, and are not what the game loads for physics',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        mass = (_fixed(), {'description': 'Mass (`.DES`: "mass")'})
+        num_gears = (
+            _int(),
+            {
+                'description': 'Number of gears: reverse + neutral + forward gears (6 to 8); the gear tables '
+                'have 8 entries'
+            },
+        )
+        gear_shift_delay = (
+            _int(),
+            {'description': 'Gear shift delay in ticks; the game uses the low byte as the shift timer'},
+        )
+        velocity_to_rpm_ratio = (
+            ArrayBlock(length=8, child=_fixed()),
+            {'description': 'Velocity to rpm ratio per gear: reverse, neutral, 1st to 6th'},
+        )
+        gear_efficiency = (
+            ArrayBlock(length=8, child=_fixed()),
+            {'description': 'Gear efficiency per gear: reverse, neutral, 1st to 6th'},
+        )
+        torque_curve = (
+            ArrayBlock(length=41, child=_int()),
+            {
+                'description': 'Torque curve in 256 rpm steps: the game reads entry rpm / 256. The `.DES` gives '
+                'no element type (4-byte elements); the values look like 16.16 (PCALA: 0x1360000 = 310.0)'
+            },
+        )
+        engine_redline_rpm = (_int(), {'description': 'Engine redline in rpm, a plain integer'})
+        max_velocity = (_fixed(), {'description': 'Maximum velocity of the car in m/s'})
+        front_drive_ratio = (_fixed(), {'description': 'Front drive ratio'})
+        max_braking_deceleration = (_fixed(), {'description': 'Maximum braking deceleration'})
+        front_bias_brake_ratio = (_fixed(), {'description': 'Front bias brake ratio'})
+        gas_increasing_curve = _u8_curve('Gas increasing curve: per-level steps of the gas ramp')
+        gas_decreasing_curve = _u8_curve('Gas decreasing curve: per-level steps of the gas ramp')
+        brake_increasing_curve = _u8_curve(
+            'Brake increasing curve: per-level steps of the brake ramp, level = brake / 32 (nfs2sen.exe 0x457d80)'
+        )
+        brake_decreasing_curve = _u8_curve(
+            'Brake decreasing curve: per-level steps of the brake ramp, level = brake / 32 (nfs2sen.exe 0x457d80)'
+        )
+        wheel_base = (_fixed(), {'description': 'Wheel base'})
+        front_grip_bias = (_fixed(), {'description': 'Front grip bias'})
+        max_steering_acceleration = (_fixed(), {'description': 'Maximum steering acceleration'})
+        turn_in_ramp = (
+            _int(),
+            {
+                'description': 'Steering ramp step toward the requested steering (nfs2sen.exe 0x457d80)',
+            },
+        )
+        turn_out_ramp = (
+            _int(),
+            {
+                'description': 'Steering ramp step away from the requested steering (nfs2sen.exe 0x457d80)',
+            },
+        )
+        lateral_acceleration_grip_multiplier = (_fixed(), {'description': 'Lateral acceleration grip multiplier'})
+        aerodynamic_downforce_multiplier = (_fixed(), {'description': 'Aerodynamic downforce multiplier'})
+        gas_off_factor = (
+            _fixed(),
+            {
+                'description': 'Gas off factor. The loader stores it at specs+0x144, after `g_transfer_factor` '
+                '(nfs2sen.exe 0x459970)'
+            },
+        )
+        g_transfer_factor = (
+            _fixed(),
+            {'description': 'G transfer factor. The loader stores it at specs+0x140, before `gas_off_factor`'},
+        )
+        slide_multiplier = (_fixed(), {'description': 'Slide multiplier'})
+        spin_velocity_cap = (_fixed(), {'description': 'Spin velocity cap'})
+        slide_velocity_cap = (_fixed(), {'description': 'Slide velocity cap'})
+        slide_assistance_factor = (_int(), {'description': 'Slide assistance factor'})
+        push_factor = (_int(), {'description': 'Push factor'})
+        low_turn_factor = (
+            _fixed(),
+            {'description': 'Low turn factor (`.DES`: "the lower the figure, the better the turn")'},
+        )
+        high_turn_factor = (
+            _fixed(),
+            {'description': 'High turn factor (`.DES`: "the lower the figure, the better the turn")'},
+        )
+
+    def serializer_class(self):
+        from serializers import JsonSerializer
+
+        return JsonSerializer

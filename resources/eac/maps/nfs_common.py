@@ -329,50 +329,60 @@ class CollisionExtraDataRecord(DeclarativeCompoundBlock):
         return {
             **super().schema,
             'block_description': 'A point of the track collision spline (road centre line) with road orientation '
-            'vectors and distances to the road borders. Used by the physics engine; there are '
-            '8 points per track block',
+            'vectors and distances to the road borders, 8 points per track block. These are the track slices the '
+            'car physics walks: NFS2 SE keeps the array at `DAT_004dec18` (count `DAT_004dec10`, 0x24 bytes per '
+            'record) and finds the slice of a car as the one with the nearest centre by xz distance (nfs2sen.exe '
+            '0x439470)',
         }
 
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (
             Point3D(child=FixedPointBlock(length=4, fraction_bits=16, is_signed=True)),
-            {'description': 'A global position of track collision spline point. The unit is meter'},
+            {'description': 'A global position of track collision spline point (slice centre). The unit is meter'},
         )
         normal = (
             Point3D(child=FixedPointBlock(length=1, fraction_bits=7, is_signed=True), normalized=True),
-            {'description': 'A normal vector of road surface'},
+            {'description': 'A normal vector of road surface. NFS2 SE reads each signed byte as `value << 9` (16.16)'},
         )
         forward = (
             Point3D(child=FixedPointBlock(length=1, fraction_bits=7, is_signed=True), normalized=True),
-            {'description': 'A forward vector'},
+            {'description': 'A forward vector, read like `normal`'},
         )
         right = (
             Point3D(child=FixedPointBlock(length=1, fraction_bits=7, is_signed=True), normalized=True),
-            {'description': 'A right vector'},
+            {'description': 'A right vector, read like `normal`'},
         )
         unk0 = (IntegerBlock(length=1), {'is_unknown': True})
         block_idx = (
             IntegerBlock(length=2, is_signed=False),
-            {'description': 'Index of the TRK block this point belongs to'},
+            {
+                'description': 'Index of the TRK block (chunk) this point belongs to (NFS2 SE: nfs2sen.exe 0x438f90, '
+                '0x4395c0)'
+            },
         )
         unk1 = (IntegerBlock(length=2), {'is_unknown': True})
         left_border = (
             FixedPointBlock(length=2, is_signed=False, fraction_bits=8),
-            {'description': 'Distance to left track border in meters'},
+            {
+                'description': 'Distance to left track border in meters (NFS2 SE reads it as `value * 0x100`, '
+                '16.16). The NFS2 SE physics takes the larger of the two borders (nfs2sen.exe 0x441720)'
+            },
         )
         right_border = (
             FixedPointBlock(length=2, is_signed=False, fraction_bits=8),
-            {'description': 'Distance to right track border in meters'},
+            {'description': 'Distance to right track border in meters, read like `left_border`'},
         )
-        respawn_lat_pos = (
-            IntegerBlock(length=2, is_signed=False),
+        flags = (
+            IntegerBlock(length=1, is_signed=False),
             {
-                'description': 'Named by assumption (lateral position of car respawn). Values look like '
-                'four packed 4-bit numbers, e.g. 0x1111, 0x1144, 0x1244',
-                'is_unknown': True,
+                'description': 'Two 4-bit values (NFS2, NFS2 SE: 0x11, 0x44, 0x22 most often). When either is 2 '
+                '(`(flags >> 4) == 2` or `(flags & 0xf) == 2`), the NFS2 SE vertical dynamics (newton, nfs2sen.exe '
+                '0x44e170) treat the slice as having a ceiling: a car more than 10 m above the ground hits it. '
+                'Other meanings unknown',
             },
         )
-        unk2 = (IntegerBlock(length=4), {'is_unknown': True})
+        unk2 = (IntegerBlock(length=1), {'is_unknown': True})
+        unk3 = (IntegerBlock(length=4), {'is_unknown': True})
 
 
 class ColExtraBlock(DeclarativeCompoundBlock):

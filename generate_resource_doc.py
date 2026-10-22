@@ -297,6 +297,8 @@ EXPORT_RESOURCES = {
         'file_list': f"""**\\*.BNK** sound bank. {render_type(eac.archives.EaSoundBank())}
 
 **\\*.COL** track additional data. {render_type(eac.maps.MapColFile())}
+
+**GAMEDATA/SIM/CARDATA/P\\*.DAT**, `p<car>.DAT` in **CARDATA.VIV** car physics. {render_type(eac.car_specs.Nfs2CarPhysics())}
         
 **\\*.FFN** bitmap font. {render_type(eac.fonts.FfnFont())}
 
@@ -342,8 +344,9 @@ EXPORT_RESOURCES = {
                 eac.maps.CollisionExtraDataRecord(),
                 eac.maps.ColPolygon(),
             ],
-            # 'Physics': [
-            # ],
+            'Physics': [
+                eac.car_specs.Nfs2CarPhysics(),
+            ],
             'Images': [
                 eac.bitmaps.EacImage(),
                 eac.bitmaps.EacPalette(),
