@@ -325,12 +325,12 @@ When you do:
   every field, from the 3DO `LaunchMe` code (tnfs-1995 Ghidra). The PBS editor renders it through the
   `block_class_mro` fallback and switches on `is3do` (no gear efficiency column, one brake cap).
 
-## NFS2 SE car physics (GAMEDATA/SIM/CARDATA/P*.DAT, `p<car>.DAT`, `simtune.dat` and `<car>.dat` in CARDATA.VIV)
+## NFS2 SE car physics and AI (GAMEDATA/SIM/CARDATA/P*.DAT, GAMEDATA/SIM/AI/*.DAT, their copies in CARDATA.VIV)
 
 - `Nfs2CarPhysics` (`resources/eac/car_specs.py`), 356 bytes, fields from the developers' `P*.DES` and the
   nfs2sen.exe loader (0x459970), addresses cited in the descriptions. The loader picks it by name and size
-  (`_is_nfs2_car_physics_name` + length 356 in `library/loader.py`; the VIV's `prsonal.dat` is another, unparsed
-  format), and `BigfBlock` lists it among its item blocks.
+  (`_is_nfs2_car_physics_name` + length 356 in `library/loader.py`; the VIV's `prsonal.dat` also starts with `p`:
+  the size tells them apart), and `BigfBlock` lists it among its item blocks.
 - `Nfs2SimTune` (same module): `simtune.dat` in CARDATA.VIV (= `GAMEDATA/CARMODEL/PC/SIMTUNE.DAT`), 232 bytes, two
   `Nfs2SimTuneRecord`s (simulation, arcade + Wild) of 21 values + 4 glue logic pairs, read by nfs2sen.exe 0x43e0a0 into
   0x4df0a8. Picked by name (any case) and size 232 (`_file_or_archive_item_name` in `library/loader.py`), also a
@@ -340,13 +340,24 @@ When you do:
   redline, gear top speeds, two `Nfs2CarAiLevers` (simulation, arcade: 112 x 8.8 acceleration table indexed by speed
   in m/s, grip, turn rate), handling and lane values. Field names from `GAMEDATA/SIM/CARDATA/MCF1.DES`. Picked by a
   4-character name `<xxxx>.dat` (`_is_nfs2_car_ai_name`) and size 524, also a `BigfBlock` item block.
-- The developers' `.DES` files (`P*.DES`, `SIMTUNE.DES`, `MCF1.DES`) give field names, types and order: a header, a
-  copy of the `.DAT` at 0x66 (int at 0x62 = size of the records), then the records: type (10 bytes), name (80 bytes;
-  null-terminated, memory garbage after it), int size of the field's data in bytes, int n, then n bytes. Fields
-  (`Fixed` = 16.16, `Integer`) have n = 0x38 (garbage); `Array` 12 (1, count, count; no element type, 4-byte
-  elements) and `CArray` 12 (byte arrays, `P*.DES` curves); `Import` (a table, `MCF1.DES` acceleration tables) 1
-  (0x41); `Chain` (a group, `MCF1.DES` only) n = everything below it: 94 bytes of garbage, int data size, int size of
-  the child records, a copy of the group's data, then its child records.
+- `Nfs2TrafficConfig` (same module): `GAMEDATA/SIM/AI/TRAFCFG.DAT` (CARDATA.VIV: identical `trafcfg.dat` and
+  `TRAFCFG.DAT`), 452 bytes, read by nfs2sen.exe 0x42bb60: general AI / traffic values, three `Nfs2TrafficGlue`
+  tables (single race, tournament, knockout = race type 0, 1, 2) of 12 `Nfs2TrafficGluePair`s (speed glue,
+  acceleration glue), the AI physics parameters (`Nfs2AiLookAhead` per style, two `Nfs2AiControl`). Names from
+  `TRAFCFG.DES`. Picked by name (any case) and size 452: NFS5's `TRAFCFG.DAT` (108 bytes) is another format.
+- `Nfs2Personalities` (same module): `GAMEDATA/SIM/AI/PRSONAL.DAT` (CARDATA.VIV: `prsonal.dat`), 3012 bytes, read by
+  nfs2sen.exe 0x451bd0: `Nfs2PersonalityGrid` (4 rows of 12 letters) and the personalities `car_a` .. `car_m`
+  (`Nfs2Personality`, 0xe4 bytes; field descriptions carry the `.DES` chain names). Names from `PRSONAL.DES`. Picked
+  by name (any case) and size 3012. Both are `BigfBlock` item blocks; the exe also has compiled-in copies of both.
+- The developers' `.DES` files (`P*.DES`, `SIMTUNE.DES`, `MCF1.DES`, `TRAFCFG.DES`, `PRSONAL.DES`) give field names,
+  types and order: a header, a copy of the `.DAT` at 0x66 (int at 0x62 = size of the records), then the records: type
+  (10 bytes), name (80 bytes; null-terminated, memory garbage after it), int size of the field's data in bytes, int n,
+  then n bytes. Fields (`Fixed` = 16.16, `Integer`, `Char` = 1 byte) have n = 0x38 (garbage; one `TRAFCFG.DES` `Fixed`
+  has 0x10); `Array` 12 (1, count, count; no element type, 4-byte elements; (2, 1, 2) for the unnamed pairs of the
+  `TRAFCFG.DES` glue factors) and `CArray` 12 (byte arrays, `P*.DES` curves); `Import` (a table, `MCF1.DES`
+  acceleration tables) 1 (0x41); `Chain` (a group: `MCF1.DES`, `TRAFCFG.DES`, `PRSONAL.DES`) n = everything below
+  it: 94 bytes of garbage, int data size, int size of the child records, a copy of the group's data, then its child
+  records.
 
 ## TNFS sound banks (SIMDATA/SOUNDBNK/*.BNK)
 

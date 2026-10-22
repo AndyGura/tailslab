@@ -113,3 +113,67 @@ class TestNfs2CarAi(unittest.TestCase):
         start = int.from_bytes(original[offset : offset + 4], 'big')
         self.assertEqual(int.from_bytes(original[offset + 4 : offset + 8], 'big'), 524)
         self.assertEqual(ai_block.pack(cala), original[start : start + 524])
+
+
+def _viv_items(class_name):
+    (name, block, res) = require_file('test/samples/CARDATA.VIV', lazy=False)
+    return [
+        (child['alias'], block.item_block.possible_blocks[child['item']['choice_index']], child['item']['data'])
+        for child in res['children']
+        if block.item_block.possible_blocks[child['item']['choice_index']].__class__.__name__ == class_name
+    ]
+
+
+def _viv_item_bytes(alias, size):
+    with open('test/samples/CARDATA.VIV', 'rb') as f:
+        original = f.read()
+    offset = original.index(alias.encode() + b'\0') - 8
+    start = int.from_bytes(original[offset : offset + 4], 'big')
+    assert int.from_bytes(original[offset + 4 : offset + 8], 'big') == size
+    return original[start : start + size]
+
+
+class TestNfs2TrafficConfig(unittest.TestCase):
+    def test_viv_items_parse_and_round_trip(self):
+        items = _viv_items('Nfs2TrafficConfig')
+        # trafcfg.dat and TRAFCFG.DAT, identical copies
+        self.assertEqual({'trafcfg.dat', 'TRAFCFG.DAT'}, {alias for alias, _, _ in items})
+        for alias, cfg_block, cfg in items:
+            self.assertEqual(cfg['opp_desired_ahead'], 21.0)
+            self.assertEqual(cfg['traffic_density'], 500)
+            self.assertEqual(cfg['num_traffic_cars'], 4)
+            self.assertEqual(cfg['traffic_speed_factors'][0], 1.0)
+            self.assertEqual(cfg['traffic_base_speed'], 150.0)
+            self.assertEqual(cfg['lane_slack'], [-1.5, 1.5, -0.5, 0.5])
+            self.assertEqual(cfg['single_race_glue']['four_laps']['speed_glue'], 0xF851 / 0x10000)
+            self.assertEqual(cfg['single_race_glue']['eight_laps']['speed_glue'], 0xF333 / 0x10000)
+            self.assertEqual(cfg['knockout_glue']['multi_opponents']['acceleration_glue'], 1.0)
+            self.assertEqual(cfg['latvelcalc_lookahead'], 4)
+            self.assertEqual(cfg['simulation_look_ahead']['max_lookahead'], 6)
+            self.assertEqual(cfg['arcade_look_ahead']['look_ahead_factor'], 1.5)
+            self.assertEqual(cfg['skid_value'], 11.0)
+            self.assertEqual(cfg['in_control']['max_dlvel'], 32.0)
+            self.assertEqual(cfg['out_of_control']['dav_to_aa'], 10.0)
+            self.assertEqual(cfg_block.pack(cfg), _viv_item_bytes(alias, 452))
+
+
+class TestNfs2Personalities(unittest.TestCase):
+    def test_viv_item_parses_and_round_trips(self):
+        items = _viv_items('Nfs2Personalities')
+        self.assertEqual(['prsonal.dat'], [alias for alias, _, _ in items])
+        (alias, pers_block, pers) = items[0]
+        self.assertEqual(pers['grid']['knockout'], 'abcdefghijkl')
+        self.assertEqual(pers['grid']['single_race_one_opponent'], 'm' * 12)
+        for letter in 'abcdefghijklm':
+            self.assertEqual(pers[f'car_{letter}']['letter'], letter)
+            self.assertEqual(len(pers[f'car_{letter}']['speed_glue']), 21)
+        car_a = pers['car_a']
+        self.assertEqual(car_a['speed_glue'][0], 183500 / 0x10000)
+        self.assertEqual(car_a['speed_glue'][10], 1.0)
+        self.assertEqual(car_a['acceleration_glue'][0], 9.0)
+        self.assertEqual(car_a['block_look_behind'], 20)
+        self.assertEqual(car_a['look_ahead'], 30)
+        self.assertEqual(car_a['psycho_trigger_count'], 200)
+        self.assertEqual(pers['car_c']['lane_slack'][1], 26214 / 0x10000)
+        self.assertEqual(pers['car_g']['psycho_time'], 250)
+        self.assertEqual(pers_block.pack(pers), _viv_item_bytes(alias, 3012))

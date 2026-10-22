@@ -1220,7 +1220,8 @@ class Nfs2CarAi(DeclarativeCompoundBlock):
             {
                 'description': '`.DES`: "Hi Handling Yaw" (type `Integer`), car+0x4f0. Upper bound of the yaw value '
                 '(0x4d7e84) that nfs2sen.exe 0x427780 turns into a speed multiplier: 1 - (clamp(abs(yaw), low, high) '
-                '- low) * handling importance / (high - low) * an opponent setting. 9 to 13',
+                "- low) * handling importance / (high - low) * the personality's `handling_adjust` (`Nfs2Personality`). "
+                '9 to 13',
             },
         )
         low_handling_yaw = (
@@ -1252,10 +1253,500 @@ class Nfs2CarAi(DeclarativeCompoundBlock):
             {
                 'description': '`.DES`: "Lane Slack Prob" (type `Integer`), car+0x564. Chance of a lane change at '
                 'a checked slice for cars that are not AI racers (nfs2sen.exe 0x42c1a0: a random 16-bit value r '
-                'gives one when r * value >> 16 == 1, about 1 / value); AI racers use an opponent setting '
-                'instead. 40 in every file',
+                "gives one when r * value >> 16 == 1, about 1 / value); AI racers use their personality's "
+                '`new_slack_probability` (`Nfs2Personality`) instead. 40 in every file',
             },
         )
+
+    def serializer_class(self):
+        from serializers import JsonSerializer
+
+        return JsonSerializer
+
+
+class Nfs2TrafficGluePair(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'A pair of glue factors (`.DES`: an `Array` record of 2 elements of 4 bytes without '
+            'names, the values are 16.16). nfs2sen.exe 0x42bd60 multiplies element 0 of the chosen pairs into the '
+            'speed glue of the race (0x4d7fa8, 1 / it at 0x4d7f9c), element 1 into the acceleration glue (0x4d7fb4, '
+            '1 / it at 0x4d7fa4)',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        speed_glue = (
+            _fixed(),
+            {
+                'description': 'Factor of the speed glue (0x4d7fa8): when the AI racer is more than 30 slices away '
+                "from the player, nfs2sen.exe 0x427460 multiplies its personality's `speed_glue` value by it "
+                '(by 1 / it when the value is below 1), so a larger factor makes the glue stronger',
+            },
+        )
+        acceleration_glue = (
+            _fixed(),
+            {
+                'description': 'Factor of the acceleration glue (0x4d7fb4): nfs2sen.exe 0x427640 multiplies the '
+                "personality's `acceleration_glue` value by it (by 1 / it when the value is below 1)",
+            },
+        )
+
+
+class Nfs2TrafficGlue(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'Glue factors of one race type (`.DES` chains "Single Race Glue Factors", '
+            '"Tournament Mode Glue Factors", "Knock Out Mode Glue Factors"), 24 values. nfs2sen.exe 0x42bd60 picks '
+            'the table by the race type and multiplies (16.16) the `overall` pair with one pair of each group: '
+            'laps, game style, skill, traffic, opponents; element 0 of the product is the speed glue of the race, '
+            'element 1 the acceleration glue',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        overall = (Nfs2TrafficGluePair(), _des('Overall', 'Always used'))
+        two_laps = (Nfs2TrafficGluePair(), _des('Two Laps', 'In the chain "Laps": used in races of 2 laps'))
+        four_laps = (Nfs2TrafficGluePair(), _des('Four Laps', 'In the chain "Laps": used in races of 4 laps'))
+        eight_laps = (
+            Nfs2TrafficGluePair(),
+            _des('Eight Laps', 'In the chain "Laps": used for any other number of laps (the exe checks 2 and 4 only)'),
+        )
+        simulation = (
+            Nfs2TrafficGluePair(),
+            _des('Sim Mode', 'In the chain "Simulation Mode": used in simulation style (game style 0)'),
+        )
+        arcade = (
+            Nfs2TrafficGluePair(),
+            _des('Arcade Mode', 'In the chain "Simulation Mode": used in arcade style (game style 1, Wild included)'),
+        )
+        beginner = (
+            Nfs2TrafficGluePair(),
+            _des('Beg.', 'In the chain "Skill Level": used at skill level 0 (beginner)'),
+        )
+        advanced = (
+            Nfs2TrafficGluePair(),
+            _des('Advanced', 'In the chain "Skill Level": used at skill level 1 (expert)'),
+        )
+        no_traffic = (
+            Nfs2TrafficGluePair(),
+            _des('No Traffic', 'In the chain "Traffic": used in races without traffic cars'),
+        )
+        with_traffic = (
+            Nfs2TrafficGluePair(),
+            _des('With Traffic', 'In the chain "Traffic": used in races with traffic cars'),
+        )
+        one_opponent = (
+            Nfs2TrafficGluePair(),
+            _des('One Opponent', 'In the chain "Num Opponents": used in races with one AI racer'),
+        )
+        multi_opponents = (
+            Nfs2TrafficGluePair(),
+            _des('Multi Opponents', 'In the chain "Num Opponents": used in races with more AI racers'),
+        )
+
+
+class Nfs2AiLookAhead(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'Look-ahead of one game style (`.DES` chains "Simulation Mode look ahead" / '
+            '"Arcade Mode look ahead"). nfs2sen.exe 0x42bc40 keeps the pair of the current style only',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        max_lookahead = (
+            _int(),
+            _des(
+                'max_lookahead:what is the max # of slices to look to find target direction',
+                'Kept at 0x4d7fd4, the upper bound of the slices ahead in nfs2sen.exe 0x42de90',
+            ),
+        )
+        look_ahead_factor = (
+            _fixed(),
+            _des(
+                'look_ahead_factor:convert from speed to # slices ahead to calc target dir',
+                'Kept at 0x4d7fd8, read by nfs2sen.exe 0x42de90',
+            ),
+        )
+
+
+class Nfs2AiControl(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'AI physics parameters of the AI driving model (`.DES` chains "In Control AI '
+            'Physics parameters" / "Out Of Control AI Physics parameters"), 11 values of type `Fixed`. nfs2sen.exe '
+            '0x42bc40 stores them at 0x4d7fe0 (in control) and 0x4d800c (out of control)',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        dlpos_to_dlvel = (
+            _fixed(),
+            _des(
+                'dlpos_to_dlvel:delta lateral position to desired lateral velocity',
+                'The out-of-control record says "(not used for ooc)"',
+            ),
+        )
+        max_dlvel = (_fixed(), _des('max_dlvel:maximum desired lateral velocity'))
+        dlvel_to_clacc = (_fixed(), _des('dlvel_to_clacc:delta desired lateral velocity to lateral acceleration'))
+        max_clacc = (
+            _fixed(),
+            _des('NOT USED:---max_clacc:maximum lateral acceleration'),
+        )
+        dangle_to_dav = (_fixed(), _des('dangle_to_dav:delta angle to desired angular velocity'))
+        max_dav = (_fixed(), _des('max_dav'))
+        dav_to_aa = (_fixed(), _des('dav_to_aa:delta desired ang vel to angular acceleration'))
+        max_aa = (
+            _fixed(),
+            _des('NOT USED:---max_aa:maximum desired angular acceleration'),
+        )
+        vel_limit_range = (_fixed(), _des('vel_limit_range:under this speed we limit lateral and ang vel'))
+        lat_vel_limit_factor = (
+            _fixed(),
+            _des('lat_vel_limit_factor:limit lat vel by speed/vel_limit_range * this #'),
+        )
+        ang_vel_limit_factor = (
+            _fixed(),
+            _des('ang_vel_limit_factor:limit ang vel by speed/vel_limit_range * this #'),
+        )
+
+
+class Nfs2TrafficConfig(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'NFS2 SE AI and traffic configuration (`GAMEDATA/SIM/AI/TRAFCFG.DAT`, 452 bytes; '
+            '`GAMEDATA/SIM/CARDATA/CARDATA.VIV` holds two identical copies, `trafcfg.dat` and `TRAFCFG.DAT`). '
+            'nfs2sen.exe 0x42bb60 loads `trafcfg.dat` at the start of a race, reading it as a little-endian stream: '
+            'the general part (0x42bbc0), the glue factors (0x42bd60) and the AI physics parameters (0x42bc40). '
+            "Field names, types and order come from the developers' field descriptions "
+            '`GAMEDATA/SIM/AI/TRAFCFG.DES` (`Fixed` = 16.16 fixed point, `Integer` = int; `Array` records have no '
+            'element type, their values are 16.16), a tree of records: the chains "General AI Configuration '
+            'Parameters", "Glue Factors" and "AI Physics Configuration Parameters"; it also embeds a copy of the '
+            'file. `MTRAF.BAT` there compiled it into the exe (`bin2src trafcfg.dat trafcfg.c`)',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        opp_desired_ahead = (
+            _fixed(),
+            _des(
+                'opp_desired_ahead:desired speed at least= players speed + desired ahead',
+                'm/s, 0x4d7e8c: nfs2sen.exe 0x427800 raises the target speed of an AI racer to at least the '
+                "player's speed + this",
+            ),
+        )
+        traffic_density = (
+            _int(),
+            _des('NOT USED:---Traffic Density (larger number creates less density)', 'Kept at 0x4d7e90'),
+        )
+        num_traffic_cars = (
+            _int(),
+            _des('Number of traffic cars', 'Kept at 0x4d7e94; no reader found in nfs2sen.exe'),
+        )
+        traffic_speed_factors = (
+            ArrayBlock(length=4, child=_fixed()),
+            _des(
+                'Traffic Speed Factors',
+                'An `Array` of 4, 0x4d7e98: nfs2sen.exe 0x427280 gives a car one of them at random (car+0x3c8)',
+            ),
+        )
+        traffic_base_speed = (
+            _fixed(),
+            _des(
+                'Traffic Base Speed (km/h) (origianlly 150 kmh)',
+                'The loader multiplies it by 0x471c (1 / 3.6) into m/s, 0x4d7ea8. The target speed of a car that '
+                "is not an AI racer is the mean of this and the player's speed (nfs2sen.exe 0x427800, 0x42b4c0)",
+            ),
+        )
+        lane_slack = (
+            ArrayBlock(length=4, child=_fixed()),
+            _des(
+                'Lane Slack: How close the cars drive along the centre line',
+                'An `Array` of 4, in m, 0x4d7eac: nfs2sen.exe 0x42c120 gives a car that is not an AI racer one of '
+                "them at random as its lateral offset (car+0x3a4; AI racers use their personality's `lane_slack`)",
+            ),
+        )
+        single_race_glue = (
+            Nfs2TrafficGlue(),
+            {'description': '`.DES` chain "Single Race Glue Factors" (in "Glue Factors"): used for race type 0'},
+        )
+        tournament_glue = (
+            Nfs2TrafficGlue(),
+            {'description': '`.DES` chain "Tournament Mode Glue Factors": used for race type 1'},
+        )
+        knockout_glue = (
+            Nfs2TrafficGlue(),
+            {'description': '`.DES` chain "Knock Out Mode Glue Factors": used for race type 2'},
+        )
+        latvelcalc_lookahead = (
+            _int(),
+            _des(
+                'latvelcalc_lookahead: how far do we look ahead to calc lateral velocity(sl)',
+                'In the chain "AI Physics Configuration Parameters". Slices, 0x4d7fcc, read by nfs2sen.exe 0x42da60',
+            ),
+        )
+        min_lookahead = (
+            _int(),
+            _des(
+                'min_lookahead:what is the min # of slices to look ahead to find trget direc',
+                'Kept at 0x4d7fd0, read by nfs2sen.exe 0x42de90',
+            ),
+        )
+        simulation_look_ahead = (
+            Nfs2AiLookAhead(),
+            {'description': '`.DES` chain "Simulation Mode look ahead": used in simulation style (game style 0)'},
+        )
+        arcade_look_ahead = (
+            Nfs2AiLookAhead(),
+            {'description': '`.DES` chain "Arcade Mode look ahead": used in the other game styles'},
+        )
+        skid_value = (
+            _fixed(),
+            _des('skid_value:for calculating front skid/rear skid', 'Kept at 0x4d7fdc, read by nfs2sen.exe 0x42d140'),
+        )
+        in_control = (
+            Nfs2AiControl(),
+            {'description': '`.DES` chain "In Control AI Physics parameters", 0x4d7fe0'},
+        )
+        out_of_control = (
+            Nfs2AiControl(),
+            {'description': '`.DES` chain "Out Of Control AI Physics parameters", 0x4d800c'},
+        )
+
+    def serializer_class(self):
+        from serializers import JsonSerializer
+
+        return JsonSerializer
+
+
+class Nfs2PersonalityGrid(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'Personality letters of the grid slots, one row of 12 per race kind (`.DES` chain '
+            '"Grid Assignments": 48 `Char` records "slot 0" .. "Slot 11" in 4 chains). nfs2sen.exe 0x42b580 gives '
+            'every AI racer the personality of the letter at its slot (race cars - 1 - its line-up position) in '
+            'the row of the race (0x42bf20: knockout row 0, tournament 1, single race 2 with one AI racer, 3 with '
+            "more); 0x451b60 turns the letter into the personality index (letter - 'a', 0 outside 'a'..'n')",
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        knockout = (
+            UTF8Block(length=12),
+            {'description': '`.DES` chain "Grid Assignment - KnockOut Mode": row 0, race type 2. "abcdefghijkl"'},
+        )
+        tournament = (
+            UTF8Block(length=12),
+            {'description': '`.DES` chain "Grid Assignment - Tournament Mode": row 1, race type 1. "abcdefghijkl"'},
+        )
+        single_race_one_opponent = (
+            UTF8Block(length=12),
+            {
+                'description': '`.DES` chain "Grid Assignment - Single Race - One Opponent": row 2, single race with '
+                'one AI racer. "mmmmmmmmmmmm"'
+            },
+        )
+        single_race_multi_opponent = (
+            UTF8Block(length=12),
+            {
+                'description': '`.DES` chain "Grid Assignment - Single Race - Multi Opponent": row 3, single race with '
+                'more AI racers. "abcdefghijkl"'
+            },
+        )
+
+
+class Nfs2Personality(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'A driver personality of the AI racers (`.DES` chains "Car A - ..." .. "Car M: '
+            '..." in "Personalities", 228 bytes). nfs2sen.exe 0x451bd0 keeps it as it is in the file, the letter '
+            'and the 3 unnamed bytes as one int (0x4c6cc0 + index * 0xe4, offsets cited in the field descriptions)',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        letter = (
+            UTF8Block(length=1),
+            _des(
+                'Car',
+                "Type `Char`: the personality's letter. The loader hangs when the letters are not 'a', 'b', ... "
+                "'m' in file order",
+            ),
+        )
+        unnamed = (
+            UTF8Block(length=3),
+            {
+                'description': '`.DES`: three `Char` records "Unnamed", the letter again in every file. Read and '
+                'dropped by the loader',
+            },
+        )
+        speed_glue = (
+            ArrayBlock(length=21, child=_fixed()),
+            _des(
+                'Speed Glue Values',
+                'Named "Glue Values" in every personality but A. An `Array` of 21, 16.16, +0x04. nfs2sen.exe '
+                "0x427460 multiplies the AI racer's target speed by entry (the car's slice - the player's slice) / "
+                '15 + 10, clamped to 0..20: entry 10 when level with the player, the lower ones behind him, the '
+                'higher ones ahead (2.8 .. 0.68 in A); more than 30 slices away it is first multiplied by the speed '
+                'glue of the race (by 1 / it when below 1, see `Nfs2TrafficConfig`)',
+            ),
+        )
+        acceleration_glue = (
+            ArrayBlock(length=21, child=_fixed()),
+            _des(
+                'Acc Glue Values',
+                'An `Array` of 21, 16.16, +0x58, indexed like `speed_glue` (nfs2sen.exe 0x427640) and multiplied by '
+                'the acceleration glue of the race (by 1 / it when below 1). 9.0 at entry 0 and 1.0 elsewhere in every '
+                'personality but M (8, 5, 3, 2 at entries 1 .. 4)',
+            ),
+        )
+        speed_factor_adjust = (
+            _fixed(),
+            _des(
+                'Speed Factor Adjust: the speed factor for this car is multiplied by this value',
+                '+0xac; no reader found in nfs2sen.exe. 0.78 (A) up to 1.0 (L, M)',
+            ),
+        )
+        handling_adjust = (
+            _fixed(),
+            _des(
+                'Handling Adjust: effects of handling are multiplied by this value',
+                '+0xb0: nfs2sen.exe 0x427780 multiplies the handling slowdown by it (see `Nfs2CarAi` '
+                '`hi_handling_yaw`)',
+            ),
+        )
+        block_look_behind = (
+            _int(),
+            _des('Block Look Behind', 'Type `Integer`, +0xb4; no reader found in nfs2sen.exe'),
+        )
+        block_look_ahead = (
+            _fixed(),
+            _des('Block Look Ahead:', '+0xb8, compared with a distance by nfs2sen.exe 0x42a3c0'),
+        )
+        max_lane_change_speed = (
+            _fixed(),
+            _des(
+                'Maximum Lane change speed - default = 3.8',
+                '+0xbc: the cap of the lane change speed (nfs2sen.exe 0x42eec0; 3.2 for cars that are not AI racers)',
+            ),
+        )
+        lane_change_speed_factor = (
+            _fixed(),
+            _des(
+                'Lane change speed factor (def=.3) speed * this number = lane change speed',
+                '+0xc0, nfs2sen.exe 0x42eec0 (0.25 for cars that are not AI racers)',
+            ),
+        )
+        look_ahead = (
+            _int(),
+            _des(
+                'Look Ahead: this is how far ahead the opponent will look for oncoming traffic',
+                'Type `Integer`, +0xc4: a distance in m (nfs2sen.exe 0x429760; 30 for other cars, five times as far '
+                'when the speeds differ by more than 25 m/s)',
+            ),
+        )
+        lane_slack = (
+            ArrayBlock(length=4, child=_fixed()),
+            _des(
+                'Lane Slack (m)',
+                'An `Array` of 4, 16.16, +0xc8: nfs2sen.exe 0x42c120 gives the car one of them at random as its '
+                'lateral offset (car+0x3a4; other cars use `Nfs2TrafficConfig` `lane_slack`)',
+            ),
+        )
+        new_slack_probability = (
+            _int(),
+            _des(
+                'New Slack probability:smaller # = greater frequency of change: default=40',
+                '+0xd8: chance of a new lane slack at a checked slice, about 1 / value (nfs2sen.exe 0x42c1a0; '
+                'other cars use `Nfs2CarAi` `lane_slack_prob`); 0 = never',
+            ),
+        )
+        psycho_trigger_count = (
+            _int(),
+            _des(
+                'Psycho Trigger Count (how many times do you have to hit to piss off)',
+                '+0xdc: nfs2sen.exe 0x42c2e0 counts the hits of one human car at expert skill (car+0x540); above '
+                'this count the car turns psycho for `psycho_time`',
+            ),
+        )
+        psycho_time = (
+            _int(),
+            _des(
+                'Psycho Time (How long will this guy remain psycho ?)(seconds * 8)',
+                '+0xe0, set to car+0x53c by nfs2sen.exe 0x42c2e0',
+            ),
+        )
+
+
+_NFS2_PERSONALITIES = {
+    'a': 'Car A - The brit very clean and fast glue keeps him at front of pack',
+    'b': 'Car B - This is the "ice-man" - fast, but more aggressive',
+    'c': 'Car C - stink on shit aggressive and personal glue make him stick to player mor',
+    'd': 'Car D - no name generic',
+    'e': 'Car E: Sticky guy, not aggressive but clings to you',
+    'f': 'Car F: Floater',
+    'g': 'Car G "the stragler"',
+    'h': 'Car H: Car used in Head to Head Mode',
+    'i': 'Car I: Undefined',
+    'j': 'Car J: Undefined',
+    'k': 'Car K: Undefined',
+    'l': 'Car L: Undefined',
+    'm': 'Car M: Single Opponent Mode',
+}
+
+
+def _personality(letter: str, more: str = ''):
+    return (
+        Nfs2Personality(),
+        {
+            'description': f'`.DES` chain "{_NFS2_PERSONALITIES[letter]}"'
+            + (f'. {more}' if more else '')
+            + f'. Personality {ord(letter) - 0x61}, letter "{letter}"'
+        },
+    )
+
+
+class Nfs2Personalities(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'NFS2 SE driver personalities of the AI racers (`GAMEDATA/SIM/AI/PRSONAL.DAT`, '
+            '3012 bytes; `prsonal.dat` in `GAMEDATA/SIM/CARDATA/CARDATA.VIV` is an identical copy): the grid '
+            'assignments, then 13 personalities "a" .. "m". nfs2sen.exe 0x451ba0 points 0x4e082c / 0x4e0828 at '
+            'the copy compiled into the exe (0x4c6c90 grid letters, 0x4c6cc0 personalities; `MPERS.BAT`: `bin2src '
+            'prsonal.dat griddata.c 48 perdata.c`) and 0x451bd0 overwrites it from `prsonal.dat`, reading the file '
+            "as a little-endian stream. Field names, types and order come from the developers' field descriptions "
+            '`GAMEDATA/SIM/AI/PRSONAL.DES` (`Fixed` = 16.16 fixed point, `Integer` = int, `Char` = 1 byte; '
+            '`Array` records have no element type, their values are 16.16), a tree of records: the chains "Grid '
+            'Assignments" and "Personalities" (one chain per personality, named after the letter and a '
+            'description); it also embeds a copy of the file',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        grid = (Nfs2PersonalityGrid(), {'description': '`.DES` chain "Grid Assignments"'})
+        car_a = _personality('a')
+        car_b = _personality('b')
+        car_c = _personality('c', 'The name is cut off by the 80 bytes of the `.DES` record name')
+        car_d = _personality('d')
+        car_e = _personality('e')
+        car_f = _personality('f')
+        car_g = _personality('g')
+        car_h = _personality(
+            'h', 'Yet single races with one AI racer use "m" (grid row 2); "h" is slot 7 of the other rows'
+        )
+        car_i = _personality('i')
+        car_j = _personality('j')
+        car_k = _personality('k')
+        car_l = _personality('l')
+        car_m = _personality('m', 'Every slot of the single race row with one AI racer')
 
     def serializer_class(self):
         from serializers import JsonSerializer

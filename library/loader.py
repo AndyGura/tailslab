@@ -66,6 +66,14 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.car_specs import Nfs2CarAi
 
             return Nfs2CarAi
+        elif length == 452 and _file_or_archive_item_name(file_path).upper() == 'TRAFCFG.DAT':
+            from resources.eac.car_specs import Nfs2TrafficConfig
+
+            return Nfs2TrafficConfig
+        elif length == 3012 and _file_or_archive_item_name(file_path).upper() == 'PRSONAL.DAT':
+            from resources.eac.car_specs import Nfs2Personalities
+
+            return Nfs2Personalities
         elif file_path.endswith('CONFIG.DAT'):
             from resources.eac.configs import TnfsConfigDat
 
