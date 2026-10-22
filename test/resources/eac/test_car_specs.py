@@ -55,3 +55,28 @@ class TestNfs2CarPhysics(unittest.TestCase):
         offset = original.index(b'pcala.DAT') - 8
         start = int.from_bytes(original[offset : offset + 4], 'big')
         self.assertEqual(car_block.pack(car), original[start : start + 356])
+
+
+class TestNfs2SimTune(unittest.TestCase):
+    def test_viv_item_parses_and_round_trips(self):
+        (name, block, res) = require_file('test/samples/CARDATA.VIV', lazy=False)
+        child = next(x for x in res['children'] if x['alias'] == 'simtune.dat')
+        tune_block = block.item_block.possible_blocks[child['item']['choice_index']]
+        tune = child['item']['data']
+        self.assertEqual(tune_block.__class__.__name__, 'Nfs2SimTune')
+        self.assertEqual(tune['simulation']['telepole_launch_value'], 95.0)
+        self.assertEqual(tune['simulation']['extra_flight_gravity'], 0.5)
+        self.assertEqual(tune['simulation']['bad_collision_reset_ticks'], 700)
+        self.assertEqual(tune['simulation']['bounce_threshold'], 0xB333 / 0x10000)
+        self.assertEqual(tune['arcade']['telepole_launch_value'], 175.0)
+        self.assertEqual(tune['arcade']['collision_reset_launch_speed'], 30.0)
+        self.assertEqual(
+            [(x['slice_distance'], x['speed_boost_multiplier']) for x in tune['arcade']['glue_logic']],
+            [(5, 0x11333 / 0x10000), (10, 0x12666 / 0x10000), (30, 0x13333 / 0x10000), (60, 1.25)],
+        )
+        with open('test/samples/CARDATA.VIV', 'rb') as f:
+            original = f.read()
+        offset = original.index(b'simtune.dat') - 8
+        start = int.from_bytes(original[offset : offset + 4], 'big')
+        self.assertEqual(int.from_bytes(original[offset + 4 : offset + 8], 'big'), 232)
+        self.assertEqual(tune_block.pack(tune), original[start : start + 232])

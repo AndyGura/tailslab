@@ -976,3 +976,134 @@ class Nfs2CarPhysics(DeclarativeCompoundBlock):
         from serializers import JsonSerializer
 
         return JsonSerializer
+
+
+def _des(text: str, more: str = ''):
+    return {'description': f'`.DES`: "{text}"' + (f'. {more}' if more else '')}
+
+
+class Nfs2SimTuneGlueLogic(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'A pair of the "GLUE LOGIC" values (`.DES` headings "SIM GLUE LOGIC" / "ARCADE '
+            'GLUE LOGIC"): slice distance and speed boost multiplier, stored one after the other in the file. The loader '
+            '(nfs2sen.exe 0x43e1f4..0x43e213) puts the slice distance of pair k (0..3) at record+0x54 + 4k and '
+            'the multiplier at record+0x64 + 4k',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        slice_distance = (_int(), {'description': 'Slice distance (`.DES`: "slice distance 1" .. "4")'})
+        speed_boost_multiplier = (
+            _fixed(),
+            {'description': 'Speed boost multiplier (`.DES`: "Speed boost multiplier 1" .. "4")'},
+        )
+
+
+class Nfs2SimTuneRecord(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'Tuning values of one game style, 0x74 bytes: 21 values, then 4 glue logic pairs. '
+            'In memory (nfs2sen.exe 0x4df0a8 + style * 0x74) the first 21 values keep their file offsets (the glue logic pairs are split, see `glue_logic`); the '
+            'readers cited are in the newton vertical dynamics (nfs2sen.exe 0x44d840)',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        telepole_launch_value = (_fixed(), _des('telepole launch Value'))
+        initial_jump_roll_attenuate = (_fixed(), _des('initial jump roll attenuate'))
+        jump_roll_due_to_car_turn = (_fixed(), _des('jump roll due to car turn'))
+        initial_jump_road_pitch_damp = (_fixed(), _des('initial jump road pitch damp'))
+        jump_pitch_due_to_acc_and_brake = (_fixed(), _des('jump pitch due to acc and brake'))
+        extra_flight_gravity = (
+            _fixed(),
+            _des('extra flight gravity', 'Gravity factor while the car is in the air (record+0x14)'),
+        )
+        bad_collision_reset_ticks = (_int(), _des('ticks before car resets in a bad collision'))
+        full_gas_reset_tick_advance = (
+            _int(),
+            _des(
+                'advance reset tick if user pushes gas pedal to max',
+                'The arcade record\'s description says "gas" instead of "gas pedal"',
+            ),
+        )
+        invincibility_ticks_after_reset = (_int(), _des('Invicibility Time in Ticks after collision reset'))
+        reset_forward_slices = (_int(), _des('Slices to move car forward from crash point after collision reset'))
+        stop_tumbling_speed = (_fixed(), _des('speed at which car will stop tumbling if upright'))
+        collision_reset_altitude = (_fixed(), _des('collision reset car altitude'))
+        collision_reset_launch_speed = (_fixed(), _des('collision reset launch speed'))
+        bounce_threshold = (
+            _fixed(),
+            _des(
+                'Bounce threshold to use tunable bounce range (0.3 to 1.0)',
+                'Compared with the dot product of the car up vector and the road normal (record+0x34)',
+            ),
+        )
+        bounce_elasticity = (
+            _fixed(),
+            _des('Bounce Elasticity... how much speed is left on rebound', 'Read at record+0x38'),
+        )
+        bounce_shock_absorb_speed = (
+            _fixed(),
+            _des('Bounce - shock absorb speed. how much speed is loss before rebound in m/s', 'Read at record+0x3c'),
+        )
+        ground_max_speed_change = (
+            _fixed(),
+            _des('Ground - max speed of ground change to stop car from flight in m/s'),
+        )
+        ground_rise_smoothing = (
+            _fixed(),
+            _des(
+                'Ground - ground rise smoothing factor range (0.0 to 1.0) - smaller = smoother',
+                'Read at record+0x44',
+            ),
+        )
+        ground_fall_smoothing = (
+            _fixed(),
+            _des('Ground - Ground Fall smoothing factor - equal or bigger than above', 'Read at record+0x48'),
+        )
+        barrier_speed_loss_multiplier = (_fixed(), _des('Speed Loss multiplier when colliding with barriers'))
+        deflection_angular_range = (_fixed(), _des('Angular Range of deflection'))
+        glue_logic = (
+            ArrayBlock(length=4, child=Nfs2SimTuneGlueLogic()),
+            {
+                'description': 'The 4 "GLUE LOGIC" pairs (`.DES`: "slice distance 1" Integer, "Speed boost '
+                'multiplier 1" Fixed, ... 4), each pair as (slice distance, multiplier). In memory the loader '
+                '(nfs2sen.exe 0x43e1f4..0x43e213) splits them: slice distances at record+0x54..0x60, multipliers '
+                'at record+0x64..0x70',
+            },
+        )
+
+
+class Nfs2SimTune(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'NFS2 SE flight, bounce, ground and collision reset tuning (`simtune.dat` in '
+            '`GAMEDATA/SIM/CARDATA/CARDATA.VIV`, 232 bytes; the loose `GAMEDATA/CARMODEL/PC/SIMTUNE.DAT` is an '
+            'identical copy). `Cars_Init` (nfs2sen.exe 0x43dbd0) loads it with 0x43e0a0, reading the file as a '
+            'little-endian stream into two records of 0x74 bytes at 0x4df0a8, one per game style. Field names, '
+            "types and order come from the developers' field descriptions `GAMEDATA/CARMODEL/PC/SIMTUNE.DES` "
+            '(`Fixed` = 16.16 fixed point, `Integer` = int), which also embed a copy of the file',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        simulation = (
+            Nfs2SimTuneRecord(),
+            {'description': 'Record 0, used in simulation style (`.DES` heading "SIM MODE")'},
+        )
+        arcade = (
+            Nfs2SimTuneRecord(),
+            {
+                'description': 'Record 1, used in arcade style and in Wild, which runs on the arcade model '
+                '(`.DES` heading "ARCADE MODE")'
+            },
+        )
+
+    def serializer_class(self):
+        from serializers import JsonSerializer
+
+        return JsonSerializer

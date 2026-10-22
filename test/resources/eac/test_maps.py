@@ -1,7 +1,9 @@
 import unittest
 from copy import deepcopy
+from io import BytesIO
 
 from library import require_file
+from library.context import ReadContext
 
 
 class TestTriMap(unittest.TestCase):
@@ -162,3 +164,19 @@ class TestTrkMap(unittest.TestCase):
         ]
         self.assertEqual(len(special), 34)
         self.assertEqual(special[0]['position']['data']['special_idx'], 0)
+
+
+class TestCollisionExtraDataRecord(unittest.TestCase):
+    def test_nfs2_se_lane_fields(self):
+        from resources.eac.maps import CollisionExtraDataRecord
+
+        # a slice of NFS2 SE TR04.COL
+        raw = bytes.fromhex('0eb35ffe00000000c465e601007f001a007d7d00e6001200e0071d0ec50e5531090a0000')
+        block = CollisionExtraDataRecord()
+        data = block.unpack(ReadContext(BytesIO(raw)), read_bytes_amount=len(raw))
+        self.assertEqual(data['flags'], 0x55)
+        self.assertEqual(data['lanes'], {'unk': 3, 'count': 1})
+        self.assertEqual(data['left_lane_width'], 4.5)
+        self.assertEqual(data['right_lane_width'], 5.0)
+        self.assertEqual(data['unk3'], 0)
+        self.assertEqual(block.pack(data), raw)

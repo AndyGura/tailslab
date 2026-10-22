@@ -6,12 +6,18 @@ from typing import Set, Tuple
 from library.read_blocks import DataBlock, OptionalBlock
 
 
-def _is_nfs2_car_physics_name(file_path: str) -> bool:
-    """NFS2 SE `p<car>.DAT`: a loose file, or an item of CARDATA.VIV (entry ids end with `<index>_<name>`)"""
+def _file_or_archive_item_name(file_path: str) -> str:
+    """The name of a loose file, or of an archive item (entry ids end with `<index>_<name>`)"""
     name = file_path.replace('\\', '/').rsplit('/', 1)[-1].rsplit('__', 1)[-1]
     index, _, item_name = name.partition('_')
     if index.isdigit() and item_name:
         name = item_name
+    return name
+
+
+def _is_nfs2_car_physics_name(file_path: str) -> bool:
+    """NFS2 SE `p<car>.DAT`: a loose file, or an item of CARDATA.VIV"""
+    name = _file_or_archive_item_name(file_path)
     return name[:1] in ('p', 'P') and name.upper().endswith('.DAT')
 
 
@@ -46,6 +52,10 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.car_specs import Nfs2CarPhysics
 
             return Nfs2CarPhysics
+        elif length == 232 and _file_or_archive_item_name(file_path).upper() == 'SIMTUNE.DAT':
+            from resources.eac.car_specs import Nfs2SimTune
+
+            return Nfs2SimTune
         elif file_path.endswith('CONFIG.DAT'):
             from resources.eac.configs import TnfsConfigDat
 

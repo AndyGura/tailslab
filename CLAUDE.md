@@ -325,12 +325,20 @@ When you do:
   every field, from the 3DO `LaunchMe` code (tnfs-1995 Ghidra). The PBS editor renders it through the
   `block_class_mro` fallback and switches on `is3do` (no gear efficiency column, one brake cap).
 
-## NFS2 SE car physics (GAMEDATA/SIM/CARDATA/P*.DAT, `p<car>.DAT` in CARDATA.VIV)
+## NFS2 SE car physics (GAMEDATA/SIM/CARDATA/P*.DAT, `p<car>.DAT` and `simtune.dat` in CARDATA.VIV)
 
 - `Nfs2CarPhysics` (`resources/eac/car_specs.py`), 356 bytes, fields from the developers' `P*.DES` and the
   nfs2sen.exe loader (0x459970), addresses cited in the descriptions. The loader picks it by name and size
   (`_is_nfs2_car_physics_name` + length 356 in `library/loader.py`; the VIV's `<car>.dat` and `prsonal.dat` are other,
   unparsed formats), and `BigfBlock` lists it among its item blocks.
+- `Nfs2SimTune` (same module): `simtune.dat` in CARDATA.VIV (= `GAMEDATA/CARMODEL/PC/SIMTUNE.DAT`), 232 bytes, two
+  `Nfs2SimTuneRecord`s (simulation, arcade + Wild) of 21 values + 4 glue logic pairs, read by nfs2sen.exe 0x43e0a0 into
+  0x4df0a8. Picked by name (any case) and size 232 (`_file_or_archive_item_name` in `library/loader.py`), also a
+  `BigfBlock` item block.
+- The developers' `.DES` files (`P*.DES`, `SIMTUNE.DES`) give field names, types and order: a header, a copy of the
+  `.DAT` at 0x66 (int at 0x62 = size of the records), then one 154-byte record per field: type (10 bytes, `Fixed` =
+  16.16 or `Integer`), name (80 bytes), int size in bytes, int 0x38, 56 bytes of garbage. Names are null-terminated with
+  memory garbage after them.
 
 ## TNFS sound banks (SIMDATA/SOUNDBNK/*.BNK)
 

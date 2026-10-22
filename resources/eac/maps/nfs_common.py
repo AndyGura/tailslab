@@ -10,6 +10,7 @@ from library.read_blocks import (
     EnumLookupDelegateBlock,
     BytesBlock,
     FixedPointBlock,
+    SubByteCompoundBlock,
 )
 from library.read_blocks.misc.value_validators import Eq
 from resources.eac.fields.misc import RGBBlock, Point3D, Quaternion
@@ -375,14 +376,53 @@ class CollisionExtraDataRecord(DeclarativeCompoundBlock):
         flags = (
             IntegerBlock(length=1, is_signed=False),
             {
-                'description': 'Two 4-bit values (NFS2, NFS2 SE: 0x11, 0x44, 0x22 most often). When either is 2 '
-                '(`(flags >> 4) == 2` or `(flags & 0xf) == 2`), the NFS2 SE vertical dynamics (newton, nfs2sen.exe '
-                '0x44e170) treat the slice as having a ceiling: a car more than 10 m above the ground hits it. '
-                'Other meanings unknown',
+                'description': 'Two 4-bit wall types (NFS2, NFS2 SE: 0x11, 0x44, 0x22 most often): high nibble the '
+                'left road edge, low nibble the right one. NFS2 SE (nfs2sen.exe 0x458650): 0 = no wall on that side, '
+                'otherwise the car hits a wall at `left_border` / `right_border` (0.25 m inside) and the nibble becomes '
+                'its crash type; 6 = a car more than 3 m above the ground gets a tumble kick instead; 7 = a fast car '
+                'is thrown up (tracks 6 and 7 only, switched off in the shipped game). When either nibble is 2 the '
+                'vertical dynamics (newton, 0x44e170) treat the slice as having a ceiling: a car more than 10 m above '
+                'the ground hits it',
             },
         )
-        unk2 = (IntegerBlock(length=1), {'is_unknown': True})
-        unk3 = (IntegerBlock(length=4), {'is_unknown': True})
+        lanes = (
+            SubByteCompoundBlock(
+                length=1,
+                schema=[
+                    (
+                        4,
+                        'unk',
+                        'number',
+                        [],
+                        'Unknown. In the NFS2 and NFS2 SE files it is 0 in (nearly) exactly the slices whose '
+                        '`left_lane_width` is 0 (all of TR00, TR06, TR08)',
+                    ),
+                    (4, 'count', 'number', [], "The slice's lane count (NFS2 SE start grid, nfs2sen.exe 0x43ea40)"),
+                ],
+            ),
+            {
+                'description': "Low nibble `count`: the slice's lane count. The NFS2 SE start grid (car start "
+                'position, nfs2sen.exe 0x43ea40) puts the cars (count / 2) lane widths (`left_lane_width` / '
+                '`right_lane_width`) from the centre, only on tracks whose grid side flag is set. High nibble `unk` '
+                'unknown. Always 0 in the NFS3 files',
+            },
+        )
+        left_lane_width = (
+            FixedPointBlock(length=1, is_signed=False, fraction_bits=1),
+            {
+                'description': 'Lane width on the left side in meters, unit 0.5 m: NFS2 SE reads it as `value << 15` '
+                '(16.16; start grid, nfs2sen.exe 0x43ea40). The NFS3 files have other values here (over the whole '
+                'byte range), meaning unknown',
+            },
+        )
+        right_lane_width = (
+            FixedPointBlock(length=1, is_signed=False, fraction_bits=1),
+            {
+                'description': 'Lane width on the right side in meters, read like `left_lane_width`. The NFS3 files '
+                'have other values here (over the whole byte range), meaning unknown',
+            },
+        )
+        unk3 = (IntegerBlock(length=2), {'is_unknown': True})
 
 
 class ColExtraBlock(DeclarativeCompoundBlock):
