@@ -46,6 +46,7 @@ class TestNfs2CarPhysics(unittest.TestCase):
         self.assertEqual(car['num_gears'], 8)
         self.assertEqual(car['engine_redline_rpm'], 7550)
         self.assertEqual(car['max_velocity'], 81.0)
+        self.assertEqual(car['torque_curve'][:3], [310.0, 310.0, 315.0])
         self.assertEqual(car['brake_increasing_curve'], [64, 32, 16, 8, 4, 2, 1, 1])
         self.assertEqual(car['turn_in_ramp'], 16)
         self.assertEqual(car['push_factor'], 9000)

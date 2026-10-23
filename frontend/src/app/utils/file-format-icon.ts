@@ -40,5 +40,7 @@ const iconMap: Record<string, string> = {
 
   PlayerCarPhysics: 'speed',
   CarAiAndCrashBody: 'speed',
+  Nfs2CarPhysics: 'speed',
+  Nfs2CarAi: 'speed',
 };
 const fallbackIcon = 'question_mark';

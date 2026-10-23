@@ -890,86 +890,222 @@ class Nfs2CarPhysics(DeclarativeCompoundBlock):
         }
 
     class Fields(DeclarativeCompoundBlock.Fields):
-        mass = (_fixed(), {'description': 'Mass (`.DES`: "mass")'})
+        mass = (
+            _fixed(),
+            {
+                'description': 'Mass in kg (`.DES`: "mass"). Drive acceleration of a gear (specs+0x1a8, Car_Init '
+                'nfs2sen.exe 0x459560) = `velocity_to_rpm_ratio` / mass / 10 * `gear_efficiency`, in m/s² per N·m '
+                'of torque'
+            },
+        )
         num_gears = (
             _int(),
             {
                 'description': 'Number of gears: reverse + neutral + forward gears (6 to 8); the gear tables '
-                'have 8 entries'
+                'have 8 entries. Gear num_gears - 1 is the top gear: the automatic gearbox (0x458280) never shifts '
+                'up from it, and only in it may the engine reach the redline with the gas on'
             },
         )
         gear_shift_delay = (
             _int(),
-            {'description': 'Gear shift delay in ticks; the game uses the low byte as the shift timer'},
+            {
+                'description': 'Gear shift delay in physics steps (32 per second); the game uses the low byte as the '
+                'shift timer (car+0x2db), set at every gear change. No drive force while it runs (0x454210, '
+                '0x456f80)'
+            },
         )
         velocity_to_rpm_ratio = (
             ArrayBlock(length=8, child=_fixed()),
-            {'description': 'Velocity to rpm ratio per gear: reverse, neutral, 1st to 6th'},
+            {
+                'description': 'Engine rpm per m/s of road speed in each gear: reverse (negative), neutral (0), 1st '
+                'to 6th; the top speed of a gear is `engine_redline_rpm` / ratio. The simulation style divides it by '
+                "the car tuning's gear ratio (0x459560)"
+            },
         )
         gear_efficiency = (
             ArrayBlock(length=8, child=_fixed()),
-            {'description': 'Gear efficiency per gear: reverse, neutral, 1st to 6th'},
-        )
-        torque_curve = (
-            ArrayBlock(length=41, child=_int()),
             {
-                'description': 'Torque curve in 256 rpm steps: the game reads entry rpm / 256. The `.DES` gives '
-                'no element type (4-byte elements); the values look like 16.16 (PCALA: 0x1360000 = 310.0)'
+                'description': 'Gear efficiency per gear: reverse, neutral, 1st to 6th; a factor of the drive '
+                'acceleration of the gear (see `mass`)'
             },
         )
-        engine_redline_rpm = (_int(), {'description': 'Engine redline in rpm, a plain integer'})
-        max_velocity = (_fixed(), {'description': 'Maximum velocity of the car in m/s'})
-        front_drive_ratio = (_fixed(), {'description': 'Front drive ratio'})
-        max_braking_deceleration = (_fixed(), {'description': 'Maximum braking deceleration'})
-        front_bias_brake_ratio = (_fixed(), {'description': 'Front bias brake ratio'})
-        gas_increasing_curve = _u8_curve('Gas increasing curve: per-level steps of the gas ramp')
-        gas_decreasing_curve = _u8_curve('Gas decreasing curve: per-level steps of the gas ramp')
+        torque_curve = (
+            ArrayBlock(length=41, child=_fixed()),
+            {
+                'description': 'Engine torque in N·m (16.16) by rpm in 256 rpm steps: the game reads entry rpm / '
+                '256, clamped to 0..40 (0x4590e0), so entries above `engine_redline_rpm` / 256 are never read. The '
+                '`.DES` gives no element type (4-byte elements); the exe multiplies it with the 16.16 drive '
+                'acceleration of the gear (see `mass`, 0x454210). Arcade style: drive acceleration (m/s²) = torque '
+                '* drive * 1.5 * gas * surface grip, halved while the wheels spin; simulation style: torque * '
+                'drive * gas, at most 10 m/s² in 1st gear and 8 m/s² in the others (0x456f80)'
+            },
+        )
+        engine_redline_rpm = (
+            _int(),
+            {
+                'description': 'Engine redline in rpm, a plain integer. Arcade style (0x454210): the wheels never '
+                'turn faster than the redline in the gear; above it, except in the top gear, the drive force is '
+                '-torque at the redline * drive / 2. Arcade automatic gearbox (0x458280): shifts up above redline - '
+                '500 rpm, down when the lower gear stays below redline - 1500 rpm'
+            },
+        )
+        max_velocity = (
+            _fixed(),
+            {
+                'description': 'Top speed of the car in m/s in the simulation style: Car_Init (0x459560) sets the '
+                'air drag factor (specs+0x1c8) so that the drag, factor * speed³ (whole m/s), equals the top gear '
+                'drive acceleration at this speed (0x456f80). Wild arcade (0x4520e0): a human car turning hard '
+                "above 0.9 * the track's speed byte * max velocity / 104 m/s starts to slide"
+            },
+        )
+        front_drive_ratio = (
+            _fixed(),
+            {
+                'description': 'Part of the drive force on the front wheels in the simulation style (0x455370); 0 = '
+                'rear wheel drive. Game setup flag 4 sets it to 0.45 (0x459560)'
+            },
+        )
+        max_braking_deceleration = (
+            _fixed(),
+            {
+                'description': 'Maximum braking deceleration in m/s². Arcade style (0x454210): brake * 2 * this, '
+                '* 0.75 below 10 m/s, * surface grip; the wheels lock above 0.8 of 2 * this. Simulation style '
+                '(0x455370): brake * this'
+            },
+        )
+        front_bias_brake_ratio = (
+            _fixed(),
+            {
+                'description': 'Part of the braking force on the front wheels in the simulation style, plus the car '
+                "tuning's brake balance (0x455370)"
+            },
+        )
+        gas_increasing_curve = _u8_curve(
+            'Gas increasing curve: per-level steps of a gas ramp, like `brake_increasing_curve`. The controls '
+            '(nfs2sen.exe 0x457d80) ramp the gas by fixed steps instead: 16 per physics step with the gas ramp '
+            'option, 24 without'
+        )
+        gas_decreasing_curve = _u8_curve(
+            'Gas decreasing curve: per-level steps of a gas ramp, like `brake_decreasing_curve`. The controls '
+            '(nfs2sen.exe 0x457d80) ramp the gas by fixed steps instead'
+        )
         brake_increasing_curve = _u8_curve(
-            'Brake increasing curve: per-level steps of the brake ramp, level = brake / 32 (nfs2sen.exe 0x457d80)'
+            'Brake increasing curve: steps of the brake pedal value (0..255) per physics step while it goes up, by '
+            'level = pedal / 32 (nfs2sen.exe 0x457d80); only with the brake ramp option (keyboard), else the pedal '
+            'follows the control at once'
         )
         brake_decreasing_curve = _u8_curve(
-            'Brake decreasing curve: per-level steps of the brake ramp, level = brake / 32 (nfs2sen.exe 0x457d80)'
+            'Brake decreasing curve: steps of the brake pedal value per physics step while it goes down, by level = '
+            'pedal / 32 (nfs2sen.exe 0x457d80); only with the brake ramp option'
         )
-        wheel_base = (_fixed(), {'description': 'Wheel base'})
-        front_grip_bias = (_fixed(), {'description': 'Front grip bias'})
-        max_steering_acceleration = (_fixed(), {'description': 'Maximum steering acceleration'})
+        wheel_base = (
+            _fixed(),
+            {
+                'description': 'Wheel base in m. Car_Init (0x459560) stores wheel base / 2 * 0.0245 * 256 at '
+                'specs+0x1cc and its inverse at 0x1d0, read by the simulation style (0x455370)'
+            },
+        )
+        front_grip_bias = (
+            _fixed(),
+            {'description': 'Part of the grip on the front wheels in the simulation style (0x455370)'},
+        )
+        max_steering_acceleration = (
+            _fixed(),
+            {
+                'description': 'Maximum steering acceleration. Arcade style (0x4539e0): yaw rate (car+0x30c) = gain '
+                '/ 128 * steering (-127..127), gain = this / 64, scaled by speed * 0.2 below 5 m/s and divided by 1 '
+                '+ speed * `low_turn_factor` / `high_turn_factor` above 20 m/s. Simulation style: multiplied by the '
+                "car tuning's steering sensitivity (0x459560)"
+            },
+        )
         turn_in_ramp = (
             _int(),
             {
-                'description': 'Steering ramp step toward the requested steering (nfs2sen.exe 0x457d80)',
+                'description': 'Steering ramp step toward the requested steering (-127..127) per physics step, with '
+                'the steering ramp option (nfs2sen.exe 0x457d80)',
             },
         )
         turn_out_ramp = (
             _int(),
             {
-                'description': 'Steering ramp step away from the requested steering (nfs2sen.exe 0x457d80)',
+                'description': 'Steering ramp step back to the centre per physics step, while the request is the '
+                'centre or the other side (nfs2sen.exe 0x457d80)',
             },
         )
-        lateral_acceleration_grip_multiplier = (_fixed(), {'description': 'Lateral acceleration grip multiplier'})
-        aerodynamic_downforce_multiplier = (_fixed(), {'description': 'Aerodynamic downforce multiplier'})
+        lateral_acceleration_grip_multiplier = (
+            _fixed(),
+            {
+                'description': 'Lateral acceleration grip multiplier, read by the simulation style (0x456550; its '
+                'inverse at specs+0x1d4, 0x455370). Game setup flag 4 multiplies it by 1.25 (0x459560)'
+            },
+        )
+        aerodynamic_downforce_multiplier = (
+            _fixed(),
+            {
+                'description': 'Aerodynamic downforce multiplier. Simulation style above 5 m/s (0x4575a0): front grip '
+                "* (1 + speed * this * the tuning's front downforce), rear grip * (1 + speed * this * rear downforce "
+                '* 1.5; * 2 instead of 1.5 while braking above 36 m/s on car types 0 and 14)'
+            },
+        )
         gas_off_factor = (
             _fixed(),
             {
-                'description': 'Gas off factor. The loader stores it at specs+0x144, after `g_transfer_factor` '
-                '(nfs2sen.exe 0x459970)'
+                'description': 'Engine braking. Arcade style (0x454210): without gas the drive force is -torque * '
+                'drive * this * speed * 0.1, and this fraction of the torque brakes when the engine runs faster than '
+                'the gas asks. Simulation style (0x456f80) alike. The loader stores it at specs+0x144, after '
+                '`g_transfer_factor` (nfs2sen.exe 0x459970)'
             },
         )
         g_transfer_factor = (
             _fixed(),
-            {'description': 'G transfer factor. The loader stores it at specs+0x140, before `gas_off_factor`'},
+            {
+                'description': 'G transfer factor: weight transfer per longitudinal acceleration in the simulation '
+                'style (0x455370). The loader stores it at specs+0x140, before `gas_off_factor`'
+            },
         )
-        slide_multiplier = (_fixed(), {'description': 'Slide multiplier'})
-        spin_velocity_cap = (_fixed(), {'description': 'Spin velocity cap'})
-        slide_velocity_cap = (_fixed(), {'description': 'Slide velocity cap'})
-        slide_assistance_factor = (_int(), {'description': 'Slide assistance factor'})
-        push_factor = (_int(), {'description': 'Push factor'})
+        slide_multiplier = (
+            _fixed(),
+            {
+                'description': 'Slide multiplier. Arcade style (0x452fa0): sideways push of a slide = yaw rate * this '
+                '* the slide state gain (2.5 to 4) * speed'
+            },
+        )
+        spin_velocity_cap = (
+            _fixed(),
+            {'description': 'Spin velocity cap, read by the simulation style (0x455370)'},
+        )
+        slide_velocity_cap = (
+            _fixed(),
+            {'description': 'Slide velocity cap: sideways speed factor of the simulation style slides (0x455370)'},
+        )
+        slide_assistance_factor = (
+            _int(),
+            {
+                'description': 'Slide assistance factor. Arcade style (0x4539e0): sliding into a bend scales the '
+                'steering gain by (road heading change - this) / 512 + 1 (above 0x80), or (heading change - this / '
+                '2) / 128 + 0.5 within 0.75..1'
+            },
+        )
+        push_factor = (
+            _int(),
+            {
+                'description': 'Push factor. Arcade style (0x452fa0), gas below 64: a push slide (understeer) starts '
+                'when (speed in whole m/s)² * yaw rate / 512 goes over this + 0x6667'
+            },
+        )
         low_turn_factor = (
             _fixed(),
-            {'description': 'Low turn factor (`.DES`: "the lower the figure, the better the turn")'},
+            {
+                'description': 'Low turn factor (`.DES`: "the lower the figure, the better the turn"). Arcade style '
+                '(0x4539e0): the steering gain above 20 m/s is divided by 1 + speed * this with the gas below half'
+            },
         )
         high_turn_factor = (
             _fixed(),
-            {'description': 'High turn factor (`.DES`: "the lower the figure, the better the turn")'},
+            {
+                'description': 'High turn factor (`.DES`: "the lower the figure, the better the turn"). Arcade style '
+                '(0x4539e0): the steering gain above 20 m/s is divided by 1 + speed * this with half gas or more'
+            },
         )
 
     def serializer_class(self):
