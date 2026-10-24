@@ -116,8 +116,7 @@ export class ConverterComponent implements OnInit, OnDestroy {
       images__save_embedded_palette: [false],
       images__save_texts: [false],
       maps__save_as_chunked: [false],
-      maps__save_invisible_wall_collisions: [false],
-      maps__save_terrain_collisions: [false],
+      maps__tnfs_chunks_per_file: [1],
       maps__save_spherical_skybox_texture: [true],
       maps__add_props_to_obj: [true],
       geometry__save_obj: [true],
@@ -386,6 +385,7 @@ export class ConverterComponent implements OnInit, OnDestroy {
     const settings: ConversionConfig = this.converterForm.getRawValue();
     // an emptied number field would be stored as "None"
     settings.multiprocess_processes_count = Math.max(0, Math.floor(Number(settings.multiprocess_processes_count) || 0));
+    settings.maps__tnfs_chunks_per_file = Math.max(1, Math.floor(Number(settings.maps__tnfs_chunks_per_file) || 1));
     return settings;
   }
 

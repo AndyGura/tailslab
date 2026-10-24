@@ -26,8 +26,7 @@ export type ConversionConfig = {
   images__save_embedded_palette: boolean;
   images__save_texts: boolean;
   maps__save_as_chunked: boolean;
-  maps__save_invisible_wall_collisions: boolean;
-  maps__save_terrain_collisions: boolean;
+  maps__tnfs_chunks_per_file: number;
   maps__save_spherical_skybox_texture: boolean;
   maps__add_props_to_obj: boolean;
   geometry__save_obj: boolean;

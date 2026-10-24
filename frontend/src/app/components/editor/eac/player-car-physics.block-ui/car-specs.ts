@@ -33,8 +33,8 @@ export const ordinal = (n: number) => {
 export const fmt = (v: number, digits: number = 1) =>
   isFinite(v) ? v.toLocaleString('en-US', { maximumFractionDigits: digits, minimumFractionDigits: 0 }) : '–';
 
-// Base of the TNFS car spec editors: tracks every change under the resource (charts, embedded field editors,
-// undo / redo) to rebuild the derived view, and writes edits as single undoable changes
+// Base of the car spec editors (TNFS PBS / PDN, NFS2 SE physics): tracks every change under the resource (charts,
+// embedded field editors, undo / redo) to rebuild the derived view, and writes edits as single undoable changes
 @Directive()
 export abstract class CarSpecEditorBase
   extends SubscribableGuiComponent<{ [key: string]: any }>

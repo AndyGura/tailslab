@@ -6,6 +6,27 @@ from typing import Set, Tuple
 from library.read_blocks import DataBlock, OptionalBlock
 
 
+def _file_or_archive_item_name(file_path: str) -> str:
+    """The name of a loose file, or of an archive item (entry ids end with `<index>_<name>`)"""
+    name = file_path.replace('\\', '/').rsplit('/', 1)[-1].rsplit('__', 1)[-1]
+    index, _, item_name = name.partition('_')
+    if index.isdigit() and item_name:
+        name = item_name
+    return name
+
+
+def _is_nfs2_car_physics_name(file_path: str) -> bool:
+    """NFS2 SE `p<car>.DAT`: a loose file, or an item of CARDATA.VIV"""
+    name = _file_or_archive_item_name(file_path)
+    return name[:1] in ('p', 'P') and name.upper().endswith('.DAT')
+
+
+def _is_nfs2_car_ai_name(file_path: str) -> bool:
+    """NFS2 SE car AI data `<car>.dat` (4 letters or digits): a loose file, or an item of CARDATA.VIV"""
+    name = _file_or_archive_item_name(file_path)
+    return len(name) == 8 and name[:4].isalnum() and name[:4].isascii() and name.upper().endswith('.DAT')
+
+
 # this looks like a mess, but it is intended to be like that: by using local imports we dramatically increase
 # performance, because we spawn process per file, and it doesn't need to load all those classes every time
 def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=None):
@@ -33,6 +54,26 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.car_specs import Tnfs3doCarPhysics
 
             return Tnfs3doCarPhysics
+        elif length == 356 and _is_nfs2_car_physics_name(file_path):
+            from resources.eac.car_specs import Nfs2CarPhysics
+
+            return Nfs2CarPhysics
+        elif length == 232 and _file_or_archive_item_name(file_path).upper() == 'SIMTUNE.DAT':
+            from resources.eac.car_specs import Nfs2SimTune
+
+            return Nfs2SimTune
+        elif length == 524 and _is_nfs2_car_ai_name(file_path):
+            from resources.eac.car_specs import Nfs2CarAi
+
+            return Nfs2CarAi
+        elif length == 452 and _file_or_archive_item_name(file_path).upper() == 'TRAFCFG.DAT':
+            from resources.eac.car_specs import Nfs2TrafficConfig
+
+            return Nfs2TrafficConfig
+        elif length == 3012 and _file_or_archive_item_name(file_path).upper() == 'PRSONAL.DAT':
+            from resources.eac.car_specs import Nfs2Personalities
+
+            return Nfs2Personalities
         elif file_path.endswith('CONFIG.DAT'):
             from resources.eac.configs import TnfsConfigDat
 

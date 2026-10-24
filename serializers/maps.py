@@ -3,7 +3,6 @@ import math
 import os
 import traceback
 from copy import deepcopy
-from string import Template
 from typing import List, Dict, Optional, Tuple
 
 import config
@@ -11,7 +10,7 @@ from library.utils import path_join
 from resources.eac.maps import RoadSplinePoint
 from resources.eac.utils import rotate_list
 from serializers import BaseFileSerializer
-from serializers.common.three_d import SubMesh, Mesh, Scene, export_scenes, BarrierPath
+from serializers.common.three_d import SubMesh, Mesh, Scene, export_scenes
 
 general_config = config.general_config()
 
@@ -261,58 +260,6 @@ class TriMapSerializer(BaseFileSerializer):
             model.name = f'terrain_chunk_{counter}_{"left" if is_left else "right"}fence_{self.fence_texture_name}'
             return model
 
-    terrain_collisions_script = """
-def find_terrain_chunks():
-    import re
-    pattern = re.compile(f"^terrain_chunk")
-    return [x for x in bpy.data.objects if pattern.match(x.name)]
-
-bpy.ops.object.select_all(action='DESELECT')
-is_active_set = False
-objects = find_terrain_chunks()
-for object in objects:
-    object.select_set(True)
-    if not is_active_set:
-        bpy.context.view_layer.objects.active = object
-        is_active_set = True
-if len(objects) > 0:
-    bpy.ops.rigidbody.objects_add(type='PASSIVE')
-# for obj in bpy.context.selected_objects:
-#     obj.rigid_body.collision_shape = 'CONVEX_HULL'
-"""
-
-    wall_collisions_script = Template("""
-import math
-left_barrier = json.loads('$left_barrier')
-right_barrier = json.loads('$right_barrier')
-wall_cube_names = []
-for barrier in [left_barrier, right_barrier]:
-    if not barrier:
-        continue
-    for i in range(len(barrier['middle_points'])):
-        rotation = barrier['orientations'][i]
-        if barrier == left_barrier:
-            rotation += math.pi
-        bpy.ops.mesh.primitive_cube_add(location=(
-                                            barrier['middle_points'][i][0] + math.cos(rotation),
-                                            barrier['middle_points'][i][1] - math.sin(rotation),
-                                            barrier['points'][i][2] + 100),
-                                        scale=(1, barrier['lengths'][i] / 2, 125),
-                                        rotation=(0, 0, -barrier['orientations'][i]))
-        cube = bpy.data.objects['Cube']
-        cube.name = f"wall_collision_{'left' if barrier == left_barrier else 'right'}_{i}"
-        cube.hide_render = True
-        cube.display_bounds_type = 'BOX'
-        cube.display_type = 'BOUNDS'
-        wall_cube_names.append(cube.name)
-bpy.ops.object.select_all(action='DESELECT')
-for name in wall_cube_names:
-    bpy.data.objects[name].select_set(True)
-bpy.ops.rigidbody.objects_add(type='PASSIVE')
-for obj in bpy.context.selected_objects:
-    obj.rigid_body.collision_shape = 'BOX'
-""")
-
     def _get_texture_name_from_id(self, is_opened_track, texture_id):
         if is_opened_track:
             return f'{math.floor(texture_id / 3)}/{hex(10 + texture_id % 3)[2:].upper()}000'
@@ -356,9 +303,12 @@ for obj in bpy.context.selected_objects:
             for i in range(max(frame_count, 1))
         ]
 
-    def _prop_json(self, data: dict, object_index: int, instance, is_opened_track, use_local_coordinates) -> Dict:
+    def _prop_json(
+        self, data: dict, object_index: int, instance, is_opened_track, pivot_index: Optional[int] = None
+    ) -> Dict:
         """object_index: index of the instance in the TRI's `props` (file order), the index the game engine refers to
-        road objects by (tnfs-1995 `g_road_objects`, `g_sign_status`)"""
+        road objects by (tnfs-1995 `g_road_objects`, `g_sign_status`). pivot_index: the road spline point, which the
+        position is relative to (the first point of the output chunk), None for world coordinates"""
         prop_definition = data['prop_descr'][instance['prop_descr_idx'] % len(data['prop_descr'])]
         spline_index = instance['road_point_idx']
         road_spline_vertex = data['road_spline'][spline_index]
@@ -379,11 +329,12 @@ for obj in bpy.context.selected_objects:
                 'object_rotation': round(instance['rotation'] * 256 / (2 * math.pi)) & 0xFF,
             },
         }
-        if use_local_coordinates:
+        if pivot_index is not None:
+            pivot = data['road_spline'][pivot_index]['position']
             res['position'] = [
-                res['position'][0] - data['road_spline'][spline_index - (spline_index % 4)]['position']['x'],
-                res['position'][1] - data['road_spline'][spline_index - (spline_index % 4)]['position']['z'],
-                res['position'][2] - data['road_spline'][spline_index - (spline_index % 4)]['position']['y'],
+                res['position'][0] - pivot['x'],
+                res['position'][1] - pivot['z'],
+                res['position'][2] - pivot['y'],
             ]
         if prop_definition['type'] == 'model':
             res['properties'] = {**res['properties'], 'model_ref_id': prop_definition['data']['data']['resource_id']}
@@ -571,38 +522,51 @@ for obj in bpy.context.selected_objects:
         for i, chunk in enumerate(chunks):
             chunk.next_chunk = chunks[i + 1] if (i < len(chunks) - 1) else (None if is_opened else chunks[0])
 
-        # put terrain chunks in scenes
+        # terrain meshes of every chunk
+        chunk_meshes = []
         for i, terrain_entry in enumerate(data['terrain']):
             texture_names = [self._get_texture_name_from_id(is_opened, tid) for tid in terrain_entry['texture_ids']]
             map_scene.mtl_texture_names.extend([f'background/{x}' for x in texture_names])
             meshes = chunks[i].build_models(i, texture_names)
             for mesh in meshes:
                 mesh.change_axes(new_z='y', new_y='z')
-            if self.settings.maps__save_as_chunked:
+            chunk_meshes.append(meshes)
+
+        if self.settings.maps__save_as_chunked:
+            # one output file ("terrain_chunk_<n>", "terrain_block<per_file>_<n>" for several chunks per file) holds
+            # `maps__tnfs_chunks_per_file` chunks of the track, the last one can hold less
+            per_file = max(1, int(self.settings.maps__tnfs_chunks_per_file))
+            file_prefix = 'terrain_chunk' if per_file == 1 else f'terrain_block{per_file}'
+            file_count = math.ceil(len(chunk_meshes) / per_file)
+            for n in range(file_count):
+                first, end = n * per_file, min((n + 1) * per_file, len(chunk_meshes))
                 position = (
-                    data['road_spline'][i * 4]['position']['x'],
-                    data['road_spline'][i * 4]['position']['z'],
-                    data['road_spline'][i * 4]['position']['y'],
+                    data['road_spline'][first * 4]['position']['x'],
+                    data['road_spline'][first * 4]['position']['z'],
+                    data['road_spline'][first * 4]['position']['y'],
                 )
                 dummy = {
-                    'name': f'chunk_{i}',
+                    'name': f'chunk_{n}',
                     'position': position,
                     'properties': {
                         'is_chunk': True,
-                        'chunk': f'terrain_chunk_{i}',
+                        'chunk': f'{file_prefix}_{n}',
                     },
                 }
-                if i < len(data['terrain']) - 1:
-                    dummy['properties']['children'] = [f'chunk_{i + 1}']
+                if n < file_count - 1:
+                    dummy['properties']['children'] = [f'chunk_{n + 1}']
                 elif not is_opened:
                     dummy['properties']['children'] = ['chunk_0']
                 map_scene.dummies.append(dummy)
+                meshes = _merge_meshes_by_texture(
+                    [mesh for meshes in chunk_meshes[first:end] for mesh in meshes], f'{file_prefix}_{n}'
+                )
                 for mesh in meshes:
                     mesh.pivot_offset = position
                 scene = Scene(
-                    name=f'terrain_chunk_{i}',
+                    name=f'{file_prefix}_{n}',
                     sub_meshes=meshes,
-                    obj_name=f'terrain_chunk_{i}',
+                    obj_name=f'{file_prefix}_{n}',
                     mtl_name='terrain',
                     bake_textures=False,
                     skip_mtl_export=True,
@@ -610,28 +574,28 @@ for obj in bpy.context.selected_objects:
                     export_normals=False,
                 )
                 if self.settings.maps__add_props_to_obj:
-                    (meshes, txs) = self.render_tnfs_props(id, data, is_opened, i * 4, (i + 1) * 4 - 1, position)
+                    (meshes, txs) = self.render_tnfs_props(id, data, is_opened, first * 4, end * 4 - 1, position)
                     scene.sub_meshes.extend(meshes)
                     map_scene.mtl_texture_names.extend(txs)
                 else:
                     scene.dummies = [
-                        self._prop_json(data, k, o, is_opened, True)
+                        self._prop_json(data, k, o, is_opened, first * 4)
                         for k, o in enumerate(data['props'])
-                        if (i + 1) * 4 > o['road_point_idx'] >= i * 4
+                        if end * 4 > o['road_point_idx'] >= first * 4
                     ]
                     for j, d in enumerate(scene.dummies):
                         d['name'] += str(j)
                 scenes.append(scene)
-            else:
+        else:
+            for meshes in chunk_meshes:
                 map_scene.sub_meshes.extend(meshes)
-        if not self.settings.maps__save_as_chunked:
             if self.settings.maps__add_props_to_obj:
                 (meshes, txs) = self.render_tnfs_props(id, data, is_opened, 0, len(data['terrain']) * 4 - 1, (0, 0, 0))
                 map_scene.sub_meshes.extend(meshes)
                 map_scene.mtl_texture_names.extend(txs)
             else:
                 prop_dummies = [
-                    self._prop_json(data, k, o, is_opened, False)
+                    self._prop_json(data, k, o, is_opened)
                     for k, o in enumerate(data['props'])
                     if len(data['terrain']) * 4 > o['road_point_idx'] >= 0
                 ]
@@ -652,86 +616,22 @@ for obj in bpy.context.selected_objects:
                 [f'foreground/{self._texture_ids(x, 1, is_opened)[0]}' for x in resource_ids]
             )
 
-        if self.settings.maps__save_terrain_collisions:
-            for scene in scenes:
-                scene.extra_script += self.terrain_collisions_script
-
-        if self.settings.maps__save_invisible_wall_collisions:
-            left_barrier_points = BarrierPath(
-                [
-                    [
-                        rp['position']['x'] + rp['left_barrier'] * math.cos(rp['orientation'] + math.pi),
-                        rp['position']['y'],
-                        rp['position']['z'] - rp['left_barrier'] * math.sin(rp['orientation'] + math.pi),
-                    ]
-                    for rp in data['road_spline'][: len(data['terrain']) * 4]
-                ]
-            )
-            right_barrier_points = BarrierPath(
-                [
-                    [
-                        rp['position']['x'] + rp['right_barrier'] * math.cos(rp['orientation']),
-                        rp['position']['y'],
-                        rp['position']['z'] - rp['right_barrier'] * math.sin(rp['orientation']),
-                    ]
-                    for rp in data['road_spline'][: len(data['terrain']) * 4]
-                ]
-            )
-            if not is_opened:
-                left_barrier_points.points += [left_barrier_points.points[0]]
-                right_barrier_points.points += [right_barrier_points.points[0]]
-                left_barrier_points.is_closed = right_barrier_points.is_closed = True
-
-            left_barrier_points.optimize()
-            left_barrier_points.points = [[p[0], p[2], p[1]] for p in left_barrier_points.points]
-            left_barrier_points.z_up = True
-            right_barrier_points.optimize()
-            right_barrier_points.points = [[p[0], p[2], p[1]] for p in right_barrier_points.points]
-            right_barrier_points.z_up = True
-
-            map_scene.extra_script += self.wall_collisions_script.substitute(
-                {
-                    'left_barrier': json.dumps(
-                        {
-                            'points': left_barrier_points.points,
-                            'middle_points': left_barrier_points.middle_points,
-                            'lengths': left_barrier_points.lengths,
-                            'orientations': left_barrier_points.orientations,
-                        }
-                    ),
-                    'right_barrier': json.dumps(
-                        {
-                            'points': right_barrier_points.points,
-                            'middle_points': right_barrier_points.middle_points,
-                            'lengths': right_barrier_points.lengths,
-                            'orientations': right_barrier_points.orientations,
-                        }
-                    ),
-                }
-            )
-
         # export scenes
         return export_scenes(scenes, path, self.settings)
 
 
-TERRAIN_COLLISIONS_SCRIPT = """
-
-bpy.ops.object.select_all(action='DESELECT')
-is_active_set = False
-objects = [x for x in bpy.data.objects if x.name == "terrain_collision_mesh"]
-for object in objects:
-    object.select_set(True)
-    if not is_active_set:
-        bpy.context.view_layer.objects.active = object
-        is_active_set = True
-if len(objects) > 0:
-    bpy.ops.rigidbody.objects_add(type='PASSIVE')
-for obj in bpy.context.selected_objects:
-    obj.rigid_body.collision_shape = 'MESH' 
-    obj.hide_render = True
-    obj.display_type = 'WIRE'   
- 
-            """
+def _merge_meshes_by_texture(meshes: List[SubMesh], name_prefix: str) -> List[SubMesh]:
+    """One mesh per texture, named "<name_prefix>_<texture>" (nfs-web and the GUI take the material from the text after
+    the last "_"). Meshes must have the same pivot offset"""
+    merged: Dict[str, SubMesh] = {}
+    for mesh in meshes:
+        if mesh.texture_id not in merged:
+            merged[mesh.texture_id] = SubMesh()
+            merged[mesh.texture_id].name = f'{name_prefix}_{mesh.texture_id}'
+            merged[mesh.texture_id].texture_id = mesh.texture_id
+            merged[mesh.texture_id].pivot_offset = mesh.pivot_offset
+        merged[mesh.texture_id].extend(mesh)
+    return list(merged.values())
 
 
 # Animation delay units per second of NFS2-NFS4 animated props (assumed, not confirmed)
@@ -901,8 +801,7 @@ def _prop_records(
 
 
 class EacTrackSerializer(BaseFileSerializer):
-    """Common export of NFS2 (TRK), NFS3 and NFS4 (FRD) tracks: terrain chunks, props, collision mesh and QFS
-    textures"""
+    """Common export of NFS2 (TRK), NFS3 and NFS4 (FRD) tracks: terrain chunks, props and QFS textures"""
 
     def __init__(self):
         super().__init__(is_dir=True)
@@ -1025,16 +924,6 @@ class EacTrackSerializer(BaseFileSerializer):
             {m.texture_id for meshes in terrain + prop_meshes for m in meshes if m.texture_id}
         )
 
-        if self.settings.maps__save_terrain_collisions:
-            terrain_mesh = SubMesh()
-            terrain_mesh.name = 'terrain_collision_mesh'
-            for meshes in terrain:
-                for mesh in meshes:
-                    terrain_mesh.extend(mesh)
-            terrain_mesh.collapse_vertices()
-            map_scene.sub_meshes.append(terrain_mesh)
-            map_scene.extra_script += TERRAIN_COLLISIONS_SCRIPT
-
         scenes = [map_scene]
         if chunked:
             for i, pivot in enumerate(pivots):
@@ -1113,7 +1002,7 @@ class TrkMapSerializer(EacTrackSerializer):
             obj_name='map',
             mtl_name='terrain',
             mtl_texture_path_func=lambda x: f'textures/{x}.png',
-            skip_obj_export=self.settings.maps__save_as_chunked and not self.settings.maps__save_terrain_collisions,
+            skip_obj_export=self.settings.maps__save_as_chunked,
         )
 
         # add road spline to map scene
@@ -1207,7 +1096,7 @@ class FrdMapSerializer(EacTrackSerializer):
             obj_name='map',
             mtl_name='terrain',
             mtl_texture_path_func=lambda x: f'textures/{x}.png',
-            skip_obj_export=self.settings.maps__save_as_chunked and not self.settings.maps__save_terrain_collisions,
+            skip_obj_export=self.settings.maps__save_as_chunked,
         )
 
         # add road spline to map scene
@@ -1369,7 +1258,7 @@ class Nfs4FrdMapSerializer(EacTrackSerializer):
             obj_name='map',
             mtl_name='terrain',
             mtl_texture_path_func=lambda x: f'textures/{x}.png',
-            skip_obj_export=self.settings.maps__save_as_chunked and not self.settings.maps__save_terrain_collisions,
+            skip_obj_export=self.settings.maps__save_as_chunked,
         )
 
         # add road spline to map scene

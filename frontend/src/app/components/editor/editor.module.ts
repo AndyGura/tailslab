@@ -61,6 +61,8 @@ import { StatTilesComponent } from './common/stat-tiles/stat-tiles.component';
 import { SliderFieldComponent } from './common/slider-field/slider-field.component';
 import { PlayerCarPhysicsBlockUiComponent } from './eac/player-car-physics.block-ui/player-car-physics.block-ui.component';
 import { CarAiAndCrashBodyBlockUiComponent } from './eac/car-ai-and-crash-body.block-ui/car-ai-and-crash-body.block-ui.component';
+import { Nfs2CarPhysicsBlockUiComponent } from './eac/nfs2-car-physics.block-ui/nfs2-car-physics.block-ui.component';
+import { Nfs2CarAiBlockUiComponent } from './eac/nfs2-car-ai.block-ui/nfs2-car-ai.block-ui.component';
 
 @NgModule({
   declarations: [
@@ -110,6 +112,8 @@ import { CarAiAndCrashBodyBlockUiComponent } from './eac/car-ai-and-crash-body.b
     EaglModelBlockUiComponent,
     PlayerCarPhysicsBlockUiComponent,
     CarAiAndCrashBodyBlockUiComponent,
+    Nfs2CarPhysicsBlockUiComponent,
+    Nfs2CarAiBlockUiComponent,
   ],
   imports: [
     CommonModule,

@@ -175,14 +175,6 @@
               Save As Chunked
             </mat-checkbox>
             <mat-checkbox
-              formControlName="maps__save_invisible_wall_collisions"
-              matTooltip="Place boxes with collision where invisible wall is located">
-              Save Invisible Wall Collisions
-            </mat-checkbox>
-            <mat-checkbox formControlName="maps__save_terrain_collisions" matTooltip="Save terrain collisions">
-              Save Terrain Collisions
-            </mat-checkbox>
-            <mat-checkbox
               formControlName="maps__save_spherical_skybox_texture"
               matTooltip="Save spherical skybox texture">
               Save Spherical Skybox Texture
@@ -190,6 +182,17 @@
             <mat-checkbox formControlName="maps__add_props_to_obj" matTooltip="Bake map props to the scene">
               Add Props To Obj
             </mat-checkbox>
+          </div>
+          <div class="settings-group">
+            <mat-form-field appearance="outline">
+              <mat-label>TNFS Chunks Per File</mat-label>
+              <input
+                matInput
+                type="number"
+                min="1"
+                formControlName="maps__tnfs_chunks_per_file"
+                matTooltip="TNFS tracks: how many terrain chunks (4 road points each) go into one output file, with their props. Only with Save As Chunked" />
+            </mat-form-field>
           </div>
           <mat-divider></mat-divider>
           <!-- Geometry Settings -->

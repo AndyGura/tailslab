@@ -1,0 +1,273 @@
+@if (resourceId && resourceName && !hideName) {
+  <h2 [matTooltip]="resourceDescription || ''" matTooltipPosition="above">{{ resourceName }}</h2>
+}
+@if (!hideBlockActions) {
+  <app-block-actions
+    [resource]="{
+      id: resourceId!,
+      name: resourceName!,
+      data: resourceData,
+      schema: resourceSchema,
+    }"></app-block-actions>
+}
+
+<ng-template #sliderFields let-specs>
+  <div class="sliders">
+    @for (s of specs; track s[0]) {
+      <app-slider-field
+        [label]="s[0]"
+        [description]="descriptions[s[0]]"
+        [value]="resourceData?.[s[0]]"
+        [spec]="s[1]"
+        [disabled]="disabled"
+        (valueChange)="setField(s[0], $event)"></app-slider-field>
+    }
+  </div>
+</ng-template>
+
+<ng-template #fields let-names>
+  <app-compound-block-ui
+    [resourceId]="resourceId"
+    [resourceName]="resourceName"
+    [resourceSchema]="resourceSchema"
+    [resourceData]="resourceData"
+    [hideName]="true"
+    [hideBlockActions]="true"
+    [preferHorizontalLayout]="true"
+    [disabled]="disabled"
+    [fieldWhitelist]="names"></app-compound-block-ui>
+</ng-template>
+
+@if (resourceData && resourceSchema) {
+  <app-stat-tiles [tiles]="tiles" [disabled]="disabled" (tileChange)="onTileChange($event)"></app-stat-tiles>
+
+  <mat-tab-group [(selectedIndex)]="selectedTab" animationDuration="0ms" mat-stretch-tabs="false" class="tabs">
+    <mat-tab label="Engine">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-curve-editor
+            title="Torque and power"
+            [hint]="descriptions['torque_curve']"
+            [series]="torqueSeries"
+            [markers]="torqueMarkers"
+            [xAxis]="rpmAxis"
+            [yAxis]="torqueAxis"
+            [y2Axis]="powerAxis"
+            [height]="340"
+            [disabled]="disabled"
+            [describeX]="describeRpm"
+            (seriesPreview)="onTorquePreview($event)"
+            (seriesChange)="onTorqueChange($event)"
+            (markerChange)="onRedlineMarker($event)"></app-curve-editor>
+          <p class="note">
+            Drag the torque steps (or the redline marker); the power curve and the peaks follow. The game reads the
+            entry of rpm / 256, so the entries above the redline are never read.
+          </p>
+          <h3>Engine parameters</h3>
+          <ng-container *ngTemplateOutlet="sliderFields; context: { $implicit: sliders['engine'] }"></ng-container>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.engine }"></ng-container>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Gearbox">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-curve-editor
+            title="Gearing"
+            hint="Engine rpm by road speed in each gear: rpm = speed (m/s) × velocity_to_rpm_ratio. Drag the end of a gear line to change its ratio, the markers to change the redline and the max velocity. Dots: the arcade automatic gearbox shifts up 500 rpm below the redline, and down when the lower gear stays below the grey line"
+            [series]="gearSeries"
+            [markers]="gearMarkers"
+            [xAxis]="speedAxis"
+            [yAxis]="gearRpmAxis"
+            [height]="340"
+            [disabled]="disabled"
+            [describeX]="describeSpeed"
+            (seriesPreview)="onGearPreview($event)"
+            (seriesChange)="onGearChange($event)"
+            (markerChange)="onSpeedMarker($event)"></app-curve-editor>
+
+          <table class="gear-table">
+            <thead>
+              <tr>
+                <th>Gear</th>
+                <th [matTooltip]="descriptions['velocity_to_rpm_ratio']">Rpm per m/s</th>
+                <th [matTooltip]="descriptions['gear_efficiency']">Efficiency</th>
+                <th matTooltip="Road speed at the redline in this gear">At redline</th>
+                <th
+                  matTooltip="Drive acceleration at the peak torque, full gas on a dry road: arcade (torque × drive × 1.5) / simulation (torque × drive, capped)">
+                  Peak drive
+                </th>
+                <th matTooltip="Arcade automatic gearbox: speed of the upshift, 500 rpm below the redline">
+                  Arcade upshift
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (g of gears; track g.index) {
+                <tr>
+                  <td class="gear-name"><span class="swatch" [style.background]="g.color"></span>{{ g.name }}</td>
+                  <td>
+                    <input
+                      type="number"
+                      step="1"
+                      [value]="round(g.ratio, 2)"
+                      [disabled]="!!disabled"
+                      (change)="onNumberInput(['velocity_to_rpm_ratio', g.index], $any($event.target).value)" />
+                  </td>
+                  <td>
+                    <input
+                      type="number"
+                      step="0.01"
+                      [value]="round(g.efficiency, 4)"
+                      [disabled]="!!disabled"
+                      (change)="onNumberInput(['gear_efficiency', g.index], $any($event.target).value)" />
+                  </td>
+                  <td class="num">{{ g.ratio ? fmt(g.redlineSpeed, 0) + ' km/h' : '–' }}</td>
+                  <td class="num">
+                    {{ g.index === 1 ? '–' : fmt(g.arcadePeak, 1) + ' / ' + fmt(g.simPeak, 1) + ' m/s²' }}
+                  </td>
+                  <td class="num">
+                    @if (g.upshiftSpeed !== null) {
+                      {{ fmt(g.upshiftSpeed, 0) }} km/h
+                    } @else {
+                      <span class="muted">–</span>
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+
+          <div class="chart-grid">
+            <app-curve-editor
+              title="Drive acceleration, arcade"
+              hint="Full gas on a dry road: torque × drive × 1.5, drive = velocity_to_rpm_ratio / mass / 10 × gear_efficiency. Halved while the wheels spin; no air drag, the top speed is the top gear at the redline"
+              [series]="arcadeAccelSeries"
+              [xAxis]="speedAxis"
+              [yAxis]="accelAxis"
+              [height]="260"
+              [describeX]="describeSpeed"></app-curve-editor>
+            <app-curve-editor
+              title="Drive acceleration, simulation"
+              hint="Full gas: torque × drive, at most 10 m/s² in 1st gear and 8 m/s² in the others. Air drag = factor × speed³ (whole m/s), the factor set so that it equals the top gear drive at max_velocity. Drag the marker to change max_velocity"
+              [series]="simAccelSeries"
+              [markers]="simAccelMarkers"
+              [xAxis]="speedAxis"
+              [yAxis]="accelAxis"
+              [height]="260"
+              [disabled]="disabled"
+              [describeX]="describeSpeed"
+              (markerChange)="onSpeedMarker($event)"></app-curve-editor>
+          </div>
+
+          <h3>Gearbox parameters</h3>
+          <ng-container *ngTemplateOutlet="sliderFields; context: { $implicit: sliders['gearbox'] }"></ng-container>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.gearbox }"></ng-container>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Brakes & pedals">
+      <ng-template matTabContent>
+        <div class="tab">
+          <div class="chart-grid">
+            <app-curve-editor
+              title="Pedal response"
+              hint="Pedal value (0-255) over time at 32 physics steps per second, with the gas and brake ramp options (keyboard). The gas moves 16 per step; the brake by the ramp step of its level"
+              [series]="pedalSeries"
+              [xAxis]="timeAxis"
+              [yAxis]="pedalAxis"
+              [height]="260"
+              [describeX]="describeTime"></app-curve-editor>
+            <app-curve-editor
+              title="Ramp steps by pedal level"
+              hint="Pedal value step per physics step, by level = pedal / 32. Click a curve in the legend to pick the edited one. The gas curves are not read: the controls ramp the gas by a fixed step"
+              [series]="rampSeries"
+              [xAxis]="levelAxis"
+              [yAxis]="rampAxis"
+              [height]="260"
+              [disabled]="disabled"
+              [describeX]="describeLevel"
+              (seriesChange)="onRampChange($event)"></app-curve-editor>
+          </div>
+          <app-curve-editor
+            title="Braking by speed"
+            hint="Full brake on a dry road. Arcade: 2 × max_braking_deceleration, 1.5 × it below 10 m/s, halved in a slide; simulation: max_braking_deceleration, split front / rear by front_bias_brake_ratio. Drag a step to change max_braking_deceleration"
+            [series]="brakeSeries"
+            [xAxis]="speedAxis"
+            [yAxis]="decelAxis"
+            [height]="240"
+            [disabled]="disabled"
+            [describeX]="describeSpeed"
+            (seriesChange)="onBrakeChange($event)"></app-curve-editor>
+          <h3>Brake and pedal parameters</h3>
+          <ng-container *ngTemplateOutlet="sliderFields; context: { $implicit: sliders['brakes'] }"></ng-container>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.brakes }"></ng-container>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Steering & slides">
+      <ng-template matTabContent>
+        <div class="tab">
+          <div class="chart-grid">
+            <app-curve-editor
+              title="Steering response, arcade"
+              hint="Yaw rate at full lock: max_steering_acceleration / 64 / 128 × 127, scaled by speed × 0.2 below 5 m/s and divided by 1 + speed × low_turn_factor (gas below half) / high_turn_factor (half gas or more) above 20 m/s. With the gas below 64, a yaw rate above the orange line starts a push slide (push_factor)"
+              [series]="steerSeries"
+              [xAxis]="speedAxis"
+              [yAxis]="steerAxis"
+              [height]="260"
+              [describeX]="describeSpeed"></app-curve-editor>
+            <app-curve-editor
+              title="Steering ramp"
+              hint="Steering value (0-127) over time at 32 physics steps per second, with the steering ramp option: turn_in_ramp toward the request, turn_out_ramp back to the centre (also first when steering to the other side)"
+              [series]="steerRampSeries"
+              [xAxis]="timeAxis"
+              [yAxis]="steerRampAxis"
+              [height]="260"
+              [describeX]="describeTime"></app-curve-editor>
+          </div>
+          <h3>Steering and slide parameters</h3>
+          <ng-container *ngTemplateOutlet="sliderFields; context: { $implicit: sliders['handling'] }"></ng-container>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.handling }"></ng-container>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Chassis">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-curve-editor
+            title="Downforce, simulation"
+            hint="Grip multiplier of the front and rear wheels from aerodynamic_downforce_multiplier above 5 m/s, with the car tuning's downforce at 1: front 1 + speed × it, rear 1 + speed × it × 1.5"
+            [series]="downforceSeries"
+            [xAxis]="speedAxis"
+            [yAxis]="gripAxis"
+            [height]="240"
+            [describeX]="describeSpeed"></app-curve-editor>
+          <p class="note">The arcade style reads none of these but the mass (through the drive of every gear).</p>
+          <h3>Chassis parameters</h3>
+          <ng-container *ngTemplateOutlet="sliderFields; context: { $implicit: sliders['chassis'] }"></ng-container>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.chassis }"></ng-container>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="All fields">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-compound-block-ui
+            [resourceId]="resourceId"
+            [resourceName]="resourceName"
+            [resourceSchema]="resourceSchema"
+            [resourceData]="resourceData"
+            [hideName]="true"
+            [hideBlockActions]="true"
+            [disabled]="disabled"></app-compound-block-ui>
+        </div>
+      </ng-template>
+    </mat-tab>
+  </mat-tab-group>
+}

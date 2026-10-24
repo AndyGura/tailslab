@@ -351,8 +351,8 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
         geometry__save_blend: false,
         geometry__export_to_gg_web_engine: false,
         maps__save_as_chunked: true,
-        maps__save_invisible_wall_collisions: false,
-        maps__save_terrain_collisions: false,
+        // the viewer loads one file per chunk of the track
+        maps__tnfs_chunks_per_file: 1,
         maps__save_spherical_skybox_texture: !!this.adapter?.hasSkybox,
         maps__add_props_to_obj: false,
       });
