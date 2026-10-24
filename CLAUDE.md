@@ -56,7 +56,7 @@ docs and a working GUI editor for free.
 | `resources/*.md` | **Auto-generated** per-game docs (`generate_resource_doc.py`). Never hand-edit — edit the block definitions/descriptions and regenerate. |
 | `serializers/` | Turn parsed block data into common output formats and back. One serializer class per resource kind, returned by a block's `serializer_class()`. |
 | `api/` | Python↔JS bridge (pywebview/eel) exposing library + serializers to the GUI. |
-| `frontend/` | Angular GUI. `.../editor/library/*.block-ui` = generic components, one per `read_blocks` base class. `.../editor/eac/*` and `.../editor/common/*` = bespoke rich viewers (image, 3D geometry, map, audio, font, hex/targa, TNFS car specs) and widgets they share (`curve-editor` = editable SVG charts, `stat-tiles`). |
+| `frontend/` | Angular GUI. `.../editor/library/*.block-ui` = generic components, one per `read_blocks` base class. `.../editor/eac/*` and `.../editor/common/*` = bespoke rich viewers (image, 3D geometry, map, audio, font, hex/targa, TNFS / NFS2 car specs) and widgets they share (`curve-editor` = editable SVG charts, `stat-tiles`). |
 | `actions/` | OS-integration entry points (convert all, open in GUI editor, uncompress) wired to file-manager context menus / installers. |
 | `test/` | unittest suite mirroring `library/`/`resources/`. `test/golden_corpus/` + `test/test_gui_golden_corpus.sh` = manual smoke test that opens every sample file through `run.py`. |
 | `icons/` | App icon source (`tailslab.png`) and the per-platform icons made from it by `icons/generate_icons.py` (also writes the GUI's favicon and `assets/logo.png`). |
@@ -324,6 +324,51 @@ When you do:
   `front_grip_mult` / `rear_grip_mult` and inverses, `burnout_div`); `_TNFS_3DO_DESCRIPTIONS` has a description for
   every field, from the 3DO `LaunchMe` code (tnfs-1995 Ghidra). The PBS editor renders it through the
   `block_class_mro` fallback and switches on `is3do` (no gear efficiency column, one brake cap).
+
+## NFS2 SE car physics and AI (GAMEDATA/SIM/CARDATA/P*.DAT, GAMEDATA/SIM/AI/*.DAT, their copies in CARDATA.VIV)
+
+- `Nfs2CarPhysics` (`resources/eac/car_specs.py`), 356 bytes, fields from the developers' `P*.DES` and the
+  nfs2sen.exe loader (0x459970), addresses cited in the descriptions. The loader picks it by name and size
+  (`_is_nfs2_car_physics_name` + length 356 in `library/loader.py`; the VIV's `prsonal.dat` also starts with `p`:
+  the size tells them apart), and `BigfBlock` lists it among its item blocks.
+- GUI: `Nfs2CarPhysicsBlockUiComponent` (`frontend/.../editor/eac/nfs2-car-physics.block-ui/`, on the PBS editor's
+  `CarSpecEditorBase`) edits it on charts: torque / power (`torque_curve` is 16.16 N·m, entry rpm / 256), gearing with
+  the arcade automatic gearbox, arcade and simulation drive with the simulation air drag, pedal / brake ramps, braking,
+  arcade steering response with the push slide limit, steering ramp, simulation downforce. The derived curves follow
+  the field descriptions (arcade model ported in `../nfs-web/src/nfs2/nfs2-physics`, simulation model `Physics_Sim`
+  0x455370 from nfs-web's `decomp/g nfs2 nfs2sen.exe`): keep the two in sync.
+- `Nfs2SimTune` (same module): `simtune.dat` in CARDATA.VIV (= `GAMEDATA/CARMODEL/PC/SIMTUNE.DAT`), 232 bytes, two
+  `Nfs2SimTuneRecord`s (simulation, arcade + Wild) of 21 values + 4 glue logic pairs, read by nfs2sen.exe 0x43e0a0 into
+  0x4df0a8. Picked by name (any case) and size 232 (`_file_or_archive_item_name` in `library/loader.py`), also a
+  `BigfBlock` item block.
+- `Nfs2CarAi` (same module): the car AI data `<car>.dat` in CARDATA.VIV (17 racing cars, each listed twice as
+  identical copies), 524 bytes, read by nfs2sen.exe 0x42b7b0 (`AI_LoadData` in the nfs-web port): shift duration,
+  redline, gear top speeds, two `Nfs2CarAiLevers` (simulation, arcade: 112 x 8.8 acceleration table indexed by speed
+  in m/s, grip, turn rate), handling and lane values. Field names from `GAMEDATA/SIM/CARDATA/MCF1.DES`. Picked by a
+  4-character name `<xxxx>.dat` (`_is_nfs2_car_ai_name`) and size 524, also a `BigfBlock` item block.
+  GUI: `Nfs2CarAiBlockUiComponent` (`frontend/.../editor/eac/nfs2-car-ai.block-ui/`, on `CarSpecEditorBase`):
+  acceleration tables with the gear top speeds, a speed run from standstill (32 AI steps/s, no drive while a shift
+  lasts), the AI gearbox rpm, grip by speed, handling slowdown. The car model comes from the file name (`cala.dat` =
+  CALA, model 10 in the exe's model names 0x4c5fe0): models below 15 get the exe's table scale (0x4c4e38) and top speed
+  (0x4c54cc). Its formulas follow nfs-web's `ai.c` (`feature/nfs2-physics` branch) and the field descriptions.
+- `Nfs2TrafficConfig` (same module): `GAMEDATA/SIM/AI/TRAFCFG.DAT` (CARDATA.VIV: identical `trafcfg.dat` and
+  `TRAFCFG.DAT`), 452 bytes, read by nfs2sen.exe 0x42bb60: general AI / traffic values, three `Nfs2TrafficGlue`
+  tables (single race, tournament, knockout = race type 0, 1, 2) of 12 `Nfs2TrafficGluePair`s (speed glue,
+  acceleration glue), the AI physics parameters (`Nfs2AiLookAhead` per style, two `Nfs2AiControl`). Names from
+  `TRAFCFG.DES`. Picked by name (any case) and size 452: NFS5's `TRAFCFG.DAT` (108 bytes) is another format.
+- `Nfs2Personalities` (same module): `GAMEDATA/SIM/AI/PRSONAL.DAT` (CARDATA.VIV: `prsonal.dat`), 3012 bytes, read by
+  nfs2sen.exe 0x451bd0: `Nfs2PersonalityGrid` (4 rows of 12 letters) and the personalities `car_a` .. `car_m`
+  (`Nfs2Personality`, 0xe4 bytes; field descriptions carry the `.DES` chain names). Names from `PRSONAL.DES`. Picked
+  by name (any case) and size 3012. Both are `BigfBlock` item blocks; the exe also has compiled-in copies of both.
+- The developers' `.DES` files (`P*.DES`, `SIMTUNE.DES`, `MCF1.DES`, `TRAFCFG.DES`, `PRSONAL.DES`) give field names,
+  types and order: a header, a copy of the `.DAT` at 0x66 (int at 0x62 = size of the records), then the records: type
+  (10 bytes), name (80 bytes; null-terminated, memory garbage after it), int size of the field's data in bytes, int n,
+  then n bytes. Fields (`Fixed` = 16.16, `Integer`, `Char` = 1 byte) have n = 0x38 (garbage; one `TRAFCFG.DES` `Fixed`
+  has 0x10); `Array` 12 (1, count, count; no element type, 4-byte elements; (2, 1, 2) for the unnamed pairs of the
+  `TRAFCFG.DES` glue factors) and `CArray` 12 (byte arrays, `P*.DES` curves); `Import` (a table, `MCF1.DES`
+  acceleration tables) 1 (0x41); `Chain` (a group: `MCF1.DES`, `TRAFCFG.DES`, `PRSONAL.DES`) n = everything below
+  it: 94 bytes of garbage, int data size, int size of the child records, a copy of the group's data, then its child
+  records.
 
 ## TNFS sound banks (SIMDATA/SOUNDBNK/*.BNK)
 

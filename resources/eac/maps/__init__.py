@@ -53,6 +53,7 @@ from .nfs_common import (
     ColPolygon,
     PropDescriptionExtraDataRecord,
     LanesExtraDataRecord,
+    TrackObjectExtraDataRecord,
     RoadVectorsExtraDataRecord,
     CollisionExtraDataRecord,
     ColExtraBlock,

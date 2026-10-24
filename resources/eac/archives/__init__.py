@@ -221,6 +221,13 @@ class BigfBlock(ArchiveBlock):
 
     def __init__(self, **kwargs):
         from resources.eac.geometries import GeoGeometry, Fce3Geometry, Fce4Geometry, EaglModel
+        from resources.eac.car_specs import (
+            Nfs2CarPhysics,
+            Nfs2SimTune,
+            Nfs2CarAi,
+            Nfs2TrafficConfig,
+            Nfs2Personalities,
+        )
 
         super().__init__(
             item_block=AutoDetectBlock(
@@ -233,6 +240,11 @@ class BigfBlock(ArchiveBlock):
                     EacCompressedBlock(),
                     TargaImage(),
                     EaSoundBank(),
+                    Nfs2CarPhysics(),
+                    Nfs2SimTune(),
+                    Nfs2CarAi(),
+                    Nfs2TrafficConfig(),
+                    Nfs2Personalities(),
                     self,
                     BytesBlock(
                         length=(

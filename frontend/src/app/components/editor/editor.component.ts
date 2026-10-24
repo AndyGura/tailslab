@@ -40,6 +40,8 @@ import { NfsuBinGeometryBlockUiComponent } from './blackbox/nfsu-bin-geometry.bl
 import { EaglModelBlockUiComponent } from './eac/eagl-model.block-ui/eagl-model.block-ui.component';
 import { PlayerCarPhysicsBlockUiComponent } from './eac/player-car-physics.block-ui/player-car-physics.block-ui.component';
 import { CarAiAndCrashBodyBlockUiComponent } from './eac/car-ai-and-crash-body.block-ui/car-ai-and-crash-body.block-ui.component';
+import { Nfs2CarPhysicsBlockUiComponent } from './eac/nfs2-car-physics.block-ui/nfs2-car-physics.block-ui.component';
+import { Nfs2CarAiBlockUiComponent } from './eac/nfs2-car-ai.block-ui/nfs2-car-ai.block-ui.component';
 import { isLazyStub } from '../../utils/lazy';
 
 @Component({
@@ -93,6 +95,8 @@ export class EditorComponent implements OnDestroy {
     // NFS2-specific blocks
     GeoGeometry: GeoGeometryBlockUiComponent,
     TrkMap: TrackMapBlockUiComponent,
+    Nfs2CarPhysics: Nfs2CarPhysicsBlockUiComponent,
+    Nfs2CarAi: Nfs2CarAiBlockUiComponent,
 
     // NFS3-specific blocks
     FrdMap: TrackMapBlockUiComponent,

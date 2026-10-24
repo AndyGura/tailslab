@@ -266,6 +266,7 @@ EXPORT_RESOURCES = {
                 eac.maps.PropExtraDataRecord(),
                 eac.maps.PropDescriptionExtraDataRecord(),
                 eac.maps.LanesExtraDataRecord(),
+                eac.maps.TrackObjectExtraDataRecord(),
                 eac.maps.RoadVectorsExtraDataRecord(),
                 eac.maps.CollisionExtraDataRecord(),
                 eac.maps.ColPolygon(),
@@ -297,6 +298,16 @@ EXPORT_RESOURCES = {
         'file_list': f"""**\\*.BNK** sound bank. {render_type(eac.archives.EaSoundBank())}
 
 **\\*.COL** track additional data. {render_type(eac.maps.MapColFile())}
+
+**GAMEDATA/SIM/CARDATA/P\\*.DAT**, `p<car>.DAT` in **CARDATA.VIV** car physics. {render_type(eac.car_specs.Nfs2CarPhysics())}
+
+**simtune.dat** in **GAMEDATA/SIM/CARDATA/CARDATA.VIV** flight, bounce and collision reset tuning. {render_type(eac.car_specs.Nfs2SimTune())}
+
+**\\<car\\>.dat** (e.g. `cala.dat`) in **GAMEDATA/SIM/CARDATA/CARDATA.VIV** car AI data. {render_type(eac.car_specs.Nfs2CarAi())}
+
+**GAMEDATA/SIM/AI/TRAFCFG.DAT**, `trafcfg.dat` / `TRAFCFG.DAT` in **GAMEDATA/SIM/CARDATA/CARDATA.VIV** AI and traffic configuration, glue factors. {render_type(eac.car_specs.Nfs2TrafficConfig())}
+
+**GAMEDATA/SIM/AI/PRSONAL.DAT**, `prsonal.dat` in **GAMEDATA/SIM/CARDATA/CARDATA.VIV** AI racer personalities and grid assignments. {render_type(eac.car_specs.Nfs2Personalities())}
         
 **\\*.FFN** bitmap font. {render_type(eac.fonts.FfnFont())}
 
@@ -338,12 +349,27 @@ EXPORT_RESOURCES = {
                 eac.maps.PropExtraDataRecord(),
                 eac.maps.PropDescriptionExtraDataRecord(),
                 eac.maps.LanesExtraDataRecord(),
+                eac.maps.TrackObjectExtraDataRecord(),
                 eac.maps.RoadVectorsExtraDataRecord(),
                 eac.maps.CollisionExtraDataRecord(),
                 eac.maps.ColPolygon(),
             ],
-            # 'Physics': [
-            # ],
+            'Physics': [
+                eac.car_specs.Nfs2CarPhysics(),
+                eac.car_specs.Nfs2SimTune(),
+                eac.car_specs.Nfs2SimTuneRecord(),
+                eac.car_specs.Nfs2SimTuneGlueLogic(),
+                eac.car_specs.Nfs2CarAi(),
+                eac.car_specs.Nfs2CarAiLevers(),
+                eac.car_specs.Nfs2TrafficConfig(),
+                eac.car_specs.Nfs2TrafficGlue(),
+                eac.car_specs.Nfs2TrafficGluePair(),
+                eac.car_specs.Nfs2AiLookAhead(),
+                eac.car_specs.Nfs2AiControl(),
+                eac.car_specs.Nfs2Personalities(),
+                eac.car_specs.Nfs2PersonalityGrid(),
+                eac.car_specs.Nfs2Personality(),
+            ],
             'Images': [
                 eac.bitmaps.EacImage(),
                 eac.bitmaps.EacPalette(),
@@ -426,6 +452,7 @@ EXPORT_RESOURCES = {
                 eac.maps.PropExtraDataRecord(),
                 eac.maps.PropDescriptionExtraDataRecord(),
                 eac.maps.LanesExtraDataRecord(),
+                eac.maps.TrackObjectExtraDataRecord(),
                 eac.maps.RoadVectorsExtraDataRecord(),
                 eac.maps.CollisionExtraDataRecord(),
                 eac.maps.ColPolygon(),

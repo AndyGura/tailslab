@@ -1,7 +1,9 @@
 import unittest
 from copy import deepcopy
+from io import BytesIO
 
 from library import require_file
+from library.context import ReadContext
 
 
 class TestTriMap(unittest.TestCase):
@@ -23,6 +25,26 @@ class TestTriMap(unittest.TestCase):
         block.action_reverse_track(tri)
         self.assertEqual(tri['road_spline'][length - 1 - 100]['item_mode'], 'waterfall_audio_right_channel')
         self.assertEqual(tri['road_spline'][length - 1 - 200]['item_mode'], 'waterfall_audio_left_channel')
+
+    def test_police_spots(self):
+        (name, block, tri) = require_file('test/samples/AL1.TRI')
+        spots = [i for i, p in enumerate(tri['road_spline']) if p['police_spot']['is_spot']]
+        self.assertEqual(spots, [145, 440, 690, 1073, 1154, 1340, 1423])
+        self.assertEqual(
+            tri['road_spline'][145]['police_spot'],
+            {'unused': 0, 'chance': '97/128', 'drives_off': True, 'is_left': False, 'is_spot': True},
+        )
+        self.assertEqual(tri['road_spline'][440]['police_spot']['chance'], '65/128')
+        self.assertTrue(tri['road_spline'][440]['police_spot']['is_left'])
+
+    def test_reverse_track_should_swap_police_spot_sides(self):
+        (name, block, tri) = require_file('test/samples/AL1.TRI')
+        tri = deepcopy(tri)
+        length = len(tri['terrain']) * 4
+        block.action_reverse_track(tri)
+        self.assertTrue(tri['road_spline'][length - 1 - 145]['police_spot']['is_left'])
+        self.assertFalse(tri['road_spline'][length - 1 - 440]['police_spot']['is_left'])
+        self.assertFalse(tri['road_spline'][0]['police_spot']['is_left'])
 
 
 class TestNfs4FrdMap(unittest.TestCase):
@@ -162,3 +184,93 @@ class TestTrkMap(unittest.TestCase):
         ]
         self.assertEqual(len(special), 34)
         self.assertEqual(special[0]['position']['data']['special_idx'], 0)
+
+    def test_trk_road_polygons_should_match_polygon_map_and_medians(self):
+        (_, _, data) = require_file('test/golden_corpus/TR02.TRK')
+        blocks = [b for sb in data['superblocks'] for b in sb['blocks']]
+        for b in blocks:
+            self.assertEqual(b['first_slice'], b['block_idx'] * 8)
+            self.assertIn(len(b['padding']), (0, 2))
+            records = {eb['type']: eb['data_records']['data'] for eb in b['extrablocks']}
+            self.assertEqual(len(records['polygon_map']), b['num_road_polygons'])
+            for median in records['median_polygons']:
+                self.assertLessEqual(median['first_polygon'] + median['num_polygons'], b['num_road_polygons'])
+        b = blocks[18]
+        self.assertEqual(
+            (b['num_extra_polygons'], b['num_road_polygons'], b['num_unk_polygons']),
+            (4, 72, 8),
+        )
+        self.assertEqual((len(b['extra_polygons']), len(b['road_polygons']), len(b['unk_polygons'])), (4, 72, 8))
+        self.assertEqual(b['road_polygons'][0]['vertices'], [65, 66, 45, 43])
+
+    def test_trk_track_objects_should_match_special_props(self):
+        (_, _, data) = require_file('test/golden_corpus/TR02.TRK')
+        object_indexes = []
+        for b in [b for sb in data['superblocks'] for b in sb['blocks']]:
+            objects = next((eb['data_records']['data'] for eb in b['extrablocks'] if eb['type'] == 'track_objects'), [])
+            object_indexes += [o['object_idx'] for o in objects]
+            special = [
+                p['position']['data']
+                for eb in b['extrablocks']
+                if eb['type'] == 'props_7'
+                for p in eb['data_records']['data']
+                if p['type'] == 'special_prop'
+            ]
+            self.assertEqual(sorted(p['special_idx'] for p in special), list(range(len(objects))))
+            for p in special:
+                self.assertEqual(objects[p['special_idx']]['position'], p['position'])
+        self.assertEqual(object_indexes, list(range(34)))
+
+
+class TestTrkExtraDataRecords(unittest.TestCase):
+    def test_nfs2_se_median_record(self):
+        from resources.eac.maps import MedianExtraDataRecord
+
+        # a slice of NFS2 SE TR03.TRK block 34, at a fork
+        raw = bytes.fromhex('18000f027901ffff')
+        block = MedianExtraDataRecord()
+        data = block.unpack(ReadContext(BytesIO(raw)), read_bytes_amount=len(raw))
+        self.assertEqual(
+            data, {'first_polygon': 24, 'num_polygons': 15, 'unk': 2, 'alt_slice_1': 377, 'alt_slice_2': -1}
+        )
+        self.assertEqual(block.pack(data), raw)
+
+    def test_nfs2_se_polygon_map_record(self):
+        from resources.eac.maps import PolygonMapExtraDataRecord
+
+        # a road polygon of NFS2 SE TR03.TRK block 34
+        raw = bytes.fromhex('11ca')
+        block = PolygonMapExtraDataRecord()
+        data = block.unpack(ReadContext(BytesIO(raw)), read_bytes_amount=len(raw))
+        self.assertEqual(data, {'vectors_idx': 17, 'surface': {'barriers': True, 'objects': True, 'type': 10}})
+        self.assertEqual(block.pack(data), raw)
+
+    def test_nfs2_se_track_object_record(self):
+        from resources.eac.maps import TrackObjectExtraDataRecord
+
+        # a knockable object of NFS2 SE TR02.TRK block 95
+        raw = bytes.fromhex('fb24dd0089190000d806e2049c000e0007000002')
+        block = TrackObjectExtraDataRecord()
+        data = block.unpack(ReadContext(BytesIO(raw)), read_bytes_amount=len(raw))
+        self.assertAlmostEqual(data['position']['x'], 221.14445, places=4)
+        self.assertEqual(
+            {k: v for k, v in data.items() if k != 'position'},
+            {'radius': 0.609375, 'object_idx': 14, 'height': 3.5, 'unk0': 0, 'unk1': 0, 'type': 'knockable'},
+        )
+        self.assertEqual(block.pack(data), raw)
+
+
+class TestCollisionExtraDataRecord(unittest.TestCase):
+    def test_nfs2_se_lane_fields(self):
+        from resources.eac.maps import CollisionExtraDataRecord
+
+        # a slice of NFS2 SE TR04.COL
+        raw = bytes.fromhex('0eb35ffe00000000c465e601007f001a007d7d00e6001200e0071d0ec50e5531090a0000')
+        block = CollisionExtraDataRecord()
+        data = block.unpack(ReadContext(BytesIO(raw)), read_bytes_amount=len(raw))
+        self.assertEqual(data['flags'], 0x55)
+        self.assertEqual(data['lanes'], {'unk': 3, 'count': 1})
+        self.assertEqual(data['left_lane_width'], 4.5)
+        self.assertEqual(data['right_lane_width'], 5.0)
+        self.assertEqual(data['unk3'], 0)
+        self.assertEqual(block.pack(data), raw)

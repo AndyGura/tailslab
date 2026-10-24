@@ -1,0 +1,192 @@
+@if (resourceId && resourceName && !hideName) {
+  <h2 [matTooltip]="resourceDescription || ''" matTooltipPosition="above">{{ resourceName }}</h2>
+}
+@if (!hideBlockActions) {
+  <app-block-actions
+    [resource]="{
+      id: resourceId!,
+      name: resourceName!,
+      data: resourceData,
+      schema: resourceSchema,
+    }"></app-block-actions>
+}
+
+<ng-template #fields let-names>
+  <app-compound-block-ui
+    [resourceId]="resourceId"
+    [resourceName]="resourceName"
+    [resourceSchema]="resourceSchema"
+    [resourceData]="resourceData"
+    [hideName]="true"
+    [hideBlockActions]="true"
+    [preferHorizontalLayout]="true"
+    [disabled]="disabled"
+    [fieldWhitelist]="names"></app-compound-block-ui>
+</ng-template>
+
+@if (resourceData && resourceSchema) {
+  <app-stat-tiles [tiles]="tiles" [disabled]="disabled" (tileChange)="onTileChange($event)"></app-stat-tiles>
+
+  <mat-tab-group [(selectedIndex)]="selectedTab" animationDuration="0ms" mat-stretch-tabs="false" class="tabs">
+    <mat-tab label="Acceleration">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-curve-editor
+            title="Acceleration tables"
+            hint="The AI drive acceleration by speed, one entry per m/s (the entry of the whole m/s), as stored in the file. Drag the steps to edit them (8.8 fixed point), the gear markers to change the top speed of a gear. The AI drives with it whenever it is slower than its target speed, except while a shift lasts"
+            [series]="tableSeries"
+            [markers]="tableMarkers"
+            [xAxis]="speedAxis"
+            [yAxis]="accelAxis"
+            [height]="340"
+            [disabled]="disabled"
+            [describeX]="describeSpeed"
+            (seriesPreview)="onTablePreview($event)"
+            (seriesChange)="onTableChange($event)"
+            (markerPreview)="onMarkerPreview($event)"
+            (markerChange)="onMarker($event)"></app-curve-editor>
+          <app-curve-editor
+            title="Speed run"
+            hint="Full drive from standstill on a flat road at the full AI step rate (32 steps per second): the table entry of the current speed, nothing for ai_shift_duration steps after each gear change. Without the race factors: rubber band (glue), skill and personality"
+            [series]="runSeries"
+            [xAxis]="timeAxis"
+            [yAxis]="runSpeedAxis"
+            [height]="260"
+            [describeX]="describeTime"></app-curve-editor>
+          @if (model) {
+            <p class="note">
+              {{ model.name }} is car model {{ model.index }}: the game scales its simulation table by
+              {{ fmt(model.tableScale[0], 3) }} and its arcade table by {{ fmt(model.tableScale[1], 3) }} when it loads
+              them, and the AI drive stops above {{ fmt(model.topSpeed * MPS_TO_KMH, 0) }} km/h. The speed run and the
+              tiles use the scaled tables.
+            </p>
+          } @else {
+            <p class="note">
+              The file name is not one of the car models the game scales: the speed run uses the tables as stored.
+            </p>
+          }
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Gearbox">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-curve-editor
+            title="AI gearbox"
+            hint="Engine rpm by road speed in each gear: from 3,000 rpm (0 in the first gear) at the previous gear's top speed up to the redline at the gear's own. The AI shifts up above a gear's top speed and down below the previous one's; the rpm only drives the engine sound. Drag the end of a gear line to change its top speed, the marker to change the redline"
+            [series]="gearSeries"
+            [markers]="gearMarkers"
+            [xAxis]="speedAxis"
+            [yAxis]="rpmAxis"
+            [height]="320"
+            [disabled]="disabled"
+            [describeX]="describeSpeed"
+            (seriesPreview)="onGearPreview($event)"
+            (seriesChange)="onGearChange($event)"
+            (markerChange)="onMarker($event)"></app-curve-editor>
+
+          <table class="gear-table">
+            <thead>
+              <tr>
+                <th>Gear</th>
+                <th [matTooltip]="descriptions['gear_top_speeds']">Top speed (km/h)</th>
+                <th>m/s</th>
+                <th matTooltip="The AI shifts down to the previous gear below this speed">From</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (g of gears; track g.index) {
+                <tr>
+                  <td class="gear-name"><span class="swatch" [style.background]="g.color"></span>{{ g.name }}</td>
+                  <td>
+                    <input
+                      type="number"
+                      step="1"
+                      [value]="round(g.top * MPS_TO_KMH, 1)"
+                      [disabled]="!!disabled"
+                      (change)="onGearTopInput(g.index, $any($event.target).value)" />
+                  </td>
+                  <td class="num">{{ fmt(g.top, 2) }}</td>
+                  <td class="num">{{ fmt(g.low * MPS_TO_KMH, 0) }} km/h</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+          <div class="actions">
+            <button mat-button color="primary" [disabled]="!!disabled || !canAddGear" (click)="addGear()">
+              <mat-icon>add</mat-icon>
+              Add gear
+            </button>
+            <button mat-button color="primary" [disabled]="!!disabled || gears.length < 2" (click)="removeGear()">
+              <mat-icon>remove</mat-icon>
+              Remove last gear
+            </button>
+          </div>
+
+          <h3>Gearbox parameters</h3>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.gearbox }"></ng-container>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Handling">
+      <ng-template matTabContent>
+        <div class="tab">
+          <div class="chart-grid">
+            <app-curve-editor
+              title="Grip by speed"
+              hint="The in-control AI driving model caps its lateral correction at grip × (1 + forward speed × 0.0015), and further by the race speed factor above 1. Drag the start of a line to change the grip of that style"
+              [series]="gripSeries"
+              [xAxis]="speedAxis"
+              [yAxis]="gripAxis"
+              [height]="260"
+              [disabled]="disabled"
+              [describeX]="describeSpeed"
+              (seriesChange)="onGripChange($event)"></app-curve-editor>
+            <app-curve-editor
+              title="Handling slowdown"
+              hint="Multiplier of the target speed by the yaw value: 1 up to low_handling_yaw, falling to 1 - handling_importance at hi_handling_yaw, both times the personality's handling_adjust. Drag the corners to change them"
+              [series]="handlingSeries"
+              [xAxis]="handlingAxis"
+              [yAxis]="factorAxis"
+              [height]="260"
+              [disabled]="disabled"
+              (seriesChange)="onHandlingChange($event)"></app-curve-editor>
+          </div>
+          <h3>Levers</h3>
+          <div class="sliders">
+            @for (style of styles; track style) {
+              <app-slider-field
+                [label]="styleLabels[style] + ' turn_rate'"
+                [description]="'Cap of the angular acceleration of the AI steering (' + style + ' levers)'"
+                [value]="resourceData?.[style]?.['turn_rate']"
+                [spec]="turnRateSlider"
+                [disabled]="disabled"
+                (valueChange)="setLeverField(style, 'turn_rate', $event)"></app-slider-field>
+            }
+          </div>
+          <h3>Handling parameters</h3>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.handling }"></ng-container>
+          <h3>Traffic (cars that are not AI racers)</h3>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.traffic }"></ng-container>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="All fields">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-compound-block-ui
+            [resourceId]="resourceId"
+            [resourceName]="resourceName"
+            [resourceSchema]="resourceSchema"
+            [resourceData]="resourceData"
+            [hideName]="true"
+            [hideBlockActions]="true"
+            [disabled]="disabled"></app-compound-block-ui>
+        </div>
+      </ng-template>
+    </mat-tab>
+  </mat-tab-group>
+}

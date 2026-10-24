@@ -126,7 +126,40 @@ class RoadSplinePoint(DeclarativeCompoundBlock):
             Nfs1Angle14(),
             {'description': 'Rotation of road path, if view from the top. Equals to atan2(next_x - x, next_z - z)'},
         )
-        unk1 = (IntegerBlock(length=2), {'is_unknown': True})
+        police_spot = (
+            SubByteCompoundBlock(
+                length=2,
+                schema=[
+                    (11, 'unused', 'number', [], 'Never read, 0 in every game track'),
+                    (
+                        2,
+                        'chance',
+                        'enum',
+                        ['33/128', '65/128', '97/128', 'always'],
+                        'Chance that the cop shows up at this spot (mask 0x18, index into the table {0x20, 0x40, '
+                        '0x60, 0x80}: a 7-bit random number must not exceed the value)',
+                    ),
+                    (1, 'drives_off', 'boolean', [], 'Value 4: the cop drives off, else it stays parked'),
+                    (1, 'is_left', 'boolean', [], 'Value 2: the spot is at the left barrier, else at the right one'),
+                    (1, 'is_spot', 'boolean', [], 'Value 1: this road point is a police spot'),
+                ],
+            ),
+            {
+                'description': 'Police spot flags, read only by the cop respawn `tnfs_ai_police_parked_respawn` '
+                '(DOS 0x78f5d, PSX 0x80055014, Win95 SE 0x46b950; '
+                '[tnfs-1995](https://github.com/marcos2250/tnfs-1995) `police_spot`; Ghidra labels the short '
+                '`wall_normal_x` in DOS and `side_normal_x` in SE). The cop is out of play (not updated, collided or '
+                'drawn) after its start respawn and after a chase it gave up. In a single player race with traffic, '
+                'every tick, for each slice the player passed since the last check, the game looks at the road point '
+                '0x31 (49) slices ahead: at a spot (`is_spot`) it draws the `chance`, and either the cop comes back '
+                'there or the spot is passed for good. The cop is placed at the `left_barrier` / `right_barrier` of '
+                'the spot (`is_left`), inset by half its width, driving the way of the player when slice 0 is one-way '
+                'or the spot is on the right, else oncoming; unless it `drives_off` it stays parked (speed target 0) '
+                'until it starts a chase. Every open road track has 7 to 12 spots, the circuits none. AL1: slices '
+                '145, 440, 690, 1073, 1154, 1340, 1423, chance 97/128 except 440 and 1154; the other tracks: always '
+                '65/128'
+            },
+        )
         side_normal = (
             Point3D(child=FixedPointBlock(length=2, fraction_bits=16, is_signed=True)),
             {'description': 'Side normal vector'},
@@ -557,6 +590,8 @@ class TriMap(DeclarativeCompoundBlock):
             vertex['num_lanes'] = [vertex['num_lanes'][1], vertex['num_lanes'][0]]
             vertex['fence_flag'] = [vertex['fence_flag'][1], vertex['fence_flag'][0]]
             vertex['shoulder_surface_type'] = [vertex['shoulder_surface_type'][1], vertex['shoulder_surface_type'][0]]
+            if vertex['police_spot']['is_spot']:
+                vertex['police_spot']['is_left'] = not vertex['police_spot']['is_left']
             # change sign of slope/slant values
             vertex['slope'] = -vertex['slope']
             vertex['slant'] = -vertex['slant']
