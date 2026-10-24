@@ -26,6 +26,26 @@ class TestTriMap(unittest.TestCase):
         self.assertEqual(tri['road_spline'][length - 1 - 100]['item_mode'], 'waterfall_audio_right_channel')
         self.assertEqual(tri['road_spline'][length - 1 - 200]['item_mode'], 'waterfall_audio_left_channel')
 
+    def test_police_spots(self):
+        (name, block, tri) = require_file('test/samples/AL1.TRI')
+        spots = [i for i, p in enumerate(tri['road_spline']) if p['police_spot']['is_spot']]
+        self.assertEqual(spots, [145, 440, 690, 1073, 1154, 1340, 1423])
+        self.assertEqual(
+            tri['road_spline'][145]['police_spot'],
+            {'unused': 0, 'chance': '97/128', 'drives_off': True, 'is_left': False, 'is_spot': True},
+        )
+        self.assertEqual(tri['road_spline'][440]['police_spot']['chance'], '65/128')
+        self.assertTrue(tri['road_spline'][440]['police_spot']['is_left'])
+
+    def test_reverse_track_should_swap_police_spot_sides(self):
+        (name, block, tri) = require_file('test/samples/AL1.TRI')
+        tri = deepcopy(tri)
+        length = len(tri['terrain']) * 4
+        block.action_reverse_track(tri)
+        self.assertTrue(tri['road_spline'][length - 1 - 145]['police_spot']['is_left'])
+        self.assertFalse(tri['road_spline'][length - 1 - 440]['police_spot']['is_left'])
+        self.assertFalse(tri['road_spline'][0]['police_spot']['is_left'])
+
 
 class TestNfs4FrdMap(unittest.TestCase):
     def test_nfs4_frd_should_be_same_size_and_stable(self):
