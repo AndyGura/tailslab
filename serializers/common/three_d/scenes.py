@@ -100,6 +100,49 @@ def _warn_if_exporter_lacks_normals_options(gg_exporter_dir: str):
     )
 
 
+def _is_meta_only_property(value) -> bool:
+    """
+    A list of objects or lists can't pass through Blender: it becomes an ID property array of groups / arrays, which
+    the gg-web-engine exporter (`rna_idprop_value_to_python`) leaves unconverted, and its JSON dump of the `.meta`
+    fails half-way
+    """
+    return isinstance(value, list) and any(isinstance(item, (dict, list)) for item in value)
+
+
+def _blender_curve(curve: dict) -> dict:
+    """The curve as the Blender script gets it: without the properties `_add_meta_curve_properties` writes"""
+    properties = curve.get('properties', {})
+    if not any(_is_meta_only_property(value) for value in properties.values()):
+        return curve
+    return {
+        **curve,
+        'properties': {key: value for key, value in properties.items() if not _is_meta_only_property(value)},
+    }
+
+
+def _add_meta_curve_properties(meta_path: str, curves: List[dict]):
+    """
+    Adds the curve properties that can't pass through Blender (`_is_meta_only_property`) to the curves of the `.meta`
+    written by the gg-web-engine exporter, after the others. The exporter writes it with `json.dump` defaults, so the
+    rest of the file stays byte-identical
+    """
+    meta_only = {
+        curve['name']: {
+            key: value for key, value in curve.get('properties', {}).items() if _is_meta_only_property(value)
+        }
+        for curve in curves
+    }
+    meta_only = {name: properties for name, properties in meta_only.items() if properties}
+    if not meta_only:
+        return
+    with open(meta_path) as f:
+        meta = json.load(f)
+    for meta_curve in meta.get('curves', []):
+        meta_curve.update(meta_only.get(meta_curve.get('name'), {}))
+    with open(meta_path, 'w') as f:
+        json.dump(meta, f)
+
+
 def export_scenes(scenes: List[Scene], output_path: str, settings) -> List[str]:
     mtl_entry_template = Template("""
 
@@ -186,7 +229,7 @@ $extra_script
             exported_files.append(file_path)
         if scene.dummies or scene.curves or scene.object_properties:
             file_path = path_join(scene_path, f'{scene.obj_name}_extra.json')
-            extras = {'dummies': scene.dummies, 'curves': scene.curves}
+            extras = {'dummies': scene.dummies, 'curves': [_blender_curve(curve) for curve in scene.curves]}
             if scene.object_properties:
                 extras['objects'] = scene.object_properties
             with open(file_path, 'w') as f:
@@ -250,12 +293,13 @@ $extra_script
                 exported_files.append(file_path + '.blend')
         run_blender(path=output_path, script=script)
         if settings.geometry__export_to_gg_web_engine:
-            # the gg-web-engine exporter writes no morph targets
             for scene in scenes:
+                scene_file_path = path_join(os.getcwd(), output_path, scene.directory, scene.name)
+                # the gg-web-engine exporter writes no morph targets
                 morph_meshes = [sm for sm in scene.sub_meshes if sm.morph_targets]
                 if morph_meshes:
-                    glb_path = path_join(os.getcwd(), output_path, scene.directory, scene.name) + '.glb'
-                    add_glb_morph_targets(glb_path, morph_meshes)
+                    add_glb_morph_targets(scene_file_path + '.glb', morph_meshes)
+                _add_meta_curve_properties(scene_file_path + '.meta', scene.curves)
 
     if not settings.geometry__save_obj:
         exported_files = [

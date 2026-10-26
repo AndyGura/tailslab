@@ -154,7 +154,10 @@ When you do:
 - `TriMapSerializer` writes the road spline as the curve `road_path` of `map.meta` / `map.glb` (gg-web-engine export),
   with one array per point property, in point order: slope, slant, barrier / verge distances, lanes, AI / traffic speeds
   (per chunk of 4 points), `item_mode` (raw byte value), `left_shoulder_surface_type` / `right_shoulder_surface_type`
-  and `left_fence` / `right_fence` (the nibbles of `shoulder_surface_type` / `fence_flag`, left = high nibble). nfs-web
+  and `left_fence` / `right_fence` (the nibbles of `shoulder_surface_type` / `fence_flag`, left = high nibble),
+  `side_normal` (`{x, y, z}` unit vectors to the right side of the road, raw / 32768, on the axes of `points`; a list of
+  objects or lists can't pass through Blender ID properties, so `export_scenes` adds such curve properties to the
+  `.meta` after the export, `_add_meta_curve_properties` in `scenes.py`). nfs-web
   reads these keys and mirrors the track itself (left / right arrays swapped): keep them stable and unmirrored.
 - Fences follow the game's `tnfs_render_track_fence` (SE 0x44a2b4, DOS 0x69719, PSX 0x80046484; `TerrainChunk.build_fence`):
   only the chunk's `fence` byte decides them (`fence_flag` of the spline points is collision only). One vertical quad per

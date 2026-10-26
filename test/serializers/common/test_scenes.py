@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import tempfile
 import unittest
@@ -91,6 +92,55 @@ class TestExportScenesGlbOptions(unittest.TestCase):
     def test_no_warning_when_the_exporter_has_the_options(self):
         with self.assertNoLogs(level='WARNING'):
             self._export([Scene(name='a', directory='a/', export_normals=False)], _NEW_EXPORTER)
+
+
+class TestMetaOnlyCurveProperties(unittest.TestCase):
+    """Curve properties that Blender ID properties can't carry go into the `.meta` after the export"""
+
+    def test_lists_of_objects_skip_blender_and_land_in_the_meta(self):
+        normals = [{'x': 1.0, 'y': 0.0, 'z': 0.0}, {'x': 0.0, 'y': -1.0, 'z': 0.5}]
+        curve = {
+            'name': 'road_path',
+            'closed': False,
+            'points': [[0, 0, 0], [0, 1, 0]],
+            'properties': {'slope': [0.0, 0.25], 'side_normal': normals},
+        }
+        exported_meta = {
+            'formatVersion': 2,
+            'curves': [{'name': 'road_path', 'cyclic': False, 'points': [], 'slope': [0.0, 0.25]}],
+            'dummies': [],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            blender_extras = {}
+
+            def run_blender(path, script):
+                # what Blender gets, and the `.meta` the gg-web-engine exporter writes (`json.dump` defaults)
+                with open(os.path.join(tmp, 'map_extra.json')) as f:
+                    blender_extras.update(json.load(f))
+                with open(os.path.join(tmp, 'map.meta'), 'w') as f:
+                    json.dump(exported_meta, f)
+
+            with (
+                patch.object(scenes_module, 'ensure_gg_web_engine_exporter_installed', return_value=tmp),
+                patch.object(scenes_module, 'run_blender', side_effect=run_blender),
+            ):
+                export_scenes([Scene(name='map', obj_name='map', curves=[curve])], tmp + '/', _GgSettings())
+            with open(os.path.join(tmp, 'map.meta')) as f:
+                meta_text = f.read()
+
+        self.assertEqual(blender_extras['curves'][0]['properties'], {'slope': [0.0, 0.25]})
+        self.assertEqual(curve['properties']['side_normal'], normals)
+        expected = {**exported_meta, 'curves': [{**exported_meta['curves'][0], 'side_normal': normals}]}
+        self.assertEqual(meta_text, json.dumps(expected))
+
+    def test_meta_is_untouched_without_such_properties(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            meta_path = os.path.join(tmp, 'map.meta')
+            with open(meta_path, 'w') as f:
+                f.write('{"curves": [{"name": "c"}]}')
+            scenes_module._add_meta_curve_properties(meta_path, [{'name': 'c', 'properties': {'a': [1, 2]}}])
+            with open(meta_path) as f:
+                self.assertEqual(f.read(), '{"curves": [{"name": "c"}]}')
 
 
 class TestGgExportOptionsScript(unittest.TestCase):
