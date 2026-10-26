@@ -203,6 +203,64 @@ When you do:
   (320 / tan(48 deg)). Settings: `MISC/<track>INFO` for `_T01` FAMs, the executable's table (`SE_HORIZON_SETTINGS`)
   otherwise. nfs-web makes cube map faces of `spherical.png`.
 
+## NFS2 SE sky (`GAMEDATA/TRACKS/SE/3TR<nn>.HRZ`, the first 8 images of `TR<nn>0.QFS`, `SKY.FSH`)
+
+- `serialize_sky` writes `spherical.png` (TNFS layout) next to the PNGs of `TRACKS/SE/TR<nn>0.QFS` / `TR<nn>0M.QFS`,
+  so also into `TR<nn>.TRK/textures/` (nfs-web loads that one), with `library/utils/eac_horizon_to_spherical.py`
+  (`horizon_archive_kind`, `serialize_horizon_sky`; NFS2 SE, NFS3 and NFS4 share EA's horizon code `hrzsku.c`, the
+  module docstring has the drawing order and what is verified). Settings `Nfs2SeHorizonInfo`
+  (`resources/eac/horizons.py`, exported as `.HRZ.json`). Verified in nfs2sea.exe (the 3D accelerated build; nfs-web
+  `decomp/nfs2/nfs2sea.exe.gzf`, `Hrz_*` names): ring point k at heading angle + k * 22.5 deg (clockwise from +Z),
+  every point projected at the flat projection distance D (a height h at elevation atan(h / D) in the texture),
+  heights as 16.16 fractions of the Gouraud height, the cloud dome `CLD<track>` (tracks 2..7; one tile per grid cell,
+  added with Glide (source alpha, one), track 7 alpha blended at 0x7f). `TRACKS/PC` (`TR<nn>.HRZ`, `Nfs2HorizonInfo`, nfs2sen.exe
+  software renderer, other code) keeps the strips pasted side by side (not ported).
+
+## NFS3 sky (`GameData/Tracks/TRK<nnn>/3TR<nn>.HRZ`, the first 8 images of `TR<nn>0.QFS`, `SKY.FSH`)
+
+- `spherical.png` next to the PNGs of `TR<nn>0.QFS`, so also in `TR<nn>.FRD/textures/`; settings `Nfs3HorizonInfo`
+  (day file only), clouds `CLDD`, sun `SUND` with its SHPI text (`A<deg> B<deg> R<size / 10>`, `ROTATE`, `NOADD`,
+  `INFRONT`). Verified in nfs3.exe (`decomp/nfs3/nfs3.exe.gzf`, `Hrz_*`): the band is a straight wall of 8 sectors
+  (2 pi R / 16 wide each) across the view at distance R, scrolled so the view centre shows sector 16 * (heading +
+  0.53127 + angle) + 3.5: sector k starts at heading k / 16 + 0.25 - angle; the texture keeps that view centre
+  mapping, heights at atan(h / R). Cloud dome: 13 x 13 points of i * 450 - 3000, y = offset + 3 * height *
+  cos(2 pi r / 12000), random vertex brightness (fixed seed here), smoothed. Night (`N`), weather (`W`, `NW`): other
+  HRZ files and `CLDN` / `CLWD` / `CLWN`, `SUNN` / `SUNW` / `SNNW` of the same `SKY.FSH`, the same strips (not made).
+
+## NFS4 sky (`Data/Tracks/<track>/Tr.ini`, `sky.qfs`)
+
+- `spherical.png` next to the PNGs of `sky.qfs` (strips `HDC0`..`HDC7`, clouds `CLDD`, sun `SUND`); settings
+  `Nfs4TrackIni` (`[strip]`, `[clouds]`, `[fog]`, `[sun]`; `hrzAngle`, sun angles in turns). Verified in nfs4.exe
+  (`decomp/nfs4/nfs4.exe.gzf`): NFS3's code with 16 sectors from the view centre at 16 * (heading + 0.5 + angle) + 8
+  (sector k starts at heading k / 16 - angle), `cloudHeight` already 3x, U / V scale per grid cell, `cloudNimbus`
+  0..1; the sun from `[sun]` with `hasSun=1`, else from the `SUND` text. Night and weather: `TrN.ini` / `TrW.ini` /
+  `TrNW.ini` with `HNC*` / `HDW*` / `HNW*`, `CLDN` / `CLWD`..., `SUNN` / `SUNW` / `SNNW` (not made).
+
+## NFS6 sky (`tracks/<location>/persist.viv`: `skyg.o` + `sky.fsh`)
+
+- `serialize_sky` writes `persist.viv/sky.fsh/spherical.png` (same layout as TNFS; `library/utils/sky_spherical.py`
+  has the shared layout: centre column = +X, a quarter right = -Z, axes of the track data) with
+  `library/utils/nfs6_sky_to_spherical.py`: every pixel casts a ray from the eye against the triangles of the
+  `skyg.o` meshes (`read_eagl_meshes`), perspective-correct UVs, texture repeated, times the vertex colour, meshes
+  alpha blended in render method order. Verified in NFSHP2.exe (nfs-web `decomp/nfs6/NFSHP2.exe.gzf`, names there):
+  the model follows the camera 12.4 below the eye (`Nfs6Persist_DrawSky` 0x4387d0), alpha BLEND
+  (`Eagl_SetTrackBlendStates`), one sky per location (all `levelNN` the same), `Tr.ini` / `sun.ini` / `Fog.ini` not
+  read. Left out: the sky fog (FogSkyDensity * FogDensity * 0.04 of the compartment's `drvpath.ini` effects, 0 in
+  Alpine and Medit), the sun glow flare. Below the meshes: black (every clear colour the executable sets). The painted
+  sun of Tropics and Alpine falls on the `lighting.ini` `[sun]` direction.
+
+## NFS5 sky (`GameData/Track/Sky/<track>.fsh`, `.txt`, `.bin`)
+
+- `serialize_sky` writes `Sky/<Track>.fsh/spherical.png` with `library/utils/nfs5_sky_to_spherical.py` (the track
+  picks the files by its name, any case: `alps.crp` -> `Alps.*`, `monaco1.crp` -> `Monaco1.*`; `Monaco.*` and
+  `default.*` belong to no track). Unverified (Porsche.exe is SafeDisc encrypted): `.txt` layers (HIGH level, weather
+  region A; one layer per texture, `flat` = untextured, coloured by its sky map) on a hemisphere, the 16x16 sky map
+  spanning the dome once by orthographic projection (centre at the zenith, edge on the horizon), the texture
+  repeated by the scale factors; the `horz` strips on a cylinder whose radius, heights, segments and strip table come
+  from the `.bin` header (`Nfs5SkyBin`, `resources/eac/maps/nfs5_sky.py`, exported as `<name>.bin.json`). The last
+  texel row of each strip is transparent padding. Below the horizon one flat colour (mean of the band's lowest drawn
+  row). `hzcl`, `hor0`.., region B, wind and warp are not used.
+
 ## TNFS PlayStation (`games/tnfs_psx`, SLUS-00204, doc `resources/TNFS_PSX.md`)
 
 - `.PSH` = `ShppBlock` (`resources/eac/archives/shpp_block.py`): SHPI header and directory with magic `SHPP` (dir id

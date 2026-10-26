@@ -265,8 +265,11 @@ class ShpiText(DeclarativeCompoundBlock):
     def schema(self) -> Dict:
         return {
             **super().schema,
-            'block_description': 'An entry, which sometimes can be seen in the SHPI archive block after bitmap, '
-            'contains some text. The purpose is unclear',
+            'block_description': 'Text attached to an SHPI image. In the NFS3 / NFS4 sky archives (`SKY.FSH`, '
+            '`sky.qfs`) the `SUN*` images carry the sun sprite settings: the numbers after `A` (azimuth, degrees), '
+            "`B` and `R` (the sprite's corners are 10 * R from its centre) and the words `ROTATE`, `NOADD` (not "
+            'additive), `INFRONT` (drawn after the clouds) (nfs3.exe 0x47a970, nfs4.exe 0x4c9050, which reads it '
+            'only when `Tr.ini` has no `hasSun=1`). Elsewhere the purpose is unclear',
         }
 
     class Fields(DeclarativeCompoundBlock.Fields):

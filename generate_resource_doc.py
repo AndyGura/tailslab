@@ -15,6 +15,7 @@ from library.read_blocks.strings import LengthPrefixedUtf8Block, UTF8Block
 from library.utils.docs import add_doc_numbers
 from resources import eac, blackbox
 from resources.eac import psx as eac_psx, psx_bitmaps as eac_psx_bitmaps
+from resources.eac import horizons as eac_horizons
 from resources.blackbox.bitmaps import nfsu as blackbox_bitmaps_nfsu
 from resources.blackbox.maps import nfsu as blackbox_maps_nfsu
 
@@ -238,6 +239,8 @@ EXPORT_RESOURCES = {
 
 **\\*.TRK** main track file. {render_type(eac.maps.TrkMap())}
 
+**GAMEDATA/TRACKS/PC/TR\\<nn\\>.HRZ** sky of a track for the software renderer, plain text. {render_type(eac_horizons.Nfs2HorizonInfo())}
+
 **\\*.UV** video, I just use ffmpeg to convert it
 
 **\\*.VIV** archive with some data. {render_type(eac.archives.BigfBlock())}""",
@@ -297,8 +300,9 @@ EXPORT_RESOURCES = {
                 eac.audios.EaSoundPatch(),
                 eac.audios.EaSoundPatchTag(),
             ],
-            # 'Misc': [
-            # ]
+            'Misc': [
+                eac_horizons.Nfs2HorizonInfo(),
+            ],
         },
     },
     'nfs2se': {
@@ -329,6 +333,10 @@ EXPORT_RESOURCES = {
 **\\*.QFS** image archive. {render_type(eac.archives.ShpiBlock())}, [compressed](eac_compressions.md)
 
 **\\*.TRK** main track file. {render_type(eac.maps.TrkMap())}
+
+**GAMEDATA/TRACKS/SE/3TR\\<nn\\>.HRZ** sky of a track for the 3D accelerated renderer (nfs2sea.exe), plain text. {render_type(eac_horizons.Nfs2SeHorizonInfo())}. The converter writes the sky sphere texture `spherical.png` next to the PNGs of `GAMEDATA/TRACKS/SE/TR\\<nn\\>0.QFS` (and `TR\\<nn\\>0M.QFS`, and the `textures` of the `.TRK` export) from its horizon strips (its first 8 images, `0000`..`0007`), this file and the clouds `CLD<track>` of `SKY.FSH`
+
+**GAMEDATA/TRACKS/PC/TR\\<nn\\>.HRZ** sky of a track for the software renderer (nfs2sen.exe), plain text. {render_type(eac_horizons.Nfs2HorizonInfo())}
 
 **\\*.UV** video, I just use ffmpeg to convert it
 
@@ -403,8 +411,10 @@ EXPORT_RESOURCES = {
                 eac.audios.EaSoundPatch(),
                 eac.audios.EaSoundPatchTag(),
             ],
-            # 'Misc': [
-            # ]
+            'Misc': [
+                eac_horizons.Nfs2SeHorizonInfo(),
+                eac_horizons.Nfs2HorizonInfo(),
+            ],
         },
     },
     'nfs3': {
@@ -423,6 +433,8 @@ EXPORT_RESOURCES = {
 **\\*.FFN** bitmap font. {render_type(eac.fonts.FfnFont())}
 
 **\\*.FRD** main track file. {render_type(eac.maps.FrdMap())}
+
+**GameData/Tracks/TRK\\<nnn\\>/3TR\\<nn\\>.HRZ** sky, fog and weather of a track (`N` night, `W` weather, `NW` both), plain text. {render_type(eac_horizons.Nfs3HorizonInfo())}. The converter writes the sky sphere texture `spherical.png` next to the PNGs of `TR\\<nn\\>0.QFS` (and the `textures` of the `.FRD` export) from its horizon strips (its first 8 images: `0000`..`0007`, `HOR1`..`HOR8`), the day file and `CLDD` / `SUND` of `SKY.FSH` (the sun settings are the text of the `SUN*` images)
 
 **\\*.FSH** image archive. {render_type(eac.archives.ShpiBlock())}
 
@@ -501,8 +513,9 @@ EXPORT_RESOURCES = {
                 eac.audios.EaSoundPatch(),
                 eac.audios.EaSoundPatchTag(),
             ],
-            # 'Misc': [
-            # ]
+            'Misc': [
+                eac_horizons.Nfs3HorizonInfo(),
+            ],
         },
     },
     'nfs4': {
@@ -517,6 +530,8 @@ EXPORT_RESOURCES = {
 **\\*.FFN** bitmap font. {render_type(eac.fonts.FfnFont())}
 
 **\\*.FRD** main track file. {render_type(eac.maps.Nfs4FrdMap())}
+
+**Data/Tracks/\\<track\\>/Tr.ini** track settings (`TrN.ini` night, `TrW.ini` weather, `TrNW.ini` both): sky, clouds, fog, sun, light, glows. {render_type(eac_horizons.Nfs4TrackIni())}. The converter writes the sky sphere texture `spherical.png` next to the PNGs of `sky.qfs` from its horizon strips `HDC0`..`HDC7`, clouds `CLDD`, sun `SUND` and `Tr.ini`
 
 **\\*.FSH** image archive. {render_type(eac.archives.ShpiBlock())}
 
@@ -571,8 +586,9 @@ EXPORT_RESOURCES = {
                 eac.audios.EaSoundPatch(),
                 eac.audios.EaSoundPatchTag(),
             ],
-            # 'Misc': [
-            # ]
+            'Misc': [
+                eac_horizons.Nfs4TrackIni(),
+            ],
         },
     },
     'nfs5': {
@@ -590,6 +606,8 @@ EXPORT_RESOURCES = {
 
 **\\*.ENV** image archive. {render_type(eac.archives.ShpiBlock())}
 
+**GameData/Track/Sky/\\<track\\>.fsh**, **.txt**, **.bin** the sky of the track of that name (alps.crp: Alps.\\*), unverified (encrypted executable): sky maps (`st1a`...: 16x16 ARGB top-down maps of the whole dome, centre at the zenith, edges on the horizon), layer textures (`cc1a`...: clouds, repeated over the dome), the horizon bitmap `horz` (strips around the camera; `hor0`, `hor1`... are copies with other details), `hzcl` (two colours, role unknown). The **.txt** lists sky levels `BEGIN`..`END` by computer capability (HIGH, MEDIUM, LOW) with `#` comments: capability, sky level type (`MULTINORMAL` or `basic`), "does this layer block the sun", then weather regions A and B (MULTINORMAL: 3 sky maps (ARGB, `none`), 3 X scale factors, 3 Y scale factors, move ratio (0 still, 50 fast, 400 slow), 3 wind speeds (0..10), 3 wind directions (degrees, north 0, east 90), warp speed, warp amount (0..1 of the UV); basic: sky map, sky map alpha (`none`, `noise`, `speed`), texture, X and Y scale factor, move ratio, wind speed, wind direction, warp speed, warp amount), then (MULTINORMAL) 3 textures: "the number of textures determines how many layers you have" (`flat` = an untextured layer, `none` = no layer; layer i is texture i coloured by sky map i, the scale factors repeat the texture). The **.bin**: {render_type(eac.maps.Nfs5SkyBin())}. See `library/utils/nfs5_sky_to_spherical.py`.
+
 **\\*.VIV** archive with some data. {render_type(eac.archives.BigfBlock())}""",
         'blocks': {
             'Archives': [
@@ -597,6 +615,9 @@ EXPORT_RESOURCES = {
                 eac.archives.BigfBlock(),
                 eac.archives.BigfItemDescriptionBlock(),
                 eac.archives.EaSoundBank(),
+            ],
+            'Maps': [
+                eac.maps.Nfs5SkyBin(),
             ],
             'Geometries': [
                 eac.geometries.nfs5.CrpGeometry(),
@@ -657,6 +678,8 @@ EXPORT_RESOURCES = {
         'file_name': 'NFS6.md',
         'title': 'NFS 6 Hot Pursuit 2 file specs',
         'file_list': f"""**compNN.o**, **trackg.o**, **skyg.o**, **levelNN\\levelG.o** track geometry. {render_type(eac.geometries.EaglModel())}
+
+**tracks\\<location\\>\\persist.viv** **skyg.o** + **sky.fsh** the location's sky (every levelNN of the location draws the same one): meshes around the camera (cloud cap, sky band, horizon ring, the sea below the horizon in Medit, Parkland and Tropics), drawn in render method order, alpha blended, 12.4 units below the eye (NFSHP2.exe, see `library/utils/nfs6_sky_to_spherical.py`). **Tr.ini** (`[strip]` horizon, `[clouds]`, `[sun]`...), **sun.ini** and **Fog.ini** are not read by NFSHP2.exe; **levelNN\\lighting.ini** sets the sun glow (`[SunGlow]`), ambient and sun light, **levelNN\\drvpath.ini** `[effectsN]` the fog of each compartment (the sky's fog density is FogSkyDensity * FogDensity * 0.04).
 
 **cars\\<car>\\car.viv** car: **car.o** model (also **carRigid.o**, **carM.o** and **carRigidM.o** with left and right windows swapped, **shadow.o**, bones in **skeleton.o**: {render_type(eac.geometries.EaglModel())}), **car.fsh** wheel textures. {render_type(eac.archives.BigfBlock())}
 

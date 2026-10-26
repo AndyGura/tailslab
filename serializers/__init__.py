@@ -26,6 +26,7 @@ from .geometries import (
     EaglModelSerializer,
 )
 from .json import JsonSerializer, TnfsPsxHorizonInfoSerializer
+from .horizons import EacHorizonSettingsSerializer
 from .maps import (
     TriMapSerializer,
     TrkMapSerializer,

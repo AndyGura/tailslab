@@ -27,7 +27,13 @@ from library.read_blocks.misc.value_validators import Eq
 #    (in "persist.viv") for compartments, "level.fsh" for "levelG.o", "sky.fsh" for "skyg.o", "car.fsh" (wheels, in
 #    "car.viv") or "skin" image of "skinNN.fsh" (paint, in "skin.viv") for cars
 #  - "__Model:::<name>" - the model. Car models have geometry names ("ALPHA_OPAQUE_HOODShape",
-#    "ALPHA_TRANS_WINShape~EASVehicleGlass", ...) of render methods "__GPRenderMethod_<name>_<i>" (`_eagl_geometry_names`)
+#    "ALPHA_TRANS_WINShape~EASVehicleGlass", ...) of render methods "__GPRenderMethod_<name>_<i>" (`_eagl_geometry_names`).
+#    Word 0xCC points to the draw list: two header commands, then (0xA000FFFF, render method + 0x30) per render method
+#    in draw order (index order in "skyg.o")
+#  - "skyg.o" ("__Model:::skyfs", textures of "sky.fsh" in the same "persist.viv") is the location's sky: NamedTexture
+#    meshes around the origin (cloud cap, sky band, horizon ring; Medit, Parkland and Tropics also the sea below the
+#    horizon), drawn alpha blended in index order around the camera, 12.4 below the eye (NFSHP2.exe 0x4387d0, see
+#    `library/utils/nfs6_sky_to_spherical.py`). Tr.ini's "[strip]" / "[clouds]" / "[sun]" are not read by NFSHP2.exe
 #  - "__Skeleton:::<name>", "__Bone:::<name>.<bone>" - car skeleton ("skeleton.o", `read_eagl_skeleton`)
 # Vertex positions are in world (model) space, Y is up. Cars: X right, front at -Z (right-handed, a mirrored export
 # shows the license plate text mirrored). Vertex format is D3D FVF: position, blend weight (cars, always 0), normal

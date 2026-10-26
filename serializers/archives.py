@@ -98,8 +98,25 @@ class ShpiArchiveSerializer(BaseFileSerializer):
         return output
 
     def serialize_sky(self, items, path: str, id) -> List[str]:
-        """Sky sphere texture `spherical.png` of the horizon of a TNFS FAM (`horz`) or an NFS2 track (`0000`..`0007`),
-        made from the exported images. Nothing when the archive has no horizon"""
+        """Sky sphere texture `spherical.png` of the horizon of a TNFS FAM (`horz`), an NFS2 SE / NFS3 / NFS4 / NFS5 /
+        NFS6 track or (strips `0000`..`0007` side by side, not placed as the game draws them) an NFS2 software renderer
+        track (`TRACKS/PC`), made from the exported images. Nothing when the archive has no horizon"""
+        from library.utils.eac_horizon_to_spherical import horizon_archive_kind, serialize_horizon_sky
+        from library.utils.nfs5_sky_to_spherical import is_nfs5_sky_archive, serialize_nfs5_sky
+        from library.utils.nfs6_sky_to_spherical import is_nfs6_sky_archive, serialize_nfs6_sky
+
+        for is_sky, serialize in [
+            # NFS2 SE 3D (TRACKS/SE/TR<nn>0.QFS + 3TR<nn>.HRZ), NFS3 (TRK<nnn>/TR<nn>0.QFS + 3TR<nn>.HRZ), NFS4 (sky.qfs + Tr.ini)
+            (horizon_archive_kind, serialize_horizon_sky),
+            (is_nfs6_sky_archive, serialize_nfs6_sky),  # NFS6 persist.viv: sky.fsh + skyg.o
+            (is_nfs5_sky_archive, serialize_nfs5_sky),  # NFS5 GameData/Track/Sky/<track>.fsh + .txt + .bin
+        ]:
+            if is_sky(id):
+                try:
+                    return serialize(items, path, id)
+                except Exception:
+                    traceback.print_exc()
+                    return []
         output = []
         try:
             if '.FAM__' in id:
