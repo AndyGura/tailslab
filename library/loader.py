@@ -27,6 +27,12 @@ def _is_nfs2_car_ai_name(file_path: str) -> bool:
     return len(name) == 8 and name[:4].isalnum() and name[:4].isascii() and name.upper().endswith('.DAT')
 
 
+def _is_ea_audio_stream(buffer, length) -> bool:
+    from resources.eac.audios import is_ea_audio_stream
+
+    return is_ea_audio_stream(buffer, length)
+
+
 # this looks like a mess, but it is intended to be like that: by using local imports we dramatically increase
 # performance, because we spawn process per file, and it doesn't need to load all those classes every time
 def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=None):
@@ -142,6 +148,14 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.audios import AsfAudio
 
             return AsfAudio
+        elif header_str == 'SCHl' and _is_ea_audio_stream(buffer, length):
+            from resources.eac.audios import EaAudioStreams
+
+            return EaAudioStreams
+        elif header_str == 'PFDx':
+            from resources.eac.audios import EaMusicMap
+
+            return EaMusicMap
         elif header_str in ['kVGT', 'SCHl']:
             from resources.eac.videos import FfmpegSupportedVideo
 

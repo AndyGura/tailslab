@@ -83,10 +83,13 @@ export class EditorComponent implements OnDestroy {
     // PSX images (SHPP): the image viewer only
     PsxImage: TargaImageBlockUiComponent,
     FfnFont: FontBlockUiComponent,
+    // EA audio streams: NFS2 SE, NFS5, NFS6 music
+    EaAudioStreams: EacsAudioBlockUiComponent,
 
     // TNFS-specific blocks
     OripGeometry: OripGeometryBlockUiComponent,
     EacsAudioFile: EacsAudioBlockUiComponent,
+    AsfAudio: EacsAudioBlockUiComponent,
     SoundBank: SoundbankBlockUiComponent,
     TriMap: TrackMapBlockUiComponent,
     PlayerCarPhysics: PlayerCarPhysicsBlockUiComponent,

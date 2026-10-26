@@ -220,6 +220,10 @@ EXPORT_RESOURCES = {
         'title': 'NFS2 file specs',
         'file_list': f"""**\\*.BNK** sound bank. {render_type(eac.archives.EaSoundBank())}
 
+**GAMEDATA/AUDIO/PC/\\*.ASF** song, **GAMEDATA/AUDIO/PC/\\*.MUS** interactive music. {render_type(eac.audios.EaAudioStreams())}
+
+**GAMEDATA/AUDIO/PC/\\*.MAP** interactive music map of the `.MUS` file of the same name. {render_type(eac.audios.EaMusicMap())}
+
 **\\*.COL** track additional data. {render_type(eac.maps.MapColFile())}
         
 **\\*.GEO** car 3D model. {render_type(eac.geometries.GeoGeometry())}
@@ -285,6 +289,11 @@ EXPORT_RESOURCES = {
                 eac.fonts.KerningItem(),
             ],
             'Audio': [
+                eac.audios.EaAudioStreams(),
+                eac.audios.EaAudioStream(),
+                eac.audios.EaMusicMap(),
+                eac.audios.EaMusicMapNode(),
+                eac.audios.EaMusicMapBranch(),
                 eac.audios.EaSoundPatch(),
                 eac.audios.EaSoundPatchTag(),
             ],
@@ -296,6 +305,10 @@ EXPORT_RESOURCES = {
         'file_name': 'NFS2_SE.md',
         'title': 'NFS2SE file specs',
         'file_list': f"""**\\*.BNK** sound bank. {render_type(eac.archives.EaSoundBank())}
+
+**GAMEDATA/AUDIO/PC/\\*.ASF** song, **GAMEDATA/AUDIO/PC/\\*.MUS** interactive music. {render_type(eac.audios.EaAudioStreams())}
+
+**GAMEDATA/AUDIO/PC/\\*.MAP** interactive music map of the `.MUS` file of the same name. {render_type(eac.audios.EaMusicMap())}
 
 **\\*.COL** track additional data. {render_type(eac.maps.MapColFile())}
 
@@ -382,6 +395,11 @@ EXPORT_RESOURCES = {
                 eac.fonts.KerningItem(),
             ],
             'Audio': [
+                eac.audios.EaAudioStreams(),
+                eac.audios.EaAudioStream(),
+                eac.audios.EaMusicMap(),
+                eac.audios.EaMusicMapNode(),
+                eac.audios.EaMusicMapBranch(),
                 eac.audios.EaSoundPatch(),
                 eac.audios.EaSoundPatchTag(),
             ],
@@ -393,6 +411,10 @@ EXPORT_RESOURCES = {
         'file_name': 'NFS3.md',
         'title': 'NFS 3 Hot Pursuit file specs',
         'file_list': f"""**\\*.BNK** sound bank. {render_type(eac.archives.EaSoundBank())}
+
+**GameData/Audio/pc/\\*.mus** interactive music. {render_type(eac.audios.EaAudioStreams())}
+
+**GameData/Audio/pc/\\*.map** interactive music map, **\\*.lin** linear song map of the `.mus` file of the same name. {render_type(eac.audios.EaMusicMap())}
 
 **\\*.COL** track additional data. {render_type(eac.maps.MapColFile())}
         
@@ -471,6 +493,11 @@ EXPORT_RESOURCES = {
                 eac.fonts.KerningItem(),
             ],
             'Audio': [
+                eac.audios.EaAudioStreams(),
+                eac.audios.EaAudioStream(),
+                eac.audios.EaMusicMap(),
+                eac.audios.EaMusicMapNode(),
+                eac.audios.EaMusicMapBranch(),
                 eac.audios.EaSoundPatch(),
                 eac.audios.EaSoundPatchTag(),
             ],
@@ -481,7 +508,9 @@ EXPORT_RESOURCES = {
     'nfs4': {
         'file_name': 'NFS4.md',
         'title': 'NFS 4 High Stakes file specs',
-        'file_list': f"""**\\*.BNK** sound bank. {render_type(eac.archives.EaSoundBank())}
+        'file_list': f"""**Data/Audio/MUSIC/\\*.ASF** song: `GAME*` in race, `MENU*`, `GARAGE1`, `SHOW`, `CREDITS`. {render_type(eac.audios.EaAudioStreams())}
+
+**\\*.BNK** sound bank. {render_type(eac.archives.EaSoundBank())}
 
 **\\*.FCE** 3D model (car.fce in car.viv: car model). {render_type(eac.geometries.Fce4Geometry())}
 
@@ -537,6 +566,8 @@ EXPORT_RESOURCES = {
                 eac.fonts.KerningItem(),
             ],
             'Audio': [
+                eac.audios.EaAudioStreams(),
+                eac.audios.EaAudioStream(),
                 eac.audios.EaSoundPatch(),
                 eac.audios.EaSoundPatchTag(),
             ],
@@ -548,6 +579,8 @@ EXPORT_RESOURCES = {
         'file_name': 'NFS5.md',
         'title': 'NFS 5 Porsche Unleashed file specs',
         'file_list': f"""**\\*.BNK** sound bank. {render_type(eac.archives.EaSoundBank())}
+
+**GameData/Music/zzzymus.viv** songs, archive of {render_type(eac.audios.EaAudioStreams())} items. {render_type(eac.archives.BigfBlock())}
 
 **\\*.crp** geometry file. {render_type(eac.geometries.CrpGeometry())}, [compressed](eac_compressions.md)
         
@@ -611,6 +644,8 @@ EXPORT_RESOURCES = {
                 eac.fonts.KerningItem(),
             ],
             'Audio': [
+                eac.audios.EaAudioStreams(),
+                eac.audios.EaAudioStream(),
                 eac.audios.EaSoundPatch(),
                 eac.audios.EaSoundPatchTag(),
             ],
@@ -628,6 +663,8 @@ EXPORT_RESOURCES = {
 **cars\\<car>\\skin.viv** car paint textures **skinNN.fsh**, their colors are in **vehicle.ini**. {render_type(eac.archives.BigfBlock())}
 
 **levelNN\\aipaths.dat** race route. {render_type(eac.maps.Nfs6AiPaths())}
+
+**audio/music/\\*.asf** song (names in **music.ini**), **audio/speech/\\<language\\>/radio.viv** police radio speech (EA MicroTalk, not decoded). {render_type(eac.audios.EaAudioStreams())}
 
 **\\*.BNK** sound bank. {render_type(eac.archives.EaSoundBank())}
 
@@ -667,6 +704,8 @@ EXPORT_RESOURCES = {
                 eac.fonts.KerningItem(),
             ],
             'Audio': [
+                eac.audios.EaAudioStreams(),
+                eac.audios.EaAudioStream(),
                 eac.audios.EaSoundPatch(),
                 eac.audios.EaSoundPatchTag(),
             ],

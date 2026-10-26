@@ -481,3 +481,33 @@ When you do:
   `ocareng.bnk` in 0 and 3. `GEN.BNK` (NFS2 SE, NFS3) seems to keep TNFS collision bank indices: hits
   0x1d-0x25 (one-shots with random detune 250-300), loops 0x28 (scrape?), 0x29 (wind?), 0x2a-0x2d (tyre squeal?),
   0x2e (gravel?). Picked by signal analysis, not confirmed by game code or by ear.
+
+## Music (TNFS `1SNh`, NFS2-NFS6 `SCHl` streams, `PFDx` maps)
+
+- TNFS SE `FRONTEND/MUSIC/*.ASF` / `*.AS4` (`1SNh`) = `AsfAudio`: FFmpeg converts the file by its path
+  (`FfmpegSupportedAudioSerializer`). `CREDITS.ASF` has 1.75 MB of junk after its end block.
+- `SCHl` files hold EA audio streams: `EaAudioStreams` (`resources/eac/audios.py`), an array of `EaAudioStream`
+  (header chunk with an `EaSoundPatch`, then the SCCl / SCDl / SCLl / SCEl chunks as raw bytes, then padding up to the
+  next `SCHl`). The loader picks it for a `SCHl` file whose first chunks are all audio ones
+  (`is_ea_audio_stream`), else `FfmpegSupportedVideo` (NFS2 SE `.DCT` movies interleave `mTCD` chunks). It is also a
+  `BigfBlock` item block. Files: NFS2 / NFS2 SE `GAMEDATA/AUDIO/PC/*.ASF` (a song, loop in the header) and `*.MUS`
+  (interactive music, one stream per `.MAP` node, streams aligned to 4 bytes), NFS3 `GameData/Audio/pc/*.mus`
+  (`<track>rock` / `<track>tech` race music, `show1`..`show7` menus), NFS4 `Data/Audio/MUSIC/*.ASF`
+  (`GAME*` race, `MENU*`, `GARAGE1`, `SHOW`, `CREDITS`; stereo EA-XA, no loop), NFS5 `GameData/Music/zzzymus.viv`
+  (28 songs, items without extension), NFS6 `audio/music/*.asf` (names in `music.ini`), NFS6 `radio.viv` speech (EA
+  MicroTalk `codec_2` 4: FFmpeg can't decode it, goes to `skipped.txt`).
+- `EaAudioStreamsSerializer` decodes every stream with FFmpeg (`-f ea` from stdin to s16le at the header's channels /
+  rate), but 16-bit PCM ones (v0 header without `codec`: NFS3 `show1`, `show3`, `show4`, `show5`, `show7`; FFmpeg's
+  EA demuxer refuses them), which `ea_audio_stream_pcm16` reads from the SCDl chunks (4-byte sample count, then the
+  samples, channels interleaved). One stream: `<name>.wav` + `.meta.json` (`loop`, `loop_start_time_ms`, `loop_end_time_ms`). More streams: a
+  folder with `<node>.wav` + `.meta.json` per stream (node index of the map of the same name, any case, found next
+  to a top-level `.MUS`; file order without one) and `playthrough.wav` + `.meta.json` (`map`, `nodes`, `state_value`,
+  loop): the map is the `.lin` (NFS3, the linear song) when there is one, else the `.MAP`;
+  the nodes from `start_node` following the branches matching state value 50, up to the first node played again (loop
+  start) or an end node. `is_dir` is a method (depends on the stream count).
+- `.MAP` / NFS3 `.lin` = `EaMusicMap` ("PFDx" v0/1, big endian, layout from vgmstream `ea_schl_map_mpf_mus.c`): 12-byte header
+  (version, start node, node count, events per section, 3 zeros, section count), 28-byte nodes (section, branch
+  count, FF FF, 8 branch slots of min value / max value / next node: the state value 0..100 the game sets picks the
+  next node), the events table (section x event = node to jump to), the stream offset of each node in the `.MUS`.
+  NFS3 `.lin` maps have the `.map`'s stream offsets, one 0..100
+  branch per node and a start node of their own. Converted to JSON. The meaning of the state value and of the events is not known.

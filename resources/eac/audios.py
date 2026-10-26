@@ -316,6 +316,7 @@ class AsfAudio(DeclarativeCompoundBlock):
 
 
 EA_SOUND_PATCH_TAGS = [
+    (0x00, 'unk_0x00'),
     (0x06, 'priority'),
     (0x07, 'unk_0x07'),
     (0x08, 'release_envelope'),
@@ -330,6 +331,7 @@ EA_SOUND_PATCH_TAGS = [
     (0x11, 'random_detune_range'),
     (0x12, 'unk_0x12'),
     (0x13, 'effect_bus'),
+    (0x14, 'user_data'),
     (0x80, 'version'),
     (0x82, 'channels'),
     (0x83, 'codec'),
@@ -472,3 +474,289 @@ class EaSoundPatch(DeclarativeCompoundBlock):
             elif tag['tag'] not in EA_SOUND_PATCH_MARKERS:
                 res[-1][tag['tag']] = tag['value']
         return res
+
+
+# chunk ids of an EA audio stream: header, chunk count, data, loop end, end
+EA_AUDIO_STREAM_CHUNK_IDS = (b'SCHl', b'SCCl', b'SCDl', b'SCLl', b'SCEl')
+
+
+def _read_end(ctx) -> int:
+    """Absolute buffer offset where the bytes the block may read end: the end of the closest context with a known
+    amount of bytes to read (the file, an archive item), else the end of the buffer"""
+    c = ctx
+    while c is not None:
+        if getattr(c, 'read_bytes_amount', None) is not None and getattr(c, 'read_start_offset', None) is not None:
+            return c.read_start_offset + c.read_bytes_amount
+        c = c.parent
+    pos = ctx.buffer.tell()
+    end = ctx.buffer.seek(0, 2)
+    ctx.buffer.seek(pos)
+    return end
+
+
+def scan_ea_audio_stream_chunks(buffer, end: int) -> int:
+    """Length of the chunks at the buffer position up to and including the end chunk SCEl (or up to an unknown chunk,
+    a next stream header, a broken chunk size or `end`). Keeps the buffer position"""
+    start = buffer.tell()
+    pos = start
+    try:
+        while pos + 8 <= end:
+            buffer.seek(pos)
+            head = buffer.read(8)
+            chunk_id, size = head[:4], int.from_bytes(head[4:], 'little')
+            if chunk_id not in EA_AUDIO_STREAM_CHUNK_IDS or chunk_id == b'SCHl' or size < 8 or pos + size > end:
+                break
+            pos += size
+            if chunk_id == b'SCEl':
+                break
+        return pos - start
+    finally:
+        buffer.seek(start)
+
+
+def scan_ea_audio_stream_padding(buffer, end: int) -> int:
+    """Length of the bytes at the buffer position before the next stream header SCHl (MUS files align streams to 4
+    bytes), all remaining bytes up to `end` when there is no next stream. Keeps the buffer position"""
+    start = buffer.tell()
+    try:
+        tail = buffer.read(min(end - start, 64))
+        index = tail.find(b'SCHl')
+        return index if index >= 0 else end - start
+    finally:
+        buffer.seek(start)
+
+
+def is_ea_audio_stream(buffer, length: int = None) -> bool:
+    """Whether the SCHl file at the buffer position holds audio chunks only (EA videos interleave picture chunks with
+    the audio ones: `mTCD` in NFS2 SE DCT movies, `MV0K`, `MADk`...). Checks the first chunks. Keeps the buffer
+    position"""
+    start = buffer.tell()
+    end = start + length if length is not None else buffer.seek(0, 2)
+    pos = start
+    try:
+        for _ in range(16):
+            if pos + 8 > end:
+                return True
+            buffer.seek(pos)
+            head = buffer.read(8)
+            chunk_id, size = head[:4], int.from_bytes(head[4:], 'little')
+            if chunk_id not in EA_AUDIO_STREAM_CHUNK_IDS or size < 8:
+                return False
+            pos += size
+            if chunk_id == b'SCEl':
+                return True
+        return True
+    finally:
+        buffer.seek(start)
+
+
+def _ea_audio_streams_count(ctx) -> int:
+    buffer = ctx.buffer
+    start = buffer.tell()
+    end = _read_end(ctx)
+    count = 0
+    pos = start
+    try:
+        while pos + 8 <= end:
+            buffer.seek(pos)
+            head = buffer.read(8)
+            if head[:4] != b'SCHl':
+                break
+            count += 1
+            buffer.seek(pos + int.from_bytes(head[4:], 'little'))
+            pos = buffer.tell() + scan_ea_audio_stream_chunks(buffer, end)
+            buffer.seek(pos)
+            pos += scan_ea_audio_stream_padding(buffer, end)
+        return count
+    finally:
+        buffer.seek(start)
+
+
+class EaAudioStream(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'EA audio stream (NFS2 - NFS6 music, NFS6 speech): header chunk "SCHl" '
+            'with a sound patch (sampling rate, channels, number of samples, loop, codec), then the wave data in '
+            'chunks of 8-byte header (id, length including the header) and data: SCCl (amount of SCDl chunks), SCDl '
+            '(wave data), SCLl (loop end), SCEl (end). Explained by '
+            '[vgmstream](https://github.com/vgmstream/vgmstream) (`ea_schl.c`); the converter decodes it with FFmpeg',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        resource_id = (UTF8Block(value_validator=Eq('SCHl'), length=4), {'description': 'Header chunk id'})
+        header_length = (
+            IntegerBlock(
+                length=4,
+                programmatic_value=lambda ctx: (
+                    8
+                    + ctx.block.field_blocks_map['header'].estimate_packed_size(ctx.data('header'))
+                    + len(ctx.data('header_padding'))
+                ),
+            ),
+            {'description': 'Length of the header chunk, including the chunk id and this field'},
+        )
+        header = (
+            EaSoundPatch(),
+            {
+                'description': 'Sound patch: tags before `info_start` are playback settings, the ones after it '
+                'describe the wave data. Without the `version` tag (NFS2 - NFS4) `codec` 7 is EA-XA ADPCM v1, no '
+                '`codec` is 16-bit little endian PCM (NFS3 menu music: each SCDl chunk holds the amount of samples, '
+                '4 bytes, then the samples, channels interleaved), the sampling rate is 22050 without '
+                '`sampling_rate`; with `version` 1 (NFS5, NFS6) the codec is EA-XA ADPCM v2 '
+                '("R1" in FFmpeg). `loop_start` / `loop_end` are sample indices of the loop'
+            },
+        )
+        header_padding = (
+            BytesBlock(
+                length=(
+                    lambda ctx: ctx.data('header_length') - ctx.local_buffer_pos,
+                    'header_length - (header fields length)',
+                )
+            ),
+            {'description': 'Zeros up to the end of the header chunk'},
+        )
+        data = (
+            BytesBlock(
+                length=(
+                    lambda ctx: scan_ea_audio_stream_chunks(ctx.buffer, _read_end(ctx)),
+                    'chunks up to and including the end chunk SCEl',
+                )
+            ),
+            {'description': 'Chunks SCCl, SCDl, SCLl, SCEl with the wave data, as they are in the file'},
+        )
+        padding = (
+            BytesBlock(
+                length=(
+                    lambda ctx: scan_ea_audio_stream_padding(ctx.buffer, _read_end(ctx)),
+                    'up to the next stream or the end of file',
+                )
+            ),
+            {'description': 'Zeros aligning the next stream of the file to 4 bytes', 'is_unknown': True},
+        )
+
+
+class EaAudioStreams(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'A file of EA audio streams (`SCHl`): NFS2 / NFS2 SE `.ASF` (a song), NFS2 / NFS2 '
+            'SE / NFS3 `.MUS` (interactive music: a stream per node of the `.MAP` file of the same name), NFS4 '
+            '`Data/Audio/MUSIC/*.ASF`, NFS5 songs in `GameData/Music/zzzymus.viv`, NFS6 `audio/music/*.asf`, NFS6 '
+            'speech in `radio.viv`. Converted to WAV with FFmpeg: a file with one stream to `<name>.wav` + '
+            '`<name>.meta.json` (loop), a file with more streams to a folder with `<index>.wav` + `<index>.meta.json` '
+            'per stream and `playthrough.wav` (the streams in the order of the `.LIN`, else `.MAP` file next to it, '
+            'see `EaMusicMap`; all streams in file order without one)',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        streams = (
+            ArrayBlock(child=EaAudioStream(), length=(_ea_audio_streams_count, 'streams up to the end of file')),
+            {'description': 'Audio streams'},
+        )
+
+    def serializer_class(self):
+        from serializers import EaAudioStreamsSerializer
+
+        return EaAudioStreamsSerializer
+
+
+class EaMusicMapBranch(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'A branch of an interactive music node: the node to play next while the music '
+            'state value (0..100) set by the game is in the range',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        min_value = (IntegerBlock(length=1), {'description': 'Lowest state value of the branch'})
+        max_value = (IntegerBlock(length=1), {'description': 'Highest state value of the branch (100 at most)'})
+        next_node = (IntegerBlock(length=1), {'description': 'Index of the node to play next'})
+
+
+class EaMusicMapNode(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'A node of interactive music: one audio stream of the `.MUS` file and the nodes '
+            'which can follow it',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        section = (
+            IntegerBlock(length=1),
+            {'description': 'Section of the song the node belongs to: the row of `events` used while it plays'},
+        )
+        num_branches = (IntegerBlock(length=1), {'description': 'Amount of used `branches`, 0 in an end node'})
+        unk0 = (BytesBlock(length=2), {'is_unknown': True, 'description': 'Always FF FF'})
+        branches = (
+            ArrayBlock(child=EaMusicMapBranch(), length=8),
+            {
+                'description': 'Branches, the first `num_branches` are used, the next ones are zeros or leftovers. '
+                'The value ranges of the used ones cover 0..100'
+            },
+        )
+
+
+class EaMusicMap(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'Interactive music map "PFDx" (EA PathFinder) versions 0 and 1, NFS2 / NFS2 SE '
+            '`GAMEDATA/AUDIO/PC/*.MAP`, NFS3 `GameData/Audio/pc/*.map` and `*.lin`, for the `.MUS` file of the same '
+            'name (EaAudioStreams), big endian. NFS3 `.lin` maps list the same streams as the `.map`, with one branch '
+            'per node (0..100): the song played linearly. Music '
+            'plays node by node: when a node ends, the branch matching the music state value which the game sets '
+            '(0..100) picks the next one; a game event jumps to the node `events` gives for the section of the '
+            'current node. Layout from [vgmstream](https://github.com/vgmstream/vgmstream) '
+            '(`ea_schl_map_mpf_mus.c`), the node fields from the files',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        resource_id = (UTF8Block(value_validator=Eq('PFDx'), length=4), {'description': 'Resource ID'})
+        version = (IntegerBlock(length=1), {'description': 'Version, 0 or 1'})
+        start_node = (IntegerBlock(length=1), {'description': 'Index of the node the music starts with'})
+        num_nodes = (
+            IntegerBlock(length=1, programmatic_value=lambda ctx: len(ctx.data('nodes'))),
+            {'description': 'Amount of nodes'},
+        )
+        num_events = (IntegerBlock(length=1), {'description': 'Amount of events per section, 16 in NFS2 SE'})
+        unk0 = (BytesBlock(length=3), {'is_unknown': True, 'description': 'Zeros'})
+        num_sections = (
+            IntegerBlock(length=1, programmatic_value=lambda ctx: len(ctx.data('events'))),
+            {'description': 'Amount of sections (rows of `events`)'},
+        )
+        nodes = (
+            ArrayBlock(child=EaMusicMapNode(), length=(lambda ctx: ctx.data('num_nodes'), 'num_nodes')),
+            {'description': 'Nodes'},
+        )
+        events = (
+            ArrayBlock(
+                child=ArrayBlock(
+                    child=IntegerBlock(length=1), length=(lambda ctx: ctx.data('../num_events'), 'num_events')
+                ),
+                length=(lambda ctx: ctx.data('num_sections'), 'num_sections'),
+            ),
+            {
+                'description': 'For each section, the node each game event jumps to (0 for an event without a '
+                'jump). Meanings of the events are not known'
+            },
+        )
+        stream_offsets = (
+            ArrayBlock(
+                child=IntegerBlock(length=4, byte_order='big'),
+                length=(lambda ctx: ctx.data('num_nodes'), 'num_nodes'),
+            ),
+            {'description': 'Offset of the audio stream of each node in the `.MUS` file'},
+        )
+
+    def serializer_class(self):
+        from serializers import JsonSerializer
+
+        return JsonSerializer

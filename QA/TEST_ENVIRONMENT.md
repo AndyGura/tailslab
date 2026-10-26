@@ -162,18 +162,24 @@ only renders with SwiftShader flags; without them the canvas stays blank and not
 # shot.py <out.png> <wait_ms>
 import sys, asyncio
 from playwright.async_api import async_playwright
+
+
 async def main():
     async with async_playwright() as p:
-        b = await p.chromium.launch(executable_path='/opt/pw-browsers/chromium', args=[
-            '--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'])
+        b = await p.chromium.launch(
+            executable_path='/opt/pw-browsers/chromium',
+            args=['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
+        )
         pg = await b.new_page(viewport={'width': 1400, 'height': 1000})
         logs = []
         pg.on('console', lambda m: logs.append(f'{m.type}: {m.text}'))
         await pg.goto('http://localhost:4200/')
-        await pg.wait_for_timeout(int(sys.argv[2]))   # a whole NFS6/NFS4 track needs ~60-90s
+        await pg.wait_for_timeout(int(sys.argv[2]))  # a whole NFS6/NFS4 track needs ~60-90s
         await pg.screenshot(path=sys.argv[1])
         print('\n'.join(logs[-30:]))
         await b.close()
+
+
 asyncio.run(main())
 ```
 

@@ -14,7 +14,7 @@ from library.read_blocks import (
 from library.read_blocks.archives import ArchiveBlock, pre_items_payload_length, slot_lengths
 from library.read_blocks.misc.value_validators import Eq
 from library.read_blocks.strings import NullTerminatedUTF8Block
-from resources.eac.audios import EacsAudioFile, SoundBankHeaderEntry, EaSoundPatch
+from resources.eac.audios import EacsAudioFile, SoundBankHeaderEntry, EaSoundPatch, EaAudioStreams
 from resources.common.bitmaps.targa_image import TargaImage
 from .shpi_block import ShpiBlock
 from .shpp_block import ShppBlock
@@ -240,6 +240,7 @@ class BigfBlock(ArchiveBlock):
                     EacCompressedBlock(),
                     TargaImage(),
                     EaSoundBank(),
+                    EaAudioStreams(),
                     Nfs2CarPhysics(),
                     Nfs2SimTune(),
                     Nfs2CarAi(),

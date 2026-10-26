@@ -37,6 +37,8 @@ const iconMap: Record<string, string> = {
   FrdMap: 'layers',
 
   EacsAudioFile: 'audiotrack',
+  AsfAudio: 'audiotrack',
+  EaAudioStreams: 'audiotrack',
 
   PlayerCarPhysics: 'speed',
   CarAiAndCrashBody: 'speed',
