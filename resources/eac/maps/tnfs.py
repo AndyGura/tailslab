@@ -162,7 +162,14 @@ class RoadSplinePoint(DeclarativeCompoundBlock):
         )
         side_normal = (
             Point3D(child=FixedPointBlock(length=2, fraction_bits=16, is_signed=True)),
-            {'description': 'Side normal vector'},
+            {
+                'description': 'Unit vector pointing to the right side of the road, perpendicular to the road '
+                'direction and tilted with the road bank (y < 0 where the right side is lower): three signed '
+                'int16, 1.0 = 0x8000, so the values shown here (16.16) are half the vector. The game builds the road '
+                'plane of each slice from it to place the cars on the road '
+                '([tnfs-1995](https://github.com/marcos2250/tnfs-1995) `tnfs_height_road_position`: node A, '
+                'B = A + 2 * side normal and the next node C)'
+            },
         )
         unk2 = (IntegerBlock(length=2, value_validator=Eq(0)), {'is_unknown': True})
 

@@ -486,6 +486,11 @@ class TriMapSerializer(BaseFileSerializer):
                 'right_shoulder_surface_type': [x['shoulder_surface_type'][1] for x in spline],
                 'left_fence': [x['fence_flag'][0] for x in spline],
                 'right_fence': [x['fence_flag'][1] for x in spline],
+                # unit vector to the right side of the road (raw int16 / 32768), on the axes of `points`
+                'side_normal': [
+                    {'x': x['side_normal']['x'] * 2, 'y': x['side_normal']['z'] * 2, 'z': x['side_normal']['y'] * 2}
+                    for x in spline
+                ],
                 'max_ai_speed': [
                     data['ai_info'][math.floor(i / 4)]['top_speed'] for i in range(len(data['terrain']) * 4)
                 ],
