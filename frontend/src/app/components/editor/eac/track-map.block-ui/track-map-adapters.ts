@@ -1,7 +1,7 @@
 import { MapGraph, MapGraphNodeType, Point3 } from '@gg-web-engine/core';
 import { ClampToEdgeWrapping, RepeatWrapping, Texture } from 'three';
 import { nfs6Route } from './nfs6-route';
-import { setupNfs1Texture } from '../../common/obj-viewer/obj-viewer.component';
+import { setupNfs1Texture } from '../../../../../nfs-three-lib/nfs1-model-utils';
 import { BlockData } from '../../types';
 import type { TrackMapWorldEntity } from './track-map-world.entity';
 import { TrackPropsController } from './track-props-controller';

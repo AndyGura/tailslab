@@ -25,7 +25,7 @@ import {
 import { ThreeDisplayObjectComponent, ThreeGgWorld } from '@gg-web-engine/three';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
-import { setupNfs1Texture } from '../../common/obj-viewer/obj-viewer.component';
+import { setupNfs1Texture } from '../../../../../nfs-three-lib/nfs1-model-utils';
 import { TrackMapAdapter } from './track-map-adapters';
 import { meshTextureName, TrackPropsAssets, TrackPropsController } from './track-props-controller';
 

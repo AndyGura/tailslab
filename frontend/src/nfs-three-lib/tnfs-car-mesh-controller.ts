@@ -1,6 +1,7 @@
 import {
   Camera,
   ClampToEdgeWrapping,
+  Color,
   Material,
   Mesh,
   MeshBasicMaterial,
@@ -9,10 +10,8 @@ import {
   TextureLoader,
   Vector3,
 } from 'three';
-import { setupNfs1Texture } from '../../common/obj-viewer/obj-viewer.component';
+import { setupNfs1Texture } from './nfs1-model-utils';
 import { Pnt3, Point3 } from '@gg-web-engine/core';
-import { sleep } from '../../../../utils/sleep';
-import { recolorImageSmart } from '../../../../utils/recolor-image';
 
 // tnfs_car_data.tire_skid_front/rear bits, set by the player's physics (tnfs_car_tire_force): wheels locked (brakes,
 // handbrake) or sliding sideways past the cutoff angle; wheelspin
@@ -33,7 +32,7 @@ const TYRE_STILL_MOVE = 0x1999 / 0x10000;
  * model's polygons are in partitions, drawn one after the other, each depth-sorted on its own: `inside` (circ, the
  * inner tyre faces; shad, the tyre bottoms seen from the front and back), then `surface` (the body), then `outside`
  * (the four wheel quads). So the wheels are always painted over their own body when they face the camera (they are
- * single-sided: the far ones are culled), and the inside parts always under it. The converter writes the partition
+ * single-sided: the far ones are culled), and the inside parts always under it. TailsLab writes the partition
  * of each mesh into its node extras (`userData.partition`); models converted before have none: see partitionOf.
  */
 // The original has no depth test: it paints the wheels over their own body whatever the distance. In a z-buffer they
@@ -63,10 +62,10 @@ const STEER_MORPH_MIN_SIDE = Math.sin((0xa0000 / 0x1000000) * 2 * Math.PI);
 type CarPartition = 'inside' | 'surface' | 'outside';
 
 /**
- * `car_colors.json` the converter writes next to the textures of a TNFS car model (CFM): colors of the PNGs (`#rrggbb`)
+ * `car_colors.json` TailsLab writes next to the textures of a TNFS car model (CFM): colors of the PNGs (`#rrggbb`)
  * that stand for palette indices the game draws in other colors (Win95 SE gfx_draw_car_model 0x458d4c,
  * gfx_shpi_remap_to_vga_palette 0x4470e0), and the textures having them. The same keys for every car: which role a car
- * has (a cop) is up to the game. The converter keeps these PNG colors unique
+ * has (a cop) is up to the game. TailsLab keeps these PNG colors unique
  */
 export interface TnfsCarColors {
   /** colors the car's `!xxx` gives to its entries of the game's 256-color palette in 8-bit modes, not for the textures */
@@ -94,64 +93,76 @@ export type TnfsLightBarMode = 'black' | 'siren' | 'texture';
 
 const hexColor = (color: string) => parseInt(color.substring(1), 16);
 
-/** A copy of a car texture with some colors replaced (see TnfsCarColors), given to `onReady` once first drawn */
-class RecoloredTexture {
-  readonly texture: Texture;
-  private readonly img: HTMLImageElement = document.createElement('img');
-  private version = 0;
-  private ready = false;
+// Most colors a texture has replaced at once: the tail light and the four light bar colors
+const MAX_RECOLORS = 5;
+// How far (per channel, 0..1) a texel may be from a PNG color to be replaced: the texel is exact (nearest filter, no
+// mipmaps) but goes through the GPU's sRGB decode and back, and paints have some light pixels a step or two off (the
+// red Viper's tail lights). No other color of the textures and paints is that close to one of them (checked 2026-10-19)
+const RECOLOR_TOLERANCE = 2.5 / 255;
 
-  constructor(
-    readonly name: string,
-    private readonly original: Texture,
-    onReady: (texture: Texture) => void,
-  ) {
-    this.texture = new Texture(this.img);
-    this.texture.name = original.name;
-    this.texture.flipY = original.flipY;
-    this.texture.wrapS = original.wrapS;
-    this.texture.wrapT = original.wrapT;
-    setupNfs1Texture(this.texture);
-    this.img.onload = () => {
-      this.texture.needsUpdate = true;
-      if (!this.ready) {
-        this.ready = true;
-        onReady(this.texture);
-      }
-    };
-  }
+/**
+ * The colors a material draws replaced (see TnfsCarColors), as shader uniforms: the PNG colors (sRGB, 0..1) and their
+ * replacements (linear), the first `count` of them. Replaced in the fragment shader, not in a recolored copy of the
+ * texture: reading a canvas back gets noise from anti-fingerprinting (Safari 26 by default, Brave, Firefox's strict
+ * mode), and then no pixel matches (the ZR1's tail lights stayed the PNG's green)
+ */
+class RecolorUniforms {
+  readonly from = { value: Array.from({ length: MAX_RECOLORS }, () => new Vector3()) };
+  readonly to = { value: Array.from({ length: MAX_RECOLORS }, () => new Color()) };
+  readonly count = { value: 0 };
 
-  /** Redraws the copy: the original with these colors (0xRRGGBB) replaced */
-  async recolor(replacements: Map<number, number>) {
-    const version = ++this.version;
-    for (let i = 100; i > 0 && !this.original.source.data; i--) {
-      await sleep(50);
+  /** These colors (0xRRGGBB) replaced, PNG color -> color */
+  set(replacements: Map<number, number>) {
+    let i = 0;
+    for (const [from, to] of replacements) {
+      if (i >= MAX_RECOLORS) break;
+      this.from.value[i].set(from >> 16, (from >> 8) & 0xff, from & 0xff).divideScalar(255);
+      this.to.value[i].setHex(to);
+      i++;
     }
-    // the original never loaded, or a later call redraws it
-    if (!this.original.source.data || version !== this.version) return;
-    recolorImageSmart(
-      this.original.source.data as HTMLImageElement,
-      (data, i) => {
-        const color = replacements.get((data[i] << 16) | (data[i + 1] << 8) | data[i + 2]);
-        if (color !== undefined) {
-          data[i] = color >> 16;
-          data[i + 1] = (color >> 8) & 0xff;
-          data[i + 2] = color & 0xff;
-        }
-      },
-      this.img,
-    );
-  }
-
-  dispose() {
-    this.version++;
-    this.img.onload = null;
-    this.img.remove();
-    this.texture.dispose();
+    this.count.value = i;
   }
 }
 
-/** A mesh's partition (see above), by the converter's extras, else by name for the models converted before */
+/** The material draws the colors of `uniforms` replaced (on top of its other shader changes) */
+function recolorInShader(material: Material, uniforms: RecolorUniforms) {
+  const previous = material.onBeforeCompile;
+  const previousKey = material.customProgramCacheKey;
+  material.onBeforeCompile = (shader, renderer) => {
+    previous.call(material, shader, renderer);
+    shader.uniforms['tnfsRecolorFrom'] = uniforms.from;
+    shader.uniforms['tnfsRecolorTo'] = uniforms.to;
+    shader.uniforms['tnfsRecolorCount'] = uniforms.count;
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        uniform vec3 tnfsRecolorFrom[${MAX_RECOLORS}];
+        uniform vec3 tnfsRecolorTo[${MAX_RECOLORS}];
+        uniform int tnfsRecolorCount;`,
+      )
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+        #ifdef USE_MAP
+        {
+          vec3 texel = sRGBTransferOETF( sampledDiffuseColor ).rgb;
+          for ( int i = 0; i < ${MAX_RECOLORS}; i++ ) {
+            if ( i >= tnfsRecolorCount ) break;
+            if ( all( lessThan( abs( texel - tnfsRecolorFrom[ i ] ), vec3( ${RECOLOR_TOLERANCE.toFixed(6)} ) ) ) ) {
+              diffuseColor.rgb = diffuse * tnfsRecolorTo[ i ];
+              break;
+            }
+          }
+        }
+        #endif`,
+      );
+  };
+  material.customProgramCacheKey = () => `${previousKey.call(material)}|tnfs-recolor`;
+  material.needsUpdate = true;
+}
+
+/** A mesh's partition (see above), by TailsLab's extras, else by name for the models converted before */
 function partitionOf(mesh: Mesh): CarPartition {
   const partition = mesh.userData?.['partition'];
   if (partition === 'inside' || partition === 'surface' || partition === 'outside') {
@@ -191,8 +202,8 @@ export class TnfsCarMeshController {
   frontTyreMaterial: MeshBasicMaterial | null = null;
   rearTyreMaterial: MeshBasicMaterial | null = null;
 
-  // the textures with colors of carColors, see recolor
-  private readonly recoloredTextures: RecoloredTexture[] = [];
+  // the materials drawing colors of carColors replaced, by the names of the textures they draw, see recolor
+  private readonly recolored: { names: string[]; uniforms: RecolorUniforms }[] = [];
   // time to the next swap of the siren colors, and whether they are swapped now
   private sirenTime = 0;
   private sirenSwapped = false;
@@ -276,15 +287,15 @@ export class TnfsCarMeshController {
     }
   }
 
-  /** The colors of a texture to replace now: PNG color -> color */
-  private replacementsOf(name: string): Map<number, number> {
+  /** The colors of these textures to replace now: PNG color -> color */
+  private replacementsOf(names: string[]): Map<number, number> {
     const result = new Map<number, number>();
     const { tail_lights, light_bar }: TnfsCarColors = this.carColors ?? {};
-    if (tail_lights?.textures.includes(name)) {
+    if (tail_lights?.textures.some(name => names.includes(name))) {
       result.set(hexColor(tail_lights.texture_color), hexColor(this._tailLightsOn ? tail_lights.on : tail_lights.off));
     }
     const lightBarRecolored = this._lightBar === 'siren' || (this._lightBar === 'black' && this.blackLightBar);
-    if (light_bar?.textures.includes(name) && lightBarRecolored) {
+    if (light_bar?.textures.some(name => names.includes(name)) && lightBarRecolored) {
       const colors = this.sirenSwapped ? light_bar.siren_colors_swapped : light_bar.siren_colors;
       light_bar.texture_colors.forEach((c, i) =>
         result.set(hexColor(c), this._lightBar === 'siren' ? hexColor(colors[i]) : 0),
@@ -293,11 +304,11 @@ export class TnfsCarMeshController {
     return result;
   }
 
-  /** Redraws the recolored textures of these names (all without names) */
+  /** Updates the replaced colors of the materials drawing these textures (all without names) */
   private recolor(names?: string[]) {
-    for (const texture of this.recoloredTextures) {
-      if (!names || names.includes(texture.name)) {
-        texture.recolor(this.replacementsOf(texture.name)).then();
+    for (const { names: drawn, uniforms } of this.recolored) {
+      if (!names || drawn.some(name => names.includes(name))) {
+        uniforms.set(this.replacementsOf(drawn));
       }
     }
   }
@@ -354,7 +365,11 @@ export class TnfsCarMeshController {
     this.setTyreIndices(front, rear);
   }
 
-  /** Front and rear tyre texture index, see updateTyres */
+  /**
+   * Front and rear tyre texture index, see updateTyres. Swapping one map for another keeps the shader program: no
+   * `needsUpdate`, which had three work out the program parameters again at every swap (every car, several times a
+   * second).
+   */
   setTyreIndices(front: number, rear: number, force = false): void {
     if (!this.frontTyreMaterial || !this.rearTyreMaterial) {
       return;
@@ -362,12 +377,10 @@ export class TnfsCarMeshController {
     if (force || front !== this.frontTyreIndex) {
       this.frontTyreIndex = front;
       this.frontTyreMaterial.map = this.tyreTextures[front];
-      this.frontTyreMaterial.needsUpdate = true;
     }
     if (force || rear !== this.rearTyreIndex) {
       this.rearTyreIndex = rear;
       this.rearTyreMaterial.map = this.tyreTextures[rear];
-      this.rearTyreMaterial.needsUpdate = true;
     }
   }
 
@@ -435,7 +448,8 @@ export class TnfsCarMeshController {
     const { tail_lights, light_bar }: TnfsCarColors = carColors ?? {};
     const recoloredNames = new Set([...(tail_lights?.textures || []), ...(light_bar?.textures || [])]);
     // materials of the body by texture name (the OBJ's are named as their texture, the GLB's textures are)
-    const recoloredMaterials = new Map<string, MeshBasicMaterial[]>();
+    // (a set: meshes can share a material, the OBJ loader's do, and its shader must be changed once)
+    const recoloredMaterials = new Map<string, Set<MeshBasicMaterial>>();
     // car model id 1 in gfx_car_tyre_textures
     this.frontTyresIgnoreMotion = assetsPath.includes('LDIABL.CFM');
     this.wheels = [null!, null!, null!, null!];
@@ -503,9 +517,13 @@ export class TnfsCarMeshController {
         for (const material of Array.isArray(o.material) ? o.material : [o.material]) {
           // any material with a texture (the GUI's OBJ ones are MeshPhongMaterial)
           const map = (material as MeshBasicMaterial).map;
-          const name = map && (map.name || material.name);
+          // "<texture>__cutout" / "<texture>__opaque": a texture used with and without the colour key
+          const name = map && (map.name || material.name).replace(/__(cutout|opaque)$/, '');
           if (name && recoloredNames.has(name)) {
-            recoloredMaterials.set(name, [...(recoloredMaterials.get(name) || []), material as MeshBasicMaterial]);
+            recoloredMaterials.set(
+              name,
+              (recoloredMaterials.get(name) || new Set()).add(material as MeshBasicMaterial),
+            );
           }
         }
       }
@@ -521,15 +539,9 @@ export class TnfsCarMeshController {
     }
 
     for (const [name, materials] of recoloredMaterials) {
-      // the copy replaces the original once drawn
-      this.recoloredTextures.push(
-        new RecoloredTexture(name, materials[0].map!, texture => {
-          for (const material of materials) {
-            material.map = texture;
-            material.needsUpdate = true;
-          }
-        }),
-      );
+      const uniforms = new RecolorUniforms();
+      materials.forEach(material => recolorInShader(material, uniforms));
+      this.recolored.push({ names: [name], uniforms });
     }
     if (!this.hasWheels) {
       this.recolor();
@@ -548,17 +560,6 @@ export class TnfsCarMeshController {
         return t;
       });
     this.tyreTextures = loadTyres('tyr');
-    // the game remaps the tyre textures too (light bar colors black)
-    this.tyreTextures.forEach((original, i) => {
-      if (recoloredNames.has(`tyr${i + 1}`)) {
-        this.recoloredTextures.push(
-          new RecoloredTexture(`tyr${i + 1}`, original, texture => {
-            this.tyreTextures[i] = texture;
-            this.setTyreIndices(this.frontTyreIndex, this.rearTyreIndex, true);
-          }),
-        );
-      }
-    });
     // the outside partition: over the own body, see WHEEL_BIAS_MIN_SIN
     const gap = (wheels: number[]) => Math.max(0, ...wheels.map(i => bodyHalfWidth - wheelInnerX[i]));
     // turned by rotation (no morphs): the steering's allowance all the time
@@ -577,14 +578,20 @@ export class TnfsCarMeshController {
     for (const [i, o] of this.wheels.entries()) {
       o.material = i < 2 ? this.frontTyreMaterial : this.rearTyreMaterial;
     }
+    // the game remaps the tyre textures too (light bar colors black): the colors of any of them on both axles, the
+    // others don't have them
+    const tyreNames = [1, 2, 3, 4].map(i => `tyr${i}`).filter(name => recoloredNames.has(name));
+    if (tyreNames.length > 0) {
+      const uniforms = new RecolorUniforms();
+      recolorInShader(this.frontTyreMaterial, uniforms);
+      recolorInShader(this.rearTyreMaterial, uniforms);
+      this.recolored.push({ names: tyreNames, uniforms });
+    }
     this.recolor();
   }
 
   public dispose() {
-    for (const texture of this.recoloredTextures) {
-      texture.dispose();
-    }
-    this.recoloredTextures.length = 0;
+    this.recolored.length = 0;
     this.frontTyreMaterial?.dispose();
     this.frontTyreMaterial = null;
     this.rearTyreMaterial?.dispose();

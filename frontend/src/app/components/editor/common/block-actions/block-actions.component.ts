@@ -4,6 +4,15 @@ import { MatSnackBar } from '@angular/material/snack-bar';
 import { CustomAction, Resource } from '../../types';
 import { lastIdPart } from '../../../../utils/join-id';
 import { CustomActionService } from '../../../../services/custom-action.service';
+import { MatDialog } from '@angular/material/dialog';
+import { firstValueFrom } from 'rxjs';
+import {
+  IMPORT_GUIDE_CONFIG_KEYS,
+  ImportGuide,
+  ImportGuideDialogComponent,
+  ImportGuideDialogData,
+  ImportGuideDialogResult,
+} from '../import-guide.dialog/import-guide.dialog.component';
 
 @Component({
   selector: 'app-block-actions',
@@ -40,6 +49,7 @@ export class BlockActionsComponent {
     readonly cdr: ChangeDetectorRef,
     private readonly customActionService: CustomActionService,
     private readonly snackBar: MatSnackBar,
+    private readonly dialog: MatDialog,
   ) {}
 
   async serialize() {
@@ -95,6 +105,10 @@ export class BlockActionsComponent {
     if (!this.resource) {
       return;
     }
+    const guide: ImportGuide | undefined = this.resource.schema?.serialization?.import_guide;
+    if (guide && !(await this.confirmImportGuide(guide))) {
+      return;
+    }
     const isDirectory = !!this.resource.schema?.serialization?.is_directory;
     let paths: string[] | null = null;
     if (isDirectory) {
@@ -119,6 +133,26 @@ export class BlockActionsComponent {
       this.isDeserializing = false;
       this.cdr.markForCheck();
     }
+  }
+
+  /** Shows the import guide unless the user turned it off; false when they cancel the import */
+  private async confirmImportGuide(guide: ImportGuide): Promise<boolean> {
+    const configKey = IMPORT_GUIDE_CONFIG_KEYS[guide];
+    const config = await this.mainService.api.getGeneralConfig();
+    if (config[configKey] === false) {
+      return true;
+    }
+    const result = await firstValueFrom(
+      this.dialog
+        .open<ImportGuideDialogComponent, ImportGuideDialogData, ImportGuideDialogResult>(ImportGuideDialogComponent, {
+          data: { guide },
+        })
+        .afterClosed(),
+    );
+    if (result?.dontShowAgain) {
+      await this.mainService.api.patchGeneralConfig({ [configKey]: false });
+    }
+    return !!result?.proceed;
   }
 
   async runCustomAction(action: CustomAction) {

@@ -56,7 +56,7 @@ docs and a working GUI editor for free.
 | `resources/*.md` | **Auto-generated** per-game docs (`generate_resource_doc.py`). Never hand-edit — edit the block definitions/descriptions and regenerate. |
 | `serializers/` | Turn parsed block data into common output formats and back. One serializer class per resource kind, returned by a block's `serializer_class()`. |
 | `api/` | Python↔JS bridge (pywebview/eel) exposing library + serializers to the GUI. |
-| `frontend/` | Angular GUI. `.../editor/library/*.block-ui` = generic components, one per `read_blocks` base class. `.../editor/eac/*` and `.../editor/common/*` = bespoke rich viewers (image, 3D geometry, map, audio, font, hex/targa, TNFS / NFS2 car specs) and widgets they share (`curve-editor` = editable SVG charts, `stat-tiles`). |
+| `frontend/` | Angular GUI. `.../editor/library/*.block-ui` = generic components, one per `read_blocks` base class. `.../editor/eac/*` and `.../editor/common/*` = bespoke rich viewers (image, 3D geometry, map, audio, font, hex/targa, TNFS / NFS2 car specs) and widgets they share (`curve-editor` = editable SVG charts, `stat-tiles`). `src/nfs-three-lib/` = three.js code shared with nfs-web, copied there as it is. |
 | `actions/` | OS-integration entry points (convert all, open in GUI editor, uncompress) wired to file-manager context menus / installers. |
 | `test/` | unittest suite mirroring `library/`/`resources/`. `test/golden_corpus/` + `test/test_gui_golden_corpus.sh` = manual smoke test that opens every sample file through `run.py`. |
 | `icons/` | App icon source (`tailslab.png`) and the per-platform icons made from it by `icons/generate_icons.py` (also writes the GUI's favicon and `assets/logo.png`). |
@@ -120,10 +120,15 @@ When you do:
   time). Follow that pattern there rather than importing at module top level.
 - Field extras dict (third tuple element in `Fields`) keys: `description`, `is_unknown`,
   `custom_offset`, `usage` (comma-separated subset of `ui`/`io`/`doc`, default = everywhere).
-- Car mesh controllers (`*-car-mesh-controller.ts`) and track props controllers (`*track-props-controller.ts`) in
-  `frontend/.../editor/eac/` are copied into the nfs-web game as they are (only import paths change): keep them free
-  of GUI services, depending on three.js, gg-web-engine and rxjs only. nfs-web loads the converter's gg-web-engine
-  export with "Add props to obj" off, so a track's props must reach it as dummies.
+- `frontend/src/nfs-three-lib/` (README there) is copied into the nfs-web game as it is: its files import only each
+  other and `three`, `@gg-web-engine/core`, `rxjs`, nothing else of the frontend (a part they need is brought into it),
+  and hold no specs (they are tested next to the GUI components using them). It has `TnfsCarMeshController` and
+  `setupNfs1Texture`; the other car mesh controllers (`*-car-mesh-controller.ts`) and the track props controllers
+  (`*track-props-controller.ts`) in `frontend/.../editor/eac/` are copied into nfs-web too, with their import paths
+  changed: keep them free of GUI services, depending on three.js, gg-web-engine and rxjs only. Meshes of the GUI's OBJ
+  models share a material per MTL material, nfs-web's GLB ones don't: code changing a material's shader must change
+  each material once. nfs-web loads the converter's gg-web-engine export with "Add props to obj" off, so a track's
+  props must reach it as dummies.
 - TNFS GLBs for nfs-web (chunked `*.TRI` terrain chunks and every ORIP model: cars, props) are exported without NORMAL / TANGENT
   (`Scene(export_normals=False)`, the exporter's `export_normals` / `export_tangents` options): nfs-web draws them unlit.
   Blender then splits vertices along texture coordinate seams only. An option that the loaded `exporter.py` does not
@@ -134,6 +139,9 @@ When you do:
   `selected_preset`, see `CONVERSION_NON_PRESET_KEYS`); a setting missing in a preset takes the built-in default.
   `run.py convert --preset "<name>"` (input and `--out` default to the preset's paths) and the GUI converter's preset
   select use them; a new conversion setting goes into `ConfigManager._get_defaults()` and the converter's form.
+- GUI preferences that must survive a restart go in the general settings (`config.py` `_get_defaults()` +
+  `general_config()`, `GeneralConfig` in `api-types.ts`, `patchGeneralConfig`), not `localStorage`: macOS / Windows
+  run pywebview with its default `private_mode=True`, which forgets web storage when the app closes.
 - Nothing repo-specific overrides standard slash commands (`/code-review`, `/simplify`, etc.).
 - Real game files for broader validation live under the gitignored `games/<game>/` folders (e.g. every
   QFS3-compressed file across nfs1/nfs2/nfs2se/nfs3), beyond the few samples in `test/samples/`.
@@ -263,8 +271,12 @@ When you do:
 
 ## TNFS car models (SIMDATA/CARFAMS/*.CFM)
 
-- `OripGeometrySerializer` splits meshes by texture and by ORIP `labels` (polygon indices): mesh names
-  `lbl__<label>__<texture>` (`lbl__lt_frnt`, `lbl__bkll__rsid`...), nfs-web reads them. Labels and `fx_polys` with a
+- `OripGeometrySerializer` splits meshes by material and by ORIP `labels` (polygon indices): mesh names
+  `lbl__<label>__<material>` (`lbl__lt_frnt`, `lbl__bkll__rsid`...), nfs-web reads them. Material names
+  (`orip_material_names`) are the FSH bitmap names, `<bitmap>__cutout` / `<bitmap>__opaque` for a bitmap that polygons
+  use with and without the colour key (polygon type bit 0x08), and `flat_<rrggbb>` (MTL `Kd` only) for polygons the
+  game fills with the material colour: no textured bit 0x80, or a bitmap name the FSH lacks, empty included (but the
+  `frntires` / `rertires` tyres). The GLB images keep the bitmap names. Labels and `fx_polys` with a
   garbage name (DVIPER bytes 80 02, LDIABL e0 01) are left out (`is_orip_name`): `NamedIndex` reads names with
   bytes which are not UTF-8 kept as U+DC80..U+DCFF (`NullTerminatedUTF8Block(errors='surrogateescape')`), so the
   file writes back byte-exact but such a name cannot go to a UTF-8 text file. A `NamedIndex` is always 12 bytes
@@ -299,9 +311,40 @@ When you do:
   dithering, deterministic), 250..254 the JSON's marker colours (pixels of exactly them), 255 alpha 0, `!xxx` (0x22)
   from `palette_slice` or black (always in the high-poly SHPI: the loader looks it up), directory `WRAP`; textures by
   name. Exported PNGs + JSON re-import to the same PNGs + JSON (all shipped CFMs). `TnfsCarMeshController` (`tailLightsOn`, `lightBar` 'black' / 'siren'
-  / 'texture', `sirenActive` + `updateLights`) recolours the PNGs with it, also in models without the wheel labels
+  / 'texture', `sirenActive` + `updateLights`) replaces those colours in the fragment shader of the materials drawing
+  these textures (not in a canvas copy: anti-fingerprinting browsers add noise to canvas reads), also in models without the wheel labels
   (COPMUST, low-poly: `hasWheels` false, no tyres / steering); the GUI shows the light controls for every CFM model.
   nfs-web reads these keys: keep them stable.
+- The game draws a partition's polygons sorted by the depth of their first two corners (Shell sort from list order),
+  and its quad / triangle painters depend on the corner order. So the export writes a quad as one face (split along
+  0-2 by Blender, three.js and the game alike), the other side of a polygon (`flip_normal`, the back of a two-sided
+  one, with vertices of its own: Blender drops a face on the vertices of another) reversed from the second corner,
+  and `orip_faces` in `geometry_extra.json` (by mesh, the corner positions of each polygon's first face: polygon
+  index, place in its partition list, written reversed), from which the import restores corner order, `flip_normal`
+  and both orders for the faces it finds.
+- OBJ + MTL import (`OripGeometrySerializer.deserialize`, `serializers/misc/orip_import.py`, CFM cars and FAM props
+  alike; OBJ reader `serializers/common/three_d/obj_reader.py`) is the inverse of the export: OBJ axes are ORIP with y
+  and z swapped (Blender: export with forward Y, up Z, as the converter imports it), triangle pairs are quads only in
+  an OBJ of triangles only (older exports, triangulating editors; the pair order tells `flip_normal`), two-sided polygons in a polygon followed by its
+  reverse, corner UVs mean no `use_uv`. Labels and partitions come from the mesh names (`__<partition>` suffix,
+  extras `objects`, else the current mesh of that name), textures from MTL material names (FSH bitmap names, 4 bytes
+  at most, with the export's suffixes; names with trailing spaces like TR7's `TOP ` found again, OBJ readers strip
+  them) or `map_Kd` file names. What an OBJ cannot hold comes from the ORIP being replaced: material fields and
+  polygon type bits of the same texture, lookup-only materials (`tire1`..`tire4`, `pal`), non-wheel `fx_polys`
+  positions, morphs whose vertices are all still there. Wheel `fx_polys` are the bottom corners of the wheel quads,
+  missing steering morphs are rotations by 30 degrees of the front wheel quad and its `circ` quad. UVs are scaled to
+  texels with the size of the `map_Kd` / `assets/<name>.png` image. Those textures go to the SHPI next to the ORIP when
+  they differ from its own export (`_import_textures`: the SHPI's export with the folder's `assets` files and the
+  `map_Kd` images over it, imported with the SHPI folder import, so a CFM's SHPI is made again); the serializer leaves
+  it in `deserialize_related`, which `deserialize_resource` applies in the same change bundle. The export of every ORIP of `test/samples/TSUPRA.CFM`
+  imports back to the same polygons in the same order, fx points and morphs (`test/serializers/test_orip_import.py`);
+  of the 131 ORIPs of TNFS SE's CFMs and FAMs, directly or through Blender's OBJ import / export, all come back as
+  the game draws them, but the line polygon of TR6's mine (not exported); textured polygons without a bitmap of the
+  FSH (WARIOR, LDIABLO low-poly) come back one-colour, drawn the same.
+- The GUI's import (upload) button shows the OBJ import guide before the folder is picked (`import_guide: 'orip_obj'`
+  in `ui_serialization()`, `ImportGuideDialogComponent` in `frontend/.../editor/common/import-guide.dialog/`): Blender
+  steps, material, object and partition naming, the two models of a CFM. "Don't show this again" clears the general
+  setting `show_orip_import_guide`, System Configuration sets it again. Keep its rules in sync with the import.
 
 ## TNFS car specs (SIMDATA/CARSPECS/*.PBS, SIMDATA/CARFAMS/*.PDN)
 

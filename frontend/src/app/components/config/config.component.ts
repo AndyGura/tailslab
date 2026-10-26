@@ -49,6 +49,7 @@ export class ConfigComponent implements OnInit {
       blender_executable: [''],
       ffmpeg_executable: [''],
       print_blender_log: [false],
+      show_orip_import_guide: [true],
     });
   }
 

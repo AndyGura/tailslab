@@ -11,7 +11,7 @@ import {
 } from 'three';
 import { GgDummy, Point2, Point3 } from '@gg-web-engine/core';
 import { takeUntil } from 'rxjs';
-import { setupNfs1Texture } from '../../common/obj-viewer/obj-viewer.component';
+import { setupNfs1Texture } from '../../../../../nfs-three-lib/nfs1-model-utils';
 import { TrackProp, TrackPropEntity, TrackPropsAssets, TrackPropsController } from './track-props-controller';
 
 export enum TnfsPropType {

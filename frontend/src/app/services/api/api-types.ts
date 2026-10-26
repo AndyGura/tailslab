@@ -6,6 +6,7 @@ export type GeneralConfig = {
   show_hidden_fields: boolean;
   lazy_loading: boolean;
   file_cache_size: number;
+  show_orip_import_guide: boolean;
 };
 
 export type ExecutableKind = 'blender' | 'ffmpeg';

@@ -5,6 +5,7 @@ from string import Template
 from typing import Callable
 from typing import Dict
 from typing import List
+from typing import Tuple
 
 from library.utils import path_join
 from .blender_scripts import get_blender_save_script, run_blender
@@ -24,9 +25,11 @@ class Scene:
         mtl_texture_names: List[str] = None,
         mtl_texture_path_func: Callable[[str], str] = lambda x: x,
         mtl_texture_alpha_modes: Dict[str, str] = None,
+        mtl_flat_colors: Dict[str, Tuple[int, int, int]] = None,
         dummies: List[dict] = None,
         curves: List[dict] = None,
         object_properties: Dict[str, dict] = None,
+        extras: Dict[str, object] = None,
         extra_script: str = None,
         skip_obj_export: bool = False,
         skip_mtl_export: bool = False,
@@ -43,10 +46,14 @@ class Scene:
         # texture name -> "blend" (translucent) or "cutout" (alpha is a mask), written to MTL as non-standard
         # "alpha_mode" statement, which is used by GUI preview
         self.mtl_texture_alpha_modes = mtl_texture_alpha_modes or {}
+        # material name -> (r, g, b) 0..255 of a material without texture, written to MTL as "Kd" only
+        self.mtl_flat_colors = mtl_flat_colors or {}
         self.dummies = dummies or []
         self.curves = curves or []
         # mesh name -> custom properties of the object, written to "<obj_name>_extra.json" next to the dummies
         self.object_properties = object_properties or {}
+        # more top level keys of "<obj_name>_extra.json", for importers (not given to Blender)
+        self.extras = extras or {}
         self.extra_script = extra_script or ''
         self.skip_obj_export = skip_obj_export
         self.skip_mtl_export = skip_mtl_export
@@ -227,11 +234,12 @@ $extra_script
                     f.write(obj)
                     face_index_increment += fii
             exported_files.append(file_path)
-        if scene.dummies or scene.curves or scene.object_properties:
+        if scene.dummies or scene.curves or scene.object_properties or scene.extras:
             file_path = path_join(scene_path, f'{scene.obj_name}_extra.json')
             extras = {'dummies': scene.dummies, 'curves': [_blender_curve(curve) for curve in scene.curves]}
             if scene.object_properties:
                 extras['objects'] = scene.object_properties
+            extras.update(scene.extras)
             with open(file_path, 'w') as f:
                 f.write(json.dumps(extras, indent=4, sort_keys=True))
             exported_files.append(file_path)
@@ -249,6 +257,11 @@ $extra_script
                     )
                     if texture_name in scene.mtl_texture_alpha_modes:
                         f.write(f'\nalpha_mode {scene.mtl_texture_alpha_modes[texture_name]}')
+                for material_name, color in sorted(scene.mtl_flat_colors.items()):
+                    kd = ' '.join(f'{c / 255:.6f}' for c in color)
+                    f.write(
+                        f'\n\nnewmtl {material_name}\nKa 1.000000 1.000000 1.000000\nKd {kd}\nKs 0.000000 0.000000 0.000000\nillum 1\nNs 0.000000'
+                    )
             exported_files.append(file_path)
 
     if settings.geometry__export_to_gg_web_engine or settings.geometry__save_blend:

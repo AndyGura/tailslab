@@ -1,5 +1,5 @@
 import { BoxGeometry, Mesh, MeshBasicMaterial, Object3D, Texture } from 'three';
-import { TnfsCarColors, TnfsCarMeshController } from './tnfs-car-mesh-controller';
+import { TnfsCarColors, TnfsCarMeshController } from '../../../../../nfs-three-lib/tnfs-car-mesh-controller';
 
 const CAR_COLORS: TnfsCarColors = {
   tail_lights: { texture_color: '#8cf818', textures: ['rsid'], off: '#3c0c0c', on: '#f81414' },
@@ -30,7 +30,7 @@ function carMesh(): Object3D {
 }
 
 const replacements = (controller: TnfsCarMeshController, name: string): Map<number, number> =>
-  (controller as any).replacementsOf(name);
+  (controller as any).replacementsOf([name]);
 
 describe('TnfsCarMeshController lights', () => {
   let controller: TnfsCarMeshController;
@@ -89,6 +89,33 @@ describe('TnfsCarMeshController lights', () => {
     controller.sirenActive = false;
     controller.updateLights(1000);
     expect(replacements(controller, 'rear').get(0xfc6454)).toBe(0x8000fc);
+  });
+
+  it('recolors the materials of a texture used with and without the colour key', () => {
+    // the converter's OBJ materials "<texture>__cutout" / "<texture>__opaque", without a texture name
+    const car = new Object3D();
+    for (const name of ['rsid__cutout', 'rsid__opaque']) {
+      const material = new MeshBasicMaterial({ map: new Texture() });
+      material.name = name;
+      car.add(new Mesh(new BoxGeometry(), material));
+    }
+    const suffixed = new TnfsCarMeshController(car, CAR_COLORS, 'assets', true);
+    const recolored: { names: string[] }[] = (suffixed as any).recolored;
+    expect(recolored.map(x => x.names)).toEqual([['rsid']]);
+    suffixed.dispose();
+  });
+
+  it('changes the shader of a material shared by several meshes once', () => {
+    // the OBJ loader gives the meshes of a material one material object
+    const car = new Object3D();
+    const material = new MeshBasicMaterial({ map: new Texture() });
+    material.name = 'rsid';
+    car.add(new Mesh(new BoxGeometry(), material), new Mesh(new BoxGeometry(), material));
+    const shared = new TnfsCarMeshController(car, CAR_COLORS, 'assets', true);
+    const shader = { uniforms: {}, fragmentShader: '#include <common>\n#include <map_fragment>' } as any;
+    material.onBeforeCompile(shader, undefined as any);
+    expect(shader.fragmentShader.split('uniform int tnfsRecolorCount').length - 1).toBe(1);
+    shared.dispose();
   });
 
   it('has the lights of a model without wheels', () => {

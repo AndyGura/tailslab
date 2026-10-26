@@ -1,0 +1,64 @@
+@switch (data.guide) {
+  @case ('orip_obj') {
+    <h2 mat-dialog-title>Importing a 3D model from OBJ</h2>
+    <mat-dialog-content>
+      <p>
+        The OBJ of the folder you pick next replaces this model. Start from a folder this app exported (the download
+        button) and keep its files together: <code>geometry.obj</code>, <code>material.mtl</code>,
+        <code>geometry_extra.json</code> (the drawing order the game needs; without it the model still imports, with
+        tiny differences) and <code>assets/</code> (the textures).
+      </p>
+
+      <h3>Blender</h3>
+      <ul>
+        <li>File › Import › Wavefront (.obj) with the default settings.</li>
+        <li>
+          Edit, then File › Export › Wavefront (.obj) with the default settings, over <code>geometry.obj</code> in the
+          same folder: when a folder holds several OBJ files, <code>geometry.obj</code> is the one imported.
+        </li>
+      </ul>
+
+      <h3>Materials</h3>
+      <ul>
+        <li>
+          A textured material is named after a bitmap of the model's FSH, 4 characters at most (<code>rsid</code>), or
+          its image file has such a name. An image that differs from the FSH bitmap replaces it, a new name adds a
+          bitmap.
+        </li>
+        <li><code>flat_rrggbb</code>: one colour (hex RGB), no texture.</li>
+        <li>
+          <code>&lt;bitmap&gt;__cutout</code> / <code>&lt;bitmap&gt;__opaque</code>: the transparent pixels of the
+          bitmap are skipped / painted.
+        </li>
+      </ul>
+
+      <h3>Objects</h3>
+      <ul>
+        <li>
+          The game draws a model's parts in three groups, <code>inside</code>, <code>surface</code>,
+          <code>outside</code>, sorting by depth only within a group. A new part goes to <code>surface</code>: end its
+          object name with <code>__outside</code> to draw it over the body (a spoiler, mirrors), with
+          <code>__inside</code> to draw it under.
+        </li>
+        <li>
+          Car wheels are the objects <code>lbl__lt_frnt</code>, <code>lbl__rt_frnt</code>, <code>lbl__lt_rear</code>,
+          <code>lbl__rt_rear</code>: the game puts the tyre textures on them and steers the front ones.
+        </li>
+        <li>Faces with more than 4 corners are split into triangles: keep them convex.</li>
+      </ul>
+
+      <h3>Car files (CFM)</h3>
+      <ul>
+        <li>
+          A car has two models: the first one is drawn close, the second one far away. Import each one separately.
+        </li>
+        <li>The import changes the opened file in memory: save the file to write it.</li>
+      </ul>
+    </mat-dialog-content>
+  }
+}
+<mat-dialog-actions align="end">
+  <mat-checkbox [(ngModel)]="dontShowAgain">Don't show this again</mat-checkbox>
+  <button mat-button (click)="close(false)">Cancel</button>
+  <button mat-raised-button color="primary" (click)="close(true)">Pick folder</button>
+</mat-dialog-actions>

@@ -28,21 +28,12 @@ import {
   ThreeSceneComponent,
   ThreeVisualTypeDocRepo,
 } from '@gg-web-engine/three';
-import {
-  AmbientLight,
-  Box3,
-  ClampToEdgeWrapping,
-  Material,
-  Mesh,
-  MeshBasicMaterial,
-  NearestFilter,
-  Object3D,
-  Texture,
-} from 'three';
+import { AmbientLight, Box3, ClampToEdgeWrapping, Material, Mesh, MeshBasicMaterial, Object3D } from 'three';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 import { ViewMode, ViewModeController } from './view-mode-toolbar/view-mode.controller';
 import { parseColorInputValue } from '../../../../utils/parse-color-input-value';
+import { setupNfs1Texture } from '../../../../../nfs-three-lib/nfs1-model-utils';
 
 export type ViewFilterOpts = {
   name: string;
@@ -146,13 +137,6 @@ export type ObjViewerCustomControl = {
 type TypeDocOf<W extends GgWorld<any, any>> = W extends GgWorld<infer D, infer R, infer TypeDoc> ? TypeDoc : never;
 
 // TODO move to a different place
-export const setupNfs1Texture = (texture: Texture) => {
-  texture.colorSpace = 'srgb';
-  texture.anisotropy = 8;
-  texture.magFilter = NearestFilter;
-  texture.minFilter = NearestFilter;
-};
-
 /**
  * Alpha mode comes from "alpha_mode" statement of the material in MTL file. "blend" materials are translucent: they
  * go to three.js transparent pass, without writing depth. "cutout" ones stay opaque and use alpha test, so they are

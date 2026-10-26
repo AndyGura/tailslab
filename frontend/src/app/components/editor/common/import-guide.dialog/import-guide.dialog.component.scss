@@ -1,0 +1,26 @@
+mat-dialog-content {
+  min-width: 400px;
+  max-width: 720px;
+  max-height: 70vh;
+}
+
+h3 {
+  margin: 16px 0 4px;
+}
+
+ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+li {
+  margin: 4px 0;
+}
+
+code {
+  font-size: 0.95em;
+}
+
+mat-dialog-actions mat-checkbox {
+  margin-right: auto;
+}

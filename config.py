@@ -68,6 +68,8 @@ class ConfigManager:
                 'show_hidden_fields': False,
                 'lazy_loading': True,
                 'file_cache_size': 16,
+                # the guide the GUI shows before an OBJ import into a TNFS 3D model (ORIP)
+                'show_orip_import_guide': True,
             },
             SECTION_CONVERSION: {
                 'multiprocess_processes_count': 0,
@@ -301,6 +303,7 @@ def general_config(patch: Dict = None) -> ClassDict:
         'show_hidden_fields': get_config(SECTION_GENERAL, 'show_hidden_fields'),
         'lazy_loading': get_config(SECTION_GENERAL, 'lazy_loading'),
         'file_cache_size': get_config(SECTION_GENERAL, 'file_cache_size'),
+        'show_orip_import_guide': get_config(SECTION_GENERAL, 'show_orip_import_guide'),
     }
     if patch:
         config = {**config, **patch}

@@ -13,7 +13,11 @@ import { BehaviorSubject, debounceTime, filter, Subject, takeUntil } from 'rxjs'
 import { Object3D } from 'three';
 import { ObjViewerCustomControl } from '../../common/obj-viewer/obj-viewer.component';
 import { steeringControl, wheelSpeedControl } from '../../common/obj-viewer/car-preview-controls';
-import { TnfsCarColors, TnfsCarMeshController, TnfsLightBarMode } from './tnfs-car-mesh-controller';
+import {
+  TnfsCarColors,
+  TnfsCarMeshController,
+  TnfsLightBarMode,
+} from '../../../../../nfs-three-lib/tnfs-car-mesh-controller';
 
 // how the preview draws palette indices 250..253: as the game does on a car, on a cop (idle, in a chase), or as the PNGs
 const LIGHT_BAR_OPTIONS: Record<string, [TnfsLightBarMode, boolean]> = {

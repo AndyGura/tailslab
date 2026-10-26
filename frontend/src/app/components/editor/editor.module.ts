@@ -51,6 +51,7 @@ import { FontBlockUiComponent } from './eac/font.block-ui/font.block-ui.componen
 import { MatTab, MatTabContent, MatTabGroup } from '@angular/material/tabs';
 import { ArchiveBlockUiComponent } from './library/archive.block-ui/archive.block-ui.component';
 import { ArchiveItemEditDialogComponent } from './common/archive-item-edit.dialog/archive-item-edit.dialog.component';
+import { ImportGuideDialogComponent } from './common/import-guide.dialog/import-guide.dialog.component';
 import { ArchiveDelegateItemTypeDialogComponent } from './common/archive-delegate-item-type.dialog/archive-delegate-item-type.dialog.component';
 import { TargaImageBlockUiComponent } from './common/targa-image.block-ui/targa-image.block-ui.component';
 import { ImageViewerComponent } from './common/image-viewer/image-viewer.component';
@@ -75,6 +76,7 @@ import { Nfs2CarAiBlockUiComponent } from './eac/nfs2-car-ai.block-ui/nfs2-car-a
     ObjViewerComponent,
     ViewModeToolbarComponent,
     ArchiveItemEditDialogComponent,
+    ImportGuideDialogComponent,
     ArchiveDelegateItemTypeDialogComponent,
     ImageViewerComponent,
     CurveEditorComponent,

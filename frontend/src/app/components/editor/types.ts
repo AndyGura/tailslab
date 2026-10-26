@@ -24,6 +24,8 @@ export type BlockSchema = {
     output_file_name_suffix: string | null;
     reversible: boolean;
     reversible_settings_patch: any;
+    // a guide the GUI shows before the import (ImportGuide)
+    import_guide?: string;
   } | null;
   value_validator?: ValueValidator;
   custom_actions?: CustomAction[];

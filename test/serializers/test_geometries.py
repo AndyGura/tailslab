@@ -20,6 +20,8 @@ from serializers.geometries import (
     orip_morph_deltas,
     orip_polygon_partitions,
     orip_sub_mesh_names,
+    orip_material_names,
+    orip_material_texture,
     texture_alpha_mode,
 )
 from serializers.common.three_d import SubMesh
@@ -65,11 +67,23 @@ class TestOripFxDummies(unittest.TestCase):
         self.assertEqual([d['name'] for d in orip_fx_dummies(self.data)], ['fx_FR0', 'fx_smok', 'fx_smok_1'])
 
 
-def _orip_data(polygons, labels=(), partitions=(), vmap=(), morphs=(), vertices=()):
-    """ORIP data with the fields the mesh building reads: polygons as (material index), materials named by index"""
+def _orip_data(polygons, labels=(), partitions=(), vmap=(), morphs=(), vertices=(), polygon_types=None):
+    """ORIP data with the fields the mesh building reads: polygons as (material index), materials named by index
+    (0: the front tyres, 3: a flat colour), textured quads with the colour key unless `polygon_types` says otherwise"""
     return {
-        'polygons': [{'material_index': m} for m in polygons],
-        'materials': [{'file_name': name} for name in ['', 'rsid', 'circ']],
+        'polygons': [
+            {'material_index': m, 'polygon_type': polygon_types[i] if polygon_types else 0x8C}
+            for i, m in enumerate(polygons)
+        ],
+        'materials': [
+            {'name': name, 'file_name': file_name, 'color': color}
+            for name, file_name, color in [
+                (b'frntires', '', 0),
+                (b'\0' * 8, 'rsid', 0),
+                (b'\0' * 8, 'circ', 0),
+                (b'red\0\0\0\0\0', '', 0xC81414),
+            ]
+        ],
         'labels': [{'name': name, 'index': index} for name, index in labels],
         'partitions': [
             {'name': name, 'polygons_start': start, 'num_polygons': count} for name, start, count in partitions
@@ -106,6 +120,24 @@ class TestOripPartitionsAndMeshNames(unittest.TestCase):
     def test_tie_keeps_the_name_for_the_first_polygon_partition(self):
         data = _orip_data(polygons=[1, 1], partitions=[('inside', 1, 1), ('surface', 0, 1)], vmap=[0, 1])
         self.assertEqual(orip_sub_mesh_names(data)[0], ['rsid', 'rsid__inside'])
+
+
+class TestOripMaterialNames(unittest.TestCase):
+    def test_flat_colour_polygons(self):
+        # no textured bit, or textured without a bitmap name (the game finds no texture); the tyres keep theirs
+        data = _orip_data(polygons=[3, 1, 3, 0], polygon_types=[0x04, 0x84, 0x8C, 0x8C])
+        self.assertEqual(orip_material_names(data), ['flat_c81414', 'rsid', 'flat_c81414', ''])
+        self.assertEqual([orip_material_texture(x) for x in orip_material_names(data)], [None, 'rsid', None, ''])
+
+    def test_bitmap_missing_in_the_fsh_is_a_flat_colour(self):
+        data = _orip_data(polygons=[1, 2, 0], polygon_types=[0x84, 0x84, 0x8C])
+        self.assertEqual(orip_material_names(data, fsh_names=['circ']), ['flat_000000', 'circ', ''])
+
+    def test_colour_key_suffixes_only_for_a_texture_used_both_ways(self):
+        data = _orip_data(polygons=[1, 1, 2, 2], polygon_types=[0x84, 0x8C, 0x8C, 0x8C])
+        names = orip_material_names(data)
+        self.assertEqual(names, ['rsid__opaque', 'rsid__cutout', 'circ', 'circ'])
+        self.assertEqual([orip_material_texture(x) for x in names], ['rsid', 'rsid', 'circ', 'circ'])
 
 
 class TestOripMorphDeltas(unittest.TestCase):

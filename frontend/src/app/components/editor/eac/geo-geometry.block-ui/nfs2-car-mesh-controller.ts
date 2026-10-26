@@ -1,5 +1,5 @@
 import { ClampToEdgeWrapping, Mesh, MeshBasicMaterial, Object3D, Texture, TextureLoader } from 'three';
-import { setupNfs1Texture } from '../../common/obj-viewer/obj-viewer.component';
+import { setupNfs1Texture } from '../../../../../nfs-three-lib/nfs1-model-utils';
 import { sleep } from '../../../../utils/sleep';
 import { recolorImageSmart } from '../../../../utils/recolor-image';
 import { Pnt3, Point3 } from '@gg-web-engine/core';

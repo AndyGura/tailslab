@@ -432,11 +432,13 @@ class TriMapSerializer(BaseFileSerializer):
                     )
                 )
                 from serializers import OripGeometrySerializer
+                from serializers.geometries import orip_material_texture
 
                 _, shpi_block, shpi_data, sub_models = OripGeometrySerializer().build_mesh(prop_data, prop_id)
                 for mesh in sub_models.values():
                     mesh.name = f'prop_{i}_' + mesh.name
-                    mesh.texture_id = f'props/{descr["data"]["data"]["resource_id"]}/0/assets/' + mesh.texture_id
+                    texture = orip_material_texture(mesh.texture_id) or ''
+                    mesh.texture_id = f'props/{descr["data"]["data"]["resource_id"]}/0/assets/' + texture
                     position_mesh(mesh)
                     meshes.append(mesh)
                 for ti, child in enumerate(shpi_data['children']):

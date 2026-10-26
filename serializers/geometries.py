@@ -32,23 +32,27 @@ class OripGeometrySerializer(BaseFileSerializer):
         index_2D,
         index_in_polygon,
         textures_shpi_data,
+        back_face=False,
     ):
+        # the back face of a two-sided polygon gets vertices of its own: Blender drops a face on the vertices of another
+        key = (index_3D, back_face)
         try:
-            return vertices_file_indices_map[model][index_3D]
+            return vertices_file_indices_map[model][key]
         except KeyError:
             pass
         # new vertex creation
         vertex = block_data['vertices']['data'][block_data['vmap'][index_3D]]
         model.vertices.append([vertex['x'], vertex['y'], vertex['z']])
-        vertices_file_indices_map[model][index_3D] = len(model.vertices) - 1
+        vertices_file_indices_map[model][key] = len(model.vertices) - 1
         # setup texture coordinate
         if index_2D is None:
             model.vertex_uvs.append([self.default_uvs[index_in_polygon][0], self.default_uvs[index_in_polygon][1]])
         else:
             u_multiplier, v_multiplier = 1, 1
-            if model.texture_id:
+            texture = orip_material_texture(model.texture_id or '')
+            if texture:
                 try:
-                    c = next(x for x in textures_shpi_data['children'] if x['alias'] == model.texture_id)
+                    c = next(x for x in textures_shpi_data['children'] if x['alias'] == texture)
                     u_multiplier, v_multiplier = (1 / c['item']['data']['width'], 1 / c['item']['data']['height'])
 
                 except StopIteration, ValueError:
@@ -61,7 +65,7 @@ class OripGeometrySerializer(BaseFileSerializer):
                     block_data['vertex_uvs'][block_data['vmap'][index_2D]]['v'] * v_multiplier,
                 ]
             )
-        return vertices_file_indices_map[model][index_3D]
+        return vertices_file_indices_map[model][key]
 
     def require_shpi(self, id):
         # shpi is always next block
@@ -77,17 +81,28 @@ class OripGeometrySerializer(BaseFileSerializer):
     def build_mesh(self, data: dict, id=None):
         """Sub-meshes by label, texture and partition (`orip_sub_mesh_names`), with the morphs of their vertices as
         `morph_targets` (`orip_morph_deltas`). Fills `self.mesh_partitions` (mesh name -> partition) for the meshes
-        with a partition"""
+        with a partition and `self.source_faces` (mesh name -> what the import needs of the first face of each polygon:
+        corner positions as exported, polygon index, position in the list of its partition, written reversed)"""
         (shpi_id, textures_shpi_block, textures_shpi_data) = self.require_shpi(id)
         vertices_file_indices_map = defaultdict(lambda: dict())
         sub_models = defaultdict(SubMesh)
-        sub_model_names, partitions = orip_sub_mesh_names(data)
+        fsh_names = [x['alias'] for x in textures_shpi_data['children']]
+        sub_model_names, partitions = orip_sub_mesh_names(data, fsh_names)
+        material_names = orip_material_names(data, fsh_names)
         self.mesh_partitions = {}
+        # sub-mesh -> (index in its polygons, ORIP polygon index, written reversed) of the first face of each polygon
+        source_faces = defaultdict(list)
+        # position of each polygon in the list of its drawn partition
+        draw_order = {}
+        for partition in data['partitions']:
+            if partition['name'].lower() in ORIP_DRAWN_PARTITIONS:
+                for k in range(partition['num_polygons']):
+                    draw_order.setdefault(data['vmap'][partition['polygons_start'] + k], k)
 
         for pi, polygon in enumerate(data['polygons']):
             polygon_type = polygon['polygon_type']
             mapping = polygon['mapping']
-            texture_id = data['materials'][polygon['material_index']]['file_name']
+            texture_id = material_names[pi]
             sub_model_id = sub_model_names[pi]
             sub_model = sub_models[sub_model_id]
             if not sub_model.name:
@@ -98,7 +113,9 @@ class OripGeometrySerializer(BaseFileSerializer):
             offset_3D = polygon['offset_3d']
             offset_2D = polygon['offset_2d']
 
-            def _setup_polygon(offsets):
+            def _setup_polygon(offsets, first_face=True):
+                if first_face:
+                    source_faces[sub_model].append((len(sub_model.polygons), pi, offsets[0] == 1))
                 sub_model.polygons.append(
                     [
                         self._setup_vertex(
@@ -109,25 +126,27 @@ class OripGeometrySerializer(BaseFileSerializer):
                             (offset_2D + offset) if mapping['use_uv'] else None,
                             offset,
                             textures_shpi_data,
+                            back_face=not first_face,
                         )
                         for offset in offsets
                     ]
                 )
 
+            # a quad is one face, split by Blender / three.js / the game along the same 0-2 diagonal. The other side
+            # (`flip_normal`, the back of a two-sided one) is the reverse starting at the second corner: the game sorts
+            # polygons by the depth of their first two corners, which stay the first two
             if (polygon_type & (0xFF >> 5)) == 3:
                 # triangle
                 if mapping['two_sided'] or not mapping['flip_normal']:
                     _setup_polygon([0, 1, 2])
                 if mapping['two_sided'] or mapping['flip_normal']:
-                    _setup_polygon([0, 2, 1])
+                    _setup_polygon([1, 0, 2], not mapping['two_sided'])
             elif (polygon_type & (0xFF >> 5)) == 4:
                 # quad
                 if mapping['two_sided'] or not mapping['flip_normal']:
-                    _setup_polygon([0, 1, 2])
-                    _setup_polygon([0, 2, 3])
+                    _setup_polygon([0, 1, 2, 3])
                 if mapping['two_sided'] or mapping['flip_normal']:
-                    _setup_polygon([0, 2, 1])
-                    _setup_polygon([0, 3, 2])
+                    _setup_polygon([1, 0, 3, 2], not mapping['two_sided'])
             elif polygon_type == 2:  # a line (TR6 mine prop). Looks good without it
                 continue
             else:
@@ -135,7 +154,7 @@ class OripGeometrySerializer(BaseFileSerializer):
         morph_deltas = orip_morph_deltas(data)
         for sub_model in sub_models.values():
             vertex_indices = [None] * len(sub_model.vertices)
-            for index_3D, index in vertices_file_indices_map[sub_model].items():
+            for (index_3D, _), index in vertices_file_indices_map[sub_model].items():
                 vertex_indices[index] = data['vmap'][index_3D]
             for name, deltas in morph_deltas.items():
                 if any(i in deltas for i in vertex_indices):
@@ -143,6 +162,18 @@ class OripGeometrySerializer(BaseFileSerializer):
         # not sure why, but seems like Z should be inverted in all geometries
         for sub_model in sub_models.values():
             sub_model.change_axes(new_z='y', new_y='z')
+        self.source_faces = {
+            sub_model.name: [
+                {
+                    'corners': [sub_model.vertices[i] for i in sub_model.polygons[face]],
+                    'polygon': polygon_index,
+                    'draw_order': draw_order.get(polygon_index),
+                    'reversed': is_reversed,
+                }
+                for face, polygon_index, is_reversed in faces
+            ]
+            for sub_model, faces in source_faces.items()
+        }
         return shpi_id, textures_shpi_block, textures_shpi_data, sub_models
 
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
@@ -153,6 +184,9 @@ class OripGeometrySerializer(BaseFileSerializer):
         scene.sub_meshes = [sm for sm in sub_models.values()]
         scene.dummies = orip_fx_dummies(data)
         scene.object_properties = {name: {'partition': p} for name, p in self.mesh_partitions.items()}
+        # the ORIP polygon of each face, its place in the list of its partition and whether it is written reversed
+        # (`flip_normal`), by mesh: the import puts the faces it finds back in order, with their corners and flag
+        scene.extras['orip_faces'] = self.source_faces
         scene.name = 'body'
         scene.obj_name = 'geometry'
         scene.mtl_name = 'material'
@@ -165,7 +199,16 @@ class OripGeometrySerializer(BaseFileSerializer):
             # "!..." items are no textures (the game skips them too), a CFM's !xxx is a palette typed as a bitmap
             if isinstance(texture_block, EacImage) and not c['alias'].startswith('!'):
                 scene.mtl_texture_names.append(c['alias'])
-        scene.mtl_texture_path_func = lambda name: f'assets/{name}.png'
+        scene.mtl_texture_path_func = lambda name: f'assets/{orip_material_texture(name)}.png'
+        for sub_model in sub_models.values():
+            if not sub_model.texture_id:
+                continue
+            if orip_material_texture(sub_model.texture_id) is None:
+                color = int(sub_model.texture_id[len(ORIP_FLAT_MATERIAL_PREFIX) :], 16)
+                scene.mtl_flat_colors[sub_model.texture_id] = ((color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF)
+            elif sub_model.texture_id != orip_material_texture(sub_model.texture_id):
+                # "<bitmap>__cutout" / "<bitmap>__opaque": the bitmap with the polygons' colour key in the name
+                scene.mtl_texture_names.append(sub_model.texture_id)
         # nfs-web draws TNFS models unlit
         scene.export_normals = False
 
@@ -174,11 +217,194 @@ class OripGeometrySerializer(BaseFileSerializer):
         ShpiArchiveSerializer().serialize(textures_shpi_data, path_join(path, 'assets/'), shpi_id, textures_shpi_block)
         return export_scenes([scene], path, self.settings)
 
+    def ui_serialization(self):
+        return {
+            'file_type': 'OBJ + MTL directory',
+            'is_directory': True,
+            'output_file_name_suffix': None,
+            'reversible': True,
+            'reversible_settings_patch': {
+                'geometry__save_obj': True,
+                'geometry__save_blend': False,
+                'geometry__export_to_gg_web_engine': False,
+            },
+            # the GUI shows its OBJ import guide (rules of the import) before the folder is picked
+            'import_guide': 'orip_obj',
+        }
+
+    def deserialize(self, file_paths: List[str], id=None, block=None, **kwargs) -> dict:
+        """The ORIP loaded under `id` with the geometry of an OBJ + MTL (a folder holding one OBJ, "geometry.obj"
+        among several, or the OBJ file), see `serializers/misc/orip_import.py`. The textures it uses (`map_Kd` files,
+        the "assets" folder of the export) go to the SHPI next to the ORIP when they differ from it: that SHPI is left
+        in `deserialize_related` ({id: data}), applied with the ORIP. The summary is left in `deserialize_report`"""
+        from io import BytesIO
+        from library import require_resource
+        from library.context import ReadContext
+        from serializers.misc.orip_import import orip_from_obj
+
+        obj_path = self._find_obj(file_paths)
+        (_, _, current), _ = require_resource(id)
+        if not isinstance(current, dict) or current.get('resource_id') != 'ORIP':
+            raise DataIntegrityException(f'No ORIP geometry loaded under {id}')
+        self.deserialize_related = {}
+        texture_report = None
+        try:
+            shpi_id, shpi_block, shpi_data = self.require_shpi(id)
+        except Exception:
+            shpi_id, shpi_data = None, {'children': []}
+        if shpi_id is not None:
+            new_shpi, texture_report = self._import_textures(obj_path, shpi_id, shpi_block, shpi_data)
+            if new_shpi is not None:
+                self.deserialize_related[shpi_id] = new_shpi
+                shpi_data = new_shpi
+        shpi_textures = {
+            c['alias']: (c['item']['data']['width'], c['item']['data']['height'])
+            for c in shpi_data['children']
+            if isinstance(c['item']['data'], dict) and 'width' in c['item']['data']
+        }
+        is_car = current['vertices']['choice_index'] == 0
+        data, report = orip_from_obj(obj_path, current, shpi_textures, fraction_bits=7 if is_car else 4)
+        # read back what will be saved: pointers and counts as written, and the check that it can be written
+        buffer = BytesIO(block.pack(data))
+        buffer.name = 'ORIP.CFM' if is_car else 'ORIP.FAM'
+        data = block.unpack(ReadContext(buffer), read_bytes_amount=len(buffer.getvalue()))
+        self.deserialize_report = report + (f'. Textures: {texture_report}' if texture_report else '')
+        return data
+
+    @staticmethod
+    def _import_textures(obj_path: str, shpi_id: str, shpi_block, shpi_data) -> Tuple[Optional[dict], Optional[str]]:
+        """(SHPI with the textures of the OBJ folder, summary), or (None, None) when they are the ones of the SHPI. The
+        folder imported into the SHPI is its own export, with the "assets" files of the OBJ folder and the `map_Kd`
+        images (as "<bitmap name>.png") over it: a CFM's SHPI is made again from all of its textures"""
+        import shutil
+        import tempfile
+        from PIL import Image
+        from serializers import ShpiArchiveSerializer
+        from serializers.misc.orip_import import obj_texture_files
+
+        texture_files = obj_texture_files(obj_path, [x['alias'] for x in shpi_data['children']])
+        assets_path = path_join(os.path.dirname(obj_path), 'assets')
+        if not texture_files and not os.path.isdir(assets_path):
+            return None, None
+        shpi_serializer = ShpiArchiveSerializer()
+        is_car = '.CFM__' in shpi_id.upper()
+        items = [
+            (x['alias'], x['item']['data'], shpi_block.item_block.possible_blocks[x['item']['choice_index']])
+            for x in shpi_data['children']
+        ]
+        file_names = {items[i][0]: name for i, name in shpi_serializer.export_file_names(items, False, is_car).items()}
+
+        def is_texture_file(name):
+            # what the SHPI import reads
+            return name.lower().endswith('.png') or name.endswith('.pal.txt') or name == 'car_colors.json'
+
+        with tempfile.TemporaryDirectory() as tmp:
+            current_path, new_path = path_join(tmp, 'current'), path_join(tmp, 'new')
+            shpi_serializer.serialize(shpi_data, current_path + '/', shpi_id, shpi_block)
+            shutil.copytree(current_path, new_path)
+            if os.path.isdir(assets_path):
+                for name in os.listdir(assets_path):
+                    if is_texture_file(name) and os.path.isfile(path_join(assets_path, name)):
+                        shutil.copyfile(path_join(assets_path, name), path_join(new_path, name))
+            for alias, source in texture_files.items():
+                target = path_join(new_path, file_names.get(alias, escape_chars(alias).replace('/', '_')) + '.png')
+                if os.path.abspath(source) != os.path.abspath(target):
+                    with Image.open(source) as image:
+                        image.save(target, 'PNG')
+
+            def content(path):
+                if path.lower().endswith('.png'):
+                    with Image.open(path) as image:
+                        return image.size, image.convert('RGBA').tobytes()
+                with open(path, 'rb') as f:
+                    return f.read()
+
+            changed = sorted(
+                name
+                for name in os.listdir(new_path)
+                if is_texture_file(name)
+                and name != 'spherical.png'
+                and (
+                    not os.path.isfile(path_join(current_path, name))
+                    or content(path_join(new_path, name)) != content(path_join(current_path, name))
+                )
+            )
+            if not changed:
+                return None, None
+            new_shpi = shpi_serializer.deserialize([new_path], shpi_id, shpi_block)
+        return new_shpi, f'{", ".join(changed)} imported'
+
+    @staticmethod
+    def _find_obj(file_paths: List[str]) -> str:
+        if not file_paths:
+            raise DataIntegrityException('Select the folder of the OBJ file')
+        path = file_paths[0]
+        if os.path.isfile(path):
+            return path
+        obj_files = sorted(x for x in os.listdir(path) if x.lower().endswith('.obj'))
+        if len(obj_files) > 1 and 'geometry.obj' in obj_files:
+            obj_files = ['geometry.obj']
+        if len(obj_files) != 1:
+            raise DataIntegrityException(f'Expected one OBJ file (or "geometry.obj") in {path}, found {len(obj_files)}')
+        return path_join(path, obj_files[0])
+
 
 # partitions the game draws, in this order (the others, like NON-SORT, are not drawn by the car code)
 ORIP_DRAWN_PARTITIONS = ('inside', 'surface', 'outside')
 # full names of the morphs: the files hold the first 8 characters only
 ORIP_MORPH_NAMES = {'left_tur': 'left_turn', 'right_tu': 'right_turn'}
+# exported material (and mesh) name of polygons the game fills with one colour: "flat_<rrggbb>"
+ORIP_FLAT_MATERIAL_PREFIX = 'flat_'
+# exported material name suffix of a texture that polygons use both with and without the colour key (polygon type bit
+# 0x08: pixels of the transparent colour are skipped), by the bit
+ORIP_COLOR_KEY_SUFFIXES = {True: '__cutout', False: '__opaque'}
+# materials the game puts the tyre textures on (looked up by name)
+ORIP_TYRE_MATERIAL_NAMES = (b'frntires', b'rertires')
+
+
+def orip_polygon_is_textured(data: dict, polygon: dict, fsh_names=None) -> bool:
+    """Whether the game draws an ORIP polygon with a texture, not filled with the colour of its material. `fsh_names`:
+    the bitmap names of the FSH next to the ORIP, None to take every bitmap name as found"""
+    material = data['materials'][polygon['material_index']]
+    if material['name'].rstrip(b'\0') in ORIP_TYRE_MATERIAL_NAMES:
+        # the tyre materials get their textures at run time
+        return bool(polygon['polygon_type'] & 0x80)
+    # the game finds no texture without a bitmap name, or one the FSH lacks (LDIABLO's low-poly "ack", "de"), and
+    # fills the polygon with the colour
+    found = bool(material['file_name']) and (fsh_names is None or material['file_name'] in fsh_names)
+    return bool(polygon['polygon_type'] & 0x80) and found
+
+
+def orip_material_names(data: dict, fsh_names=None) -> List[str]:
+    """Exported material name of each ORIP polygon. A polygon without the textured bit 0x80 of `polygon_type`, or
+    without a bitmap of the FSH (`orip_polygon_is_textured`), is filled with the colour of its material (EA's
+    `orip_draw_poly`, DOS 0x98482): "flat_<rrggbb>". A textured one: the FSH bitmap name of its material (`file_name`), with "__cutout" /
+    "__opaque" appended when the bitmap is used by polygons with and without the colour key bit 0x08"""
+    color_keys = defaultdict(set)
+    for polygon in data['polygons']:
+        if orip_polygon_is_textured(data, polygon, fsh_names):
+            texture = data['materials'][polygon['material_index']]['file_name']
+            color_keys[texture].add(bool(polygon['polygon_type'] & 0x08))
+    names = []
+    for polygon in data['polygons']:
+        material = data['materials'][polygon['material_index']]
+        if not orip_polygon_is_textured(data, polygon, fsh_names):
+            names.append(f'{ORIP_FLAT_MATERIAL_PREFIX}{material["color"]:06x}')
+        elif material['file_name'] and len(color_keys[material['file_name']]) > 1:
+            names.append(material['file_name'] + ORIP_COLOR_KEY_SUFFIXES[bool(polygon['polygon_type'] & 0x08)])
+        else:
+            names.append(material['file_name'])
+    return names
+
+
+def orip_material_texture(material_name: str) -> Optional[str]:
+    """FSH bitmap name of an exported ORIP material (`orip_material_names`), None for a flat colour one"""
+    if material_name.startswith(ORIP_FLAT_MATERIAL_PREFIX):
+        return None
+    for suffix in ORIP_COLOR_KEY_SUFFIXES.values():
+        if material_name.endswith(suffix):
+            return material_name[: -len(suffix)]
+    return material_name
 
 
 def orip_polygon_partitions(data: dict) -> List[Optional[str]]:
@@ -201,16 +427,18 @@ def is_orip_name(name: str) -> bool:
     return bool(name) and all(0x20 < ord(c) < 0x7F for c in name)
 
 
-def orip_sub_mesh_names(data: dict) -> Tuple[List[str], List[Optional[str]]]:
+def orip_sub_mesh_names(data: dict, fsh_names=None) -> Tuple[List[str], List[Optional[str]]]:
     """Name of the exported mesh of each ORIP polygon, and the partition of each polygon (`orip_polygon_partitions`).
-    Polygons are grouped by label and texture: "lbl__<label>__<texture>", "lbl__<label>" or "<texture>", labels with a
+    Polygons are grouped by label and material (`orip_material_names`, with the FSH bitmap names `fsh_names`): "lbl__<label>__<material>", "lbl__<label>" or
+    "<material>", labels with a
     garbage name (`is_orip_name`) left out. A mesh
     holds polygons of one partition only: when a group spans several, the partition with the most of its polygons
     (on a tie, the one of its first polygon) keeps the name, the others get "__<partition>" ("__none" without one)"""
     partitions = orip_polygon_partitions(data)
+    material_names = orip_material_names(data, fsh_names)
     base_names = []
     for pi, polygon in enumerate(data['polygons']):
-        texture_id = data['materials'][polygon['material_index']]['file_name']
+        texture_id = material_names[pi]
         label = ([x['name'] for x in data['labels'] if x['index'] == pi and is_orip_name(x['name'])] or [None])[0]
         parts = []
         if label:
