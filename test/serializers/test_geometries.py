@@ -16,6 +16,7 @@ from serializers.geometries import (
     crp_car_is_image_used,
     crp_car_texture_page_sources,
     crp_image_atlas_position,
+    geo_sub_mesh_properties,
     orip_fx_dummies,
     orip_morph_deltas,
     orip_polygon_partitions,
@@ -37,6 +38,48 @@ class TestCrpImageAtlasPosition(unittest.TestCase):
 
     def test_values_are_signed(self):
         self.assertEqual(crp_image_atlas_position({'position': {'x': 191, 'y': 0xFFFF}}), (191, -1))
+
+
+class TestGeoPolygonMapping(unittest.TestCase):
+    def test_reads_flags_and_frame_count(self):
+        from resources.eac.geometries import GeoPolygon
+
+        block = GeoPolygon()
+        # tyre quad: 4 frames (bits 5-7), double-sided off, colour-keyed (bit 3), uv_flip (bit 1)
+        raw = bytes([0x8A, 0, 0, 0, 0, 1, 3, 2]) + b'm000'
+        data = block.unpack_from_bytes(raw)
+        self.assertEqual(
+            data['mapping'],
+            {
+                'num_frames': 4,
+                'double_sided': False,
+                'color_keyed': True,
+                'flip_normal': False,
+                'uv_flip': True,
+                'is_triangle': False,
+            },
+        )
+        self.assertEqual(block.pack(data), raw)
+
+
+class TestGeoSubMeshProperties(unittest.TestCase):
+    @staticmethod
+    def _polygon(num_frames, color_keyed):
+        return {'mapping': {'num_frames': num_frames, 'color_keyed': color_keyed}}
+
+    def test_frames_at_least_one(self):
+        self.assertEqual(
+            geo_sub_mesh_properties(3, [self._polygon(0, False)]), {'geo_part': 3, 'frames': 1, 'color_keyed': False}
+        )
+        self.assertEqual(
+            geo_sub_mesh_properties(12, [self._polygon(4, True), self._polygon(4, True)]),
+            {'geo_part': 12, 'frames': 4, 'color_keyed': True},
+        )
+
+    def test_mixed_values_left_out(self):
+        with self.assertLogs(level='WARNING'):
+            res = geo_sub_mesh_properties(11, [self._polygon(2, False), self._polygon(0, False)])
+        self.assertEqual(res, {'geo_part': 11, 'color_keyed': False})
 
 
 class TestOripFxDummies(unittest.TestCase):

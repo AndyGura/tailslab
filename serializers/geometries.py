@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 import traceback
@@ -527,15 +528,16 @@ class GeoGeometrySerializer(BaseFileSerializer):
             raise DataIntegrityException('Cannot find QFS archive for GEO geometry')
         super().serialize(data, path)
         meshes = []
-        for i, part in enumerate(data['parts']):
-            if i < 20:
-                key = f'part_hp_{i}'
-            elif i < 23:
-                key = f'part_mp_{i - 20}'
-            elif i < 26:
-                key = f'part_lp_{i - 23}'
+        object_properties = {}
+        for part_index, part in enumerate(data['parts']):
+            if part_index < 20:
+                key = f'part_hp_{part_index}'
+            elif part_index < 23:
+                key = f'part_mp_{part_index - 20}'
+            elif part_index < 26:
+                key = f'part_lp_{part_index - 23}'
             else:
-                key = f'part_res_{i - 26}'
+                key = f'part_res_{part_index - 26}'
             mesh = Mesh()
             mesh.name = key
             mesh.vertices = [[v['x'], v['y'], v['z']] for v in part['vertices']]
@@ -572,6 +574,15 @@ class GeoGeometrySerializer(BaseFileSerializer):
                         double_side_polygons.append(polygon[::-1])
                 submesh.polygons.extend(double_side_polygons)
                 meshes.append(submesh)
+                object_properties[submesh.name] = {
+                    **geo_sub_mesh_properties(
+                        part_index, [part['polygons'][k] for k in polygon_idx_map], f'{id} {submesh.name}'
+                    ),
+                    # the part's pivot (meters) on the axes of the vertices below (y and z swapped): the game draws
+                    # a wheel's tyre quad (part 12) relative to the position of its wheel object, the pos of the
+                    # inner part (13) added after it
+                    'geo_part_pos': [part['pos']['x'], part['pos']['z'], part['pos']['y']],
+                }
         for mesh in meshes:
             mesh.change_axes(new_z='y', new_y='z')
             px, py, pz = mesh.pivot_offset
@@ -579,6 +590,8 @@ class GeoGeometrySerializer(BaseFileSerializer):
 
         scene = Scene()
         scene.sub_meshes = meshes
+        # GEO part, its pivot, animation frames and colour key of each sub-mesh to the node extras (three.js `userData`)
+        scene.object_properties = object_properties
         scene.name = 'body'
         scene.obj_name = 'geometry'
         scene.mtl_name = 'material'
@@ -596,6 +609,22 @@ class GeoGeometrySerializer(BaseFileSerializer):
 
         ShpiArchiveSerializer().serialize(textures_shpi_data, path_join(path, 'assets/'), shpi_id, textures_shpi_block)
         return export_scenes([scene], path, self.settings)
+
+
+def geo_sub_mesh_properties(part_index: int, polygons: List[dict], name: str = '') -> dict:
+    """Node extras of a GEO sub-mesh (the polygons of one part with one texture): `geo_part` (part index 0..31),
+    `frames` (number of animation frames of the texture, >= 1) and `color_keyed` (flag bit 3). A key whose value
+    differs between the polygons is left out, with a warning (no such sub-mesh in the NFS2 / NFS2 SE files)"""
+    properties = {'geo_part': part_index}
+    for key, values in (
+        ('frames', {p['mapping']['num_frames'] or 1 for p in polygons}),
+        ('color_keyed', {p['mapping']['color_keyed'] for p in polygons}),
+    ):
+        if len(values) == 1:
+            properties[key] = values.pop()
+        elif values:
+            logging.warning(f'GEO sub-mesh {name}: polygons with different "{key}" ({sorted(values)}), left out')
+    return properties
 
 
 def _read_12_bit_signed(value: int) -> int:

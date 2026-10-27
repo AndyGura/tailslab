@@ -13,7 +13,7 @@ import { BehaviorSubject, debounceTime, filter, Subject, takeUntil } from 'rxjs'
 import { ObjViewerCustomControl, ViewFilterOpts } from '../../common/obj-viewer/obj-viewer.component';
 import { steeringControl, wheelSpeedControl } from '../../common/obj-viewer/car-preview-controls';
 import { Object3D } from 'three';
-import { Nfs2CarMeshController } from './nfs2-car-mesh-controller';
+import { Nfs2CarMeshController } from '../../../../../nfs-three-lib/nfs2-car-mesh-controller';
 
 @Component({
   selector: 'app-geo-geometry.block-ui',

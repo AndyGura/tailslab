@@ -429,6 +429,15 @@ When you do:
   every field, from the 3DO `LaunchMe` code (tnfs-1995 Ghidra). The PBS editor renders it through the
   `block_class_mro` fallback and switches on `is3do` (no gear efficiency column, one brake cap).
 
+## NFS2 / NFS2 SE car models (`CARMODEL/PC/*.GEO`, `<model>.geo` items of `SIM/CARDATA/CARDATA.VIV`)
+
+- `GeoGeometrySerializer` splits each GEO part by texture (`part_hp_<n>__<texture>`, `part_mp_*`, `part_lp_*`) and
+  writes node extras on each sub-mesh (`geo_sub_mesh_properties`, `Scene.object_properties`): `geo_part` (part index
+  0..31), `geo_part_pos` (the part's `pos`, its pivot, on the GLB axes: `[x, z, y]` of the GEO), `frames` (texture
+  animation frames, >= 1: tyres 4, brake lights 2) and `color_keyed` (polygon flag bit 3). A key whose value differs
+  between the polygons of a sub-mesh is left out with a warning (none in the game files). nfs-web reads these keys:
+  keep them stable. Flags and part meanings: `resources/eac/geometries/nfs2.py` (verified in nfs2sen.exe).
+
 ## NFS2 SE car physics and AI (GAMEDATA/SIM/CARDATA/P*.DAT, GAMEDATA/SIM/AI/*.DAT, their copies in CARDATA.VIV)
 
 - `Nfs2CarPhysics` (`resources/eac/car_specs.py`), 356 bytes, fields from the developers' `P*.DES` and the
