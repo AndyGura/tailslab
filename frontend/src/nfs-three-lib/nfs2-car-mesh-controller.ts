@@ -631,6 +631,10 @@ export class Nfs2CarMeshController {
       if (!depthMaterial) {
         paintInShader(material, this.paintUniforms);
         material.side = FrontSide;
+        // drawn opaque: texels with alpha are cut out (the GLB's materials have alphaTest already)
+        if (material.transparent && material.alphaTest === 0) {
+          material.alphaTest = 0.5;
+        }
         material.transparent = false;
         material.depthTest = true;
         material.depthWrite = false;
@@ -715,7 +719,8 @@ export class Nfs2CarMeshController {
       pivot.name = `wheel_${wheelPart}`;
       pivot.position.copy(pivotPos);
       pivot.rotation.order = 'ZXY';
-      this.mesh.add(pivot);
+      // next to the meshes (the GLB scene may sit in a wrapper group)
+      (wheelMeshes[0].parent ?? this.mesh).add(pivot);
       for (const m of [...wheelMeshes, ...innerMeshes]) {
         m.geometry.translate(-pivotPos.x, -pivotPos.y, -pivotPos.z);
         m.geometry.computeBoundingBox();
