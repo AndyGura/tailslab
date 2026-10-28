@@ -789,7 +789,9 @@ export class Nfs2CarMeshController {
     const load = (name: string, like: Texture): Texture => {
       let texture = loaded.get(name);
       if (!texture) {
-        texture = loader.load(`${assetsPath}/${name}.png`);
+        // a frame that can't load is drawn as frame 0 (an empty texture is cut out by the alpha test: the polygon
+        // vanished while braking when the brake light frames were not on the CDN)
+        texture = loader.load(`${assetsPath}/${name}.png`, undefined, undefined, () => this.frameMissing(texture!));
         setupNfs1Texture(texture);
         texture.name = name;
         // as the GLB's own textures: not flipped (TextureLoader's default is)
@@ -839,6 +841,22 @@ export class Nfs2CarMeshController {
         this.animations.get(group)!.materials.push(animated);
       }
       m.material = animated.material;
+    }
+  }
+
+  /** A frame texture failed to load: frame 0 instead */
+  private frameMissing(texture: Texture) {
+    for (const animation of this.animations.values()) {
+      for (const animated of animation.materials) {
+        const i = animated.frames.indexOf(texture);
+        if (i > 0) {
+          animated.frames[i] = animated.frames[0];
+          if (animated.material.map === texture) {
+            animated.material.map = animated.frames[0];
+            animated.depthMaterial.map = animated.frames[0];
+          }
+        }
+      }
     }
   }
 
