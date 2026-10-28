@@ -48,7 +48,9 @@ def render_type(instance: DataBlock, possible_blocks_filter=None) -> str:
         if isinstance(instance, ArrayBlock):
             if isinstance(instance, LengthPrefixedArrayBlock) or isinstance(instance, LengthPrefixedUtf8Block):
                 descr += f'<br/>Length field type: {instance.length_block.schema["block_description"]}'
-            if not isinstance(instance.child, CompoundBlock) or instance.child.schema['inline_description']:
+            if getattr(instance.child, 'is_text_value', False):
+                pass  # a number of a text line (NFS3 carp.txt): no byte size
+            elif not isinstance(instance.child, CompoundBlock) or instance.child.schema['inline_description']:
                 size = render_value_doc_str(instance.child.size_doc_str)
                 descr += f'<br/>Item size: {size} ' + ('byte' if size == '1' else 'bytes')
             descr += f'<br/>Item type: {render_type(instance.child, possible_blocks_filter)}'
@@ -426,6 +428,8 @@ EXPORT_RESOURCES = {
 
 **GameData/Audio/pc/\\*.map** interactive music map, **\\*.lin** linear song map of the `.mus` file of the same name. {render_type(eac.audios.EaMusicMap())}
 
+**GameData/CarModel/\\<car\\>/car.viv: carp.txt** car physics, plain text (label and value lines). {render_type(eac.car_specs.Nfs3CarPhysics())}. The converter writes it as `carp.txt.json` (named values) and `carp.txt.bin` (the file as it is)
+
 **GameData/Tracks/TRK\\<nnn\\>/TR\\<nn\\>\\<k\\>.CAN**, **TR\\<nn\\>00A.CAN** animation path of knocked-away objects. {render_type(eac.maps.Nfs3CanAnimation())}
 
 **\\*.COL** track additional data. {render_type(eac.maps.Nfs3MapColFile())}
@@ -498,8 +502,9 @@ EXPORT_RESOURCES = {
                 eac.maps.Nfs3CanKeyframe(),
                 eac.maps.ColPolygon(),
             ],
-            # 'Physics': [
-            # ],
+            'Physics': [
+                eac.car_specs.Nfs3CarPhysics(),
+            ],
             'Images': [
                 eac.bitmaps.EacImage(),
                 eac.bitmaps.EacPalette(),

@@ -69,3 +69,16 @@ class TnfsPsxHorizonInfoSerializer(BaseFileSerializer):
         with open(f'{path}.json', 'w') as file:
             json.dump(settings.as_dict(), file, indent=4)
         return [f'{path}.json']
+
+
+class Nfs3CarPhysicsSerializer(JsonSerializer):
+    """NFS3 `carp.txt` (`Nfs3CarPhysics`): the named values as `<name>.json`, plus the file itself as `<name>.bin`
+    (byte-identical when unchanged), the raw copy the converter wrote before the format was parsed"""
+
+    def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
+        if path.endswith('/') or path.endswith('\\'):
+            path += id[id.rindex('/') + 1 :]
+        output = super().serialize(data, path, id=id, block=block, **kwargs)
+        with open(f'{path}.bin', 'wb') as file:
+            file.write(block.pack(data))
+        return output + [f'{path}.bin']

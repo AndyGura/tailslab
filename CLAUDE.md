@@ -56,7 +56,7 @@ docs and a working GUI editor for free.
 | `resources/*.md` | **Auto-generated** per-game docs (`generate_resource_doc.py`). Never hand-edit — edit the block definitions/descriptions and regenerate. |
 | `serializers/` | Turn parsed block data into common output formats and back. One serializer class per resource kind, returned by a block's `serializer_class()`. |
 | `api/` | Python↔JS bridge (pywebview/eel) exposing library + serializers to the GUI. |
-| `frontend/` | Angular GUI. `.../editor/library/*.block-ui` = generic components, one per `read_blocks` base class. `.../editor/eac/*` and `.../editor/common/*` = bespoke rich viewers (image, 3D geometry, map, audio, font, hex/targa, TNFS / NFS2 car specs) and widgets they share (`curve-editor` = editable SVG charts, `stat-tiles`). `common/obj-viewer/viewer-sky.ts` = the baked gg-web-engine procedural sky every 3D viewer uses as background and environment light (a track's own skybox sphere is drawn over it). `src/nfs-three-lib/` = three.js code shared with nfs-web, copied there as it is. |
+| `frontend/` | Angular GUI. `.../editor/library/*.block-ui` = generic components, one per `read_blocks` base class. `.../editor/eac/*` and `.../editor/common/*` = bespoke rich viewers (image, 3D geometry, map, audio, font, hex/targa, TNFS / NFS2 / NFS3 car specs) and widgets they share (`curve-editor` = editable SVG charts, `stat-tiles`). `common/obj-viewer/viewer-sky.ts` = the baked gg-web-engine procedural sky every 3D viewer uses as background and environment light (a track's own skybox sphere is drawn over it). `src/nfs-three-lib/` = three.js code shared with nfs-web, copied there as it is. |
 | `actions/` | OS-integration entry points (convert all, open in GUI editor, uncompress) wired to file-manager context menus / installers. |
 | `test/` | unittest suite mirroring `library/`/`resources/`. `test/golden_corpus/` + `test/test_gui_golden_corpus.sh` = manual smoke test that opens every sample file through `run.py`. |
 | `icons/` | App icon source (`tailslab.png`) and the per-platform icons made from it by `icons/generate_icons.py` (also writes the GUI's favicon and `assets/logo.png`). |
@@ -485,6 +485,30 @@ When you do:
   acceleration tables) 1 (0x41); `Chain` (a group: `MCF1.DES`, `TRAFCFG.DES`, `PRSONAL.DES`) n = everything below
   it: 94 bytes of garbage, int data size, int size of the child records, a copy of the group's data, then its child
   records.
+
+## NFS3 car physics (`GameData/CarModel/<car>/car.viv`: `carp.txt`)
+
+- `Nfs3CarPhysics` (`resources/eac/car_specs.py`): a text file of label lines (`mass [kg](2)`) and value lines
+  (`1625.000000`, arrays comma separated), parsed as nfs3.exe 0x4b1380 does (`nfs3_carp_exe_read`: lines without
+  spaces, lower-cased; a label selects the first entry of the exe's table `NFS3_CARP_FIELD_TABLE` whose key and `(n)` it
+  contains; the next value line fills the field once; the 2000-byte line buffer's leftovers are read for missing
+  array items, as in the exe), 80 fields named after nfs-web's port (`src/nfs3/nfs3-physics`, `nfs3_carp` in
+  `nfs3.h`); missing fields take the exe's default carp. The value blocks (`CarpTextInt`, `CarpTextByte`,
+  `CarpTextFloat`, `CarpTextFixed`, `CarpTextArray`) only type the fields for the GUI and docs: the top-level block
+  reads and writes the text. The hidden `source_text` field keeps the file as read; `write` puts the values over it,
+  each changed number in the style of the one it replaces (decimals, `128.000000` for an integer field), fields the
+  text lacks appended when they differ from the default, so all 16 files write back byte-exact
+  (`test/samples/nfs3_carp/`, `test/resources/eac/test_nfs3_car_physics.py`, which also checks the values against
+  the exe parser's carp dumped by the nfs-web port). Picked by the item name `carp.txt` under a `/CarModel/` path
+  (`_is_nfs3_car_physics_path`): NFS4's `Data/Cars/<car>/car.viv` `carp.txt` (21-entry torque curve, field 80) is
+  another format and stays raw.
+- `Nfs3CarPhysicsSerializer` writes `carp.txt.json` (named values) and `carp.txt.bin` (the file itself): nfs-web's
+  NFS3 physics downloads `carp.txt.bin` from the CDN, keep writing it byte-identical.
+- GUI: `Nfs3CarPhysicsBlockUiComponent` (`frontend/.../editor/eac/nfs3-car-physics.block-ui/`, on `CarSpecEditorBase`):
+  dyno (interpolated torque), gearing with the automatic gearbox and the air drag (manual / automatic gear set),
+  brake and steering ramps, steering lock, yaw damping, downforce, AI acceleration table, driving aid, the menus'
+  tuning sliders (Carp_TuneCar, local to the editor). Its derived curves follow the field descriptions: keep the two
+  in sync.
 
 ## TNFS sound banks (SIMDATA/SOUNDBNK/*.BNK)
 

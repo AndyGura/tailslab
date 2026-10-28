@@ -27,6 +27,14 @@ def _is_nfs2_car_ai_name(file_path: str) -> bool:
     return len(name) == 8 and name[:4].isalnum() and name[:4].isascii() and name.upper().endswith('.DAT')
 
 
+def _is_nfs3_car_physics_path(file_path: str) -> bool:
+    """NFS3 `carp.txt` of `GameData/CarModel/<car>/car.viv` (NFS4's `Data/Cars/<car>/car.viv` one is another format)"""
+    return (
+        _file_or_archive_item_name(file_path).lower() == 'carp.txt'
+        and '/CARMODEL/' in file_path.replace('\\', '/').upper()
+    )
+
+
 def _peek(buffer, n: int) -> bytes:
     """The next n bytes of the buffer, without moving it"""
     data = buffer.read(n)
@@ -71,6 +79,10 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.car_specs import Nfs2CarPhysics
 
             return Nfs2CarPhysics
+        elif _is_nfs3_car_physics_path(file_path):
+            from resources.eac.car_specs import Nfs3CarPhysics
+
+            return Nfs3CarPhysics
         elif length == 232 and _file_or_archive_item_name(file_path).upper() == 'SIMTUNE.DAT':
             from resources.eac.car_specs import Nfs2SimTune
 
