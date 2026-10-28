@@ -515,25 +515,164 @@ class CollisionExtraDataRecord(DeclarativeCompoundBlock):
                 'description': "Low nibble `count`: the slice's lane count. The NFS2 SE start grid (car start "
                 'position, nfs2sen.exe 0x43ea40) puts the cars (count / 2) lane widths (`left_lane_width` / '
                 '`right_lane_width`) from the centre, only on tracks whose grid side flag is set. High nibble `unk` '
-                'unknown. Always 0 in the NFS3 files',
+                'unknown',
             },
         )
         left_lane_width = (
             FixedPointBlock(length=1, is_signed=False, fraction_bits=1),
             {
                 'description': 'Lane width on the left side in meters, unit 0.5 m: NFS2 SE reads it as `value << 15` '
-                '(16.16; start grid, nfs2sen.exe 0x43ea40). The NFS3 files have other values here (over the whole '
-                'byte range), meaning unknown',
+                '(16.16; start grid, nfs2sen.exe 0x43ea40)',
             },
         )
         right_lane_width = (
             FixedPointBlock(length=1, is_signed=False, fraction_bits=1),
             {
-                'description': 'Lane width on the right side in meters, read like `left_lane_width`. The NFS3 files '
-                'have other values here (over the whole byte range), meaning unknown',
+                'description': 'Lane width on the right side in meters, read like `left_lane_width`',
             },
         )
         unk3 = (IntegerBlock(length=2), {'is_unknown': True})
+
+
+class Nfs3TexturesMapExtraDataRecord(DeclarativeCompoundBlock):
+    @property
+    def schema(self):
+        return {
+            **super().schema,
+            'block_description': 'Texture reference of the NFS3 COL file (8 bytes; NFS2 and NFS2 SE have 10-byte '
+            'records): polygons of the COL props refer to items of this table by index. nfs3.exe reads the '
+            'textures_map extrablock at load (0x41dcc0) and sets byte 7 to 0x1f where it is 0 and byte 6 to 1 '
+            'where it is 0',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        texture_number = (
+            IntegerBlock(length=2, is_signed=False),
+            {
+                'description': 'Index of the texture in the track QFS file (TR<nn>0.QFS): below its image count in '
+                'every NFS3 COL'
+            },
+        )
+        unk0 = (IntegerBlock(length=2, is_signed=False), {'description': 'Always 0', 'is_unknown': True})
+        unk1 = (
+            IntegerBlock(length=1, is_signed=False),
+            {'description': '0 mostly, else 4, 16, 32, 48, 64, 80 or 96', 'is_unknown': True},
+        )
+        alignment = (
+            EnumByteBlock(
+                enum_names=[
+                    (1, 'rotate_180'),
+                    (3, 'rotate_270'),
+                    (5, 'normal'),
+                    (9, 'rotate_90'),
+                    (16, 'flip_v'),
+                    (18, 'rotate_270_2'),
+                    (20, 'flip_h'),
+                    (24, 'rotate_90_2'),
+                ]
+            ),
+            {
+                'description': 'Orientation of the texture on the polygon, the values of the NFS2 textures_map '
+                '`alignment` (also 64, 68, 72: 0x40 with 0, 4, 8). The converter reads it as in NFS2, not verified '
+                'in the NFS3 code',
+                'is_unknown': True,
+            },
+        )
+        unk2 = (
+            IntegerBlock(length=1, is_signed=False),
+            {'description': 'Mostly 0; nfs3.exe makes 0 a 1 at load (0x41dcc0)', 'is_unknown': True},
+        )
+        unk3 = (
+            IntegerBlock(length=1, is_signed=False),
+            {'description': 'Mostly 0; nfs3.exe makes 0 a 0x1f at load (0x41dcc0)', 'is_unknown': True},
+        )
+
+
+class Nfs3CollisionExtraDataRecord(DeclarativeCompoundBlock):
+    @property
+    def schema(self):
+        return {
+            **super().schema,
+            'block_description': 'A track slice of NFS3 (the collision_data extrablock of the COL file, 0x24 '
+            'bytes, another layout than the NFS2 one): a point of the road centre line with the road orientation '
+            'vectors, the distances to the road borders, walls and lanes. One slice per FRD '
+            'position record ([FrdPositionBlock](#frdpositionblock)) and per float of SIMHTS.DAT '
+            '([Nfs3SimHeights](#nfs3simheights)). nfs3.exe loads the array at 0x41e370 and reads it in 0x420230, '
+            '0x420bf0, 0x4a0140, 0x428d60, 0x4304b0, 0x4a2690',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        position = (
+            Point3D(child=FixedPointBlock(length=4, fraction_bits=16, is_signed=True)),
+            {'description': 'Global position of the slice centre in meters (16.16)'},
+        )
+        unk0 = (
+            IntegerBlock(length=2, is_signed=False),
+            {
+                'description': 'One run of set bits in every record of the NFS3 tracks (0x03c0, 0x07c0, 0x03e0 '
+                'most often; TR00 starts with 0x0ff8)',
+                'is_unknown': True,
+            },
+        )
+        walls = (
+            SubByteCompoundBlock(
+                length=1,
+                schema=[
+                    (4, 'left', 'number', [], 'Wall type of the left border (where right · (p - centre) <= 0)'),
+                    (4, 'right', 'number', [], 'Wall type of the right border'),
+                ],
+            ),
+            {
+                'description': 'Two 4-bit wall types: high nibble `left` the left border (the side where `right` · '
+                '(p - centre) <= 0), low nibble `right` the right one. Non-zero: a wall at that border '
+                '(`left_border` / `right_border`), the nibble is its crash type (0x40000 OR the nibble; nfs3.exe '
+                '0x4a0140, 0x4304b0). 2: the slice is covered on that side (tunnel): the ceiling height comes from '
+                "SIMHTS.DAT and no weather falls (0x420bf0, which takes the other side's nibble when the car's side "
+                'has 0)',
+            },
+        )
+        unk1 = (
+            IntegerBlock(length=1, is_signed=False),
+            {'description': '0, or 3 in every record of TR04', 'is_unknown': True},
+        )
+        normal = (
+            Point3D(child=FixedPointBlock(length=1, fraction_bits=7, is_signed=True)),
+            {'description': 'Normal vector of the road surface, signed bytes, unit 1/128'},
+        )
+        lanes = (
+            SubByteCompoundBlock(
+                length=1,
+                schema=[
+                    (4, 'left', 'number', [], 'Lane count on the left side'),
+                    (4, 'right', 'number', [], 'Lane count on the right side'),
+                ],
+            ),
+            {'description': 'Lane counts: high nibble `left` the left side, low nibble `right` the right side'},
+        )
+        forward = (
+            Point3D(child=FixedPointBlock(length=1, fraction_bits=7, is_signed=True)),
+            {'description': 'Forward vector (direction of the track), read like `normal`'},
+        )
+        left_lane_width = (
+            FixedPointBlock(length=1, is_signed=False, fraction_bits=1),
+            {'description': 'Lane width on the left side in meters, unit 0.5 m (read as `value << 15`, 16.16)'},
+        )
+        right = (
+            Point3D(child=FixedPointBlock(length=1, fraction_bits=7, is_signed=True)),
+            {'description': 'Right vector (up x forward), read like `normal`'},
+        )
+        right_lane_width = (
+            FixedPointBlock(length=1, is_signed=False, fraction_bits=1),
+            {'description': 'Lane width on the right side in meters, read like `left_lane_width`'},
+        )
+        left_border = (
+            FixedPointBlock(length=4, fraction_bits=16, is_signed=True),
+            {'description': 'Distance from the centre to the left road border in meters (16.16)'},
+        )
+        right_border = (
+            FixedPointBlock(length=4, fraction_bits=16, is_signed=True),
+            {'description': 'Distance from the centre to the right road border in meters (16.16)'},
+        )
 
 
 class ColExtraBlock(DeclarativeCompoundBlock):
@@ -667,3 +806,109 @@ class MapColFile(DeclarativeCompoundBlock):
             self_ctx.buffer.seek(self_ctx.read_start_offset + offset + 16)
             data['extrablocks'].append(child_block.unpack(self_ctx, name=str(i)))
         return data
+
+
+class Nfs3ColExtraBlock(ColExtraBlock):
+    @property
+    def schema(self):
+        return {
+            **super().schema,
+            'block_description': 'A typed container of data records of the NFS3 COL file: the extrablock of NFS2 '
+            '(ColExtraBlock), with the NFS3 layouts of textures_map and collision_data records',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        block_size = ColExtraBlock.Fields.block_size
+        type = (
+            EnumByteBlock(enum_names=ColExtraBlock.Fields.type[0].enum_names),
+            {
+                'description': 'Type of the data records. The NFS3 COL files have textures_map, prop_descriptions, '
+                'props_7, collision_data and (TR02) props_18; nfs3.exe reads only types 2 (textures_map), 7 '
+                '(props_7), 8 (prop_descriptions) and 15 (collision_data) (0x41dcc0)'
+            },
+        )
+        unk = ColExtraBlock.Fields.unk
+        num_data_records = ColExtraBlock.Fields.num_data_records
+        data_records = (
+            EnumLookupDelegateBlock(
+                enum_field='type',
+                blocks=[
+                    ArrayBlock(child=Nfs3TexturesMapExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
+                    ArrayBlock(child=IntegerBlock(length=2), length=lambda ctx: ctx.data('num_data_records')),
+                    ArrayBlock(child=PolygonMapExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
+                    ArrayBlock(child=MedianExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
+                    ArrayBlock(child=PropExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
+                    ArrayBlock(child=PropDescriptionExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
+                    ArrayBlock(child=LanesExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
+                    ArrayBlock(child=TrackObjectExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
+                    ArrayBlock(child=RoadVectorsExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
+                    ArrayBlock(child=Nfs3CollisionExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
+                    ArrayBlock(child=PropExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
+                    ArrayBlock(child=PropExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
+                    BytesBlock(length=lambda ctx: ctx.data('block_size') - 8),
+                ],
+            ),
+            {
+                'description': 'Data records, block class picked according to `type`. Records of unknown '
+                'types are kept as raw bytes'
+            },
+        )
+
+
+class Nfs3MapColFile(MapColFile):
+    @property
+    def schema(self):
+        return {
+            **super().schema,
+            'block_description': 'Track additional data of NFS3 (COL file), a list of extrablocks: textures map '
+            '(used by the polygons of the COL props), track-wide props with their 3D models and the track slices '
+            '(collision_data). The layout of the NFS2 COL file (MapColFile), with the NFS3 records: the textures_map '
+            'records are 8 bytes long (10 in NFS2), which tells the two apart (`is_nfs3_col_file`)',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        resource_id = MapColFile.Fields.resource_id
+        unk = MapColFile.Fields.unk
+        block_size = MapColFile.Fields.block_size
+        num_extrablocks = MapColFile.Fields.num_extrablocks
+        extrablock_offsets = MapColFile.Fields.extrablock_offsets
+        extrablocks_bytes = (
+            MapColFile.Fields.extrablocks_bytes[0],
+            {
+                'description': 'A part of block, where extra blocks data is located. Offsets are defined in '
+                'previous "extrablock_offsets" field. Item type:'
+                '<br/>- [Nfs3ColExtraBlock](#nfs3colextrablock)',
+                'usage': 'io,doc',
+            },
+        )
+        extrablocks = (
+            ArrayBlock(length=(0, 'num_extrablocks'), child=Nfs3ColExtraBlock()),
+            {
+                'description': 'Extrablocks: textures_map first, then typically prop_descriptions, props_7 and '
+                'collision_data',
+                'usage': 'ui',
+            },
+        )
+
+
+def is_nfs3_col_file(buffer) -> bool:
+    """A COL file of NFS3: its first extrablock (textures_map) has 8-byte records (NFS2, NFS2 SE: 10 bytes). Peeks at
+    the buffer and seeks back"""
+    pos = buffer.tell()
+    try:
+        header = buffer.read(20)
+        if len(header) < 20 or header[:4] != b'COLL':
+            return False
+        num_extrablocks = int.from_bytes(header[12:16], 'little')
+        if num_extrablocks == 0:
+            return False
+        first_offset = int.from_bytes(header[16:20], 'little')
+        buffer.seek(pos + 16 + first_offset)
+        extrablock_header = buffer.read(8)
+        if len(extrablock_header) < 8 or extrablock_header[4] != 2:
+            return False
+        block_size = int.from_bytes(extrablock_header[0:4], 'little')
+        num_records = int.from_bytes(extrablock_header[6:8], 'little')
+        return num_records > 0 and block_size == 8 + 8 * num_records
+    finally:
+        buffer.seek(pos)

@@ -314,7 +314,8 @@ plumbing. To build one (see `ShpiBlock` in `resources/eac/archives/shpi_block.py
    the same coordinates as the dummy (`frame_duration` in seconds, assuming 64 delay units per second); baked
    animated meshes get it through `Scene.object_properties` (custom properties of the imported Blender objects).
    Prop sources: TRK block `props_7`/`props_18` + `prop_descriptions`, COL file `props_7` + `prop_descriptions`
-   (NFS2, NFS3), NFS3 and NFS4 extra objects (XOBJ; NFS4 special objects are rotated by their transform matrix, as
+   (NFS2, NFS3; an NFS3 COL is `Nfs3MapColFile`, its own textures_map and collision_data records, picked by the
+   loader with `is_nfs3_col_file`: 8-byte textures_map records, 10 in NFS2), NFS3 and NFS4 extra objects (XOBJ; NFS4 special objects are rotated by their transform matrix, as
    row vectors). NFS3 terrain is the high-res chunks (`FRD_TERRAIN_POLYGON_CHUNKS`) plus the block's POLYOBJ
    objects; the low/medium-res chunks are LODs of it. NFS5 (CRP) and NFS6 tracks have no prop dummies yet: NFS5
    bakes every article into the chunks, NFS6 routes don't include `levelG.o` props (`level.dat` is not parsed).

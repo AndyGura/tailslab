@@ -23,6 +23,9 @@ from .nfs3 import (
     ExtraObjectDataCrossType4,
     AnimData,
     TextureBlock,
+    Nfs3SimHeights,
+    Nfs3CanKeyframe,
+    Nfs3CanAnimation,
 )
 from .nfs4 import (
     Nfs4FrdMap,
@@ -58,6 +61,10 @@ from .nfs_common import (
     CollisionExtraDataRecord,
     ColExtraBlock,
     MapColFile,
+    Nfs3TexturesMapExtraDataRecord,
+    Nfs3CollisionExtraDataRecord,
+    Nfs3ColExtraBlock,
+    Nfs3MapColFile,
 )
 from .nfs5_sky import Nfs5SkyBin
 from .nfs6 import (

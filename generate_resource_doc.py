@@ -426,7 +426,9 @@ EXPORT_RESOURCES = {
 
 **GameData/Audio/pc/\\*.map** interactive music map, **\\*.lin** linear song map of the `.mus` file of the same name. {render_type(eac.audios.EaMusicMap())}
 
-**\\*.COL** track additional data. {render_type(eac.maps.MapColFile())}
+**GameData/Tracks/TRK\\<nnn\\>/TR\\<nn\\>\\<k\\>.CAN**, **TR\\<nn\\>00A.CAN** animation path of knocked-away objects. {render_type(eac.maps.Nfs3CanAnimation())}
+
+**\\*.COL** track additional data. {render_type(eac.maps.Nfs3MapColFile())}
         
 **\\*.FCE** 3D model (car.fce in car.viv: car model). {render_type(eac.geometries.Fce3Geometry())}
 
@@ -439,6 +441,8 @@ EXPORT_RESOURCES = {
 **\\*.FSH** image archive. {render_type(eac.archives.ShpiBlock())}
 
 **\\*.QFS** image archive. {render_type(eac.archives.ShpiBlock())}, [compressed](eac_compressions.md)
+
+**GameData/Tracks/TRK\\<nnn\\>/SIMHTS.DAT** ceiling heights of the track slices. {render_type(eac.maps.Nfs3SimHeights())}
 
 **\\*.VIV** archive with some data. {render_type(eac.archives.BigfBlock())}""",
         'blocks': {
@@ -475,9 +479,9 @@ EXPORT_RESOURCES = {
                 eac.maps.ExtraObjectDataCrossType4(),
                 eac.maps.TextureBlock(),
                 # COL
-                eac.maps.MapColFile(),
-                eac.maps.ColExtraBlock(),
-                eac.maps.TexturesMapExtraDataRecord(),
+                eac.maps.Nfs3MapColFile(),
+                eac.maps.Nfs3ColExtraBlock(),
+                eac.maps.Nfs3TexturesMapExtraDataRecord(),
                 eac.maps.PolygonMapExtraDataRecord(),
                 eac.maps.MedianExtraDataRecord(),
                 eac.maps.AnimatedPropPosition(),
@@ -488,7 +492,10 @@ EXPORT_RESOURCES = {
                 eac.maps.LanesExtraDataRecord(),
                 eac.maps.TrackObjectExtraDataRecord(),
                 eac.maps.RoadVectorsExtraDataRecord(),
-                eac.maps.CollisionExtraDataRecord(),
+                eac.maps.Nfs3CollisionExtraDataRecord(),
+                eac.maps.Nfs3SimHeights(),
+                eac.maps.Nfs3CanAnimation(),
+                eac.maps.Nfs3CanKeyframe(),
                 eac.maps.ColPolygon(),
             ],
             # 'Physics': [

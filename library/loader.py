@@ -27,6 +27,13 @@ def _is_nfs2_car_ai_name(file_path: str) -> bool:
     return len(name) == 8 and name[:4].isalnum() and name[:4].isascii() and name.upper().endswith('.DAT')
 
 
+def _peek(buffer, n: int) -> bytes:
+    """The next n bytes of the buffer, without moving it"""
+    data = buffer.read(n)
+    buffer.seek(-len(data), SEEK_CUR)
+    return data
+
+
 def _is_ea_audio_stream(buffer, length) -> bool:
     from resources.eac.audios import is_ea_audio_stream
 
@@ -137,6 +144,21 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
                 from resources.eac.geometries import Fce3Geometry
 
                 return Fce3Geometry
+        elif length is not None and length % 4 == 0 and _file_or_archive_item_name(file_path).upper() == 'SIMHTS.DAT':
+            # NFS3 track slice ceiling heights GameData/Tracks/TRK<nnn>/SIMHTS.DAT
+            from resources.eac.maps.nfs3 import Nfs3SimHeights
+
+            return Nfs3SimHeights
+        elif (
+            file_path.upper().endswith('.CAN')
+            and length is not None
+            and length >= 8
+            and length == 8 + 20 * int.from_bytes(_peek(buffer, 8)[4:6], 'little')
+        ):
+            # NFS3 animation path TR<nn><k>.CAN (NFS2, NFS2 SE and NFS4 .CAN files have the same layout)
+            from resources.eac.maps.nfs3 import Nfs3CanAnimation
+
+            return Nfs3CanAnimation
         elif file_path.lower().endswith('aipaths.dat'):
             from resources.eac.maps.nfs6 import Nfs6AiPaths
 
@@ -234,9 +256,9 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
 
             return TrkMap
         elif header_str == 'COLL':
-            from resources.eac.maps import MapColFile
+            from resources.eac.maps.nfs_common import MapColFile, Nfs3MapColFile, is_nfs3_col_file
 
-            return MapColFile
+            return Nfs3MapColFile if is_nfs3_col_file(buffer) else MapColFile
         elif header_str == '\x7fELF':
             from resources.eac.geometries.nfs6 import EaglModel
 

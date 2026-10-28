@@ -11,6 +11,7 @@ from library.read_blocks import (
     DecimalBlock,
     FixedPointBlock,
     OptionalBlock,
+    SubByteCompoundBlock,
 )
 from library.read_blocks.misc.value_validators import Eq
 from resources.eac.fields.misc import Point3D, Quaternion
@@ -25,9 +26,10 @@ class FrdPositionBlock(DeclarativeCompoundBlock):
     def schema(self) -> Dict:
         return {
             **super().schema,
-            'block_description': 'A group of consecutive high-res track polygons: a "row" of polygons across the '
-            'road. A track block usually has 8 of them, together covering all polygons of '
-            'the high-res track chunk',
+            'block_description': 'A track slice: the row of consecutive high-res track polygons (chunk 4) across '
+            'the road at one slice, one COL collision_data record each ([Nfs3CollisionExtraDataRecord]'
+            '(#nfs3collisionextradatarecord), the same index among all blocks of the track). A track block usually '
+            'has 8 of them, together covering all polygons of the high-res track chunk',
         }
 
     class Fields(DeclarativeCompoundBlock.Fields):
@@ -39,14 +41,20 @@ class FrdPositionBlock(DeclarativeCompoundBlock):
             },
         )
         num_polygons = (IntegerBlock(length=1, is_signed=False), {'description': 'Amount of polygons in this group'})
-        unk = (IntegerBlock(length=1, is_signed=False), {'is_unknown': True})
-        extra_neighbor1 = (
-            IntegerBlock(length=2, is_signed=False),
-            {'description': 'Extra neighbouring block index? 0xFFFF if none', 'is_unknown': True},
+        unk = (
+            IntegerBlock(length=1, is_signed=False),
+            {'description': '4..9 in the NFS3 tracks', 'is_unknown': True},
         )
-        extra_neighbor2 = (
-            IntegerBlock(length=2, is_signed=False),
-            {'description': 'Extra neighbouring block index? 0xFFFF if none', 'is_unknown': True},
+        alt_slice_1 = (
+            IntegerBlock(length=2, is_signed=True),
+            {
+                'description': 'A slice of an alternative route (track fork), -1 (0xFFFF) when none. nfs3.exe '
+                'searches the fork from them (0x41f330)'
+            },
+        )
+        alt_slice_2 = (
+            IntegerBlock(length=2, is_signed=True),
+            {'description': 'A slice of another alternative route, -1 when none, used like `alt_slice_1`'},
         )
 
 
@@ -68,8 +76,27 @@ class FrdBlockPolygonData(DeclarativeCompoundBlock):
             },
         )
         flags = (
-            IntegerBlock(length=1, is_signed=False),
-            {'description': 'Polygon flags (road surface type, driveable etc.?)', 'is_unknown': True},
+            SubByteCompoundBlock(
+                length=1,
+                schema=[
+                    (1, 'barriers', 'boolean', [], 'The barrier / wall check runs on this polygon (nfs3.exe 0x4304b0)'),
+                    (1, 'objects', 'boolean', [], 'Track objects on this polygon are tested (0x4311d0)'),
+                    (
+                        6,
+                        'surface',
+                        'number',
+                        [],
+                        'Road surface type, the index in the grip table (0x55ed30). Polygons whose low 4 bits are '
+                        '0xe are never found by the road search (0x41e990)',
+                    ),
+                ],
+            ),
+            {
+                'description': 'Road surface byte: bits 0x3f `surface` the surface type, the index in the grip table '
+                '(nfs3.exe 0x55ed30); bit 0x40 `objects`: objects on this polygon are tested (0x4311d0); bit 0x80 '
+                '`barriers`: the barrier / wall check (0x4304b0). The road search (0x41e990) never finds a polygon '
+                'with flags & 0xf == 0xe'
+            },
         )
         unk = (BytesBlock(length=6), {'is_unknown': True})
 
@@ -108,10 +135,20 @@ class FrdXobjRef(DeclarativeCompoundBlock):
             Point3D(child=FixedPointBlock(length=4, fraction_bits=16, is_signed=True)),
             {'description': 'Position of the object, equals to its reference point (`pt_ref`)'},
         )
-        unk0 = (IntegerBlock(length=2, is_signed=False), {'is_unknown': True})
+        radius = (
+            FixedPointBlock(length=2, fraction_bits=8, is_signed=True),
+            {
+                'description': 'Collision radius in meters, unit 1/256 m (nfs3.exe reads it as a signed 16-bit value '
+                '`<< 8`, 16.16), halved for `type` 1 and doubled for `type` 2 (the low nibble of `type`; 0x41ff20). '
+                'The object collision (0x41d350, 0x430da0) uses the result'
+            },
+        )
         global_no = (
             IntegerBlock(length=2, is_signed=False),
-            {'description': 'Sequence number of the object among all extra objects of the track'},
+            {
+                'description': 'Sequence number of the object among all extra objects of the track: the index in '
+                "the game's object state table (0x5dd230, 512 entries of 3 bytes: standing / knocked away)"
+            },
         )
         unk1 = (IntegerBlock(length=2, is_signed=False), {'is_unknown': True})
         cross_index = (
@@ -121,7 +158,15 @@ class FrdXobjRef(DeclarativeCompoundBlock):
                 'the object is in another chunk'
             },
         )
-        unk2 = (IntegerBlock(length=1, is_signed=False), {'description': 'Values 1, 2', 'is_unknown': True})
+        type = (
+            EnumByteBlock(enum_names=[(1, 'solid'), (2, 'knockable'), (3, 'no_collision')]),
+            {
+                'description': 'Object type (nfs3.exe 0x41d350): knockable (2) is knocked away when the car hits it '
+                'at round(abs(vx) + abs(vz)) >= 11 m/s and is a solid wall otherwise; 3: no collision response, '
+                '0x41d350 returns 2 for it and the hit counts as a crash when the car speed is above 2; other '
+                'values (1) are solid. The low nibble also scales `radius` (0x41ff20). The NFS3 tracks have 1, 2 and 3'
+            },
+        )
 
 
 class FrdPolyObjRef(DeclarativeCompoundBlock):
@@ -261,7 +306,8 @@ class FrdBlock(DeclarativeCompoundBlock):
             IntegerBlock(length=4, is_signed=False),
             {
                 'description': 'Index of the first `positions` entry of this block among all blocks of the '
-                'track (sum of `num_positions` of all previous blocks)'
+                'track (sum of `num_positions` of all previous blocks): its first slice, the index of its COL '
+                'collision_data record'
             },
         )
         num_positions = (
@@ -493,7 +539,17 @@ class ExtraObjectDataCrossType4(DeclarativeCompoundBlock):
             Point3D(child=DecimalBlock(length=4)),
             {'description': 'Reference point: position of the object in the world. Object vertices are relative to it'},
         )
-        anim_memory = (IntegerBlock(length=4), {'is_unknown': True})
+        animation_size = (
+            IntegerBlock(length=4, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('animation'))),
+            {
+                'description': 'Size of `animation` in bytes. nfs3.exe reads every extra object as `pt_ref`, this '
+                'size and that many bytes. 0 in every static object of the NFS3 tracks'
+            },
+        )
+        animation = (
+            BytesBlock(length=(lambda ctx: ctx.data('animation_size'), '`animation_size`')),
+            {'description': 'Animation data, empty in every static object of the NFS3 tracks'},
+        )
 
 
 class AnimData(DeclarativeCompoundBlock):
@@ -521,7 +577,29 @@ class ExtraObjectDataCrossType3(DeclarativeCompoundBlock):
         return {**super().schema, 'block_description': 'Extra data of an animated extra object (cross_type == 3)'}
 
     class Fields(DeclarativeCompoundBlock.Fields):
-        unk = (BytesBlock(length=18), {'is_unknown': True})
+        pt_ref = (
+            Point3D(child=DecimalBlock(length=4)),
+            {
+                'description': 'Reference point, read like the one of static objects (`pt_ref` of '
+                '[ExtraObjectDataCrossType4](#extraobjectdatacrosstype4)). The animated objects of the NFS3 tracks '
+                'hold no position here (six 16-bit values, or zeros), the keyframes place them',
+                'is_unknown': True,
+            },
+        )
+        animation_size = (
+            IntegerBlock(length=4, is_signed=False, programmatic_value=lambda ctx: 8 + 20 * len(ctx.data('animdata'))),
+            {
+                'description': 'Size of the animation (the fields after this one) in bytes: 8 + 20 * `num_animdata`. '
+                'nfs3.exe reads every extra object as `pt_ref`, this size and that many bytes'
+            },
+        )
+        animation_size_2 = (
+            IntegerBlock(length=2, is_signed=False, programmatic_value=lambda ctx: 8 + 20 * len(ctx.data('animdata'))),
+            {
+                'description': 'The animation header (like the NFS2 animated prop record) starts with its size '
+                'again: equals `animation_size` in every animated object of the NFS3 tracks'
+            },
+        )
         type = (IntegerBlock(length=1, value_validator=Eq(3)), {'description': 'Animation type, always 3'})
         objno = (IntegerBlock(length=1), {'description': 'Object number', 'is_unknown': True})
         num_animdata = (
@@ -675,3 +753,98 @@ class FrdMap(DeclarativeCompoundBlock):
         from serializers import FrdMapSerializer
 
         return FrdMapSerializer
+
+
+class Nfs3SimHeights(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'Ceiling heights of the track slices (GameData/Tracks/TRK<nnn>/SIMHTS.DAT, loaded '
+            'by nfs3.exe 0x41e2f0): one float per COL collision_data record ([Nfs3CollisionExtraDataRecord]'
+            '(#nfs3collisionextradatarecord)), the file is 4 bytes per slice in every NFS3 track',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        heights = (
+            ArrayBlock(
+                child=DecimalBlock(length=4),
+                length=(lambda ctx: ctx.read_bytes_remaining // 4, 'file size / 4'),
+            ),
+            {
+                'description': 'Ceiling height of each slice in meters, used where the slice is covered (wall '
+                'type 2 in its collision_data record; newton, nfs3.exe 0x4a21a0). 4.25..33.75 in the NFS3 tracks'
+            },
+        )
+
+    def serializer_class(self):
+        from serializers import JsonSerializer
+
+        return JsonSerializer
+
+
+class Nfs3CanKeyframe(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {**super().schema, 'block_description': 'A keyframe of a CAN animation path, 20 bytes'}
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        position = (
+            Point3D(child=FixedPointBlock(length=4, fraction_bits=16, is_signed=True)),
+            {'description': 'Position in meters (16.16)'},
+        )
+        orientation = (
+            Quaternion(child=FixedPointBlock(length=2, fraction_bits=14, is_signed=True)),
+            {
+                'description': 'Orientation quaternion, signed 16-bit values read as `(v << 2) / 65536` '
+                '(unit 1/16384); unit length in every keyframe of the NFS2, NFS2 SE, NFS3 and NFS4 files'
+            },
+        )
+
+
+def _can_size(ctx):
+    return 8 + 20 * len(ctx.data('keyframes'))
+
+
+class Nfs3CanAnimation(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'Animation path (GameData/Tracks/TRK<nnn>/TR<nn><k>.CAN, TR<nn>00A.CAN). '
+            'nfs3.exe plays them as the paths of knocked-away objects (TR<nn>00A.CAN as path 1, TR<nn>0<k>.CAN as '
+            'path k + 1; the renderer 0x41ca40 -> 0x40f940 -> 0x40f4b0). The `.CAN` files of NFS2 and NFS2 SE '
+            '(GAMEDATA/TRACKS/DATA) and NFS4 (Data/Tracks/<track>) have the same layout (their use there is not '
+            'verified)',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        size = (
+            IntegerBlock(length=2, is_signed=False, programmatic_value=_can_size),
+            {'description': 'File size in bytes, 8 + 20 * `num_keyframes` in every NFS2, NFS2 SE, NFS3 and NFS4 file'},
+        )
+        unk = (
+            IntegerBlock(length=2, is_signed=False),
+            {
+                'description': 'The same in the same file of every NFS3 track (01: 0x0164, 02: 0x828e, 03: 0x8357, '
+                '04, 05: 0x8320, 06: 0x0269, 00A: 0 but TR0200A 0x41), other values in the 00 files',
+                'is_unknown': True,
+            },
+        )
+        num_keyframes = (
+            IntegerBlock(length=2, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('keyframes'))),
+            {'description': 'Number of keyframes'},
+        )
+        ticks_per_frame = (
+            IntegerBlock(length=2, is_signed=False),
+            {'description': 'Game ticks per keyframe; the game uses 6 when it is 0 or above 400. 6 in every file'},
+        )
+        keyframes = (
+            ArrayBlock(child=Nfs3CanKeyframe(), length=lambda ctx: ctx.data('num_keyframes')),
+            {'description': 'Keyframes'},
+        )
+
+    def serializer_class(self):
+        from serializers import JsonSerializer
+
+        return JsonSerializer
