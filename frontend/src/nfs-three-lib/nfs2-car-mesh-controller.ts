@@ -634,8 +634,12 @@ export class Nfs2CarMeshController {
   constructor(
     private readonly mesh: Object3D,
     assetsPath: string,
-    /** model: the GEO's name (CALA ...); default from the assets path (".../<model>.geo/assets") */
-    options: { model?: string } = {},
+    /**
+     * model: the GEO's name (CALA ...), default from the assets path (".../<model>.geo/assets"); frames: animation
+     * frames of a part's polygons with this texture, for models without TailsLab's extras (the OBJ export: TailsLab
+     * reads them from the parsed GEO)
+     */
+    options: { model?: string; frames?: (part: number, texture: string) => number } = {},
   ) {
     const modelName = (options.model ?? /([^/]+)\.geo(?:\/|$)/i.exec(assetsPath)?.[1] ?? '').toUpperCase();
     this.model = NFS2_MODEL_NAMES.indexOf(modelName);
@@ -663,7 +667,7 @@ export class Nfs2CarMeshController {
     box.getCenter(this.centre);
 
     this.setUpWheels(meshes);
-    this.setUpAnimations(meshes, assetsPath);
+    this.setUpAnimations(meshes, assetsPath, options.frames);
 
     // materials: painted, back faces culled, depth tested without writing depth; a depth-only twin for the depth pass
     const depthMaterials = new Map<Material, MeshBasicMaterial>();
@@ -775,7 +779,11 @@ export class Nfs2CarMeshController {
    * tyre quads, 4 frames) get a material of their own per group: front tyres (parts 12, 14), rear tyres (16, 18), brake
    * lights (part 11, R3DCar_FindBrakeLightPolys 0x45b5b0). Frames 1.. are the PNGs next to the textures
    */
-  private setUpAnimations(meshes: { mesh: Mesh; part: number }[], assetsPath: string) {
+  private setUpAnimations(
+    meshes: { mesh: Mesh; part: number }[],
+    assetsPath: string,
+    framesOf?: (part: number, texture: string) => number,
+  ) {
     const loader = new TextureLoader();
     const loaded = new Map<string, Texture>();
     const load = (name: string, like: Texture): Texture => {
@@ -797,10 +805,17 @@ export class Nfs2CarMeshController {
     for (const { mesh: m, part } of meshes) {
       const group: AnimationGroup | null =
         part === 12 || part === 14 ? 'front' : part === 16 || part === 18 ? 'rear' : part === 11 ? 'brake' : null;
-      const extras = m.userData?.['frames'];
-      const frames = typeof extras === 'number' ? extras : group === 'front' || group === 'rear' ? 4 : 1;
       const material = m.material as MeshBasicMaterial;
       const name = textureNameOf(material);
+      const extras = m.userData?.['frames'];
+      const frames =
+        typeof extras === 'number'
+          ? extras
+          : name && framesOf
+            ? framesOf(part, name)
+            : group === 'front' || group === 'rear'
+              ? 4
+              : 1;
       if (!group || frames < 2 || !name || !material.map) {
         continue;
       }
@@ -1017,7 +1032,23 @@ export class Nfs2CarMeshController {
   private previewTimer: any = null;
   private previewSpeed = 0;
   private previewSteering = 0;
+  private previewBrake = false;
   private previewTick = 0;
+
+  /** Preview without a game loop (TailsLab): brake lights on (the brake pedal) */
+  set brakeLightsOn(value: boolean) {
+    this.previewBrake = value;
+    this.startPreview();
+  }
+
+  get brakeLightsOn(): boolean {
+    return this.previewBrake;
+  }
+
+  /** The model has brake lights (part 11 polygons with frames) */
+  get hasBrakeLights(): boolean {
+    return this.animations.has('brake');
+  }
 
   /** Preview without a game loop (TailsLab): speed in m/s, the tyres animate on their own */
   set speed(value: number) {
@@ -1042,7 +1073,11 @@ export class Nfs2CarMeshController {
   private startPreview() {
     if (!this.previewTimer) {
       this.previewTimer = setInterval(
-        () => this.update(nfs2DrawStateOf(this.previewSpeed, -this.previewSteering / 0.5, false), this.previewTick++),
+        () =>
+          this.update(
+            nfs2DrawStateOf(this.previewSpeed, -this.previewSteering / 0.5, this.previewBrake),
+            this.previewTick++,
+          ),
         SIM_TICK_MS,
       );
     }

@@ -67,4 +67,20 @@ describe('Nfs2CarMeshController', () => {
     expect(lightMap().name).toBe('l100');
     controller.dispose();
   });
+
+  it('takes the frames from the parsed GEO without extras (OBJ) and previews the brake lights', () => {
+    const car = carMesh();
+    car.traverse(o => (o.userData = {}));
+    const controller = new Nfs2CarMeshController(car, 'assets', {
+      model: 'CALA',
+      frames: (part, texture) => (part === 11 && texture === 'l000' ? 2 : texture === 'm000' ? 4 : 1),
+    });
+    expect(controller.hasBrakeLights).toBeTrue();
+    const lightMap = () => ((car.getObjectByName('part_hp_11__l000') as Mesh).material as MeshBasicMaterial).map!;
+    controller.update(nfs2DrawStateOf(0, 0, true), 1);
+    expect(lightMap().name).toBe('l100');
+    controller.update(nfs2DrawStateOf(0, 0, false), 2);
+    expect(lightMap().name).not.toBe('l100');
+    controller.dispose();
+  });
 });

@@ -50,9 +50,16 @@ export class GeoGeometryBlockUiComponent extends GuiComponent implements AfterVi
 
   async onObjectLoaded(obj: Object3D) {
     try {
+      // animation frames of each part's polygons by texture (the OBJ has no node extras): brake lights, tyres
+      const parts: any[] = this.resourceData?.parts ?? [];
+      const frames = (part: number, texture: string): number => {
+        const polygon = parts[part]?.polygons?.find((p: any) => p.texture_name === texture);
+        return polygon ? polygon.mapping.num_frames || 1 : 1;
+      };
       const meshController = new Nfs2CarMeshController(
         obj,
         this.previewPaths$.value![0].substring(0, this.previewPaths$.value![0].lastIndexOf('/')) + `/assets`,
+        { frames },
       );
       let timeout: number | null = null;
       const setColor = (color: number) => {
@@ -74,6 +81,14 @@ export class GeoGeometryBlockUiComponent extends GuiComponent implements AfterVi
           ],
         },
       ];
+      if (meshController.hasBrakeLights) {
+        this.customControls[0].controls.push({
+          label: 'Brake lights on',
+          type: 'checkbox',
+          value: false,
+          change: v => (meshController.brakeLightsOn = v),
+        });
+      }
       if (meshController.hasWheels) {
         this.customControls[0].controls.push(
           wheelSpeedControl(v => (meshController.speed = v)),
