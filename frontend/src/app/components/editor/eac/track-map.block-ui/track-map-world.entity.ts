@@ -1,7 +1,7 @@
 import {
   Entity3d,
   GgDummy,
-  GgWorld,
+  TypeDocOf,
   LoadResultWithProps,
   MapGraph,
   MapGraph3dEntity,
@@ -28,10 +28,6 @@ import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 import { setupNfs1Texture } from '../../../../../nfs-three-lib/nfs1-model-utils';
 import { TrackMapAdapter } from './track-map-adapters';
 import { meshTextureName, TrackPropsAssets, TrackPropsController } from './track-props-controller';
-
-// TODO use this from gg-web-engine after next release
-export type TypeDocOf<W extends GgWorld<any, any>> =
-  W extends GgWorld<infer D, infer R, infer TypeDoc> ? TypeDoc : never;
 
 export type TrackEntity = Entity3d<TypeDocOf<ThreeGgWorld>>;
 

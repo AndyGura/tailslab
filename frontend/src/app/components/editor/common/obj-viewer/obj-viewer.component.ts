@@ -16,7 +16,7 @@ import {
   Entity3d,
   FreeCameraController,
   Gg3dWorld,
-  GgWorld,
+  TypeDocOf,
   OrbitCameraController,
   Pnt3,
   Point2,
@@ -32,6 +32,7 @@ import { AmbientLight, Box3, ClampToEdgeWrapping, Material, Mesh, MeshBasicMater
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 import { ViewMode, ViewModeController } from './view-mode-toolbar/view-mode.controller';
+import { setViewerSky } from './viewer-sky';
 import { parseColorInputValue } from '../../../../utils/parse-color-input-value';
 import { setupNfs1Texture } from '../../../../../nfs-three-lib/nfs1-model-utils';
 
@@ -132,9 +133,6 @@ export type ObjViewerCustomControl = {
   title: string;
   controls: ObjViewerControl[];
 };
-
-// TODO use this from gg-web-engine after next release
-type TypeDocOf<W extends GgWorld<any, any>> = W extends GgWorld<infer D, infer R, infer TypeDoc> ? TypeDoc : never;
 
 // TODO move to a different place
 /**
@@ -293,6 +291,7 @@ export class ObjViewerComponent implements AfterViewInit, OnDestroy {
   async ngAfterViewInit() {
     this.world = new Gg3dWorld({ visualScene: new ThreeSceneComponent() });
     await this.world.init();
+    setViewerSky(this.world);
     this.viewModeController = new ViewModeController(this.world.visualScene.nativeScene!, this.ambientLight);
     this.viewModeController.onFrameAll = () => this.frameAll();
     this.world.visualScene.nativeScene!.add(this.ambientLight);

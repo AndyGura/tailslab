@@ -59,6 +59,7 @@ from .nfs_common import (
     ColExtraBlock,
     MapColFile,
 )
+from .nfs5_sky import Nfs5SkyBin
 from .nfs6 import (
     Nfs6AiPathPoint,
     Nfs6AiPath,

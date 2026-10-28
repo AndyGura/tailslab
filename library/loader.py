@@ -89,6 +89,32 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.psx import TnfsPsxHorizonInfo
 
             return TnfsPsxHorizonInfo
+        elif file_path.upper().endswith('.HRZ'):
+            # NFS2 / NFS2 SE / NFS3 track sky settings TR<nn>.HRZ, 3TR<nn>*.HRZ
+            from resources.eac.horizons import hrz_block_class
+
+            start = buffer.read(64)
+            buffer.seek(-len(start), SEEK_CUR)
+            return hrz_block_class(start, file_path)
+        elif file_path.replace('\\', '/').rsplit('/', 1)[-1].upper() in (
+            'TR.INI',
+            'TRN.INI',
+            'TRW.INI',
+            'TRNW.INI',
+        ) and ('/DATA/TRACKS/' in file_path.replace('\\', '/').upper()):
+            # NFS4 track settings Data/Tracks/<track>/Tr.ini (TrN, TrW, TrNW)
+            from resources.eac.horizons import Nfs4TrackIni
+
+            return Nfs4TrackIni
+        elif (
+            file_path.replace('\\', '/').upper().endswith('.BIN')
+            and '/TRACK/SKY/' in file_path.replace('\\', '/').upper()
+            and header_bytes in (b'\x07\x00\x00\x00', b'\x09\x00\x00\x00')
+        ):
+            # NFS5 track sky settings GameData/Track/Sky/<track>.bin
+            from resources.eac.maps.nfs5_sky import Nfs5SkyBin
+
+            return Nfs5SkyBin
         elif file_path.upper().endswith('.RPL'):
             from resources.eac.replays import TnfsReplay
 
