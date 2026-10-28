@@ -6,6 +6,7 @@ import {
   Material,
   Mesh,
   MeshBasicMaterial,
+  NearestFilter,
   Object3D,
   Texture,
   TextureLoader,
@@ -371,8 +372,10 @@ class PaintUniforms {
 
 /**
  * The material paints its texels as nfs2RecolorPaletteEntry (in the fragment shader: reading a canvas back gets noise
- * from anti-fingerprinting). Texels are exact (nearest filter): the sRGB value is read back to 0..255. Integer
- * divisions as floor(a / b + 0.5 / b): exact for the integer operands here
+ * from anti-fingerprinting). Each texel is painted before filtering, as the game paints its palette: with a nearest
+ * filter the sample is the texel, a linearly filtered map (TailsLab's OBJ viewer) is sampled texel by texel (painting
+ * the filtered colour left green fringes where paint meets other colours). The sRGB value is read back to 0..255;
+ * integer divisions as floor(a / b + 0.5 / b): exact for the integer operands here
  */
 function paintInShader(material: Material, uniforms: PaintUniforms) {
   const previous = material.onBeforeCompile;
@@ -382,32 +385,62 @@ function paintInShader(material: Material, uniforms: PaintUniforms) {
     shader.uniforms['nfs2PaintColor'] = uniforms.color;
     shader.uniforms['nfs2PaintMid'] = uniforms.mid;
     shader.uniforms['nfs2PaintEnabled'] = uniforms.enabled;
+    // read when drawn: the map (texture frames) can change
+    shader.uniforms['nfs2PaintFiltered'] = {
+      get value() {
+        const map = (material as MeshBasicMaterial).map;
+        return map && map.magFilter !== NearestFilter ? 1 : 0;
+      },
+    };
     shader.fragmentShader = shader.fragmentShader
       .replace(
-        '#include <common>',
-        `#include <common>
+        '#include <map_pars_fragment>',
+        `#include <map_pars_fragment>
         uniform vec3 nfs2PaintColor;
         uniform float nfs2PaintMid;
         uniform float nfs2PaintEnabled;
-        vec3 nfs2Div( vec3 a, float b ) { return floor( a / b + 0.5 / b ); }`,
+        uniform float nfs2PaintFiltered;
+        vec3 nfs2Div( vec3 a, float b ) { return floor( a / b + 0.5 / b ); }
+        vec4 nfs2Paint( vec4 sampled ) {
+          vec3 texel = floor( sRGBTransferOETF( sampled ).rgb * 255.0 + 0.5 );
+          if ( texel.r >= 86.0 || texel.g < 128.0 || texel.b >= 86.0 ) {
+            return sampled;
+          }
+          float shade = texel.g - 128.0;
+          vec3 painted = shade <= nfs2PaintMid
+            ? nfs2Div( nfs2PaintColor * shade, nfs2PaintMid )
+            : nfs2Div( ( min( nfs2PaintColor * 4.0, 255.0 ) - nfs2PaintColor ) * ( shade - nfs2PaintMid ),
+                127.0 - nfs2PaintMid ) + nfs2PaintColor;
+          if ( texel.r > 0.0 && texel.b > 0.0 ) {
+            painted = min( painted + floor( vec3( texel.r * 3.0, shade, texel.b * 3.0 ) / 2.0 ), 255.0 );
+          }
+          return vec4( sRGBTransferEOTF( vec4( painted / 255.0, 1.0 ) ).rgb, sampled.a );
+        }`,
       )
       .replace(
         '#include <map_fragment>',
         `#include <map_fragment>
         #ifdef USE_MAP
         if ( nfs2PaintEnabled > 0.5 ) {
-          vec3 texel = floor( sRGBTransferOETF( sampledDiffuseColor ).rgb * 255.0 + 0.5 );
-          if ( texel.r < 86.0 && texel.g >= 128.0 && texel.b < 86.0 ) {
-            float shade = texel.g - 128.0;
-            vec3 painted = shade <= nfs2PaintMid
-              ? nfs2Div( nfs2PaintColor * shade, nfs2PaintMid )
-              : nfs2Div( ( min( nfs2PaintColor * 4.0, 255.0 ) - nfs2PaintColor ) * ( shade - nfs2PaintMid ),
-                  127.0 - nfs2PaintMid ) + nfs2PaintColor;
-            if ( texel.r > 0.0 && texel.b > 0.0 ) {
-              painted = min( painted + floor( vec3( texel.r * 3.0, shade, texel.b * 3.0 ) / 2.0 ), 255.0 );
-            }
-            diffuseColor.rgb = diffuse * sRGBTransferEOTF( vec4( painted / 255.0, 1.0 ) ).rgb;
+          vec4 painted;
+          if ( nfs2PaintFiltered > 0.5 ) {
+            // the game paints texels (palette colors) before any filtering: the 4 texels of a bilinear sample painted,
+            // then blended (base level only: a mipmapped minification aliases instead of fringing green)
+            ivec2 size = textureSize( map, 0 );
+            vec2 p = vMapUv * vec2( size ) - 0.5;
+            ivec2 i0 = ivec2( floor( p ) );
+            vec2 f = p - floor( p );
+            ivec2 last = size - 1;
+            vec4 t00 = nfs2Paint( texelFetch( map, clamp( i0, ivec2( 0 ), last ), 0 ) );
+            vec4 t10 = nfs2Paint( texelFetch( map, clamp( i0 + ivec2( 1, 0 ), ivec2( 0 ), last ), 0 ) );
+            vec4 t01 = nfs2Paint( texelFetch( map, clamp( i0 + ivec2( 0, 1 ), ivec2( 0 ), last ), 0 ) );
+            vec4 t11 = nfs2Paint( texelFetch( map, clamp( i0 + ivec2( 1, 1 ), ivec2( 0 ), last ), 0 ) );
+            painted = mix( mix( t00, t10, f.x ), mix( t01, t11, f.x ), f.y );
+          } else {
+            // nearest: the sample is the texel
+            painted = nfs2Paint( sampledDiffuseColor );
           }
+          diffuseColor = vec4( diffuse, opacity ) * painted;
         }
         #endif`,
       );
@@ -439,7 +472,7 @@ export interface Nfs2CarDrawState {
   brake: number;
   /**
    * car+0x15c height above ground (16.16 m): with it, update moves the wheels (R3DCar_WheelBounce); without, the
-   * caller places them (`wheels`, `wheelIdlePositions`)
+   * caller places them (`placeWheel`, `wheelIdlePositions`)
    */
   heightAboveGround?: number;
   /** car+0x67c, car+0x680: wheel vibration of the crash code (not ported: 0) */
@@ -483,8 +516,13 @@ interface PartMesh {
   wheel: WheelObject | null;
 }
 
+/**
+ * A wheel object of the exe: its meshes (wheel part and inner part) have their geometry relative to the pivot and are
+ * moved and turned together (each its own transform: they stay where they are in the model, the TailsLab viewer
+ * lists and hides the model's children)
+ */
 interface WheelObject {
-  pivot: Object3D;
+  meshes: Mesh[];
   front: boolean;
   // the view the steering was set for
   viewKey: string;
@@ -550,15 +588,19 @@ export class Nfs2CarMeshController {
   private frameCounter = 0;
   private lastTick: number | null = null;
 
-  // order: front right, front left, rear right, rear left (parts 12, 14, 16, 18 with 13, 15, 17, 19)
-  public wheels: Object3D[] = [];
+  // wheel pivots, order: front right, front left, rear right, rear left (parts 12, 14, 16, 18 with 13, 15, 17, 19)
   public wheelIdlePositions: Point3[] = [];
-  // order: right, left
-  public frontWheels: Object3D[] = [];
   private readonly wheelObjects: WheelObject[] = [];
 
   get hasWheels(): boolean {
-    return this.wheels.length > 0;
+    return this.wheelObjects.length > 0;
+  }
+
+  /** Puts wheel `index` (see wheelIdlePositions) with its pivot at `position` (the model's frame) */
+  placeWheel(index: number, position: Point3) {
+    for (const m of this.wheelObjects[index]?.meshes ?? []) {
+      m.position.set(position.x, position.y, position.z);
+    }
   }
 
   private _paint: Nfs2CarPaint | null = null;
@@ -663,7 +705,7 @@ export class Nfs2CarMeshController {
         part,
         index,
         depthMesh,
-        wheel: this.wheelObjects.find(w => w.pivot === m.parent) ?? null,
+        wheel: this.wheelObjects.find(w => w.meshes.includes(m)) ?? null,
       };
       this.parts.push(entry);
       const beforeRender = (renderer: WebGLRenderer, camera: Camera) => this.beforeRender(entry, renderer, camera);
@@ -681,7 +723,6 @@ export class Nfs2CarMeshController {
    * them) 5/256 m outward.
    */
   private setUpWheels(meshes: { mesh: Mesh; part: number }[]) {
-    const objects: Object3D[] = [];
     // a model without the four wheel parts (no wheels): none
     if (![12, 14, 16, 18].every(wheelPart => meshes.some(m => m.part === wheelPart))) {
       return;
@@ -715,24 +756,18 @@ export class Nfs2CarMeshController {
         }
         pivotPos = box.getCenter(new Vector3());
       }
-      const pivot = new Object3D();
-      pivot.name = `wheel_${wheelPart}`;
-      pivot.position.copy(pivotPos);
-      pivot.rotation.order = 'ZXY';
-      // next to the meshes (the GLB scene may sit in a wrapper group)
-      (wheelMeshes[0].parent ?? this.mesh).add(pivot);
-      for (const m of [...wheelMeshes, ...innerMeshes]) {
+      const wheelObjectMeshes = [...wheelMeshes, ...innerMeshes];
+      for (const m of wheelObjectMeshes) {
+        // the GLB's meshes have no transform of their own
         m.geometry.translate(-pivotPos.x, -pivotPos.y, -pivotPos.z);
         m.geometry.computeBoundingBox();
         m.geometry.computeBoundingSphere();
-        pivot.add(m);
+        m.position.copy(pivotPos);
+        m.rotation.order = 'ZXY';
       }
-      objects.push(pivot);
-      this.wheelObjects.push({ pivot, front: i < 2, viewKey: '' });
+      this.wheelObjects.push({ meshes: wheelObjectMeshes, front: i < 2, viewKey: '' });
+      this.wheelIdlePositions.push({ x: pivotPos.x, y: pivotPos.y, z: pivotPos.z });
     }
-    this.wheels = objects;
-    this.frontWheels = objects.slice(0, 2);
-    this.wheelIdlePositions = objects.map(o => ({ x: o.position.x, y: o.position.y, z: o.position.z }));
   }
 
   /**
@@ -862,7 +897,7 @@ export class Nfs2CarMeshController {
    * they vibrate (crash vibration, wheelspin) and shake by a random part of the vibration
    */
   private updateWheelBounce(state: Nfs2CarDrawState) {
-    for (const [i, { pivot, front }] of this.wheelObjects.entries()) {
+    for (const [i, { meshes, front }] of this.wheelObjects.entries()) {
       let v = state.vibration ?? 0;
       if ((state.vibrationSpeed ?? 0) > 0x2c0000 && v <= 0x2666) {
         v = 0x2666;
@@ -873,7 +908,9 @@ export class Nfs2CarMeshController {
       const drop = v > 0x28f ? Math.min(Math.abs(state.heightAboveGround!) + 0x28f, 0xa3d) : 0;
       const shake = () => Math.trunc(fixmul(Math.floor(Math.random() * 0x1000000), v) / 0x1000);
       const offset = shake() > 0 ? -shake() - drop : shake() - drop;
-      pivot.position.z = this.wheelIdlePositions[i].z + offset / 0x10000;
+      for (const m of meshes) {
+        m.position.z = this.wheelIdlePositions[i].z + offset / 0x10000;
+      }
     }
   }
 
@@ -968,9 +1005,12 @@ export class Nfs2CarMeshController {
     if (wheel?.front && wheel.viewKey !== this.viewKey) {
       wheel.viewKey = this.viewKey;
       // positive steering turns right: a negative turn about z (nfs-web: z up)
-      wheel.pivot.rotation.z = (-this.steerFactor() * this.state.steer * 2 * Math.PI) / 0x10000;
-      // three computes the model view matrix after onBeforeRender, from the world matrix
-      wheel.pivot.updateMatrixWorld(true);
+      const angle = (-this.steerFactor() * this.state.steer * 2 * Math.PI) / 0x10000;
+      for (const m of wheel.meshes) {
+        m.rotation.z = angle;
+        // three computes the model view matrix after onBeforeRender, from the world matrix (the depth twin too)
+        m.updateMatrixWorld(true);
+      }
     }
   }
 

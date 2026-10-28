@@ -51,6 +51,9 @@ describe('Nfs2CarMeshController', () => {
     const car = carMesh();
     const controller = new Nfs2CarMeshController(car, 'assets', { model: 'CALA' });
     expect(controller.hasWheels).toBeTrue();
+    // the viewer lists and hides the model's children: the wheels stay among them
+    expect(car.getObjectByName('part_hp_12__m000')!.parent).toBe(car);
+    expect(car.children.every(c => c instanceof Mesh)).toBeTrue();
     const tyreMap = () => ((car.getObjectByName('part_hp_12__m000') as Mesh).material as MeshBasicMaterial).map!;
     const lightMap = () => ((car.getObjectByName('part_hp_11__l000') as Mesh).material as MeshBasicMaterial).map!;
     const standing = tyreMap();
