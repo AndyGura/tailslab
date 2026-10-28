@@ -1,0 +1,408 @@
+@if (resourceId && resourceName && !hideName) {
+  <h2 [matTooltip]="resourceDescription || ''" matTooltipPosition="above">{{ resourceName }}</h2>
+}
+@if (!hideBlockActions) {
+  <app-block-actions
+    [resource]="{
+      id: resourceId!,
+      name: resourceName!,
+      data: resourceData,
+      schema: resourceSchema,
+    }"></app-block-actions>
+}
+
+<ng-template #sliderFields let-specs>
+  <div class="sliders">
+    @for (s of specs; track s[0]) {
+      <app-slider-field
+        [label]="s[0]"
+        [description]="descriptions[s[0]]"
+        [value]="resourceData?.[s[0]]"
+        [spec]="s[1]"
+        [disabled]="disabled"
+        (valueChange)="setField(s[0], $event)"></app-slider-field>
+    }
+  </div>
+</ng-template>
+
+<ng-template #fields let-names>
+  <app-compound-block-ui
+    [resourceId]="resourceId"
+    [resourceName]="resourceName"
+    [resourceSchema]="resourceSchema"
+    [resourceData]="resourceData"
+    [hideName]="true"
+    [hideBlockActions]="true"
+    [preferHorizontalLayout]="true"
+    [disabled]="disabled"
+    [fieldWhitelist]="names"></app-compound-block-ui>
+</ng-template>
+
+@if (resourceData && resourceSchema) {
+  <app-stat-tiles [tiles]="tiles" [disabled]="disabled" (tileChange)="onTileChange($event)"></app-stat-tiles>
+
+  <mat-tab-group [(selectedIndex)]="selectedTab" animationDuration="0ms" mat-stretch-tabs="false" class="tabs">
+    <mat-tab label="Engine">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-curve-editor
+            title="Torque and power"
+            [hint]="descriptions['torque']"
+            [series]="torqueSeries"
+            [markers]="torqueMarkers"
+            [xAxis]="rpmAxis"
+            [yAxis]="torqueAxis"
+            [y2Axis]="powerAxis"
+            [height]="340"
+            [disabled]="disabled"
+            [describeX]="describeRpm"
+            (seriesPreview)="onTorquePreview($event)"
+            (seriesChange)="onTorqueChange($event)"
+            (markerChange)="onRpmMarker($event)"></app-curve-editor>
+          <p class="note">
+            Drag the torque points (or the minimum rpm and redline markers); the power curve and the peaks follow. The
+            game interpolates between the entries 256 rpm apart, so the entries past the one after the redline are never
+            read. The rpm stays between the minimum rpm and the redline.
+          </p>
+          <h3>Engine parameters</h3>
+          <ng-container *ngTemplateOutlet="sliderFields; context: { $implicit: sliders['engine'] }"></ng-container>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.engine }"></ng-container>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Gearbox">
+      <ng-template matTabContent>
+        <div class="tab">
+          <div class="actions">
+            <mat-checkbox [checked]="automatic" (change)="onAutomaticChange($event.checked)">
+              Automatic gear set (fields 75 to 79)
+            </mat-checkbox>
+            <span class="muted">
+              With the automatic gearbox the game copies the automatic set over the manual one (Carp_TuneCar).
+            </span>
+          </div>
+          <app-curve-editor
+            title="Gearing"
+            hint="Engine rpm by road speed in each gear: rpm = speed (m/s) × rpm per m/s. Drag the end of a gear line to change its rpm per m/s, the markers to change the redline and the max velocity. Dots: the automatic gearbox shifts up above 7/8 of the redline (full gas), and down when the lower gear would turn below 5/6 of the redline (into 1st: below half of it). It never shifts into the top gear when the gear below it already reaches the max velocity at the redline"
+            [series]="gearSeries"
+            [markers]="gearMarkers"
+            [xAxis]="speedAxis"
+            [yAxis]="gearRpmAxis"
+            [height]="340"
+            [disabled]="disabled"
+            [describeX]="describeSpeed"
+            (seriesPreview)="onGearPreview($event)"
+            (seriesChange)="onGearChange($event)"
+            (markerChange)="onSpeedMarker($event)"></app-curve-editor>
+
+          <table class="gear-table">
+            <thead>
+              <tr>
+                <th>Gear</th>
+                <th [matTooltip]="descriptions[set.ratio]">Rpm per m/s</th>
+                <th [matTooltip]="descriptions[set.gearRatio]">Gear ratio</th>
+                <th
+                  matTooltip="Gear ratio × final gear × 60 / (2 pi × rear tyre radius): what the shipped files have as rpm per m/s. The game reads only the rpm per m/s">
+                  From ratios
+                </th>
+                <th [matTooltip]="descriptions[set.efficiency]">Efficiency</th>
+                <th matTooltip="Road speed at the redline in this gear">At redline</th>
+                <th
+                  matTooltip="Drive acceleration at the peak torque entry, full gas: torque × ratio / mass × 0.1 × efficiency, capped (1st 10, others 8, reverse -6 m/s²)">
+                  Peak drive
+                </th>
+                <th matTooltip="Automatic gearbox: up-shift speed (7/8 of the redline) / down-shift below">
+                  Auto up / down
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (g of gears; track g.index) {
+                <tr>
+                  <td class="gear-name"><span class="swatch" [style.background]="g.color"></span>{{ g.name }}</td>
+                  <td>
+                    <input
+                      type="number"
+                      step="1"
+                      [value]="round(g.ratio, 4)"
+                      [disabled]="!!disabled"
+                      (change)="onGearInput('ratio', g.index, $any($event.target).value)" />
+                  </td>
+                  <td>
+                    <input
+                      type="number"
+                      step="0.01"
+                      [value]="round(g.gearRatio, 4)"
+                      [disabled]="!!disabled"
+                      (change)="onGearInput('gearRatio', g.index, $any($event.target).value)" />
+                  </td>
+                  <td class="num">{{ g.fromRatios ? fmt(g.fromRatios, 2) : '–' }}</td>
+                  <td>
+                    <input
+                      type="number"
+                      step="0.01"
+                      [value]="round(g.efficiency, 4)"
+                      [disabled]="!!disabled"
+                      (change)="onGearInput('efficiency', g.index, $any($event.target).value)" />
+                  </td>
+                  <td class="num">{{ g.ratio ? fmt(g.redlineSpeed, 0) + ' km/h' : '–' }}</td>
+                  <td class="num">{{ g.index === 1 ? '–' : fmt(g.peakDrive, 2) + ' m/s²' }}</td>
+                  <td class="num">
+                    {{ g.upshiftSpeed !== null ? fmt(g.upshiftSpeed, 0) : '–' }} /
+                    {{ g.downshiftSpeed !== null ? fmt(g.downshiftSpeed, 0) : '–' }}
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+          <div class="actions">
+            <button
+              mat-stroked-button
+              [disabled]="!!disabled || !rearTyreRadius"
+              matTooltip="Sets the rpm per m/s of every gear from its gear ratio, the final gear and the rear tyre size, as the shipped files have them"
+              (click)="applyRatiosFromGearbox()">
+              Rpm per m/s from the ratios
+            </button>
+            <span class="muted">Rear tyre radius {{ fmt(rearTyreRadius, 4) }} m</span>
+          </div>
+
+          <app-curve-editor
+            title="Drive acceleration and air drag"
+            hint="Full gas on a flat road: torque at the gear's rpm (minimum rpm to redline) × rpm per m/s / mass × 0.1 × efficiency, capped. Air drag: its coefficient is set so that at the max velocity it is 0.98 × the top gear's drive at efficiency 1 (torque entry of max velocity × top gear rpm per m/s), growing with speed³; above the max velocity + 0.01 × (speed - max)². Drag the marker to change max_velocity"
+            [series]="accelSeries"
+            [markers]="accelMarkers"
+            [xAxis]="speedAxis"
+            [yAxis]="accelAxis"
+            [height]="300"
+            [disabled]="disabled"
+            [describeX]="describeSpeed"
+            (markerChange)="onSpeedMarker($event)"></app-curve-editor>
+          @if (dragNote) {
+            <p class="note">{{ dragNote }}</p>
+          }
+
+          <h3>Gearbox parameters</h3>
+          <ng-container *ngTemplateOutlet="sliderFields; context: { $implicit: sliders['gearbox'] }"></ng-container>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.gearbox }"></ng-container>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Brakes & pedals">
+      <ng-template matTabContent>
+        <div class="tab">
+          <div class="chart-grid">
+            <app-curve-editor
+              title="Pedal response"
+              hint="Pedal values (0-255) over time at 32 physics steps per second with keyboard controls. The gas moves 16 per step (faster release with the steering tuning slider above 1); the brake by round(entry) of its ramp curve, entry = brake value / 32. An analog brake follows the pedal at once"
+              [series]="pedalSeries"
+              [xAxis]="timeAxis"
+              [yAxis]="pedalAxis"
+              [height]="260"
+              [describeX]="describeTime"></app-curve-editor>
+            <app-curve-editor
+              title="Brake ramp steps by brake value"
+              hint="Step of the brake value per physics step (rounded by the game), by level = brake value / 32. Click a curve in the legend to pick the edited one. The gas curves are not read: the controls ramp the gas by a fixed step"
+              [series]="rampSeries"
+              [xAxis]="levelAxis"
+              [yAxis]="rampAxis"
+              [height]="260"
+              [disabled]="disabled"
+              [describeX]="describeLevel"
+              (seriesChange)="onRampChange($event)"></app-curve-editor>
+          </div>
+          <app-curve-editor
+            title="Braking"
+            hint="Full brake: max_brake_decel (at most what stops the car in one step), split between the axles by front_brake_bias, which Carp_TuneCar clamps to 0.3..0.75 (+ 0.05 front with the handbrake). Drag the full brake line to change max_brake_decel"
+            [series]="brakeSeries"
+            [xAxis]="speedAxis"
+            [yAxis]="decelAxis"
+            [height]="240"
+            [disabled]="disabled"
+            [describeX]="describeSpeed"
+            (seriesChange)="onBrakeChange($event)"></app-curve-editor>
+          <h3>Brake parameters</h3>
+          <ng-container *ngTemplateOutlet="sliderFields; context: { $implicit: sliders['brakes'] }"></ng-container>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.brakes }"></ng-container>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Steering">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-curve-editor
+            title="Steering lock"
+            hint="Front wheel angle at full lock: min_steering_accel × 1.5 degrees, divided by clamp(speed × 0.015, 1, 1.5) above 40 m/s. With the handbrake, steering against the slide: × max(0.85 - 0.0056 × speed, 0.55). Steering toward the slide (the sign of the slip ratio vx / vz) above 13.4 m/s with a slip ratio beyond 0.15 (above 26.7 m/s: 0.05): × 2 |slip ratio| while that is below 1"
+            [series]="lockSeries"
+            [xAxis]="speedAxis"
+            [yAxis]="lockAxis"
+            [height]="260"
+            [describeX]="describeSpeed"></app-curve-editor>
+          <div class="chart-grid">
+            <app-curve-editor
+              title="Steering ramp"
+              hint="Steering value over time at 32 physics steps per second with keyboard steering: toward the request by round(turn_in_ramp) per step, back toward the centre by round(turn_out_ramp), also first when the request is on the other side. Analog steering is direct"
+              [series]="steerRampSeries"
+              [xAxis]="timeAxis"
+              [yAxis]="steerRampAxis"
+              [height]="260"
+              [describeX]="describeTime"></app-curve-editor>
+            <app-curve-editor
+              title="Yaw damping"
+              hint="Driving forward, a yaw rate above |speed| / (pi × turning_circle) turns per second is damped: multiplied by the ratio (at most 0.98) every step. Drag the line to change turning_circle"
+              [series]="yawSeries"
+              [xAxis]="speedAxis"
+              [yAxis]="yawAxis"
+              [height]="260"
+              [disabled]="disabled"
+              [describeX]="describeSpeed"
+              (seriesChange)="onYawChange($event)"></app-curve-editor>
+          </div>
+          <h3>Steering parameters</h3>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.steering }"></ng-container>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Grip & body">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-curve-editor
+            title="Downforce on the grip"
+            hint="Grip multiplier of the front and rear wheels from aero_downforce: above 10 m/s front 1 + speed × it, rear 1 + speed × it × 1.5; below 10 m/s 1 + it (it × 1.41 with traction control)"
+            [series]="downforceSeries"
+            [xAxis]="speedAxis"
+            [yAxis]="gripAxis"
+            [height]="240"
+            [describeX]="describeSpeed"></app-curve-editor>
+          <p class="note">
+            Static grip of each wheel: 9.81 × lateral_grip × front_grip_bias = {{ fmt(staticGrip, 2) }} per unit of
+            surface grip (both axles get the front_grip_bias share: an exe quirk), then the load transfer (g_transfer ×
+            the forward force) moves grip between the axles. The cornering force of a wheel is sin(slip angle / 2) ×
+            grip × 4 (front × 0.8, rear × 1.4), capped at 2 × min_steering_accel. lateral_grip also scales the drive /
+            brake force against that grip, without changing the acceleration.
+          </p>
+          <h3>Grip parameters</h3>
+          <ng-container *ngTemplateOutlet="sliderFields; context: { $implicit: sliders['grip'] }"></ng-container>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.grip }"></ng-container>
+          <h3>Body and drawing</h3>
+          <p class="note">Read by the drawing, the camera or the force feedback, not by the physics.</p>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.body }"></ng-container>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.identity }"></ng-container>
+          <h3>Not read</h3>
+          <p class="note">No code of nfs3.exe was found reading these (several are NFS2 SE car physics fields).</p>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.unread }"></ng-container>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="AI & driving aid">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-curve-editor
+            title="AI acceleration"
+            hint="AI cars only: acceleration by speed, entry round(speed in m/s - 0.5) of the 112 entries of ai_acc0..ai_acc7 (14 each), none above the top speed cap; the game multiplies it in rain and for rubber banding. Drag points or use the brushes"
+            [series]="aiSeries"
+            [markers]="aiMarkers"
+            [xAxis]="speedAxis"
+            [yAxis]="aiAxis"
+            [height]="300"
+            [disabled]="disabled"
+            [describeX]="describeAiSpeed"
+            (seriesChange)="onAiChange($event)"
+            (markerChange)="onAiMarker($event)"></app-curve-editor>
+          <app-curve-editor
+            title="Driving aid: target speed in turns"
+            hint="With the braking or steering aid the pedals follow the track's speed 7 slices ahead, times a factor by the turn of the road 10 slices ahead (1/1024 turns): above the gradual cutoff medium_turn_speed, from the medium cutoff sharp_turn_speed, from the sharp cutoff extreme_turn_speed. Drag the steps or the cutoff markers"
+            [series]="aidSeries"
+            [markers]="aidMarkers"
+            [xAxis]="aidAngleAxis"
+            [yAxis]="aidSpeedAxis"
+            [height]="240"
+            [disabled]="disabled"
+            [describeX]="describeAidAngle"
+            (seriesChange)="onAidChange($event)"
+            (markerChange)="onAidMarker($event)"></app-curve-editor>
+          <h3>Driving aid parameters</h3>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.aid }"></ng-container>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Tuning">
+      <ng-template matTabContent>
+        <div class="tab">
+          <p class="note">
+            The menus' tuning sliders as Carp_TuneCar applies them in a single player race of race type 0 (AI cars,
+            multiplayer and race types 1 / 2 get the default tuning). The values are not in the file: try them here.
+          </p>
+          <div class="actions">
+            @for (name of tuningNames; track name; let i = $index) {
+              <label>
+                {{ name }}
+                <input
+                  type="number"
+                  step="0.05"
+                  style="width: 5em"
+                  [value]="tuning[i]"
+                  (change)="onTuningInput(i, $any($event.target).value)" />
+              </label>
+            }
+            <mat-checkbox [checked]="brakingAid" (change)="onBrakingAidChange($event.checked)"
+              >Braking aid</mat-checkbox
+            >
+            <button mat-stroked-button (click)="resetTuning()">Default tuning</button>
+          </div>
+          <table class="gear-table">
+            <thead>
+              <tr>
+                <th>Value</th>
+                <th>File</th>
+                <th>Tuned</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (r of tunedRows; track r.label) {
+                <tr>
+                  <td [matTooltip]="r.field ? descriptions[r.field] : ''">{{ r.label }}</td>
+                  <td class="num">{{ r.file }}</td>
+                  <td class="num" [class.muted]="!r.changed">{{ r.tuned }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+          <app-curve-editor
+            title="Torque with the engine slider"
+            hint="The engine slider tilts the torque curve about the middle of the minimum rpm and the redline"
+            [series]="tunedTorqueSeries"
+            [xAxis]="rpmAxis"
+            [yAxis]="torqueAxis"
+            [height]="240"
+            [describeX]="describeRpm"></app-curve-editor>
+          <h3>Tuning fields of the file</h3>
+          <p class="note">
+            Fields 60 to 66 hold the menus' default tuning in every file; only suspension_stiffness (Grip tab) is read.
+          </p>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.tuning }"></ng-container>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="All fields">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-compound-block-ui
+            [resourceId]="resourceId"
+            [resourceName]="resourceName"
+            [resourceSchema]="resourceSchema"
+            [resourceData]="resourceData"
+            [hideName]="true"
+            [hideBlockActions]="true"
+            [disabled]="disabled"></app-compound-block-ui>
+        </div>
+      </ng-template>
+    </mat-tab>
+  </mat-tab-group>
+}

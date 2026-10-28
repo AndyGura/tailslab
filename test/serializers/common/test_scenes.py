@@ -143,6 +143,50 @@ class TestMetaOnlyCurveProperties(unittest.TestCase):
                 self.assertEqual(f.read(), '{"curves": [{"name": "c"}]}')
 
 
+class TestMetaExtras(unittest.TestCase):
+    """`Scene.meta_extras` become top level keys of the `.meta`, after the exporter's own ones"""
+
+    def test_keys_are_added_after_the_exported_ones(self):
+        exported_meta = {'formatVersion': 2, 'curves': [], 'dummies': [{'name': 'd'}], 'rigidBodies': []}
+        half_size = {'x': 1.25, 'y': 0.5, 'z': 2.75}
+        with tempfile.TemporaryDirectory() as tmp:
+            blender_extras = {}
+
+            def run_blender(path, script):
+                with open(os.path.join(tmp, 'geometry_extra.json')) as f:
+                    blender_extras.update(json.load(f))
+                with open(os.path.join(tmp, 'body.meta'), 'w') as f:
+                    json.dump(exported_meta, f)
+
+            scene = Scene(
+                name='body',
+                dummies=[{'name': 'd', 'position': [0, 0, 0]}],
+                meta_extras={'collisionHalfSize': half_size},
+            )
+            with (
+                patch.object(scenes_module, 'ensure_gg_web_engine_exporter_installed', return_value=tmp),
+                patch.object(scenes_module, 'run_blender', side_effect=run_blender),
+            ):
+                export_scenes([scene], tmp + '/', _GgSettings())
+            with open(os.path.join(tmp, 'body.meta')) as f:
+                meta_text = f.read()
+
+        self.assertNotIn('collisionHalfSize', blender_extras)
+        # the exporter's part of the file is unchanged
+        self.assertEqual(
+            meta_text, json.dumps(exported_meta)[:-1] + ', "collisionHalfSize": ' + json.dumps(half_size) + '}'
+        )
+
+    def test_meta_is_untouched_without_keys(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            meta_path = os.path.join(tmp, 'body.meta')
+            with open(meta_path, 'w') as f:
+                f.write('{"curves": []}')
+            scenes_module._add_meta_top_level_keys(meta_path, {})
+            with open(meta_path) as f:
+                self.assertEqual(f.read(), '{"curves": []}')
+
+
 class TestGgExportOptionsScript(unittest.TestCase):
     """The Blender script helper, run against exporters with other signatures"""
 

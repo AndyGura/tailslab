@@ -25,7 +25,7 @@ from .geometries import (
     Fce4GeometrySerializer,
     EaglModelSerializer,
 )
-from .json import JsonSerializer, TnfsPsxHorizonInfoSerializer
+from .json import JsonSerializer, TnfsPsxHorizonInfoSerializer, Nfs3CarPhysicsSerializer
 from .horizons import EacHorizonSettingsSerializer
 from .maps import (
     TriMapSerializer,

@@ -48,7 +48,9 @@ def render_type(instance: DataBlock, possible_blocks_filter=None) -> str:
         if isinstance(instance, ArrayBlock):
             if isinstance(instance, LengthPrefixedArrayBlock) or isinstance(instance, LengthPrefixedUtf8Block):
                 descr += f'<br/>Length field type: {instance.length_block.schema["block_description"]}'
-            if not isinstance(instance.child, CompoundBlock) or instance.child.schema['inline_description']:
+            if getattr(instance.child, 'is_text_value', False):
+                pass  # a number of a text line (NFS3 carp.txt): no byte size
+            elif not isinstance(instance.child, CompoundBlock) or instance.child.schema['inline_description']:
                 size = render_value_doc_str(instance.child.size_doc_str)
                 descr += f'<br/>Item size: {size} ' + ('byte' if size == '1' else 'bytes')
             descr += f'<br/>Item type: {render_type(instance.child, possible_blocks_filter)}'
@@ -426,7 +428,11 @@ EXPORT_RESOURCES = {
 
 **GameData/Audio/pc/\\*.map** interactive music map, **\\*.lin** linear song map of the `.mus` file of the same name. {render_type(eac.audios.EaMusicMap())}
 
-**\\*.COL** track additional data. {render_type(eac.maps.MapColFile())}
+**GameData/CarModel/\\<car\\>/car.viv: carp.txt** car physics, plain text (label and value lines). {render_type(eac.car_specs.Nfs3CarPhysics())}. The converter writes it as `carp.txt.json` (named values) and `carp.txt.bin` (the file as it is)
+
+**GameData/Tracks/TRK\\<nnn\\>/TR\\<nn\\>\\<k\\>.CAN**, **TR\\<nn\\>00A.CAN** animation path of knocked-away objects. {render_type(eac.maps.Nfs3CanAnimation())}
+
+**\\*.COL** track additional data. {render_type(eac.maps.Nfs3MapColFile())}
         
 **\\*.FCE** 3D model (car.fce in car.viv: car model). {render_type(eac.geometries.Fce3Geometry())}
 
@@ -439,6 +445,8 @@ EXPORT_RESOURCES = {
 **\\*.FSH** image archive. {render_type(eac.archives.ShpiBlock())}
 
 **\\*.QFS** image archive. {render_type(eac.archives.ShpiBlock())}, [compressed](eac_compressions.md)
+
+**GameData/Tracks/TRK\\<nnn\\>/SIMHTS.DAT** ceiling heights of the track slices. {render_type(eac.maps.Nfs3SimHeights())}
 
 **\\*.VIV** archive with some data. {render_type(eac.archives.BigfBlock())}""",
         'blocks': {
@@ -475,9 +483,9 @@ EXPORT_RESOURCES = {
                 eac.maps.ExtraObjectDataCrossType4(),
                 eac.maps.TextureBlock(),
                 # COL
-                eac.maps.MapColFile(),
-                eac.maps.ColExtraBlock(),
-                eac.maps.TexturesMapExtraDataRecord(),
+                eac.maps.Nfs3MapColFile(),
+                eac.maps.Nfs3ColExtraBlock(),
+                eac.maps.Nfs3TexturesMapExtraDataRecord(),
                 eac.maps.PolygonMapExtraDataRecord(),
                 eac.maps.MedianExtraDataRecord(),
                 eac.maps.AnimatedPropPosition(),
@@ -488,11 +496,15 @@ EXPORT_RESOURCES = {
                 eac.maps.LanesExtraDataRecord(),
                 eac.maps.TrackObjectExtraDataRecord(),
                 eac.maps.RoadVectorsExtraDataRecord(),
-                eac.maps.CollisionExtraDataRecord(),
+                eac.maps.Nfs3CollisionExtraDataRecord(),
+                eac.maps.Nfs3SimHeights(),
+                eac.maps.Nfs3CanAnimation(),
+                eac.maps.Nfs3CanKeyframe(),
                 eac.maps.ColPolygon(),
             ],
-            # 'Physics': [
-            # ],
+            'Physics': [
+                eac.car_specs.Nfs3CarPhysics(),
+            ],
             'Images': [
                 eac.bitmaps.EacImage(),
                 eac.bitmaps.EacPalette(),

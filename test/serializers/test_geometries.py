@@ -562,11 +562,48 @@ class TestFce3GeometrySerializer(unittest.TestCase):
             extra = json.load(f)
         self.assertEqual(extra['dummies'], [{'name': 'HFLO', 'position': [0.5, 2.0, 0.25]}])
 
+    def _exported_meta_extras(self, build_data):
+        from unittest.mock import patch
+
+        import serializers.geometries as geometries_module
+
+        def build_with_half_size():
+            block, data = build_data()
+            data['half_size'] = {'x': 1.25, 'y': 0.5, 'z': 2.75}
+            return block, data
+
+        exported_scenes = []
+        real_export_scenes = geometries_module.export_scenes
+
+        def export_scenes(scenes, path, settings):
+            exported_scenes.extend(scenes)
+            return real_export_scenes(scenes, path, settings)
+
+        with patch.object(geometries_module, 'export_scenes', side_effect=export_scenes):
+            self._serialize_car_viv(build_with_half_size)
+        return exported_scenes[0].meta_extras
+
+    def test_meta_has_collision_half_size_in_game_axes(self):
+        from test.resources.eac.test_geometries import build_fce3_data
+
+        # not swapped to the GLB axes (x, z, y) as vertices and dummies are
+        self.assertEqual(
+            self._exported_meta_extras(build_fce3_data), {'collisionHalfSize': {'x': 1.25, 'y': 0.5, 'z': 2.75}}
+        )
+
 
 class TestFce4GeometrySerializer(unittest.TestCase):
     setUp = TestFce3GeometrySerializer.setUp
     tearDown = TestFce3GeometrySerializer.tearDown
     _serialize_car_viv = TestFce3GeometrySerializer._serialize_car_viv
+    _exported_meta_extras = TestFce3GeometrySerializer._exported_meta_extras
+
+    def test_meta_has_collision_half_size_in_game_axes(self):
+        from test.resources.eac.test_geometries import build_fce4_data
+
+        self.assertEqual(
+            self._exported_meta_extras(build_fce4_data), {'collisionHalfSize': {'x': 1.25, 'y': 0.5, 'z': 2.75}}
+        )
 
     def test_exports_damaged_copy_of_parts(self):
         from test.resources.eac.test_geometries import build_fce4_data

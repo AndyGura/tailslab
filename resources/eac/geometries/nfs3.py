@@ -161,7 +161,12 @@ class Fce3Geometry(DeclarativeCompoundBlock):
         )
         half_size = (
             Point3D(child=DecimalBlock(length=4)),
-            {'description': 'Half-size of the whole model (bounding box, used for collisions)'},
+            {
+                'description': 'Half-size of the whole model (bounding box) along x (right), y (up), z (forward): '
+                "nfs3.exe uses it as the half extents of the car's collision box. The gg-web-engine export writes it "
+                'as it is, in these axes, to `collisionHalfSize` of the `.meta` (the GLB has y and z swapped: x right, '
+                'y forward, z up)'
+            },
         )
         num_dummies = (IntegerBlock(length=4), {'description': 'Number of used dummies, 0..16'})
         dummy_positions = (

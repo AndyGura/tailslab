@@ -130,6 +130,27 @@ class TestFrdMap(unittest.TestCase):
                 q = frame['orientation']
                 self.assertAlmostEqual(q['x'] ** 2 + q['y'] ** 2 + q['z'] ** 2 + q['w'] ** 2, 1, places=3)
 
+    def test_animated_xobj_size_should_cover_animation(self):
+        animated = [x for chunk in self.data['extraobject_blocks'] for x in chunk if x['cross_type'] == 3]
+        for xobj in animated:
+            animation = xobj['data']['data']
+            self.assertEqual(animation['animation_size'], 8 + 20 * animation['num_animdata'])
+            self.assertEqual(animation['animation_size_2'], animation['animation_size'])
+        static = [x for chunk in self.data['extraobject_blocks'] for x in chunk if x['cross_type'] == 4]
+        self.assertTrue(static)
+        self.assertTrue(all(x['data']['data']['animation_size'] == 0 for x in static))
+
+    def test_xobj_refs_and_slices_should_be_named(self):
+        xobjs = [x for b in self.data['blocks'] for x in b['xobj']]
+        self.assertEqual({x['type'] for x in xobjs} - {'solid', 'knockable', 'no_collision'}, set())
+        self.assertTrue(all(x['radius'] > 0 for x in xobjs))
+        positions = [p for b in self.data['blocks'] for p in b['positions']]
+        # one slice per COL collision_data record
+        self.assertEqual(len(positions), 959)
+        self.assertTrue(all(p['alt_slice_1'] == -1 and p['alt_slice_2'] == -1 for p in positions))
+        flags = self.data['blocks'][0]['polygons'][0]['flags']
+        self.assertEqual(set(flags), {'barriers', 'objects', 'surface'})
+
 
 class TestFrdPolyObjRef(unittest.TestCase):
     def test_record_size_should_depend_on_type(self):
@@ -274,3 +295,89 @@ class TestCollisionExtraDataRecord(unittest.TestCase):
         self.assertEqual(data['right_lane_width'], 5.0)
         self.assertEqual(data['unk3'], 0)
         self.assertEqual(block.pack(data), raw)
+
+
+# the first textures_map record and the first slice of NFS3 TR00.COL
+NFS3_TEXTURES_MAP_RECORD = bytes.fromhex('4a00000030010000')
+NFS3_SLICE = bytes.fromhex('c4613d03f0560d007e8a8800f80f5500007eff2255ffa310a200ab10df56170063cd1b00')
+
+
+def _nfs3_col_file() -> bytes:
+    import struct
+
+    textures_map = struct.pack('<IBBH', 16, 2, 0, 1) + NFS3_TEXTURES_MAP_RECORD
+    collision_data = struct.pack('<IBBH', 44, 15, 0, 1) + NFS3_SLICE
+    body = struct.pack('<2I', 8, 8 + len(textures_map)) + textures_map + collision_data
+    return struct.pack('<4sIII', b'COLL', 11, 16 + len(body), 2) + body
+
+
+class TestNfs3MapColFile(unittest.TestCase):
+    def test_loader_should_tell_nfs3_col_from_nfs2(self):
+        from library.loader import probe_block_class
+
+        with open('test/golden_corpus/TR02.COL', 'rb') as f:
+            self.assertEqual(probe_block_class(f, 'TR02.COL').__name__, 'MapColFile')
+        raw = _nfs3_col_file()
+        self.assertEqual(probe_block_class(BytesIO(raw), 'TR00.COL', len(raw)).__name__, 'Nfs3MapColFile')
+
+    def test_nfs3_col_should_read_nfs3_records(self):
+        from resources.eac.maps import Nfs3MapColFile
+
+        raw = _nfs3_col_file()
+        block = Nfs3MapColFile()
+        data = block.unpack_from_bytes(raw)
+        self.assertEqual(block.pack(data), raw)
+        texture = data['extrablocks'][0]['data_records']['data'][0]
+        self.assertEqual((texture['texture_number'], texture['alignment']), (74, 'rotate_180'))
+        self.assertEqual((texture['unk1'], texture['unk2'], texture['unk3']), (0x30, 0, 0))
+        slice_ = data['extrablocks'][1]['data_records']['data'][0]
+        self.assertEqual(slice_['walls'], {'left': 5, 'right': 5})
+        self.assertEqual(slice_['lanes'], {'left': 2, 'right': 2})
+        self.assertEqual((slice_['left_lane_width'], slice_['right_lane_width']), (8.0, 8.0))
+        self.assertEqual(slice_['normal'], {'x': 0.0, 'y': 126 / 128, 'z': -1 / 128})
+        self.assertAlmostEqual(slice_['left_border'], 23.339, places=3)
+        self.assertAlmostEqual(slice_['right_border'], 27.802, places=3)
+        self.assertEqual(slice_['unk0'], 0x0FF8)
+
+    def test_nfs3_slice_should_round_trip_unnormalized_vectors(self):
+        from resources.eac.maps import Nfs3CollisionExtraDataRecord
+
+        block = Nfs3CollisionExtraDataRecord()
+        data = block.unpack(ReadContext(BytesIO(NFS3_SLICE)), read_bytes_amount=len(NFS3_SLICE))
+        self.assertEqual(block.pack(data), NFS3_SLICE)
+
+
+class TestNfs3TrackSmallFiles(unittest.TestCase):
+    def test_simhts_should_be_one_float_per_slice(self):
+        import struct
+        from library.loader import probe_block_class
+
+        raw = struct.pack('<3f', 5.25, 16.75, 10.0)
+        block_class = probe_block_class(BytesIO(raw), 'GameData/Tracks/TRK000/SIMHTS.DAT', len(raw))
+        self.assertEqual(block_class.__name__, 'Nfs3SimHeights')
+        block = block_class()
+        data = block.unpack_from_bytes(raw)
+        self.assertEqual(data['heights'], [5.25, 16.75, 10.0])
+        self.assertEqual(block.pack(data), raw)
+
+    def test_can_should_read_keyframes(self):
+        import struct
+        from library.loader import probe_block_class
+
+        # the first two keyframes of NFS3 TR0000.CAN, header of a 2-keyframe file
+        frames = [
+            (-2614904, 306527, 8258486, -1321, 12866, 9756, 2440),
+            (-2641631, 297165, 8079467, -1345, 12868, 9742, 2470),
+        ]
+        raw = struct.pack('<HHHH', 48, 0x41, 2, 6) + b''.join(struct.pack('<3i4h', *f) for f in frames)
+        block_class = probe_block_class(BytesIO(raw), 'TR0000.CAN', len(raw))
+        self.assertEqual(block_class.__name__, 'Nfs3CanAnimation')
+        block = block_class()
+        data = block.unpack_from_bytes(raw)
+        self.assertEqual((data['size'], data['num_keyframes'], data['ticks_per_frame']), (48, 2, 6))
+        self.assertAlmostEqual(data['keyframes'][0]['position']['x'], -39.9003, places=3)
+        q = data['keyframes'][0]['orientation']
+        self.assertAlmostEqual(q['x'] ** 2 + q['y'] ** 2 + q['z'] ** 2 + q['w'] ** 2, 1, places=3)
+        self.assertEqual(block.pack(data), raw)
+        data['keyframes'].pop()
+        self.assertEqual(block.pack(data)[:6], struct.pack('<HHH', 28, 0x41, 1))
