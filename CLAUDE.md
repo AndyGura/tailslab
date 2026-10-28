@@ -94,6 +94,9 @@ docs and a working GUI editor for free.
 - The gg-web-engine export (`.glb` + `.meta`) imports gg-web-engine's Blender `exporter.py` in the generated Blender
   script, downloaded from the engine's main branch and cached in `~/.nfs-resources-converter/gg_web_engine_exporter`
   for 24 h (`serializers/common/three_d/gg_web_engine_exporter.py`; delete `.meta.json` there to force a download).
+  What the exporter can't write is added to its `.meta` afterwards, keeping the exporter's part byte-identical:
+  `Scene.meta_extras` (top level keys, e.g. the FCE3/FCE4 `half_size` as `collisionHalfSize` in the game's axes) and
+  curve properties Blender can't carry (`_add_meta_curve_properties`).
 - CI (`.github/workflows/pull_request_build.yml`) runs exactly the two test commands above —
   keep both green before considering a change done.
 

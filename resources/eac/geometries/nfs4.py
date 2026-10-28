@@ -218,7 +218,11 @@ class Fce4Geometry(DeclarativeCompoundBlock):
         reserve6_offset = _offset_field('reserve6', 'Offset of reserved area 6, relative to header end')
         half_size = (
             Point3D(child=DecimalBlock(length=4)),
-            {'description': 'Half-size of the whole model (bounding box, used for collisions)'},
+            {
+                'description': 'Half-size of the whole model (bounding box, used for collisions) along x (right), y '
+                '(up), z (forward). The gg-web-engine export writes it as it is, in these axes, to `collisionHalfSize` '
+                'of the `.meta` (the GLB has y and z swapped: x right, y forward, z up)'
+            },
         )
         num_dummies = (IntegerBlock(length=4), {'description': 'Number of used dummies, 0..16'})
         dummy_positions = (

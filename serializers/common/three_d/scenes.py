@@ -30,6 +30,7 @@ class Scene:
         curves: List[dict] = None,
         object_properties: Dict[str, dict] = None,
         extras: Dict[str, object] = None,
+        meta_extras: Dict[str, object] = None,
         extra_script: str = None,
         skip_obj_export: bool = False,
         skip_mtl_export: bool = False,
@@ -54,6 +55,8 @@ class Scene:
         self.object_properties = object_properties or {}
         # more top level keys of "<obj_name>_extra.json", for importers (not given to Blender)
         self.extras = extras or {}
+        # more top level keys of the gg-web-engine ".meta", added after the exporter's own keys (not given to Blender)
+        self.meta_extras = meta_extras or {}
         self.extra_script = extra_script or ''
         self.skip_obj_export = skip_obj_export
         self.skip_mtl_export = skip_mtl_export
@@ -146,6 +149,20 @@ def _add_meta_curve_properties(meta_path: str, curves: List[dict]):
         meta = json.load(f)
     for meta_curve in meta.get('curves', []):
         meta_curve.update(meta_only.get(meta_curve.get('name'), {}))
+    with open(meta_path, 'w') as f:
+        json.dump(meta, f)
+
+
+def _add_meta_top_level_keys(meta_path: str, keys: Dict[str, object]):
+    """
+    Adds `Scene.meta_extras` to the `.meta` written by the gg-web-engine exporter, after its own keys. The exporter
+    writes it with `json.dump` defaults, so the rest of the file stays byte-identical
+    """
+    if not keys:
+        return
+    with open(meta_path) as f:
+        meta = json.load(f)
+    meta.update(keys)
     with open(meta_path, 'w') as f:
         json.dump(meta, f)
 
@@ -313,6 +330,7 @@ $extra_script
                 if morph_meshes:
                     add_glb_morph_targets(scene_file_path + '.glb', morph_meshes)
                 _add_meta_curve_properties(scene_file_path + '.meta', scene.curves)
+                _add_meta_top_level_keys(scene_file_path + '.meta', scene.meta_extras)
 
     if not settings.geometry__save_obj:
         exported_files = [
