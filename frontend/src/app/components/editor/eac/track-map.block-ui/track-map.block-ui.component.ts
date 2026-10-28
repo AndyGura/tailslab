@@ -37,6 +37,7 @@ import {
 import { ThreeGgWorld, ThreeSceneComponent, ThreeVisualTypeDocRepo } from '@gg-web-engine/three';
 import { BlockSchema, Resource } from '../../types';
 import { ViewMode, ViewModeController } from '../../common/obj-viewer/view-mode-toolbar/view-mode.controller';
+import { setViewerSky } from '../../common/obj-viewer/viewer-sky';
 import { joinId } from '../../../../utils/join-id';
 import {
   findTrackMapAdapter,
@@ -109,6 +110,7 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
   async ngAfterViewInit() {
     this.world = new Gg3dWorld({ visualScene: new ThreeSceneComponent() });
     await this.world.init();
+    setViewerSky(this.world);
     this.viewModeController = new ViewModeController(this.world.visualScene.nativeScene!, this.ambientLight);
     this.viewModeController.onFrameAll = () => this.placeRendererAtHome();
     this.world.visualScene.nativeScene!.add(this.ambientLight);
@@ -123,6 +125,7 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
     });
     ((this.skySphere.object3D!.nativeMesh as Mesh).material as Material).side = DoubleSide;
     this.world.addEntity(this.skySphere);
+    this.setSkyTexture(null);
     this.selectionSphere = new Entity3d({
       object3D: this.world.visualScene.factory.createPrimitive(
         { shape: 'SPHERE', radius: 0.5 },
@@ -298,9 +301,12 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
   }
 
   private setSkyTexture(texture: Texture | null) {
-    const material = (this.skySphere.object3D!.nativeMesh as Mesh).material as MeshBasicMaterial;
+    const mesh = this.skySphere.object3D!.nativeMesh as Mesh;
+    const material = mesh.material as MeshBasicMaterial;
     material.map = texture;
     material.needsUpdate = true;
+    // without the track's sky the viewer's background sky shows
+    mesh.visible = !!texture;
   }
 
   async onTextureArchiveSelected(path: string | null, force: boolean = false) {
