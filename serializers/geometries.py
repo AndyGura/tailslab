@@ -1485,7 +1485,8 @@ class Fce3GeometrySerializer(BaseFileSerializer):
         # header field `half_size` as it is, in the game's axes (x right, y up, z forward), NOT in the GLB / dummy axes
         # (x right, y forward, z up: FCE y and z swapped, see `change_axes` above). nfs3.exe copies it into the car's
         # game setup entry and uses it as the half extents of the car's box in every collision (car + 0x114). NFS4:
-        # the same header field, its use in nfs4.exe is not verified
+        # the same field at FCE4 header +0x4c, which nfs4.exe's Car_Reset (0x4448d0) copies into the game setup entry
+        # and passes to the car's rigid body setup (0x4f4a20) as its half extents
         half_size = data['half_size']
         scene.meta_extras = {
             'collisionHalfSize': {'x': half_size['x'], 'y': half_size['y'], 'z': half_size['z']},

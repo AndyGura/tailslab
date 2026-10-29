@@ -61,8 +61,8 @@
             (markerChange)="onRpmMarker($event)"></app-curve-editor>
           <p class="note">
             Drag the torque points (or the minimum rpm and redline markers); the power curve and the peaks follow. The
-            game interpolates between the entries 256 rpm apart, so the entries past the one after the redline are never
-            read. The rpm stays between the minimum rpm and the redline.
+            game interpolates between the entries {{ torqueStep }} rpm apart, so the entries past the one after the
+            redline are never read. The rpm stays between the minimum rpm and the redline.
           </p>
           <h3>Engine parameters</h3>
           <ng-container *ngTemplateOutlet="sliderFields; context: { $implicit: sliders['engine'] }"></ng-container>
@@ -292,7 +292,7 @@
           <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.body }"></ng-container>
           <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.identity }"></ng-container>
           <h3>Not read</h3>
-          <p class="note">No code of nfs3.exe was found reading these (several are NFS2 SE car physics fields).</p>
+          <p class="note">No code of {{ exeName }} was found reading these (several are NFS2 SE car physics fields).</p>
           <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.unread }"></ng-container>
         </div>
       </ng-template>
@@ -325,6 +325,12 @@
             [describeX]="describeAidAngle"
             (seriesChange)="onAidChange($event)"
             (markerChange)="onAidMarker($event)"></app-curve-editor>
+          @if (isNfs4) {
+            <p class="note">
+              NFS4: only the driving aid function 0x4fd580 reads these, and no code of nfs4.exe calls it. The chart
+              shows NFS3's driving aid.
+            </p>
+          }
           <h3>Driving aid parameters</h3>
           <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.aid }"></ng-container>
         </div>

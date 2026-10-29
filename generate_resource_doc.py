@@ -537,11 +537,19 @@ EXPORT_RESOURCES = {
 
 **\\*.BNK** sound bank. {render_type(eac.archives.EaSoundBank())}
 
+**Data/Tracks/\\<track\\>/Tr\\<nn\\>.can**, **Tr00a.can** animation path of knocked-away objects. {render_type(eac.maps.Nfs3CanAnimation())}
+
+**Data/Cars/\\<car\\>/car.viv: carp.txt** (**carp\\<n\\>.txt**) car physics, plain text (label and value lines). {render_type(eac.car_specs.Nfs4CarPhysics())}. The converter writes it as `carp.txt.json` (named values) and `carp.txt.bin` (the file as it is)
+
 **\\*.FCE** 3D model (car.fce in car.viv: car model). {render_type(eac.geometries.Fce4Geometry())}
 
 **\\*.FFN** bitmap font. {render_type(eac.fonts.FfnFont())}
 
 **\\*.FRD** main track file. {render_type(eac.maps.Nfs4FrdMap())}
+
+**Data/Tracks/\\<track\\>/heights.sim** ceiling heights of the track slices. {render_type(eac.maps.Nfs4HeightsSim())}
+
+**Data/Tracks/\\<track\\>/spdFA.bin**, **spdRA.bin** AI line (speeds, lanes, lateral offsets) of the track slices, forward / reversed. {render_type(eac.maps.Nfs4SpeedFile())}
 
 **Data/Tracks/\\<track\\>/Tr.ini** track settings (`TrN.ini` night, `TrW.ini` weather, `TrNW.ini` both): sky, clouds, fog, sun, light, glows. {render_type(eac_horizons.Nfs4TrackIni())}. The converter writes the sky sphere texture `spherical.png` next to the PNGs of `sky.qfs` from its horizon strips `HDC0`..`HDC7`, clouds `CLDD`, sun `SUND` and `Tr.ini`
 
@@ -578,9 +586,14 @@ EXPORT_RESOURCES = {
                 eac.maps.Nfs4Polygon(),
                 eac.maps.Nfs4ExtraObject(),
                 eac.maps.Nfs4TrkBlock(),
+                eac.maps.Nfs4HeightsSim(),
+                eac.maps.Nfs4SpeedFile(),
+                eac.maps.Nfs3CanAnimation(),
+                eac.maps.Nfs3CanKeyframe(),
             ],
-            # 'Physics': [
-            # ],
+            'Physics': [
+                eac.car_specs.Nfs4CarPhysics(),
+            ],
             'Images': [
                 eac.bitmaps.EacImage(),
                 eac.bitmaps.EacPalette(),

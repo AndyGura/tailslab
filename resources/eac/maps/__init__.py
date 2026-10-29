@@ -44,6 +44,8 @@ from .nfs4 import (
     Nfs4ExtraObject,
     Nfs4XObjChunk,
     Nfs4TrkBlock,
+    Nfs4HeightsSim,
+    Nfs4SpeedFile,
 )
 from .nfs_common import (
     TexturesMapExtraDataRecord,

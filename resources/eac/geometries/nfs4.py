@@ -219,9 +219,13 @@ class Fce4Geometry(DeclarativeCompoundBlock):
         half_size = (
             Point3D(child=DecimalBlock(length=4)),
             {
-                'description': 'Half-size of the whole model (bounding box, used for collisions) along x (right), y '
-                '(up), z (forward). The gg-web-engine export writes it as it is, in these axes, to `collisionHalfSize` '
-                'of the `.meta` (the GLB has y and z swapped: x right, y forward, z up)'
+                'description': 'Half-size of the whole model (bounding box) along x (right), y (up), z (forward), at '
+                "header +0x4c: nfs4.exe uses it as the half extents of the car's rigid body box (Car_Reset 0x4448d0 "
+                'copies it into the game setup car and passes it to the body setup 0x4f4a20; human players take the '
+                "front end's copy, the FCE's with game setup flag 2). Half the extent of the parts' vertices in 34 of "
+                'the 41 NFS4 car models (the others within a few cm). The gg-web-engine export writes it as it is, in '
+                'these axes, to `collisionHalfSize` of the `.meta` (the GLB has y and z swapped: x right, y forward, '
+                'z up)'
             },
         )
         num_dummies = (IntegerBlock(length=4), {'description': 'Number of used dummies, 0..16'})

@@ -813,9 +813,12 @@ class Nfs3CanAnimation(DeclarativeCompoundBlock):
             **super().schema,
             'block_description': 'Animation path (GameData/Tracks/TRK<nnn>/TR<nn><k>.CAN, TR<nn>00A.CAN). '
             'nfs3.exe plays them as the paths of knocked-away objects (TR<nn>00A.CAN as path 1, TR<nn>0<k>.CAN as '
-            'path k + 1; the renderer 0x41ca40 -> 0x40f940 -> 0x40f4b0). The `.CAN` files of NFS2 and NFS2 SE '
-            '(GAMEDATA/TRACKS/DATA) and NFS4 (Data/Tracks/<track>) have the same layout (their use there is not '
-            'verified)',
+            'path k + 1; the renderer 0x41ca40 -> 0x40f940 -> 0x40f4b0). NFS4 (Data/Tracks/<track>/Tr<nn>.can, any '
+            'case) has the same files: nfs4.exe 0x41e760 loads `Tr00a.can` as path 0 and `Tr01.can` .. `Tr06.can` '
+            'as paths 1..6 (`Tr00.can` is not loaded) and multiplies their positions by 1 / 1.3 (rounded to 16.16 '
+            'again); a knocked object (`collision.type` 2 of [Nfs4RefExtraObject](#nfs4refextraobject)) plays path 2 '
+            'below 25 m/s, else path 3 (0x437ed0). The `.CAN` files of NFS2 and NFS2 SE (GAMEDATA/TRACKS/DATA) have '
+            'the same layout (their use there is not verified)',
         }
 
     class Fields(DeclarativeCompoundBlock.Fields):
@@ -827,7 +830,8 @@ class Nfs3CanAnimation(DeclarativeCompoundBlock):
             IntegerBlock(length=2, is_signed=False),
             {
                 'description': 'The same in the same file of every NFS3 track (01: 0x0164, 02: 0x828e, 03: 0x8357, '
-                '04, 05: 0x8320, 06: 0x0269, 00A: 0 but TR0200A 0x41), other values in the 00 files',
+                '04, 05: 0x8320, 06: 0x0269, 00A: 0 but TR0200A 0x41), other values in the 00 files; the same values '
+                'in the NFS4 files (00A: 0 or 0x41)',
                 'is_unknown': True,
             },
         )

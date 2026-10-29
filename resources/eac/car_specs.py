@@ -2485,8 +2485,8 @@ _NFS3_CARP_READERS = {
 }
 
 
-def _nfs3_carp_field_description(number, offset, block, default, text):
-    label = f'{_NFS3_CARP_LABELS[number]}({number})'
+def _carp_field_description(labels, number, offset, default, text):
+    label = f'{labels[number]}({number})'
     where = f'carp+0x{offset:03x}' if offset is not None else 'not kept'
     if default is None:
         missing = 'missing: not set'
@@ -2503,7 +2503,7 @@ def _nfs3_carp_fields_class():
         name: (
             block,
             {
-                'description': _nfs3_carp_field_description(number, offset, block, default, text),
+                'description': _carp_field_description(_NFS3_CARP_LABELS, number, offset, default, text),
                 'custom_offset': f'({number})',
             },
         )
@@ -2522,6 +2522,11 @@ def _nfs3_carp_fields_class():
 
 
 class Nfs3CarPhysics(DeclarativeCompoundBlock):
+    # the format's tables, overridden by Nfs4CarPhysics
+    carp_fields = _NFS3_CARP_FIELDS
+    carp_table_index = _NFS3_CARP_TABLE_INDEX
+    carp_labels = _NFS3_CARP_LABELS
+
     @property
     def schema(self) -> Dict:
         return {
@@ -2555,22 +2560,33 @@ class Nfs3CarPhysics(DeclarativeCompoundBlock):
 
     def new_data(self, patch=None):
         res = {}
-        for name, _, _, _, default, _ in _NFS3_CARP_FIELDS:
+        for name, _, _, _, default, _ in self.carp_fields:
             res[name] = deepcopy(default) if default is not None else 0
         res['source_text'] = ''
         return res
 
+    @classmethod
+    def carp_exe_read(cls, raw: bytes) -> dict:
+        """{table index: (values, (start, end) of the value line)} as the game reads the text"""
+        return nfs3_carp_exe_read(raw, _NFS3_CARP_READERS)
+
     @staticmethod
-    def parse_text(raw: bytes) -> dict:
-        read = nfs3_carp_exe_read(raw, _NFS3_CARP_READERS)
+    def _with_defaults(values: list, default, block) -> list:
+        """Values (a list, one item for a single value) of a field as the game keeps them: items its value line lacks
+        keep the default"""
+        if not isinstance(block, ArrayBlock):
+            return list(values[:1]) or [deepcopy(default) if default is not None else 0]
+        defaults = default if isinstance(default, list) else [0] * block._length
+        return list(values) + deepcopy(defaults[len(values) :])
+
+    @classmethod
+    def parse_text(cls, raw: bytes) -> dict:
+        read = cls.carp_exe_read(raw)
         res = {}
-        for name, number, _, block, default, _ in _NFS3_CARP_FIELDS:
-            index = _NFS3_CARP_TABLE_INDEX[number]
-            if index in read:
-                values = read[index][0]
-                res[name] = values if isinstance(block, ArrayBlock) else values[0]
-            else:
-                res[name] = deepcopy(default) if default is not None else 0
+        for name, number, _, block, default, _ in cls.carp_fields:
+            index = cls.carp_table_index[number]
+            values = cls._with_defaults(read[index][0] if index in read else [], default, block)
+            res[name] = values if isinstance(block, ArrayBlock) else values[0]
         res['source_text'] = raw.decode('latin-1')
         return res
 
@@ -2595,8 +2611,7 @@ class Nfs3CarPhysics(DeclarativeCompoundBlock):
             return all(int(round(n)) == o and n == int(round(n)) for o, n in zip(old_values, new_values))
         return all(float(n) == o for o, n in zip(old_values, new_values))
 
-    @staticmethod
-    def _value_line(line: bytes, old_values, new_values, reader: str) -> bytes:
+    def _value_line(self, line: bytes, old_values, new_values, reader: str) -> bytes:
         """The value line with the changed numbers replaced, each in the style of the one it replaces; a canonical
         line (comma separated, the files' number style) when the line's items are not the ones the game reads"""
         text = line.decode('latin-1')
@@ -2605,7 +2620,7 @@ class Nfs3CarPhysics(DeclarativeCompoundBlock):
             parts = re.split(separator, text)
             if (len(parts) + 1) // 2 >= len(new_values):
                 for k, (old, new) in enumerate(zip(old_values, new_values)):
-                    if not Nfs3CarPhysics._same([old], [new], reader):
+                    if not self._same([old], [new], reader):
                         parts[2 * k] = _carp_format_item(new, reader, parts[2 * k])
                 return ''.join(parts).encode('latin-1')
         return ','.join(_carp_format_item(v, reader) for v in new_values).encode('latin-1')
@@ -2613,26 +2628,30 @@ class Nfs3CarPhysics(DeclarativeCompoundBlock):
     def _render(self, data):
         """The file bytes of data, and the offset of each field's value line in them"""
         raw = (data.get('source_text') or '').encode('latin-1')
-        read = nfs3_carp_exe_read(raw, _NFS3_CARP_READERS)
+        read = self.carp_exe_read(raw)
         eol = b'\r\n' if b'\r\n' in raw or b'\n' not in raw else b'\n'
         edits = []  # (start, end, bytes, field name)
         added = []
-        for name, number, _, block, default, _ in _NFS3_CARP_FIELDS:
-            index = _NFS3_CARP_TABLE_INDEX[number]
+        for name, number, _, block, default, _ in self.carp_fields:
+            index = self.carp_table_index[number]
             reader = block.reader
             values = self._as_list(data.get(name), block)
-            if index in read:
-                old_values, (start, end) = read[index]
+            if index in read and read[index][1] is not None:
+                read_values, (start, end) = read[index]
+                old_values = [0 if v is None else v for v in self._with_defaults(read_values, default, block)]
                 if self._same(old_values, values, reader):
                     edits.append((start, end, raw[start:end], name))
-                else:
+                elif len(read_values) == len(old_values):
                     edits.append((start, end, self._value_line(raw[start:end], old_values, values, reader), name))
+                else:
+                    line = ','.join(_carp_format_item(v, reader) for v in values).encode('latin-1')
+                    edits.append((start, end, line, name))
             else:
                 defaults = self._as_list(default if default is not None else 0, block)
-                if raw and self._same(defaults, values, reader):
+                if raw and index not in read and self._same(defaults, values, reader):
                     continue
                 line = ','.join(_carp_format_item(v, reader) for v in values).encode('latin-1')
-                added.append((f'{_NFS3_CARP_LABELS[number]}({number})'.encode('latin-1'), line, name))
+                added.append((f'{self.carp_labels[number]}({number})'.encode('latin-1'), line, name))
         edits.sort(key=lambda e: e[0])
         # fields the text lacks go after the last value line the game reads
         insert_at = len(raw)
@@ -2681,3 +2700,525 @@ class Nfs3CarPhysics(DeclarativeCompoundBlock):
 
     def offset_to_child_when_packed(self, data, child_name: str, ctx=None):
         return self._render(data)[1].get(child_name, 0)
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# NFS4 car physics: carp.txt (Data/Cars/<car>/car.viv), a text file read by nfs4.exe 0x503480
+# ---------------------------------------------------------------------------------------------------------------------
+
+# nfs4.exe 0x5bd414: the parser's field table, the "(n)" numbers in table order. A label line selects the first entry
+# whose "(n)" it contains (0x503160), after its spaces are removed and its letters lower-cased
+NFS4_CARP_FIELD_TABLE = (
+    0, 1, 2, 3, 75, 4, 5, 6, 7, 76, 8, 77, 9, 78, 10, 11, 79, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+    26, 27, 28, 29, 30, 80, *range(31, 75),
+)  # fmt: skip
+
+# the number readers of the table's types (0x502f40 `sscanf("%d")` stored as an int32 / a byte, 0x503040 `"%f"`)
+_NFS4_CARP_INT = re.compile(rb'[+-]?\d+')
+_NFS4_CARP_FLOAT = re.compile(rb'[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?')
+
+
+def _nfs4_carp_read_line(raw: bytes, pos: int):
+    """nfs4.exe 0x5031f0: the next line from pos: skips 0 / CR / LF, then copies up to CR / LF without spaces, A-Z
+    lower-cased, never reading the file's last byte. Returns (line as the game sees it (a C string: cut at a 0), start,
+    end, new pos)"""
+    length = len(raw)
+    if length - 1 < pos:
+        return b'', pos, pos, pos
+    c = raw[pos]
+    while c in (0, 13, 10) and length - 1 > pos:
+        pos += 1
+        c = raw[pos]
+    start = pos
+    line = bytearray()
+    while c != 13 and c != 10 and length - 1 > pos:
+        if c != 32:
+            line.append(c + 32 if 65 <= c <= 90 else c)
+        pos += 1
+        c = raw[pos]
+    zero = line.find(0)
+    return bytes(line if zero < 0 else line[:zero]), start, pos, pos
+
+
+def _nfs4_carp_values(line: bytes, reader: str, count: int) -> list:
+    """nfs4.exe 0x502f40 / 0x503040: up to count numbers of the value line, tokens separated by `, \\t` (empty ones
+    skipped); the first token that is not a number ends the line"""
+    values = []
+    for token in [t for t in re.split(rb'[,\t\r\n]', line) if t][:count]:
+        match = (_NFS4_CARP_FLOAT if reader == 'float' else _NFS4_CARP_INT).match(token)
+        if not match:
+            break
+        if reader == 'float':
+            values.append(float(match.group(0)))
+        else:
+            value = int(match.group(0)) & 0xFFFFFFFF
+            values.append(value & 0xFF if reader == 'byte' else value - (1 << 32) if value >= 1 << 31 else value)
+    return values
+
+
+def nfs4_carp_exe_read(raw: bytes, readers):
+    """Reads carp.txt as nfs4.exe 0x503480 does: a line containing the "(n)" of a table field (the first of the table,
+    0x503160) is a label, the next line is always its value line; a field read again takes the later values. Lines
+    matching no field are skipped. `readers[table index]` = (reader, count). Returns {table index: (values, (start,
+    end) of the value line, or None when the label was the last line)}; values are the numbers read (floats as
+    doubles, the game rounds them to floats), fewer than count when the line has fewer"""
+    result = {}
+    length = len(raw)
+    keys = [f'({number})'.encode() for number in NFS4_CARP_FIELD_TABLE]
+    pos = 0
+    while length - 1 > pos:
+        line, _, _, pos = _nfs4_carp_read_line(raw, pos)
+        if not line:
+            continue
+        index = next((i for i, key in enumerate(keys) if key in line), None)
+        if index is None:
+            continue
+        span = None
+        if length - 1 > pos:
+            line, start, end, pos = _nfs4_carp_read_line(raw, pos)
+            span = (start, end)
+        reader, count = readers[index]
+        result[index] = (_nfs4_carp_values(line, reader, count), span)
+    return result
+
+
+class CarpTextNfs4Int(CarpTextInt):
+    """An integer of an NFS4 carp.txt value line"""
+
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'Integer in text, read with `sscanf("%d")` (nfs4.exe 0x502f40): an optional sign '
+            'and digits, the rest of the item ignored (`128.000000` reads 128)',
+        }
+
+
+class CarpTextNfs4Byte(CarpTextByte):
+    """An integer of an NFS4 carp.txt value line, of which the game keeps the low byte"""
+
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'Integer in text, read with `sscanf("%d")` and kept as a byte (its low 8 bits, '
+            'nfs4.exe 0x502f40)',
+        }
+
+
+class CarpTextNfs4Float(CarpTextFloat):
+    """A decimal number of an NFS4 carp.txt value line"""
+
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'Decimal number in text, e.g. `1275.000000` (the shipped files write 6 decimals), '
+            'read with `sscanf("%f")` into a float (nfs4.exe 0x503040)',
+        }
+
+
+class CarpTextNfs4Array(CarpTextArray):
+    """Several numbers of one NFS4 carp.txt value line"""
+
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': f'{self._length} numbers in one value line, separated by commas or tabs (empty items '
+            'skipped; nfs4.exe 0x502f40 / 0x503040 use `strtok`)',
+        }
+
+
+def _nfs4_tuning_note(slider: str) -> str:
+    return (
+        f'The {slider} tuning slider (game setup car +0x3c.., Carp_TuneCar 0x4fcad0, single player races of race '
+        'types other than 1 / 2 only; AI cars and the other races get the default tuning 0x5ba268: 1, 0, 1, 1, 1, 1, 1)'
+    )
+
+
+# the labels of the shipped files (identical in all of them), written for fields missing from the text
+_NFS4_CARP_LABELS = {
+    **_NFS3_CARP_LABELS,
+    10: 'torque curve (size 21) in 500 rpm increments',
+    80: 'understeer gradient',
+}
+
+# the default carp of nfs4.exe (0x5be344): the values of fields missing from the file (Carp_FillDefaults 0x5032b0)
+_NFS4_CARP_DEFAULT_AI_ACC = _NFS3_CARP_DEFAULT_AI_ACC
+
+# carp.txt fields in the order of the shipped files: (name, "(n)", offset in the game's carp, block, default
+# (0x5be344), description)
+_NFS4_CARP_FIELDS = (
+    ('serial_number', 0, 0x000, CarpTextNfs4Int(), 0,
+     'Serial number of the car (0 to 42; 0 in the traffic cars). No reader found in the ported nfs4.exe code'),
+    ('car_class', 1, 0x004, CarpTextNfs4Int(), 0,
+     'Car class (0 to 3). No reader found in the ported nfs4.exe code. Missing: 0, from the second default image '
+     '0x5bdee0 (Carp_FillDefaults 0x5032b0 takes this field from it)'),
+    ('mass', 2, 0x008, CarpTextNfs4Float(), 1000.0,
+     'Mass in kg (915 to 9400). Drive acceleration of gear g (Carp_TuneCar 0x4fcad0) = '
+     'velocity_to_rpm_ratio[g] / mass x 0.1 x gear_efficiency[g], in m/s² per N·m of torque. The body (Car_Reset '
+     '0x4448d0, body setup 0x4f4a20) gets this mass, x 3 for human players with the heavy cars option, x 1.1 as a '
+     'cop player in single player games, / 1.0 (0x676118) for racers'),
+    ('num_gears', 3, 0x00c, CarpTextNfs4Int(), 8,
+     'Number of gears of the manual gearbox: reverse + neutral + forward (6 to 8; the gear tables have 8 entries: '
+     'gear 0 reverse, 1 neutral, 2.. forward); gear num_gears - 1 is the top gear. Read by the gear shifts '
+     '(0x4feb60), the per gear values and the drag (Carp_TuneCar 0x4fcad0, from the top gear), the automatic gearbox '
+     '(0x4fe130). With the automatic gearbox Carp_TuneCar replaces it with `num_gears_auto`'),
+    ('num_gears_auto', 75, 0x010, CarpTextNfs4Int(), 8,
+     'Number of gears of the automatic gearbox (reverse, neutral, forward; 5 to 8). A player driving with the '
+     'automatic (game setup car +0x20 = 1, unless game setup flag 4) gets the automatic gear set: Carp_TuneCar '
+     '(0x4fcad0) copies this, `final_gear_auto`, `vel_to_rpm_auto`, `gear_ratio_auto` and `gear_efficiency_auto` '
+     'over the manual ones'),
+    ('shift_delay', 4, 0x014, CarpTextNfs4Int(), 8,
+     'Gear shift time in physics steps (32 per second; 2 to 24): every shift starts the shift timer at it, counted '
+     'down once a step (0x4feb60). While it runs the engine gives no drive force, only the drag, and the rpm moves '
+     'alone (0x4ffa20): shifting down it gets `shift_blip` / `brake_blip`, shifting up it rises by 75 per step, 50 '
+     'when this is above 4, 25 with `spoiler_type` 8 (doubled above the redline; the exe subtracts a negative step)'),
+    ('shift_blip', 5, 0x018, CarpTextNfs4Array(CarpTextNfs4Int(), 8), [300, 0, 275, 250, 200, 175, 150, 0],
+     'Rpm blip of a down-shift by target gear (0 reverse, 1 neutral, 2.. forward): added to the rpm every physics '
+     'step of the shift while the gas is on and the brake at most 64 of 255, clamped to minimum rpm .. redline '
+     '(0x4ffa20; `brake_blip` with more brake). In the air the rpm target also gets shift_blip[2] (carp+0x20)'),
+    ('brake_blip', 6, 0x038, CarpTextNfs4Array(CarpTextNfs4Int(), 8), [300, 0, 275, 250, 200, 175, 150, 0],
+     'Rpm blip of a down-shift while braking (brake above 64 of 255) by target gear, as `shift_blip` (0x4ffa20)'),
+    ('vel_to_rpm', 7, 0x098, CarpTextNfs4Array(CarpTextNfs4Float(), 8), [0.0] * 8,
+     'Engine rpm per m/s of forward speed in each gear (0 reverse, negative; 1 neutral, 0; 2.. forward): rpm = '
+     '|speed x ratio|, the speed at the redline = redline / ratio. The game reads only this table, never '
+     '`gear_ratio` / `final_gear` / the tyres. Read by the drive of each gear (see `mass`), the drag (Carp_TuneCar '
+     '0x4fcad0), the automatic gearbox (0x4fe130), the engine (0x4ffa20). Gear ratio tuning slider t: x t (gears '
+     'below `num_gears`). With the automatic gearbox Carp_TuneCar replaces it with `vel_to_rpm_auto`'),
+    ('vel_to_rpm_auto', 76, 0x0b8, CarpTextNfs4Array(CarpTextNfs4Float(), 8), [0.0] * 8,
+     '`vel_to_rpm` of the automatic gearbox, copied over it by Carp_TuneCar (0x4fcad0) when the player drives with '
+     'the automatic (unless game setup flag 4)'),
+    ('gear_ratio', 8, 0x058, CarpTextNfs4Array(CarpTextNfs4Float(), 8), [1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+     'Gearbox ratio of each gear (0 reverse, 1 neutral, 2.. forward). Not read by the ported physics: Carp_TuneCar '
+     'only copies the automatic set over it; `vel_to_rpm` has the ratios combined with the final gear and the tyre '
+     'size'),
+    ('gear_ratio_auto', 77, 0x078, CarpTextNfs4Array(CarpTextNfs4Float(), 8), [1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+     '`gear_ratio` of the automatic gearbox, copied over it by Carp_TuneCar (not read otherwise)'),
+    ('gear_efficiency', 9, 0x0d8, CarpTextNfs4Array(CarpTextNfs4Float(), 8), [1.0] * 8,
+     'Efficiency of each gear (0 reverse, 1 neutral, 2.. forward): a factor of the gear\'s drive acceleration (see '
+     '`mass`). The drag coefficient (0x4fcad0) divides it out: at `max_velocity` the air drag is 0.98 x the top '
+     'gear\'s drive at efficiency 1, so the car reaches `max_velocity` with a top gear efficiency of 0.98 or more. '
+     'Game setup flag 1: at least 1. With the automatic gearbox Carp_TuneCar replaces it with '
+     '`gear_efficiency_auto`'),
+    ('gear_efficiency_auto', 78, 0x0f8, CarpTextNfs4Array(CarpTextNfs4Float(), 8), [1.0] * 8,
+     '`gear_efficiency` of the automatic gearbox, copied over it by Carp_TuneCar (0x4fcad0) with the automatic'),
+    ('torque', 10, 0x118, CarpTextNfs4Array(CarpTextNfs4Float(), 21),
+     [float(x) for x in range(10, 101, 10)] + [100.0, 90.0, 80.0, 70.0, 60.0, 50.0, 40.0] + [30.0] * 4,
+     'Engine torque in N·m by rpm in steps of 500 rpm (entry i at i x 500 rpm, 0 to 10000 rpm): the engine '
+     '(0x4fdac0) interpolates it linearly at rpm x 0.002 (clamped to 0..20), x (1 - engine damage / 4) with damage '
+     'on; the drag computation (0x4fcad0) takes entry trunc(rpm / 500) as it is. Drive acceleration (0x4ffa20) = '
+     'torque x the gear\'s drive (see `mass`), at most 10 m/s² in 1st gear (gear 2), 8 in the others, -6 in reverse '
+     '(14 / 10 with game setup car +0x10 = 2), x throttle x (1 + 0.6 x |slip ratio|, at most 1.5). Engine tuning '
+     'slider t: entry i += (t - 1) x -0.1 x entry x (lo - i) / (hi - lo), lo = (redline + min rpm) / 2 / 500 + 3, hi '
+     '= redline / 500 + 3 (the curve tilts about lo); game setup flag 1: x 1.75'),
+    ('final_gear', 11, 0x16c, CarpTextNfs4Float(), 4.0,
+     'Final drive ratio. Not read by the ported physics (`vel_to_rpm` includes it); with the automatic gearbox '
+     'Carp_TuneCar copies `final_gear_auto` over it'),
+    ('final_gear_auto', 79, 0x170, CarpTextNfs4Float(), 4.0,
+     '`final_gear` of the automatic gearbox, copied over it by Carp_TuneCar (0x4fcad0) with the automatic'),
+    ('min_rpm', 12, 0x174, CarpTextNfs4Int(), 750,
+     'Engine minimum (idle) rpm (0 to 1335): the rpm never falls below it; the rpm target is redline x throttle but '
+     'at least this; below it the drive is the torque at this rpm (0x4ffa20). Also read by the automatic reverse '
+     '(0x4fe800), the rpm of a car not upright (0x502370: down 500 a step to this) and the engine tuning slider\'s '
+     'torque tilt'),
+    ('redline', 13, 0x178, CarpTextNfs4Int(), 8000,
+     'Engine redline in rpm (4800 to 8900). The engine (0x4ffa20): rpm capped at it (above it by a third the wheels '
+     'lock), rpm target = redline x throttle, engine cut while the rpm is above the wheels\' rpm by more than '
+     'redline / 6 in gears up to 3rd; with the gas off above 1.15 x the gear\'s speed at the redline the force scales '
+     'down and the wheels lock. Engine wear (damage on, 0x4fe020) above 95 % of it. Automatic gearbox (0x4fe130): up '
+     'above 7/8 of it, down below half of it (into 2nd) or below 5/6 of it (higher gears). The manual gearbox above '
+     '4th gear drops to 4th below 4th\'s redline speed (0x4fe7a0). Speed at the redline of each gear: redline / '
+     '`vel_to_rpm`'),
+    ('max_velocity', 14, 0x17c, CarpTextNfs4Float(), 50.0,
+     'Top speed in m/s (23.3 to 96.1). Carp_TuneCar (0x4fcad0) sets the air drag coefficient so that the drag '
+     '(coefficient x speed³ x aero factor) is 0.98 x the top gear\'s drive at efficiency 1 (torque entry '
+     'trunc(round(this x top gear ratio) / 500)) at this speed; above it the drag gets + 0.01 x (speed - this)² '
+     '(0x4ffa20), the drag also x (1 + aero damage / 2). The automatic gearbox (0x4fe130) never shifts into the top '
+     'gear when the gear below it already reaches more than this at the redline. Tuning: engine slider t x (1 + (t - '
+     '1) x 0.1), gear ratio slider / t, aero slider / (1 + (t - 1) x 0.05); game setup flag 1: x 1.75'),
+    ('top_speed_cap', 15, 0x180, CarpTextNfs4Float(), 50.0,
+     'Top speed cap in m/s (= `max_velocity` in every shipped file). The file\'s value is never used: Carp_TuneCar '
+     '(0x4fcad0) sets it to `max_velocity` before the tuning sliders change that'),
+    ('front_drive_ratio', 16, 0x184, CarpTextNfs4Float(), 0.0,
+     'Part of the drive force on each front wheel (0 rear wheel drive, 0.5 four wheel drive in the NFS4 files), the '
+     'rear wheels get the rest (0x501860)'),
+    ('abs', 17, 0x188, CarpTextNfs4Byte(), 0,
+     'Anti-lock brakes, 1 on, a byte: a braking wheel whose brake force exceeds its grip (no handbrake) has the '
+     'force clamped to the grip (0x500f20), slide amount 3 every 4th tick; without, the wheel goes over its grip'),
+    ('max_brake_decel', 18, 0x18c, CarpTextNfs4Float(), 10.0,
+     'Maximum braking deceleration in m/s² (4.5 to 12.5): brake = brake value (0..1) x this (x 1.2 with game setup '
+     '0x7c4cc8), + |forward speed| x `aero_downforce` with the air brake (`spoiler_type` 1) above 0.15 of the pedal, '
+     'at most what stops the car in one step (|forward speed| x 32), split front / rear by `front_brake_bias` '
+     '(0x501860)'),
+    ('front_brake_bias', 19, 0x190, CarpTextNfs4Float(), 0.0,
+     'Part of the braking force on each front wheel (0.48 to 0.695), + 0.05 with the handbrake (0x501860). '
+     'Carp_TuneCar (0x4fcad0): minus the brake balance tuning slider, + 0.05 with game setup 0x7c4cc8, then clamped '
+     'to 0.3..0.75 for every car'),
+    ('gas_increasing', 20, 0x194, CarpTextNfs4Array(CarpTextNfs4Byte(), 8), [16] * 8,
+     'Gas increasing curve, a byte per pedal level (16 in every file). Not read by the ported physics: the controls '
+     '(0x4feb60) ramp the gas up by 16 per physics step'),
+    ('gas_decreasing', 21, 0x19c, CarpTextNfs4Array(CarpTextNfs4Byte(), 8), [16] * 8,
+     'Gas decreasing curve, a byte per pedal level (32 in every file). Not read by the ported physics: the controls '
+     '(0x4feb60) ramp the gas down by 16 per physics step, 16 + round((t - 1) x 60) with the steering tuning slider t '
+     'above 1'),
+    ('brake_increasing', 22, 0x1a4, CarpTextNfs4Array(CarpTextNfs4Float(), 8), [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+     'Brake ramp up: the brake value (0..255) rises toward the pedal by round(entry) per physics step, entry = brake '
+     'value >> 5 (8 levels of 32), with keyboard braking (the game setup car\'s brake ramp flag +0x34); an analog '
+     'brake follows the pedal at once (0x4feb60)'),
+    ('brake_decreasing', 23, 0x1c4, CarpTextNfs4Array(CarpTextNfs4Float(), 8), [64.0, 32.0, 16.0, 8.0, 4.0, 2.0, 1.0, 1.0],
+     'Brake ramp down: the brake value falls toward the pedal by round(entry) per physics step, entry = brake value '
+     '>> 5, keyboard braking only (0x4feb60)'),
+    ('wheel_base', 24, 0x1e4, CarpTextNfs4Float(), 2.5,
+     'Wheel base in m (2.2 to 4.5). No reader found in the ported nfs4.exe code'),
+    ('front_grip_bias', 25, 0x1e8, CarpTextNfs4Float(), 0.5,
+     'Front grip bias (0.42 to 0.56). The static wheel loads (gravity x `lateral_grip` x the wheel\'s surface grip) '
+     'times it give the front wheels\' grip; the rear wheels get load - (1 - bias) x load, which is also bias x load '
+     '(the exe quirk of NFS3: both axles get the same share, 0x501860), before the load transfer and the downforce. '
+     'Steering tuning slider t: x (1 + (t - 1) x 0.625), clamped to 0.46..0.56'),
+    ('power_steering', 26, 0x1ec, CarpTextNfs4Int(), 1,
+     'Power steering, boolean (0 or 1). No reader found in the ported nfs4.exe code (NFS3 reads it for the force '
+     'feedback only)'),
+    ('min_steering_accel', 27, 0x1f0, CarpTextNfs4Float(), 10.0,
+     'Minimum steering acceleration (9.5 to 18.65). Front wheel angle (0x5014e0) = this x 1.5 / 360 turns at full '
+     'lock x steering / 128, reduced: by steering damage; with the handbrake, steering against the slide, x '
+     'max(0.85 - 0.0056 x |speed|, 0.55); steering toward the slide above 26.7 m/s with a slip ratio beyond 0.05, or '
+     'above 13.4 m/s beyond 0.15, x 2 |slip ratio| while that is below 1; above 40 m/s divided by clamp(|speed| x '
+     '0.015, 1, 1.5). Each wheel\'s lateral force is capped at 2 x this (m/s², 0x500f20). Steering tuning slider t: '
+     'x t'),
+    ('turn_in_ramp', 28, 0x1f4, CarpTextNfs4Float(), 2.0,
+     'Steering ramp toward the requested steering (-127..127): round(this) per physics step (8 to 18), with keyboard '
+     'steering (the game setup car\'s steering ramp flag +0x2c); analog steering is direct (0x4feb60)'),
+    ('turn_out_ramp', 29, 0x1f8, CarpTextNfs4Float(), 2.0,
+     'Steering ramp back to the centre: round(this) per physics step toward 0 (12 to 32), also first when the request '
+     'is on the other side; keyboard steering only (0x4feb60)'),
+    ('lateral_grip', 30, 0x1fc, CarpTextNfs4Float(), 1.0,
+     'Lateral acceleration grip multiplier (1.2 to 3.9). The static wheel loads are -gravity y x this x the surface '
+     'grip (0x501860), so the grip and the cornering force (sin(slip angle / 2) x grip x 4) scale with it; each '
+     'wheel\'s drive / brake force is multiplied by it against that grip (0x500f20) and the car-frame forward force '
+     'divided by it again (0x5026d0), so the acceleration does not change'),
+    ('understeer_gradient', 80, 0x200, CarpTextNfs4Float(), 1.0,
+     'Understeer gradient (0.85 to 1.09; new in NFS4, listed after `lateral_grip` in the files): the front wheels\' '
+     'lateral force is x 0.8 x this, the rear wheels\' x 1.4 / this (0x500f20): above 1 the front grips more and the '
+     'rear less'),
+    ('aero_downforce', 31, 0x204, CarpTextNfs4Float(), 0.005,
+     'Aerodynamic downforce multiplier (0 to 0.0026): above 10 m/s the wheels\' grip is x (1 + forward speed x this) '
+     'in front, x (1 + speed x this x 1.5) at the rear (1.75 braking with the air brake, `spoiler_type` 1), below '
+     '10 m/s x (1 + this); this x (1 - aero damage / 2), x 1.41 with traction control (0x4ff6b0). Fast (above 10 m/s) '
+     'upright cars also lose this x forward speed of their up velocity each step (newton 0x4f60a0). The air brake '
+     'adds |speed| x this to the brake (0x501860). Aero tuning slider t: x (1 + (t - 1) x 0.25)'),
+    ('gas_off_factor', 32, 0x208, CarpTextNfs4Float(), 0.0005,
+     'Engine braking (0.12 to 0.7): with the gas off (rpm target below the wheels\' rpm) the drive force is -(torque '
+     'x the gear\'s drive) x this (0x4ffa20)'),
+    ('g_transfer', 33, 0x20c, CarpTextNfs4Float(), 0.2,
+     'Longitudinal load transfer (0.3 to 0.6): each step the car-frame forward force x this, - gravity z x 0.1, is '
+     'taken from the front wheels\' grip and added to the rear wheels\' in the next step (0x501860; damped by '
+     '0x502600). Suspension tuning slider t: x t, clamped to 0.3..0.7; game setup 0x7c4cc8: - 0.05'),
+    ('turning_circle', 34, 0x210, CarpTextNfs4Float(), 25.0,
+     'Turning circle radius in m (5.3 to 25), the yaw damping (0x5029b0): driving forward (|vx| < |vz|) with a yaw '
+     'rate w (turns/s) where |vz| and |vx| are both below r = |w| x 2 pi x radius x 0.5, w is multiplied by min(|vz| / '
+     'r, 0.98) each step (otherwise 0.95 / 0.99); the same sideways below 2 m/s. Steering tuning slider t: + (1 - t) '
+     'x 0.5 x radius'),
+    ('tire_front', 35, 0x214, CarpTextNfs4Array(CarpTextNfs4Int(), 3), [275, 40, 19],
+     'Front tyre size: width in mm, aspect ratio in %, rim in inches (`245,40,17` = 245/40 R17). No reader found in '
+     'the ported nfs4.exe code'),
+    ('tire_rear', 36, 0x220, CarpTextNfs4Array(CarpTextNfs4Int(), 3), [305, 40, 19],
+     'Rear tyre size: width in mm, aspect ratio in %, rim in inches. No reader found in the ported nfs4.exe code'),
+    ('tire_wear', 37, 0x22c, CarpTextNfs4Float(), 0.0,
+     'Tyre wear (0 in every file). No reader found in the ported nfs4.exe code'),
+    ('slide_mult', 38, 0x230, CarpTextNfs4Float(), 0.5,
+     'Slide multiplier (0.1 to 1.25). No reader found in the ported nfs4.exe code'),
+    ('spin_velocity_cap', 39, 0x234, CarpTextNfs4Float(), 0.5,
+     'Spin velocity cap (0.3 to 0.6). No reader found in the ported nfs4.exe code'),
+    ('slide_velocity_cap', 40, 0x238, CarpTextNfs4Float(), 0.5,
+     'Slide velocity cap (0.2 to 1). No reader found in the ported nfs4.exe code'),
+    ('slide_assist', 41, 0x23c, CarpTextNfs4Int(), 10,
+     'Slide assistance factor, read as an integer (the files write `128.000000` / `150.000000`: `%d` stops at the '
+     '`.`). No reader found in the ported nfs4.exe code'),
+    ('push_factor', 42, 0x240, CarpTextNfs4Int(), 10,
+     'Push factor (9000 to 12000). No reader found in the ported nfs4.exe code'),
+    ('low_turn_factor', 43, 0x244, CarpTextNfs4Float(), 0.5,
+     'Low turn factor, "the lower the figure, the better the turn" (0.02 to 0.03). No reader found in the ported '
+     'nfs4.exe code'),
+    ('high_turn_factor', 44, 0x248, CarpTextNfs4Float(), 0.6,
+     'High turn factor, "the lower the figure, the better the turn" (0.0215 to 0.035). No reader found in the ported '
+     'nfs4.exe code'),
+    ('pitch_roll', 45, 0x24c, CarpTextNfs4Float(), 1.0,
+     'Pitch / roll factor (0.63 to 1.1), in NFS3 the drawn body roll and pitch. Suspension tuning slider t: / sqrt(t) '
+     '(0x4fcad0). No other reader found in the ported nfs4.exe code'),
+    ('road_bumpiness', 46, 0x250, CarpTextNfs4Float(), 0.7,
+     'Road bumpiness factor (0.59 to 1.5), in NFS3 the drawn body shake. No reader found in the ported nfs4.exe '
+     'code'),
+    ('spoiler_type', 47, 0x254, CarpTextNfs4Int(), 0,
+     'Spoiler function type: 0, 1 or 8. 1 is an air brake: braking above 0.15 of the pedal adds |forward speed| x '
+     '`aero_downforce` to the brake and the rear downforce factor is 1.75 instead of 1.5 (0x501860, 0x4ff6b0), and '
+     'the car keeps a spoiler value car+0x970 (0.25 braking, else above 11.18 m/s 0.0694 / (speed - 11.18) + 0.0278). '
+     '8: shifting up, the rpm rises by 25 per step instead of 50 / 75 (0x4ffa20)'),
+    ('spoiler_speed', 48, 0x258, CarpTextNfs4Float(), 0.0,
+     'Spoiler activation speed in m/s (0, 5 or 10). No reader found in the ported nfs4.exe code'),
+    ('gradual_turn_cutoff', 49, 0x25c, CarpTextNfs4Int(), 96,
+     'Driving aid turn cutoff (16 to 110; NFS3: the turn of the road ahead, 1/1024 turns, above which the aid slows '
+     'down by `medium_turn_speed`). Read only by nfs4.exe\'s driving aid 0x4fd580, which no code calls'),
+    ('medium_turn_cutoff', 50, 0x260, CarpTextNfs4Int(), 112,
+     'Driving aid turn cutoff for `sharp_turn_speed` (32 to 160). Read only by the uncalled driving aid 0x4fd580'),
+    ('sharp_turn_cutoff', 51, 0x264, CarpTextNfs4Int(), 128,
+     'Driving aid turn cutoff for `extreme_turn_speed` (48 to 184). Read only by the uncalled driving aid 0x4fd580'),
+    ('medium_turn_speed', 52, 0x268, CarpTextNfs4Float(), 0.7,
+     'Driving aid target speed factor of a medium turn (0.7 to 1). Read only by the uncalled driving aid 0x4fd580'),
+    ('sharp_turn_speed', 53, 0x26c, CarpTextNfs4Float(), 0.6,
+     'Driving aid target speed factor of a sharp turn (0.6 to 0.98). Read only by the uncalled driving aid 0x4fd580'),
+    ('extreme_turn_speed', 54, 0x270, CarpTextNfs4Float(), 0.5,
+     'Driving aid target speed factor of an extreme turn (0.4 to 0.94). Read only by the uncalled driving aid '
+     '0x4fd580'),
+    ('subdivide_level', 55, 0x274, CarpTextNfs4Int(), 0,
+     'Subdivide level (1 or 3). No reader found in the ported nfs4.exe code'),
+    ('camera_arm', 56, 0x278, CarpTextNfs4Float(), 0.25,
+     'Camera arm (0.25 in every file), a float (NFS3 keeps it as 16.16). No reader found in the ported nfs4.exe '
+     'code'),
+    ('body_damage', 57, 0x27c, CarpTextNfs4Float(), 0.0,
+     'Body damage (0 in every file). No reader found in the ported nfs4.exe code (the car\'s damage is kept in the '
+     'car, car+0x558..)'),
+    ('engine_damage', 58, 0x280, CarpTextNfs4Float(), 0.0,
+     'Engine damage (0 in every file). No reader found in the ported nfs4.exe code (the engine damage of the torque '
+     'and the engine wear is car+0x57c)'),
+    ('suspension_damage', 59, 0x284, CarpTextNfs4Float(), 0.0,
+     'Suspension damage (0 in every file). No reader found in the ported nfs4.exe code'),
+    ('engine_tuning', 60, 0x288, CarpTextNfs4Float(), 1.0,
+     'Engine tuning (1 in every file, the default of the engine slider; fields 60 to 66 hold the default tuning in '
+     'nearly every file). No reader found: the sliders\' values are in the game setup. '
+     + _nfs4_tuning_note('engine') + ' t: `torque` tilted (more torque above the middle of the rpm range for t > 1), '
+     '`max_velocity` x (1 + (t - 1) x 0.1)'),
+    ('brake_balance', 61, 0x28c, CarpTextNfs4Float(), 0.0,
+     'Brake balance (0 in every file, the slider\'s default). No reader found. The brake balance slider t: '
+     '`front_brake_bias` - t'),
+    ('steering_speed', 62, 0x290, CarpTextNfs4Float(), 1.0,
+     'Steering speed (1 in every file, the slider\'s default). No reader found. The steering slider t: '
+     '`min_steering_accel` x t, `front_grip_bias` x (1 + (t - 1) x 0.625) clamped to 0.46..0.56, `turning_circle` + '
+     '(1 - t) x 0.5 x radius, and above 1 the gas released faster (0x4feb60)'),
+    ('gear_ratio_factor', 63, 0x294, CarpTextNfs4Float(), 1.0,
+     'Gear ratio factor (1 in every file, the slider\'s default). No reader found. The gear ratio slider t: '
+     '`vel_to_rpm` x t, `max_velocity` / t'),
+    ('suspension_stiffness', 64, 0x298, CarpTextNfs4Float(), 1.0,
+     'Suspension stiffness (1 to 1.117). An upright car landing (newton 0x4f5b20) has its velocity along the road '
+     'normal and its angular velocity multiplied by 0.5 + clamp(0.1 x the suspension slider x this + the body '
+     'damage (sum of car+0x558..0x564) x 0.05, 0, 0.2) (0.1 x this outside single player races of race types other '
+     'than 1, 2, 4). The suspension slider t also: `g_transfer` x t clamped to 0.3..0.7, `pitch_roll` / sqrt(t)'),
+    ('aero_factor', 65, 0x29c, CarpTextNfs4Float(), 0.0,
+     'Aero factor (0 or 1 in the files). No reader found. The aero slider t: `aero_downforce` x (1 + (t - 1) x '
+     '0.25), `max_velocity` / (1 + (t - 1) x 0.05), the air drag x (1 + t) / 3 (0x4ffa20; the drag coefficient is '
+     'computed with the same factor)'),
+    ('tire_factor', 66, 0x2a0, CarpTextNfs4Float(), 1.0,
+     'Tyre factor (1 in every file, the slider\'s default). No reader found. The tyre slider t (Carp_TuneCar '
+     '0x4fcad0, 0x500750, 0x500860, 0x5026d0): wheel grip x (1 - 1 / max(28 - (t - 0.8) x 40, 16)) on a dry road '
+     '(3 / max(16 - (t - 0.8) x 32, 6), 3 / max(12 - (t - 0.8) x 24, 4) on the other road conditions), slide cap 12 '
+     '- 4 t, slide decay 0.95 - 0.25 t (at least 0.5), forward force x (1 + 0.1 t) up to 3rd gear above 1 / x (1 + '
+     '(t - 1) x 0.1) below 1'),
+) + tuple(
+    (f'ai_acc{k}', 67 + k, 0x2A4 + 56 * k, CarpTextNfs4Array(CarpTextNfs4Float(), 14),
+     _NFS4_CARP_DEFAULT_AI_ACC[14 * k: 14 * k + 14],
+     f'AI acceleration table, entries {14 * k} to {14 * k + 13} of a table of 112 (8 sections of 14) in m/s² by '
+     'speed (NFS3: an AI car accelerates by entry round(speed in m/s - 0.5)). Not read by the player car; the AI car '
+     'physics (0x40ff70) is not ported. A missing section takes its own default')
+    for k in range(8)
+)  # fmt: skip
+
+_NFS4_CARP_TABLE_INDEX = {number: i for i, number in enumerate(NFS4_CARP_FIELD_TABLE)}
+_NFS4_CARP_READERS = {
+    _NFS4_CARP_TABLE_INDEX[number]: (block.reader, block._length if isinstance(block, ArrayBlock) else 1)
+    for _, number, _, block, _, _ in _NFS4_CARP_FIELDS
+}
+
+
+def _nfs4_carp_fields_class():
+    fields = {
+        name: (
+            block,
+            {
+                'description': _carp_field_description(_NFS4_CARP_LABELS, number, offset, default, text),
+                'custom_offset': f'({number})',
+            },
+        )
+        for name, number, offset, block, default, text in _NFS4_CARP_FIELDS
+    }
+    fields['source_text'] = (
+        UTF8Block(length=0),
+        {
+            'description': 'The file as read (bytes as Latin-1 characters). Writing puts the values over it: labels, '
+            'number formats, line endings, lines the game skips and trailing bytes stay as they are, a changed '
+            'number is written in the style of the one it replaces',
+            'usage': 'io',
+        },
+    )
+    return type('Fields', (DeclarativeCompoundBlock.Fields,), fields)
+
+
+class Nfs4CarPhysics(Nfs3CarPhysics):
+    carp_fields = _NFS4_CARP_FIELDS
+    carp_table_index = _NFS4_CARP_TABLE_INDEX
+    carp_labels = _NFS4_CARP_LABELS
+
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'NFS4 car physics: `carp.txt` in `Data/Cars/<car>/car.viv` (and `traffic/<car>`, '
+            '`traffic/pursuit/<car>`; `carp<n>.txt`, n = game setup car +0x18, instead in race type 4: 1..3 in 11 '
+            'cars, their upgrade levels by their values), plain text with CRLF line endings: pairs of a label line '
+            '(`mass [kg](2)`) and a value line (`1275.000000`, arrays comma separated). nfs4.exe parses it with '
+            "0x503480 (car load 0x445090 -> 0x444fd0) into the car's carp (0x464 bytes): lines are read without "
+            "spaces and lower-cased (0x5031f0, empty lines skipped, the file's last byte never read); a line "
+            'containing the `(n)` of a field of the table 0x5bd414 (the first of the table, 0x503160; no key text '
+            'is compared, unlike NFS3) is a label and the next line is always its value line, whatever it holds; '
+            'other lines are skipped. Values are separated by `,` or tabs, read with `sscanf` ("%d" for integer '
+            'fields, "%f" for floats, 0x502f40 / 0x503040); a value that is not a number ends the line, items a line '
+            'lacks keep what the carp held (TailsLab: the default); a field given twice takes the later values. '
+            'Fields missing from the file get the default carp 0x5be344 (Carp_FillDefaults 0x5032b0, `car_class` '
+            "from 0x5bdee0). 81 fields, NFS3's 80 plus `understeer_gradient` (80); the torque curve has 21 points "
+            "500 rpm apart. Then Carp_TuneCar 0x4fcad0 applies the automatic gear set and the menus' tuning "
+            'sliders, and sets the per gear values and the air drag. Car physics steps run at 32 Hz (every 2nd tick '
+            "of the 64 Hz simulation). Field descriptions: label, place in the game's carp, the default for a "
+            'missing field, then the use, from the nfs4.exe port in nfs-web (`src/nfs4/nfs4-physics`); "no reader '
+            'found" = no ported code reads it (AI, sound and drawing code is not ported)',
+        }
+
+    Fields = _nfs4_carp_fields_class()
+
+    def serializer_class(self):
+        from serializers import Nfs3CarPhysicsSerializer
+
+        return Nfs3CarPhysicsSerializer
+
+    @classmethod
+    def carp_exe_read(cls, raw: bytes) -> dict:
+        return nfs4_carp_exe_read(raw, _NFS4_CARP_READERS)
+
+    def _value_line(self, line: bytes, old_values, new_values, reader: str) -> bytes:
+        """The value line with the changed numbers replaced in place, each in the style of the one it replaces; a
+        canonical line (comma separated, the files' number style) when an item holds a space or a 0, or is not
+        read as a whole number"""
+        text = line.decode('latin-1')
+        items = []  # (start, end) of the items: runs between `,` / tabs, without the spaces around them
+        for match in re.finditer(r'[^,\t]+', text):
+            item = match.group(0)
+            stripped = item.strip(' ')
+            if not stripped:
+                continue
+            start = match.start() + len(item) - len(item.lstrip(' '))
+            items.append((start, start + len(stripped)))
+        pattern = _NFS4_CARP_FLOAT if reader == 'float' else _NFS4_CARP_INT
+        clean = len(items) >= len(new_values) and all(
+            ' ' not in text[a:b]
+            and '\0' not in text[a:b]
+            and (m := pattern.match(text[a:b].lower().encode('latin-1')))
+            and m.end() == b - a
+            for a, b in items[: len(new_values)]
+        )
+        if not clean:
+            return ','.join(_carp_format_item(v, reader) for v in new_values).encode('latin-1')
+        out = text
+        for k in reversed(range(len(new_values))):
+            if not self._same([old_values[k]], [new_values[k]], reader):
+                a, b = items[k]
+                out = out[:a] + _carp_format_item(new_values[k], reader, text[a:b]) + out[b:]
+        return out.encode('latin-1')

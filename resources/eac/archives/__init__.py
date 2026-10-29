@@ -228,6 +228,7 @@ class BigfBlock(ArchiveBlock):
             Nfs2TrafficConfig,
             Nfs2Personalities,
             Nfs3CarPhysics,
+            Nfs4CarPhysics,
         )
 
         super().__init__(
@@ -248,6 +249,7 @@ class BigfBlock(ArchiveBlock):
                     Nfs2TrafficConfig(),
                     Nfs2Personalities(),
                     Nfs3CarPhysics(),
+                    Nfs4CarPhysics(),
                     self,
                     BytesBlock(
                         length=(

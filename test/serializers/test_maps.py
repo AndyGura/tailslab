@@ -187,8 +187,15 @@ class TestEacTrackSerializers(unittest.TestCase):
                     'right': {'x': -0.890625, 'y': 0.0, 'z': -0.421875},
                     'left_wall': 7.883923530578613,
                     'right_wall': 15.767847061157227,
-                    'unk0': [4.5, 4.5],
-                    'unk1': [4294967295, 1, 2, 992, 67372036],
+                    'left_lane_width': 4.5,
+                    'right_lane_width': 4.5,
+                    'unk0': 4294967295,
+                    'left_lanes': 1,
+                    'right_lanes': 2,
+                    'lane_open_bits': 992,
+                    'left_side_type': 4,
+                    'right_side_type': 4,
+                    'unk1': [4, 4],
                 },
             )
 
