@@ -21,9 +21,10 @@ import {
 import { gearName } from '../player-car-physics.block-ui/player-car-physics.block-ui.component';
 
 // nfs3.exe, as ported in nfs-web (src/nfs3/nfs3-physics): the torque curve has 41 entries 256 rpm apart, read
-// interpolated at rpm / 256 (0x4a8a99)
-const TORQUE_RPM_STEP = 256;
-const TORQUE_LENGTH = 41;
+// interpolated at rpm / 256 (0x4a8a99); nfs4.exe (Nfs4CarPhysics, src/nfs4/nfs4-physics): 21 entries 500 rpm apart,
+// read at rpm x 0.002 (0x4fdac0). The rest of the model these charts follow is the same in both games
+const NFS3_TORQUE = { step: 256, length: 41 };
+const NFS4_TORQUE = { step: 500, length: 21 };
 // car physics steps per second: every 2nd tick of the 64 Hz simulation
 const STEPS = 32;
 // the controls' gas ramp per step (0x4a9bc4), up and down (faster down with the steering tuning slider above 1)
@@ -103,10 +104,11 @@ export type Nfs3TunedCarp = {
 
 export type Nfs3TunedRow = { label: string; field: string; file: string; tuned: string; changed: boolean };
 
-// Rich editor of NFS3 car physics (carp.txt in GameData/CarModel/<car>/car.viv): dyno, gearing with the automatic
-// gearbox and the air drag, brake and steering ramps, steering lock, grip and downforce, the AI acceleration table and
-// driving aid, and the menus' tuning, every parameter grouped by subsystem. The derived curves follow the field
-// descriptions (nfs3.exe as ported in nfs-web)
+// Rich editor of NFS3 car physics (carp.txt in GameData/CarModel/<car>/car.viv) and NFS4 car physics (carp.txt in
+// Data/Cars/<car>/car.viv, Nfs4CarPhysics, a subclass picked through block_class_mro): dyno, gearing with the
+// automatic gearbox and the air drag, brake and steering ramps, steering lock, grip and downforce, the AI acceleration
+// table and driving aid, and the menus' tuning, every parameter grouped by subsystem. The derived curves follow the
+// field descriptions (nfs3.exe / nfs4.exe as ported in nfs-web)
 @Component({
   selector: 'app-nfs3-car-physics-block-ui',
   templateUrl: './nfs3-car-physics.block-ui.component.html',
@@ -121,7 +123,8 @@ export class Nfs3CarPhysicsBlockUiComponent extends CarSpecEditorBase {
     // the ramp curves are edited on their chart
     brakes: ['max_brake_decel', 'abs'],
     steering: ['min_steering_accel', 'turn_in_ramp', 'turn_out_ramp', 'turning_circle', 'power_steering'],
-    grip: ['mass', 'tire_front', 'tire_rear', 'suspension_stiffness'],
+    // understeer_gradient: NFS4 only
+    grip: ['mass', 'understeer_gradient', 'tire_front', 'tire_rear', 'suspension_stiffness'],
     body: ['pitch_roll', 'road_bumpiness', 'spoiler_type', 'spoiler_speed', 'camera_arm', 'subdivide_level'],
     identity: ['serial_number', 'car_class'],
     aid: [
@@ -173,7 +176,7 @@ export class Nfs3CarPhysicsBlockUiComponent extends CarSpecEditorBase {
   readonly rpmAxis: CurveAxis = { label: 'Engine speed (rpm)', min: 0, format: v => fmt(v, 0) };
   readonly torqueAxis: CurveAxis = { label: 'Torque (N·m)', min: 0 };
   readonly powerAxis: CurveAxis = { label: 'Power (hp)', min: 0 };
-  readonly describeRpm = (rpm: number) => `${fmt(rpm, 0)} rpm · entry ${fmt(rpm / TORQUE_RPM_STEP, 2)}`;
+  readonly describeRpm = (rpm: number) => `${fmt(rpm, 0)} rpm · entry ${fmt(rpm / this.torqueStep, 2)}`;
 
   // gearbox
   gears: Nfs3GearRow[] = [];
@@ -255,6 +258,23 @@ export class Nfs3CarPhysicsBlockUiComponent extends CarSpecEditorBase {
     return this.automatic ? AUTOMATIC : MANUAL;
   }
 
+  // NFS4 carp.txt (Nfs4CarPhysics extends Nfs3CarPhysics)
+  get isNfs4(): boolean {
+    return (this.resourceSchema?.block_class_mro || '').startsWith('Nfs4CarPhysics');
+  }
+
+  get exeName(): string {
+    return this.isNfs4 ? 'nfs4.exe' : 'nfs3.exe';
+  }
+
+  get torqueStep(): number {
+    return (this.isNfs4 ? NFS4_TORQUE : NFS3_TORQUE).step;
+  }
+
+  get torqueLength(): number {
+    return (this.isNfs4 ? NFS4_TORQUE : NFS3_TORQUE).length;
+  }
+
   get redline(): number {
     return this.d['redline'] || 0;
   }
@@ -273,12 +293,12 @@ export class Nfs3CarPhysicsBlockUiComponent extends CarSpecEditorBase {
 
   // torque entries the engine can read: the interpolation at the redline reads the entry after it
   get torqueActiveCount(): number {
-    return Math.max(1, Math.min(TORQUE_LENGTH, Math.floor(this.redline / TORQUE_RPM_STEP) + 2));
+    return Math.max(1, Math.min(this.torqueLength, Math.floor(this.redline / this.torqueStep) + 2));
   }
 
-  // 0x4a8a99: linear between the entries at rpm / 256, clamped to 0..40
+  // 0x4a8a99 (NFS4 0x4fdac0): linear between the entries at rpm / step, clamped to the curve
   torqueAt(rpm: number, torques: number[] = this.d['torque']): number {
-    const x = Math.max(0, Math.min(TORQUE_LENGTH - 1, rpm / TORQUE_RPM_STEP));
+    const x = Math.max(0, Math.min(this.torqueLength - 1, rpm / this.torqueStep));
     const i = Math.floor(x);
     if (x === i) return torques[i] || 0;
     const a = torques[i] || 0;
@@ -311,7 +331,7 @@ export class Nfs3CarPhysicsBlockUiComponent extends CarSpecEditorBase {
   }
 
   // the air drag of 0x4aaed1 with the coefficient of 0x4a78d6 (default tuning): 0.98 x the top gear's drive at
-  // efficiency 1 at max velocity (torque entry trunc(round(max velocity x top ratio) / 256)), x (speed / max)³
+  // efficiency 1 at max velocity (torque entry trunc(round(max velocity x top ratio) / step)), x (speed / max)³
   private dragModel(ratios: number[] = this.ratios()) {
     const d = this.d;
     const n = this.numGears;
@@ -319,8 +339,8 @@ export class Nfs3CarPhysicsBlockUiComponent extends CarSpecEditorBase {
     const mass = d['mass'] || 0;
     if (n < 3 || maxV <= 0 || !mass) return null;
     const top = ratios[n - 1] || 0;
-    const entry = Math.trunc(Math.round(maxV * top) / TORQUE_RPM_STEP);
-    if (entry < 0 || entry >= TORQUE_LENGTH) return { entry, atMax: 0, maxV };
+    const entry = Math.trunc(Math.round(maxV * top) / this.torqueStep);
+    if (entry < 0 || entry >= this.torqueLength) return { entry, atMax: 0, maxV };
     const atMax = DRAG_SHARE * (d['torque'][entry] || 0) * (top / mass) * 0.1;
     return { entry, atMax, maxV };
   }
@@ -364,9 +384,9 @@ export class Nfs3CarPhysicsBlockUiComponent extends CarSpecEditorBase {
 
   private buildEngine(torques: number[] = this.d['torque']) {
     const active = this.torqueActiveCount;
-    const points = torques.map((t, i) => ({ x: i * TORQUE_RPM_STEP, y: t }));
+    const points = torques.map((t, i) => ({ x: i * this.torqueStep, y: t }));
     const power: CurvePoint[] = [];
-    for (let rpm = 0; rpm <= (active - 1) * TORQUE_RPM_STEP; rpm += 64) {
+    for (let rpm = 0; rpm <= (active - 1) * this.torqueStep; rpm += 64) {
       power.push({ x: rpm, y: powerKw(this.torqueAt(rpm, torques), rpm) * KW_TO_HP });
     }
     this.torqueSeries = [
@@ -396,7 +416,7 @@ export class Nfs3CarPhysicsBlockUiComponent extends CarSpecEditorBase {
         label: 'Min rpm',
         color: '#78909c',
         editable: true,
-        constraints: { min: 0, max: (TORQUE_LENGTH - 1) * TORQUE_RPM_STEP, step: 10 },
+        constraints: { min: 0, max: (this.torqueLength - 1) * this.torqueStep, step: 10 },
         format: v => fmt(v, 0),
       },
       {
@@ -405,7 +425,7 @@ export class Nfs3CarPhysicsBlockUiComponent extends CarSpecEditorBase {
         label: 'Redline',
         color: '#d32f2f',
         editable: true,
-        constraints: { min: 1000, max: (TORQUE_LENGTH - 1) * TORQUE_RPM_STEP, step: 50 },
+        constraints: { min: 1000, max: (this.torqueLength - 1) * this.torqueStep, step: 50 },
         format: v => fmt(v, 0),
       },
     ];
@@ -527,7 +547,7 @@ export class Nfs3CarPhysicsBlockUiComponent extends CarSpecEditorBase {
         label: 'Redline',
         color: '#d32f2f',
         editable: true,
-        constraints: { min: 1000, max: (TORQUE_LENGTH - 1) * TORQUE_RPM_STEP, step: 50 },
+        constraints: { min: 1000, max: (this.torqueLength - 1) * this.torqueStep, step: 50 },
         format: v => fmt(v, 0),
       },
       {
@@ -563,7 +583,7 @@ export class Nfs3CarPhysicsBlockUiComponent extends CarSpecEditorBase {
         drag.push({ x: v * MPS_TO_KMH, y: this.dragAt(v, model) });
       }
       this.accelSeries.push({ id: 'drag', label: 'Air drag', color: '#00897b', dashed: true, points: drag, formatY });
-      this.dragNote = `Drag coefficient from torque entry ${model.entry} (${fmt(model.entry * TORQUE_RPM_STEP, 0)} rpm)`;
+      this.dragNote = `Drag coefficient from torque entry ${model.entry} (${fmt(model.entry * this.torqueStep, 0)} rpm)`;
     } else {
       this.dragNote = model
         ? `Max velocity × top gear rpm per m/s reads torque entry ${model.entry}, past the 41 entries: the game reads other fields there`
@@ -1004,8 +1024,8 @@ export class Nfs3CarPhysicsBlockUiComponent extends CarSpecEditorBase {
       c.max_velocity /= (t[5] - TUNING_DEFAULT[0]) * 0.05 + 1;
     }
     if (t[0] !== TUNING_DEFAULT[0]) {
-      const lo = Math.trunc(Math.trunc((this.redline + this.minRpm) / 2) / 256) + 3;
-      const hi = Math.trunc(this.redline / 256) + 3;
+      const lo = Math.trunc(Math.trunc((this.redline + this.minRpm) / 2) / this.torqueStep) + 3;
+      const hi = Math.trunc(this.redline / this.torqueStep) + 3;
       c.torque = c.torque.map((v, i) => v + ((lo - i) / (hi - lo)) * ((t[0] - 1) * -0.1 * v));
       c.max_velocity *= (t[0] - TUNING_DEFAULT[0]) * 0.1 + 1;
     }
@@ -1044,7 +1064,7 @@ export class Nfs3CarPhysicsBlockUiComponent extends CarSpecEditorBase {
           row(`${gearName(i + 2)} rpm per m/s`, this.set.ratio, this.ratios()[i + 2] || 0, r, 2),
         ),
     ];
-    const points = (torques: number[]) => torques.map((y, i) => ({ x: i * TORQUE_RPM_STEP, y }));
+    const points = (torques: number[]) => torques.map((y, i) => ({ x: i * this.torqueStep, y }));
     const active = this.torqueActiveCount;
     this.tunedTorqueSeries = [
       { id: 'file', label: 'File', color: '#3f51b5', points: points(d['torque']), activeCount: active },
@@ -1107,7 +1127,7 @@ export class Nfs3CarPhysicsBlockUiComponent extends CarSpecEditorBase {
         id: 'redline',
         label: 'Redline',
         value: `${fmt(this.redline, 0)} rpm`,
-        edit: { value: this.redline, step: 50, min: 1000, max: (TORQUE_LENGTH - 1) * TORQUE_RPM_STEP, unit: 'rpm' },
+        edit: { value: this.redline, step: 50, min: 1000, max: (this.torqueLength - 1) * this.torqueStep, unit: 'rpm' },
         sub: `idle ${fmt(this.minRpm, 0)} rpm`,
         hint: 'redline. The automatic gearbox shifts up above 7/8 of it',
       },

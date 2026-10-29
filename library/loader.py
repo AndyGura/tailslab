@@ -35,6 +35,24 @@ def _is_nfs3_car_physics_path(file_path: str) -> bool:
     )
 
 
+def _is_nfs4_car_physics_path(file_path: str) -> bool:
+    """NFS4 `carp.txt` / `carp<n>.txt` of `Data/Cars/<car>/car.viv` (also `traffic/...`; `Data/Plac.viv`'s `carp.txt`
+    is a placeholder text)"""
+    name = _file_or_archive_item_name(file_path).lower()
+    return (
+        name.startswith('carp')
+        and name.endswith('.txt')
+        and (name == 'carp.txt' or name[4:-4].isdigit())
+        and '/DATA/CARS/' in '/' + file_path.replace('\\', '/').upper()
+    )
+
+
+def _is_nfs4_speed_file_size(length: int) -> bool:
+    from resources.eac.maps.nfs4 import is_nfs4_speed_file_size
+
+    return is_nfs4_speed_file_size(length)
+
+
 def _peek(buffer, n: int) -> bytes:
     """The next n bytes of the buffer, without moving it"""
     data = buffer.read(n)
@@ -83,6 +101,10 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.car_specs import Nfs3CarPhysics
 
             return Nfs3CarPhysics
+        elif _is_nfs4_car_physics_path(file_path):
+            from resources.eac.car_specs import Nfs4CarPhysics
+
+            return Nfs4CarPhysics
         elif length == 232 and _file_or_archive_item_name(file_path).upper() == 'SIMTUNE.DAT':
             from resources.eac.car_specs import Nfs2SimTune
 
@@ -162,12 +184,33 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
 
             return Nfs3SimHeights
         elif (
+            length is not None
+            and length % 4 == 0
+            and _file_or_archive_item_name(file_path).lower() == 'heights.sim'
+            and '/DATA/TRACKS/' in '/' + file_path.replace('\\', '/').upper()
+        ):
+            # NFS4 track slice ceiling heights Data/Tracks/<track>/heights.sim
+            from resources.eac.maps.nfs4 import Nfs4HeightsSim
+
+            return Nfs4HeightsSim
+        elif (
+            length is not None
+            and _file_or_archive_item_name(file_path).lower() in ('spdfa.bin', 'spdra.bin', 'spdb.bin')
+            and '/DATA/TRACKS/' in '/' + file_path.replace('\\', '/').upper()
+            and _is_nfs4_speed_file_size(length)
+        ):
+            # NFS4 AI line Data/Tracks/<track>/spdFA.bin (spdRA.bin reversed; France's spdB.bin unused)
+            from resources.eac.maps.nfs4 import Nfs4SpeedFile
+
+            return Nfs4SpeedFile
+        elif (
             file_path.upper().endswith('.CAN')
             and length is not None
             and length >= 8
             and length == 8 + 20 * int.from_bytes(_peek(buffer, 8)[4:6], 'little')
         ):
-            # NFS3 animation path TR<nn><k>.CAN (NFS2, NFS2 SE and NFS4 .CAN files have the same layout)
+            # NFS3 animation path TR<nn><k>.CAN, NFS4 Tr<nn>.can / Tr00a.can (NFS2 and NFS2 SE .CAN files have the
+            # same layout)
             from resources.eac.maps.nfs3 import Nfs3CanAnimation
 
             return Nfs3CanAnimation

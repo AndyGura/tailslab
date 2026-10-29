@@ -214,3 +214,156 @@ describe('Nfs3CarPhysicsBlockUiComponent', () => {
     expect(change.newValue).toBe(250);
   });
 });
+
+// NFS4 B911 carp.txt as parsed (Nfs4CarPhysics): 21 torque entries 500 rpm apart
+const nfs4Spec = (): { [key: string]: any } => ({
+  serial_number: 42,
+  car_class: 0,
+  mass: 1275.0,
+  num_gears: 8,
+  num_gears_auto: 8,
+  shift_delay: 4,
+  shift_blip: [0, 0, 300, 250, 200, 150, 100, 50],
+  brake_blip: [0, 0, 300, 250, 200, 150, 100, 50],
+  vel_to_rpm: [-299.19516, 0.0, 399.833557, 225.144363, 151.841553, 116.237328, 96.340843, 68.066902],
+  vel_to_rpm_auto: [-299.19516, 0.0, 399.833557, 225.144363, 151.841553, 116.237328, 96.340843, 68.066902],
+  gear_ratio: [2.857143, 0.0, 3.818182, 2.15, 1.45, 1.11, 0.92, 0.65],
+  gear_ratio_auto: [2.857143, 0.0, 3.818182, 2.15, 1.45, 1.11, 0.92, 0.65],
+  gear_efficiency: [0.8, 0.0, 0.94, 0.94, 1.1, 1.1, 1.1, 1.25],
+  gear_efficiency_auto: [0.8, 0.0, 0.88, 0.88, 0.9, 1.0, 1.0, 1.25],
+  torque: [
+    0.0, 205.0, 240.0, 275.0, 345.0, 455.0, 500.0, 525.0, 535.0, 540.0, 515.0, 500.0, 455.0, 410.0, 360.0, 310.0, 0.0,
+    0.0, 0.0, 0.0, 0.0,
+  ],
+  final_gear: 3.444444,
+  final_gear_auto: 3.444444,
+  min_rpm: 975,
+  redline: 6500,
+  max_velocity: 93.09024,
+  top_speed_cap: 93.09024,
+  front_drive_ratio: 0.0,
+  abs: 1,
+  max_brake_decel: 11.8,
+  front_brake_bias: 0.6345,
+  gas_increasing: [16, 16, 16, 16, 16, 16, 16, 16],
+  gas_decreasing: [32, 32, 32, 32, 32, 32, 32, 32],
+  brake_increasing: [64.0, 32.0, 16.0, 8.0, 4.0, 2.0, 1.0, 1.0],
+  brake_decreasing: [32.0, 32.0, 32.0, 32.0, 32.0, 32.0, 32.0, 32.0],
+  wheel_base: 2.272,
+  front_grip_bias: 0.45,
+  power_steering: 1,
+  min_steering_accel: 18.35,
+  turn_in_ramp: 16.0,
+  turn_out_ramp: 32.0,
+  lateral_grip: 3.83,
+  understeer_gradient: 1.0,
+  aero_downforce: 0.002403,
+  gas_off_factor: 0.415,
+  g_transfer: 0.4175,
+  turning_circle: 11.0,
+  tire_front: [225, 40, 18],
+  tire_rear: [285, 30, 18],
+  tire_wear: 0.0,
+  slide_mult: 0.599991,
+  spin_velocity_cap: 0.399994,
+  slide_velocity_cap: 0.4,
+  slide_assist: 150,
+  push_factor: 9000,
+  low_turn_factor: 0.023987,
+  high_turn_factor: 0.029999,
+  pitch_roll: 0.68,
+  road_bumpiness: 0.589997,
+  spoiler_type: 1,
+  spoiler_speed: 0.0,
+  gradual_turn_cutoff: 100,
+  medium_turn_cutoff: 150,
+  sharp_turn_cutoff: 170,
+  medium_turn_speed: 0.98,
+  sharp_turn_speed: 0.95,
+  extreme_turn_speed: 0.9,
+  subdivide_level: 3,
+  camera_arm: 0.25,
+  body_damage: 0.0,
+  engine_damage: 0.0,
+  suspension_damage: 0.0,
+  engine_tuning: 1.0,
+  brake_balance: 0.0,
+  steering_speed: 1.0,
+  gear_ratio_factor: 1.0,
+  suspension_stiffness: 1.002575,
+  aero_factor: 1.0,
+  tire_factor: 1.0,
+  ai_acc0: [
+    5.818182, 7.64307, 8.811368, 9.378811, 9.666621, 9.921391, 10.138852, 10.195823, 10.095155, 10.017867, 10.053526,
+    9.978955, 9.450485, 8.492345,
+  ],
+  ai_acc1: [
+    7.60174, 7.19294, 7.224707, 7.439236, 7.654529, 7.808321, 7.901236, 7.951843, 7.957748, 7.829622, 7.437331,
+    6.837531, 6.291243, 5.972034,
+  ],
+  ai_acc2: [
+    5.848547, 5.836344, 5.90136, 6.021336, 6.150844, 6.253321, 6.307421, 6.289436, 6.170543, 5.89625, 5.463481,
+    5.021826, 4.730269, 4.598751,
+  ],
+  ai_acc3: [
+    4.557678, 4.552851, 4.557912, 4.563418, 4.567176, 4.562271, 4.506767, 4.327336, 4.023001, 3.717912, 3.53193,
+    3.466761, 3.453637, 3.442629,
+  ],
+  ai_acc4: [
+    3.420563, 3.384172, 3.332133, 3.248957, 3.092072, 2.86229, 2.646938, 2.524755, 2.489008, 2.488669, 2.486838,
+    2.46962, 2.43525, 2.388426,
+  ],
+  ai_acc5: [
+    2.331744, 2.266279, 2.197999, 2.130153, 2.06127, 1.991573, 1.920499, 1.846578, 1.771197, 1.694682, 1.614361,
+    1.528703, 1.437061, 1.338471,
+  ],
+  ai_acc6: [
+    1.233863, 1.125991, 1.016728, 0.905891, 0.792227, 0.675495, 0.557534, 0.440139, 0.323232, 0.201258, 0.0, 0.0, 0.0,
+    0.0,
+  ],
+  ai_acc7: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+});
+
+describe('Nfs3CarPhysicsBlockUiComponent with NFS4 car physics', () => {
+  let fixture: ComponentFixture<Nfs3CarPhysicsBlockUiComponent>;
+  let component: Nfs3CarPhysicsBlockUiComponent;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      declarations: [Nfs3CarPhysicsBlockUiComponent],
+      providers: [
+        { provide: MainService, useValue: { focusedResourceId$: new BehaviorSubject(null) } },
+        {
+          provide: ChangesService,
+          useValue: {
+            change$: new Subject<string>(),
+            appendChanges: () => Promise.resolve(),
+            subscribeComponent: () => {},
+            unsubscribeComponent: () => {},
+          },
+        },
+      ],
+      schemas: [NO_ERRORS_SCHEMA],
+    }).compileComponents();
+    fixture = TestBed.createComponent(Nfs3CarPhysicsBlockUiComponent);
+    component = fixture.componentInstance;
+    component.resourceId = 'car.viv__data/children/0/item/data';
+    component.resourceSchema = { block_class_mro: 'Nfs4CarPhysics__Nfs3CarPhysics__DataBlock', fields: [] };
+    component.resourceData = nfs4Spec();
+    fixture.detectChanges();
+  });
+
+  it('reads the torque curve 500 rpm apart', () => {
+    expect(component.isNfs4).toBeTrue();
+    expect(component.torqueAt(500 * 9)).toBe(540);
+    expect(component.torqueAt(500 * 8.5)).toBeCloseTo((535 + 540) / 2, 4);
+    expect(component.torqueAt(20000)).toBe(0);
+    expect(component.torqueSeries[0].points[2].x).toBe(1000);
+  });
+
+  it('sets the air drag from the top gear at the max velocity', () => {
+    // torque entry trunc(round(93.09024 x 68.066902) / 500) = 12
+    const atMax = ((0.98 * 455 * 68.066902) / 1275) * 0.1;
+    expect(component.dragAt(93.09024)).toBeCloseTo(atMax, 6);
+  });
+});

@@ -1,34 +1,4 @@
---- Write failures (Test 2): 157 ---
-nfs2/GAMEDATA/AUDIO/PC/CREDITS.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/HIMROCK.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/HIMROCK.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/HIMTECH.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/HIMTECH.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/HOLLYROK.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/HOLLYROK.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/HOLLYTEC.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/HOLLYTEC.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/MEDROCK.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/MEDROCK.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/MEDTECH.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/MEDTECH.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/NCNTROCK.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/NCNTROCK.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/NCNTTECH.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/NCNTTECH.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/OBAKROCK.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/OBAKROCK.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/OBAKTECH.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/OBAKTECH.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/PACROCK.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/PACROCK.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/PACTECH.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/PACTECH.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/PIONROCK.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/PIONROCK.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/PIONTECH.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/PIONTECH.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2/GAMEDATA/AUDIO/PC/SHOW.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
+--- Write failures (Test 2): 58 ---
 nfs2se/FEDATA/PC/MOVIES/CALAAV.DCT		BlockDefinitionException: Ffmpeg video cannot be written as data block
 nfs2se/FEDATA/PC/MOVIES/DEMOAV0.DCT		BlockDefinitionException: Ffmpeg video cannot be written as data block
 nfs2se/FEDATA/PC/MOVIES/DEMOAV1.DCT		BlockDefinitionException: Ffmpeg video cannot be written as data block
@@ -44,75 +14,6 @@ nfs2se/FEDATA/PC/MOVIES/MCLARAV.DCT		BlockDefinitionException: Ffmpeg video cann
 nfs2se/FEDATA/PC/MOVIES/MUSTAV.DCT		BlockDefinitionException: Ffmpeg video cannot be written as data block
 nfs2se/FEDATA/PC/MOVIES/NAZCAAV.DCT		BlockDefinitionException: Ffmpeg video cannot be written as data block
 nfs2se/FEDATA/PC/MOVIES/TITLEAV.DCT		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/CREDITS.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/HIMROCK.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/HIMROCK.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/HIMTECH.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/HIMTECH.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/HOLLYROK.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/HOLLYROK.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/HOLLYTEC.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/HOLLYTEC.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/LASTROCK.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/LASTROCK.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/LASTTECH.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/LASTTECH.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/MEDROCK.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/MEDROCK.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/MEDTECH.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/MEDTECH.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/NCNTROCK.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/NCNTROCK.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/NCNTTECH.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/NCNTTECH.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/OBAKROCK.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/OBAKROCK.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/OBAKTECH.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/OBAKTECH.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/PACROCK.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/PACROCK.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/PACTECH.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/PACTECH.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/PIONROCK.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/PIONROCK.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/PIONTECH.ASF		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/PIONTECH.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/SHOW.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs2se/GAMEDATA/AUDIO/PC/SHOW2.MUS		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs6/audio/music/Track0.asf		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs6/audio/music/Track1.asf		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs6/audio/music/Track2.asf		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs6/audio/music/Track3.asf		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs6/audio/music/track10.asf		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs6/audio/music/track11.asf		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs6/audio/music/track12.asf		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs6/audio/music/track13.asf		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs6/audio/music/track14.asf		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs6/audio/music/track15.asf		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs6/audio/music/track16.asf		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs6/audio/music/track17.asf		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs6/audio/music/track18.asf		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs6/audio/music/track19.asf		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs6/audio/music/track20.asf		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs6/audio/music/track21.asf		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs6/audio/music/track22.asf		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs6/audio/music/track4.asf		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs6/audio/music/track5.asf		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs6/audio/music/track6.asf		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs6/audio/music/track7.asf		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs6/audio/music/track8.asf		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfs6/audio/music/track9.asf		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfsmw/SOUND/SPEECH/copspeech.big		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfsmw/SOUND/STREAMS/NISAudio.big		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfsu/SNDSTREAMS/STRM_AMB_MonoPoint_MB.ast		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfsu/SNDSTREAMS/STRM_AMB_Stereo_MB.ast		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfsu/SNDSTREAMS/STRM_Music_UG0_MB.ast		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfsu/SNDSTREAMS/STRM_SpecialStream_MB.ast		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfsu/SpeechStreams/STRM_English_Speech_MB.ast		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfsu/SpeechStreams/STRM_French_Speech_MB.ast		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfsu/SpeechStreams/STRM_German_Speech_MB.ast		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfsu/SpeechStreams/STRM_Italian_Speech_MB.ast		BlockDefinitionException: Ffmpeg video cannot be written as data block
-nfsu/SpeechStreams/STRM_Spanish_Speech_MB.ast		BlockDefinitionException: Ffmpeg video cannot be written as data block
 tnfsse/FRONTEND/MOVIE/512TR.TGV		BlockDefinitionException: Ffmpeg video cannot be written as data block
 tnfsse/FRONTEND/MOVIE/911.TGV		BlockDefinitionException: Ffmpeg video cannot be written as data block
 tnfsse/FRONTEND/MOVIE/ATTRACT1.TGV		BlockDefinitionException: Ffmpeg video cannot be written as data block
@@ -157,7 +58,7 @@ tnfsse/SIMDATA/MISC/TR6INFO		NotImplementedError:
 tnfsse/SIMDATA/MISC/TR7INFO		NotImplementedError: 
 tnfsse/SIMDATA/MISC/TRXINFO		NotImplementedError: 
 
---- Read-again failures (Test 3): 148 ---
+--- Read-again failures (Test 3): 119 ---
 nfs2se/GAMEDATA/DASHHUD/PC/HUDDATA.VIV		Read-again data differs from original data
 nfs2se/SETUP/ENGLISH/_INST32I.EX_		Read-again data differs from original data
 nfs2se/SETUP/SPANISH/_INST32I.EX_		Read-again data differs from original data
@@ -166,35 +67,6 @@ nfs3/FeData/text/TEXT.FRE		Read-again data differs from original data
 nfs3/FeData/text/TEXT.ITA		Read-again data differs from original data
 nfs3/FeData/text/TEXT.SPA		Read-again data differs from original data
 nfs3/FeData/text/TEXT.SWE		Read-again data differs from original data
-nfs4/Data/Tracks/Aquatica/Tr.frd		Read-again data differs from original data
-nfs4/Data/Tracks/Atlantic/Tr.frd		Read-again data differs from original data
-nfs4/Data/Tracks/Coastal/Tr.frd		Read-again data differs from original data
-nfs4/Data/Tracks/Coastal/Trn.frd		Read-again data differs from original data
-nfs4/Data/Tracks/Country/Tr.frd		Read-again data differs from original data
-nfs4/Data/Tracks/Empire/Tr.frd		Read-again data differs from original data
-nfs4/Data/Tracks/France/Tr.frd		Read-again data differs from original data
-nfs4/Data/Tracks/France/Trn.frd		Read-again data differs from original data
-nfs4/Data/Tracks/GT1/Tr.frd		Read-again data differs from original data
-nfs4/Data/Tracks/GT1/Trn.frd		Read-again data differs from original data
-nfs4/Data/Tracks/GT2/Tr.frd		Read-again data differs from original data
-nfs4/Data/Tracks/GT2/Trn.frd		Read-again data differs from original data
-nfs4/Data/Tracks/GT3/Tr.frd		Read-again data differs from original data
-nfs4/Data/Tracks/GT3/Trn.frd		Read-again data differs from original data
-nfs4/Data/Tracks/Germany/Tr.frd		Read-again data differs from original data
-nfs4/Data/Tracks/Germany/Trn.frd		Read-again data differs from original data
-nfs4/Data/Tracks/Hills/Tr.frd		Read-again data differs from original data
-nfs4/Data/Tracks/Hills/Trn.frd		Read-again data differs from original data
-nfs4/Data/Tracks/Hometown/Tr.frd		Read-again data differs from original data
-nfs4/Data/Tracks/Lostcany/Tr.frd		Read-again data differs from original data
-nfs4/Data/Tracks/Park/Tr.frd		Read-again data differs from original data
-nfs4/Data/Tracks/Park/Trn.frd		Read-again data differs from original data
-nfs4/Data/Tracks/Redrock/Tr.frd		Read-again data differs from original data
-nfs4/Data/Tracks/Rockypas/Tr.frd		Read-again data differs from original data
-nfs4/Data/Tracks/Snowy/Tr.frd		Read-again data differs from original data
-nfs4/Data/Tracks/Snowy/Trn.frd		Read-again data differs from original data
-nfs4/Data/Tracks/Summit/Tr.frd		Read-again data differs from original data
-nfs4/Data/Tracks/Uk/Tr.frd		Read-again data differs from original data
-nfs4/Data/Tracks/Uk/Trn.frd		Read-again data differs from original data
 nfs5/FEData/Models/dealer2a.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/FEData/Models/dealer2a.crp/uncompressed/common_parts/0/data] Block read went out of available size
 nfs5/FEData/Models/dealer2b.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/FEData/Models/dealer2b.crp/uncompressed/common_parts/0/data] Block read went out of available size
 nfs5/FEData/Models/dealer2c.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/FEData/Models/dealer2c.crp/uncompressed/common_parts/0/data] Block read went out of available size
@@ -307,10 +179,8 @@ tnfsse/SIMDATA/MISC/CL3.TRI		Read-again data differs from original data
 tnfsse/SIMDATA/MISC/CY3.TRI		Read-again data differs from original data
 tnfsse/SIMDATA/SOUNDBNK/COLL_SB.BNK		Read-again data differs from original data
 
---- Comparison failures (Test 4): 74 ---
+--- Comparison failures (Test 4): 72 ---
 nfs2/GAMEDATA/TMPTRK/MAIN.TRK		Output length (966706) differs from input length (1126400)
-nfs2/GAMEDATA/TRACKS/DATA/PC/TR0601.CAN		Output length (178) differs from input length (1088)
-nfs2/GAMEDATA/TRACKS/DATA/PC/TR0701.CAN		Output length (178) differs from input length (1088)
 nfs3/GameData/Render/PC/CONE.ART		Output length (16) differs from input length (32788)
 nfs4/Data/GameArt/median.art		Output length (16) differs from input length (8728)
 nfs5/GameData/Sounds/993Tcoupe36.spl		Output length (16) differs from input length (52)
@@ -383,7 +253,7 @@ tnfsse/SIMDATA/SOUNDBNK/COLLSBMT.BNK		Output length (438796) differs from input 
 tnfsse/SIMDATA/SOUNDBNK/COLLSBWT.BNK		Output length (434092) differs from input length (279340)
 tnfsse/SIMDATA/SOUNDBNK/OSUPMB3D.BNK		Output length (26638) differs from input length (17744)
 
---- Read failures (Test 1): 116 ---
+--- Read failures (Test 1): 111 ---
 nfs2/FEDATA/PC/STATS/MED.SSF		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs2/FEDATA/PC/STATS/MED.SSF/colors] Block read went out of available size
 nfs2/FEDATA/PC/STATS/MONO.SSF		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs2/FEDATA/PC/STATS/MONO.SSF/colors] Block read went out of available size
 nfs2/FEDATA/PC/STATS/MYST.SSF		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs2/FEDATA/PC/STATS/MYST.SSF/colors] Block read went out of available size
@@ -410,7 +280,6 @@ nfs2se/FEDATA/PC/STATS/OVAL.SSF		EndOfBufferException: [//Users/andy/Development
 nfs2se/FEDATA/PC/STATS/OZ.SSF		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs2se/FEDATA/PC/STATS/OZ.SSF/colors] Block read went out of available size
 nfs2se/FEDATA/PC/STATS/PAC.SSF		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs2se/FEDATA/PC/STATS/PAC.SSF/colors] Block read went out of available size
 nfs2se/GAMEDATA/SIM/AI/MTRAF.BAT		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs2se/GAMEDATA/SIM/AI/MTRAF.BAT/bitmap] Block read went out of available size
-nfs2se/GAMEDATA/SIM/AI/PRSONAL.DAT		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs2se/GAMEDATA/SIM/AI/PRSONAL.DAT/bitmap] Block read went out of available size
 nfs2se/GAMEDATA/TRACKS/SPEEDS/TR00.SPL		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs2se/GAMEDATA/TRACKS/SPEEDS/TR00.SPL/bitmap] Block read went out of available size
 nfs2se/GAMEDATA/TRACKS/SPEEDS/TR04.SPD		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs2se/GAMEDATA/TRACKS/SPEEDS/TR04.SPD/bitmap] Block read went out of available size
 nfs2se/GAMEDATA/TRACKS/SPEEDS/TR05.SPD		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs2se/GAMEDATA/TRACKS/SPEEDS/TR05.SPD/bitmap] Block read went out of available size
@@ -423,10 +292,6 @@ nfs3/FeData/text/TEXT.CMT		EndOfBufferException: [//Users/andy/Development/nfs-r
 nfs3/FeData/text/TEXT.MET		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs3/FeData/text/TEXT.MET/colors] Block read went out of available size
 nfs3/GameData/Tracks/TRK008/TUT08F.BIN		DataIntegrityException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs3/GameData/Tracks/TRK008/TUT08F.BIN] Expected Always == 0x6, found 0x0 at unk0
 nfs3/eauninst.dat		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs3/eauninst.dat/colors] Block read went out of available size
-nfs4/Data/Tracks/GT2/spdFA.bin		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs4/Data/Tracks/GT2/spdFA.bin/bitmap] Block read went out of available size
-nfs4/Data/Tracks/Park/spdfa.bin		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs4/Data/Tracks/Park/spdfa.bin/bitmap] Block read went out of available size
-nfs4/Data/Tracks/Snowy/spdfa.bin		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs4/Data/Tracks/Snowy/spdfa.bin/bitmap] Block read went out of available size
-nfs4/Data/Tracks/Snowy/spdra.bin		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs4/Data/Tracks/Snowy/spdra.bin/bitmap] Block read went out of available size
 nfs5/GameData/Simulation/AI/tuning.csv		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/Simulation/AI/tuning.csv/colors] Block read went out of available size
 nfs5/GameData/Sounds/356AcabrioS13.spl		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/Sounds/356AcabrioS13.spl/bitmap] Block read went out of available size
 nfs5/GameData/Sounds/356AcoupeS13.spl		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/Sounds/356AcoupeS13.spl/bitmap] Block read went out of available size

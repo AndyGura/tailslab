@@ -1,0 +1,163 @@
+Serial Number(0)
+0
+Car Classification(1)
+0
+mass [kg](2)
+9400.000000
+number of gears (reverse + neutral + forward gears)(3)
+7
+number of gears (automatic, r, n, forward)(75)
+7
+gear shift delay (ticks)(4)
+16
+shift blip in rpm (size 8)(5)
+0,0,300,250,200,150,125,0
+brake blip in rpm (size 8)(6)
+0,0,300,250,200,150,125,0
+velocity to rpm ratio (size 8)(7)
+-404.509857,0.000000,480.799011,315.000000,220.000000,150.898972,110.298996,0.000000
+velocity to rpm ratio automatic(size 8)(76)
+-404.509857,0.000000,480.799011,315.000000,220.000000,150.898972,110.298996,0.000000
+gear ratios (size 8)(8)
+0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000
+gear ratios automatic (size 8)(77)
+0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000
+gear efficiency (size 8)(9)
+1.000000,1.000000,1.000000,1.000000,1.000000,1.000000,1.000000,1.000000
+gear efficiency automatic (size 8)(78)
+1.000000,1.000000,1.000000,1.000000,1.000000,1.000000,1.000000,1.000000
+torque curve (size 21) in 500 rpm increments(10)
+0.000000,135.000000,270.000000,316.000000,335.000000,348.000000,393.000000,393.000000,390.000000,393.000000,375.000000,362.000000,340.000000,305.000000,260.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000
+final gear(11)
+4.000000
+final gear automatic(79)
+4.000000
+engine minimum rpm(12)
+825
+engine redline in rpm(13)
+5500
+maximum velocity of car [m/s](14)
+44.704725
+top speed cap [m/s](15)
+44.704725
+front drive ratio(16)
+0.500000
+Uses Antilock Brake System(17)
+0
+maximum braking deceleration(18)
+6.500000
+front bias brake ratio(19)
+0.500000
+gas increasing curve(20)
+16,16,16,16,16,16,16,16
+gas decreasing curve(21)
+32,32,32,32,32,32,32,32
+brake increasing curve(22)
+64.000000,32.000000,16.000000,8.000000,4.000000,2.000000,1.000000,1.000000
+brake decreasing curve(23)
+32.000000,32.000000,32.000000,32.000000,32.000000,32.000000,32.000000,32.000000
+wheel base(24)
+3.05000
+front grip bias(25)
+0.449997
+power steering (boolean)(26)
+1
+minimum steering acceleration(27)
+14.000000
+turn in ramp(28)
+10.000000
+turn out ramp(29)
+20.000000
+lateral acceleration grip multiplier(30)
+2.70000
+understeer gradient(80)
+1.030000
+aerodynamic downforce multiplier(31)
+0.001500
+gas off factor(32)
+0.399994
+g transfer factor(33)
+0.599991
+turning circle radius(34)
+25.000000
+tire specs front(35)
+255,70,16
+tire specs rear(36)
+255,70,16
+tire wear(37)
+0.000000
+Slide Multiplier(38)
+1.000000
+Spin Velocity Cap(39)
+0.599991
+Slide Velocity Cap(40)
+1.000000
+Slide Assistance Factor(41)
+128.000000
+Push Factor(42)
+10000
+Low Turn Factor (the lower the figure, the better the turn)(43)
+0.024994
+High Turn Factor (the lower the figure, the better the turn)(44)
+0.034988
+pitch roll factor(45)
+1.000000
+road bumpiness factor(46)
+1.000000
+spoiler function type(47)
+0
+spoiler activation speed [m/s](48)
+0.000000
+gradual turn cutoff(49)
+64
+medium turn cutoff(50)
+96
+sharp turn cutoff(51)
+160
+medium turn speed modifier(52)
+0.799988
+sharp turn speed modifier(53)
+0.699997
+extreme turn speed modifier(54)
+0.599991
+subdivide level(55)
+3
+camera arm(56)
+0.250000
+Body Damage(57)
+0.000000
+Engine Damage(58)
+0.000000
+Suspension Damage(59)
+0.000000
+Engine Tuning(60)
+1.000000
+Brake Balance(61)
+0.000000
+Steering Speed(62)
+1.000000
+Gear Rat Factor(63)
+1.000000
+Suspension Stiffness(64)
+1.000000
+Aero Factor(65)
+1.000000
+Tire Factor(66)
+1.000000
+AI ACC0 acceleration table section(67)
+3.206897,2.652703,2.836838,3.131578,3.627893,4.178579,4.960398,5.687090,6.084682,6.269001,6.525480,7.031542,7.518197,6.999102,
+AI ACC1 acceleration table section(68)
+5.367220,4.298882,4.237817,4.315812,4.395757,4.083623,2.955243,1.879356,1.399145,1.215539,1.177631,1.186906,1.192237,1.206156,
+AI ACC2 acceleration table section(69)
+1.241839,1.268690,1.282626,1.307227,1.334445,1.343417,1.339932,1.330686,1.313058,1.296407,1.281795,1.262963,1.241498,1.214447,
+AI ACC3 acceleration table section(70)
+1.179925,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+AI ACC4 acceleration table section(71)
+0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+AI ACC5 acceleration table section(72)
+0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+AI ACC6 acceleration table section(73)
+0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+AI ACC7 acceleration table section(74)
+0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+ 

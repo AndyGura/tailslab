@@ -4,6 +4,7 @@ from io import BytesIO
 
 from library import require_file
 from library.context import ReadContext
+from resources.eac.maps.nfs4 import Nfs4SpeedFile
 
 
 class TestTriMap(unittest.TestCase):
@@ -48,23 +49,34 @@ class TestTriMap(unittest.TestCase):
 
 
 class TestNfs4FrdMap(unittest.TestCase):
-    def test_nfs4_frd_should_be_same_size_and_stable(self):
+    def test_nfs4_frd_should_remain_the_same(self):
         (name, block, data) = require_file('test/samples/GT1.FRD')
         with open('test/samples/GT1.FRD', 'rb') as bdata:
             original = bdata.read()
-        output = block.pack(data, name=name)
-        # `polygon_vroad_data.normal`/`.forward` are re-normalized to unit length on write, which
-        # is lossy (the source data isn't always exactly unit length in the first place), so a
-        # byte-identical round trip isn't expected here - only that the size is preserved and the
-        # result stabilizes (a handful of vectors sit close enough to a quantization boundary that
-        # convergence takes one extra cycle, hence comparing the 2nd and 3rd cycle rather than the
-        # 1st and 2nd).
-        self.assertEqual(len(original), len(output))
-        data_twice = block.unpack_from_bytes(output, name=name + '__twice')
-        output_twice = block.pack(data_twice, name=name + '__twice')
-        data_thrice = block.unpack_from_bytes(output_twice, name=name + '__thrice')
-        output_thrice = block.pack(data_thrice, name=name + '__thrice')
-        self.assertEqual(output_twice, output_thrice)
+        self.assertEqual(block.pack(data, name=name), original)
+
+    def test_nfs4_frd_slices_and_road_data_should_be_named(self):
+        (name, block, data) = require_file('test/samples/GT1.FRD')
+        headers = data['blocks_headers']
+        self.assertEqual(sum(h['num_slices'] for h in headers), len(data['vroad']))
+        self.assertTrue(all(h['num_slices'] == 8 for h in headers[:-1]))
+        for header, trk_block in zip(headers, data['blocks']):
+            for record in trk_block['polygon_vroad_data']:
+                self.assertLess(record['polygon'], header['polygon_chunk_sizes'][4])
+                self.assertLessEqual(record['cell_z_min'], record['cell_z_max'])
+                self.assertLessEqual(record['cell_x_min'], record['cell_x_max'])
+        surfaces = [r['surface'] for b in data['blocks'] for r in b['polygon_vroad_data']]
+        self.assertTrue(any(s['walls'] for s in surfaces))
+        self.assertTrue(all(0 <= s['surface_type'] < 32 for s in surfaces))
+        vroad = data['vroad'][0]
+        self.assertTrue(0 <= vroad['left_side_type'] <= 5 and 0 <= vroad['right_side_type'] <= 5)
+        self.assertGreater(vroad['right_lanes'], 0)
+        self.assertNotEqual(vroad['lane_open_bits'], 0)
+        types = {x['collision']['type'] for b in data['blocks'] for x in b['xobj']}
+        self.assertTrue(types <= {'none', 'solid', 'knockable', 'crash_only'})
+        specials = [o['special_data'] for o in data['global_objects_1']['objects'] if o['special_data']]
+        self.assertTrue(specials)
+        self.assertTrue(all(0 <= s['slice'] < len(data['vroad']) for s in specials))
 
 
 class TestNfs6AiPaths(unittest.TestCase):
@@ -381,3 +393,36 @@ class TestNfs3TrackSmallFiles(unittest.TestCase):
         self.assertEqual(block.pack(data), raw)
         data['keyframes'].pop()
         self.assertEqual(block.pack(data)[:6], struct.pack('<HHH', 28, 0x41, 1))
+
+
+class TestNfs4TrackSmallFiles(unittest.TestCase):
+    def test_heights_sim_should_be_one_float_per_slice(self):
+        import struct
+        from library.loader import probe_block_class
+
+        raw = struct.pack('<3f', 7.6875, 4.25, 10.0)
+        block_class = probe_block_class(BytesIO(raw), 'games/nfs4/Data/Tracks/GT1/heights.sim', len(raw))
+        self.assertEqual(block_class.__name__, 'Nfs4HeightsSim')
+        block = block_class()
+        data = block.unpack_from_bytes(raw)
+        self.assertEqual(data['heights'], [7.6875, 4.25, 10.0])
+        self.assertEqual(block.pack(data), raw)
+
+    def test_speed_file_should_hold_speeds_lanes_and_offsets(self):
+        import struct
+        from library.loader import probe_block_class
+
+        # 3 slices: ceil(3 / 2) speed bytes, 3 lane bytes, 3 floats
+        raw = bytes([60, 72]) + bytes([0x70, 0x60, 0x80]) + struct.pack('<3f', 0.5, -2.0, 3.25)
+        self.assertEqual(len(raw), (3 + 1) // 2 + 5 * 3)
+        for name in ('spdFA.bin', 'spdra.bin'):
+            block_class = probe_block_class(BytesIO(raw), f'Data/Tracks/Uk/{name}', len(raw))
+            self.assertEqual(block_class.__name__, 'Nfs4SpeedFile')
+        with self.assertRaises(NotImplementedError):
+            probe_block_class(BytesIO(raw[:-1]), 'Data/Tracks/Uk/spdFA.bin', len(raw) - 1)
+        block = Nfs4SpeedFile()
+        data = block.unpack_from_bytes(raw)
+        self.assertEqual(data['speeds'], [60, 72])
+        self.assertEqual([x['lane'] for x in data['lanes']], [7, 6, 8])
+        self.assertEqual(data['line_offsets'], [0.5, -2.0, 3.25])
+        self.assertEqual(block.pack(data), raw)

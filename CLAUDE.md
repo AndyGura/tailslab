@@ -500,15 +500,45 @@ When you do:
   text lacks appended when they differ from the default, so all 16 files write back byte-exact
   (`test/samples/nfs3_carp/`, `test/resources/eac/test_nfs3_car_physics.py`, which also checks the values against
   the exe parser's carp dumped by the nfs-web port). Picked by the item name `carp.txt` under a `/CarModel/` path
-  (`_is_nfs3_car_physics_path`): NFS4's `Data/Cars/<car>/car.viv` `carp.txt` (21-entry torque curve, field 80) is
-  another format and stays raw.
-- `Nfs3CarPhysicsSerializer` writes `carp.txt.json` (named values) and `carp.txt.bin` (the file itself): nfs-web's
-  NFS3 physics downloads `carp.txt.bin` from the CDN, keep writing it byte-identical.
+  (`_is_nfs3_car_physics_path`). The block is table driven (`carp_fields`, `carp_table_index`, `carp_labels`,
+  `carp_exe_read`, `_value_line`): `Nfs4CarPhysics` subclasses it.
+- `Nfs3CarPhysicsSerializer` writes `carp.txt.json` (named values) and `carp.txt.bin` (the file itself), for NFS3 and
+  NFS4: nfs-web's NFS3 physics downloads `carp.txt.bin` from the CDN, keep writing it byte-identical.
 - GUI: `Nfs3CarPhysicsBlockUiComponent` (`frontend/.../editor/eac/nfs3-car-physics.block-ui/`, on `CarSpecEditorBase`):
   dyno (interpolated torque), gearing with the automatic gearbox and the air drag (manual / automatic gear set),
   brake and steering ramps, steering lock, yaw damping, downforce, AI acceleration table, driving aid, the menus'
   tuning sliders (Carp_TuneCar, local to the editor). Its derived curves follow the field descriptions: keep the two
-  in sync.
+  in sync. NFS4 carp files reach it through `block_class_mro` (`isNfs4`: torque curve 21 entries 500 rpm apart,
+  `understeer_gradient`, the driving aid noted as unused).
+
+## NFS4 car physics (`Data/Cars/<car>/car.viv`: `carp.txt`, `carp<n>.txt`)
+
+- `Nfs4CarPhysics` (`resources/eac/car_specs.py`, subclass of `Nfs3CarPhysics`): the same label / value line text,
+  parsed as nfs4.exe 0x503480 does (`nfs4_carp_exe_read`: lines without spaces, lower-cased, the file's last byte
+  never read; a line containing the `(n)` of a field of the table `NFS4_CARP_FIELD_TABLE` (0x5bd414, the first in
+  table order, no key text) is a label and the next line is always its value line; values split at `,` / tabs,
+  `sscanf` `%d` / `%f`, a non-number ends the line; a field given twice takes the later values; missing fields and
+  items take the default carp 0x5be344). 81 fields (`understeer_gradient` (80) is new; torque 21 floats 500 rpm
+  apart; `camera_arm` a float; `abs` and the gas curves bytes), offsets of nfs4.exe's 0x464-byte carp; value blocks
+  `CarpTextNfs4Int` / `Byte` / `Float` / `Array`. Field uses from nfs-web's NFS4 port (`src/nfs4/nfs4-physics`).
+  All 75 files of the game (23 racers, 19 traffic and pursuit cars, `carp1`..`carp3.txt` of 11 cars: race type 4,
+  game setup car +0x18) write back byte-exact and read as the port of the exe parser reads them
+  (`test/samples/nfs4_carp/`, `test/resources/eac/test_nfs4_car_physics.py`). Picked by `carp.txt` / `carp<n>.txt`
+  under a `/Data/Cars/` path (`_is_nfs4_car_physics_path`; `Data/Plac.viv`'s `carp.txt` is a placeholder text and
+  stays raw). Exported like NFS3's (`carp.txt.json` + `carp.txt.bin`).
+
+## NFS4 tracks (`Data/Tracks/<track>/`, nfs4.exe)
+
+- `Nfs4FrdMap` (`resources/eac/maps/nfs4.py`) field names and descriptions follow nfs4.exe (FRD loader 0x4327b0,
+  track position search 0x439fe0, car collisions 0x45cf20 / 0x45d8c0, lanes 0x41cc00 / 0x41cce0): vroad records =
+  slices (8 per block, `num_slices` of the block header), lane widths / counts / open bits, side types; block header
+  pointer slots (`*_pointer(s)`, `Nfs4BlockCount.pointer`: written by the loader, leftovers in the files); polygon
+  records with cell ranges, per-edge wall flags, the surface byte and the chunk-4 polygon number; xobj refs with
+  radius, state index and collision type. All 29 `Tr.frd` / `Trn.frd` write back byte-exact (the polygon normals are
+  not renormalized).
+- `Nfs4HeightsSim` (`heights.sim`, a float per slice) and `Nfs4SpeedFile` (`spdFA.bin` / `spdRA.bin`, any case:
+  ceil(n / 2) speed bytes, n lane bytes, n float AI line offsets; `is_nfs4_speed_file_size`) are picked under a
+  `/Data/Tracks/` path, exported as JSON. NFS4 `.CAN` files are `Nfs3CanAnimation` (the same layout).
 
 ## TNFS sound banks (SIMDATA/SOUNDBNK/*.BNK)
 
