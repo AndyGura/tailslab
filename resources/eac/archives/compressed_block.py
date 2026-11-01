@@ -1,18 +1,20 @@
 import hashlib
 from io import BytesIO, SEEK_CUR
-from typing import Dict
+from typing import Dict, Optional
 
 from library.context import ReadContext, WriteContext
 from library.read_blocks import AutoDetectBlock, BytesBlock
 from resources.eac.car_specs import CarAiAndCrashBody, PlayerCarPhysics
+from resources.eac.psx import CRCF_FOOTER_LENGTH, PsxCrcFooter, with_crc_footer
 from .shpi_block import ShpiBlock
 
 
 class CompressedData(dict):
     """Data read from compressed block. Remembers the compressed bytes it was read from, which are written back as
-    they are while the uncompressed bytes stay the same"""
+    they are while the uncompressed bytes stay the same, and the PSX CRC footer after them (`crc_footer`, None
+    without one), written after newly compressed bytes with their CRC"""
 
-    __slots__ = ('compressed', 'digest')
+    __slots__ = ('compressed', 'digest', 'crc_footer')
 
 
 class EacCompressedBlock(AutoDetectBlock):
@@ -74,13 +76,32 @@ class EacCompressedBlock(AutoDetectBlock):
         buffer.seek(-2, SEEK_CUR)
         return self._compression_for_header(header_bytes[0], header_bytes[1])
 
+    @staticmethod
+    def _read_crc_footer(ctx: ReadContext, read_bytes_amount) -> Optional[dict]:
+        """The PSX CRC footer ending the read bytes (items of the PSX TNFS car archives `.VSM`), None if there is none.
+        QFS3 decompression reads up to the end of the given bytes, so the footer is taken off first"""
+        if read_bytes_amount is None or read_bytes_amount <= CRCF_FOOTER_LENGTH:
+            return None
+        start = ctx.buffer.tell()
+        ctx.buffer.seek(read_bytes_amount - CRCF_FOOTER_LENGTH, SEEK_CUR)
+        footer = ctx.buffer.read(CRCF_FOOTER_LENGTH)
+        ctx.buffer.seek(start)
+        if len(footer) != CRCF_FOOTER_LENGTH or footer[:8] != b'CRCF' + CRCF_FOOTER_LENGTH.to_bytes(4, 'little'):
+            return None
+        return PsxCrcFooter().unpack_from_bytes(footer)
+
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
         flags = ctx.buffer.read(1)[0]
         ctx.buffer.seek(-1, SEEK_CUR)
         compression = self._detect_compression(ctx.buffer)
         start = ctx.buffer.tell()
-        uncompressed_bytes = compression.uncompress(ctx.buffer, read_bytes_amount)
+        crc_footer = self._read_crc_footer(ctx, read_bytes_amount)
+        uncompressed_bytes = compression.uncompress(
+            ctx.buffer, read_bytes_amount - CRCF_FOOTER_LENGTH if crc_footer is not None else read_bytes_amount
+        )
         end = ctx.buffer.tell()
+        if crc_footer is not None:
+            end = start + read_bytes_amount
         uncompressed = BytesIO(uncompressed_bytes)
         self_ctx = ctx.get_or_create_child(name, self, read_bytes_amount)
         self_ctx.buffer = uncompressed
@@ -91,6 +112,7 @@ class EacCompressedBlock(AutoDetectBlock):
         ctx.buffer.seek(start)
         res.compressed = ctx.buffer.read(read_bytes_amount if read_bytes_amount is not None else end - start)
         res.digest = hashlib.sha1(uncompressed_bytes).digest()
+        res.crc_footer = crc_footer
         ctx.buffer.seek(end)
         return res
 
@@ -118,7 +140,7 @@ class EacCompressedBlock(AutoDetectBlock):
         if key != last_key:
             last_compressed = self.compress(uncompressed_bytes, data)
             self._last_compressed = (key, last_compressed)
-        return last_compressed
+        return with_crc_footer(last_compressed, getattr(data, 'crc_footer', None))
 
     def estimate_packed_size(self, data, ctx: WriteContext = None):
         return len(self.write(data, ctx))

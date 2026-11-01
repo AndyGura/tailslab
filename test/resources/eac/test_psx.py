@@ -9,7 +9,9 @@ from PIL import Image
 
 from library import require_file
 from library.loader import clear_file_cache
-from resources.eac.archives import ShppBlock, WwwwBlock
+from resources.eac.archives import BigfBlock, ShppBlock, WwwwBlock
+from resources.eac.archives.compressed_block import EacCompressedBlock
+from resources.eac.car_specs import CarAiAndCrashBody
 from resources.eac.psx import (
     PsxHorizonSettings,
     TnfsPsxHorizonInfo,
@@ -156,6 +158,84 @@ class TestShppBlock(unittest.TestCase):
         self.assertIsNone(child['item']['data']['crc_footer'])
         self.assertEqual(child['post_offset_payload'], raw[-12:])
         self.assertEqual(block.pack(data), raw)
+
+
+def with_footer(item: bytes) -> bytes:
+    return item + b'CRCF' + struct.pack('<II', 12, psx_crc16(item))
+
+
+def bigf(items):
+    """Bytes of a BIGF of (name, item bytes), items back to back"""
+    data_start = 16 + sum(9 + len(name) for name, _ in items)
+    entries, data = b'', b''
+    for name, item in items:
+        entries += struct.pack('>II', data_start + len(data), len(item)) + name.encode() + b'\0'
+        data += item
+    return b'BIGF' + struct.pack('>II', data_start + len(data), len(items)) + b'\0' * 4 + entries + data
+
+
+def bigf_items(raw):
+    """(name, item bytes) of a BIGF, by its directory"""
+    result, position = [], 16
+    for _ in range(struct.unpack('>I', raw[8:12])[0]):
+        offset, length = struct.unpack('>II', raw[position : position + 8])
+        end = raw.index(b'\0', position + 8)
+        result.append((raw[position + 8 : end].decode(), raw[offset : offset + length]))
+        position = end + 1
+    return result
+
+
+class TestVsmCarArchive(unittest.TestCase):
+    """PSX car archive (`Z<car>.VSM`): a BIGF whose items each end with their own CRC footer"""
+
+    def setUp(self):
+        pdn = CarAiAndCrashBody().pack(CarAiAndCrashBody().new_data())
+        # QFS3, as in the game files: its decoder reads up to the end of the given bytes
+        self.compressed_pdn = EacCompressedBlock().compress(pdn, {'compression_flags': 0x30})
+        self.raw = bigf(
+            [
+                ('car.pbs', with_footer(b'HI\r\n')),
+                ('car.pdn', with_footer(self.compressed_pdn)),
+                ('car.psh', shpp([('img4', FOUR_BIT), ('img8', EIGHT_BIT_ROTATED)])),
+            ]
+        )
+
+    def test_reads_items_with_their_footers(self):
+        block = BigfBlock()
+        data = block.unpack_from_bytes(self.raw)
+        stub, pdn, psh = [c['item'] for c in data['children']]
+        possible_blocks = block.item_block.possible_blocks
+        self.assertEqual(possible_blocks[stub['choice_index']].__class__.__name__, 'BytesBlock')
+        self.assertEqual(possible_blocks[pdn['choice_index']].__class__, EacCompressedBlock)
+        self.assertEqual(pdn['data'].crc_footer['crc'], psx_crc16(self.compressed_pdn))
+        self.assertEqual(possible_blocks[psh['choice_index']].__class__, ShppBlock)
+        self.assertEqual([c['alias'] for c in psh['data']['children']], ['img4', 'img8'])
+        self.assertIsNotNone(psh['data']['crc_footer'])
+        self.assertTrue(all(c['post_offset_payload'] == b'' for c in data['children']))
+
+    def test_writes_back_byte_exact(self):
+        block = BigfBlock()
+        self.assertEqual(block.pack(block.unpack_from_bytes(self.raw)), self.raw)
+
+    def test_edited_items_get_new_crc_footers(self):
+        block = BigfBlock()
+        data = block.unpack_from_bytes(self.raw)
+        data['children'][1]['item']['data']['data']['half_width'] += 1
+        data['children'][2]['item']['data']['children'][0]['item']['data']['clut']['colors'][1] = 0x7FFF
+        packed = block.pack(data)
+        self.assertEqual(struct.unpack('>I', packed[4:8])[0], len(packed))
+        items = dict(bigf_items(packed))
+        for name in ['car.pdn', 'car.psh']:
+            item = items[name]
+            self.assertNotEqual(item, dict(bigf_items(self.raw))[name])
+            self.assertEqual(item[-12:-8], b'CRCF')
+            self.assertEqual(struct.unpack('<I', item[-4:])[0], psx_crc16(item[:-12]))
+        self.assertEqual(struct.unpack('<I', items['car.psh'][4:8])[0], len(items['car.psh']) - 12)
+        reread = block.unpack_from_bytes(packed)
+        self.assertEqual(
+            reread['children'][1]['item']['data']['data']['half_width'],
+            data['children'][1]['item']['data']['data']['half_width'],
+        )
 
 
 class TestPsxImageSerializer(unittest.TestCase):

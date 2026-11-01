@@ -1,0 +1,22 @@
+<app-image-viewer
+  [resourceId]="resourceId"
+  [resourceName]="resourceName"
+  [resourceData]="resourceData"
+  [resourceSchema]="resourceSchema"
+  [resourceDescription]="resourceDescription"
+  [hideName]="!!hideName"
+  [hideBlockActions]="!!hideBlockActions"
+  [hideCustomActions]="true"
+  [customStats]="stats"
+  height="var(--image-viewer-height)"></app-image-viewer>
+
+<app-compound-block-ui
+  [resourceId]="resourceId"
+  [resourceName]="resourceName"
+  [resourceSchema]="resourceSchema"
+  [resourceData]="resourceData"
+  [hideName]="true"
+  [hideBlockActions]="true"
+  [preferHorizontalLayout]="true"
+  [disabled]="disabled"
+  [fieldBlacklist]="fieldBlacklist"></app-compound-block-ui>

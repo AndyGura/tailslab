@@ -26,6 +26,8 @@ import { AngleBlockUiComponent } from './eac/angle.block-ui/angle.block-ui.compo
 import { ChangesService } from '../../services/changes.service';
 import { ImageBlockUiComponent } from './eac/image.block-ui/image.block-ui.component';
 import { PaletteBlockUiComponent } from './eac/palette.block-ui/palette.block-ui.component';
+import { PsxImageBlockUiComponent } from './eac/psx-image.block-ui/psx-image.block-ui.component';
+import { PsxClutBlockUiComponent } from './eac/psx-clut.block-ui/psx-clut.block-ui.component';
 import { OripGeometryBlockUiComponent } from './eac/orip-geometry.block-ui/orip-geometry.block-ui.component';
 import { EacsAudioBlockUiComponent } from './eac/eacs-audio.block-ui/eacs-audio.block-ui.component';
 import { SoundbankBlockUiComponent } from './eac/soundbank.block-ui/soundbank.block-ui.component';
@@ -81,8 +83,9 @@ export class EditorComponent implements OnDestroy {
     // Common classic Need For Speed blocks
     EacImage: ImageBlockUiComponent,
     EacPalette: PaletteBlockUiComponent,
-    // PSX images (SHPP): the image viewer only
-    PsxImage: TargaImageBlockUiComponent,
+    // PSX images (SHPP) and their CLUTs
+    PsxImage: PsxImageBlockUiComponent,
+    PsxClut: PsxClutBlockUiComponent,
     FfnFont: FontBlockUiComponent,
     // EA audio streams: NFS2 SE, NFS5, NFS6 music
     EaAudioStreams: EacsAudioBlockUiComponent,

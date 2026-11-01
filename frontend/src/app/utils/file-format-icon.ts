@@ -25,6 +25,7 @@ const iconMap: Record<string, string> = {
   RefPackBlock: 'archive',
   Qfs2Block: 'archive',
   Qfs3Block: 'archive',
+  EacCompressedBlock: 'archive',
 
   OripGeometry: 'view_in_ar',
   GeoGeometry: 'view_in_ar',

@@ -40,6 +40,8 @@ import { ViewModeToolbarComponent } from './common/obj-viewer/view-mode-toolbar/
 import { MatSliderModule } from '@angular/material/slider';
 import { ImageBlockUiComponent } from './eac/image.block-ui/image.block-ui.component';
 import { PaletteBlockUiComponent } from './eac/palette.block-ui/palette.block-ui.component';
+import { PsxImageBlockUiComponent } from './eac/psx-image.block-ui/psx-image.block-ui.component';
+import { PsxClutBlockUiComponent } from './eac/psx-clut.block-ui/psx-clut.block-ui.component';
 import { OripGeometryBlockUiComponent } from './eac/orip-geometry.block-ui/orip-geometry.block-ui.component';
 import { EacsAudioBlockUiComponent } from './eac/eacs-audio.block-ui/eacs-audio.block-ui.component';
 import { SoundbankBlockUiComponent } from './eac/soundbank.block-ui/soundbank.block-ui.component';
@@ -101,6 +103,8 @@ import { Nfs2CarAiBlockUiComponent } from './eac/nfs2-car-ai.block-ui/nfs2-car-a
     // common nfs data blocks
     ImageBlockUiComponent,
     PaletteBlockUiComponent,
+    PsxImageBlockUiComponent,
+    PsxClutBlockUiComponent,
     FontBlockUiComponent,
 
     // specific data blocks

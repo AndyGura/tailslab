@@ -1,0 +1,19 @@
+@use '../../../../../variables';
+
+:host {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  row-gap: 1rem;
+  box-sizing: border-box;
+
+  --image-viewer-height: calc(#{variables.$viewport-height} * 0.8);
+}
+
+app-image-viewer,
+app-compound-block-ui {
+  width: 100%;
+}

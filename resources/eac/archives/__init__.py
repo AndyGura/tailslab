@@ -214,7 +214,8 @@ class BigfBlock(ArchiveBlock):
         schema = {
             **super().schema,
             'block_description': 'A block-container with various data: image archives, GEO geometries, sound banks, '
-            'other BIGF blocks...',
+            'other BIGF blocks... In the PSX TNFS car archives (`.VSM` / `.WSM`) every item ends with its own CRC '
+            'footer, counted in the item length',
         }
         delattr(self, 'schema_call_recv')
         return schema
@@ -239,6 +240,7 @@ class BigfBlock(ArchiveBlock):
                     Fce4Geometry(),
                     EaglModel(),
                     ShpiBlock(),
+                    ShppBlock(),
                     EacCompressedBlock(),
                     TargaImage(),
                     EaSoundBank(),
@@ -309,6 +311,7 @@ class BigfBlock(ArchiveBlock):
                 '<br/>- [Fce3Geometry](#fce3geometry)'
                 '<br/>- [Fce4Geometry](#fce4geometry)'
                 '<br/>- [ShpiBlock](#shpiblock), can be compressed like QFS file'
+                '<br/>- [ShppBlock](#shppblock) (PSX TNFS car archives `.VSM` / `.WSM`)'
                 '<br/>- [BigfBlock](#bigfblock)'
                 '<br/>- [EaSoundBank](#easoundbank)'
                 '<br/>- pure TGA image',

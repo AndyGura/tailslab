@@ -328,7 +328,9 @@ plumbing. To build one (see `ShpiBlock` in `resources/eac/archives/shpi_block.py
 5. **Docs**: add/extend an entry in `generate_resource_doc.py`'s `EXPORT_RESOURCES[<game>]`
    — a one-line `file_list` entry using `render_type(SomeBlock())`, and add relevant block instances
    to the right category under `['blocks']`. Then run `python generate_resource_doc.py` to
-   regenerate `resources/<GAME>.md`. **Never hand-edit the generated `.md` files.**
+   regenerate `resources/<GAME>.md`. **Never hand-edit the generated `.md` files.** A description's item list line
+   `<br/>- [SomeBlock](#someblock), a note` is left out, note included, from the docs that don't list `SomeBlock`
+   (`render_description`): keep each note on the line of its block.
 6. **Test it**: `test/resources/eac/test_<area>.py` — build minimal bytes with `BytesIO`,
    `block.unpack(ReadContext(buf))`, assert fields, then assert `block.pack(data)` round-trips (see
    `test/resources/eac/test_bitmaps.py`). For a full read/write round-trip of a *top-level* block,

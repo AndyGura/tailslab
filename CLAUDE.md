@@ -271,10 +271,21 @@ When you do:
   16-bit words, 4-bit low nibble first, `next_offset` to the attached CLUT `PsxClut` 0x23, 4-byte aligned). Bit 0x4000
   of `vram_x` = stored rotated (PSX loader FUN_80044330): `PsxImageSerializer` turns it back (PIL `ROTATE_270`), so
   PNGs are as shown. Color 0x0000 is transparent, all others opaque (STP not applied). Also an item of `WwwwBlock`
-  (`Z<track>_PSH.FAM`). PNG / folder import is not supported (`reversible` False).
+  (`Z<track>_PSH.FAM`) and `BigfBlock` (car archives). PNG / folder import is not supported (`reversible` False).
+  GUI: `PsxImageBlockUiComponent` (`frontend/.../editor/eac/psx-image.block-ui/`: the image as shown, its color
+  model, CLUT size, rotation and VRAM position in the viewer toolbar; `resource_id` read-only, no conversion) and
+  `PsxClutBlockUiComponent` (swatches, a click changes a color keeping its STP bit; black is written 0x8000).
+  `frontend/src/app/utils/psx-color.ts` converts like `psx_color_to_rgba`: keep the two the same.
 - Most PSX files end with a 12-byte `CRCF` footer (`PsxCrcFooter`, `resources/eac/psx.py`): CRC-16 (reflected 0x8005,
-  init 0xFBEA) of the bytes before it, recomputed on save (`with_crc_footer`). `ShppBlock` reads it only as a file of
-  its own (`ctx.parent is None`); in a FAM it stays in the last entry's `post_offset_payload`.
+  init 0xFBEA) of the bytes before it, recomputed on save (`with_crc_footer`). `ShppBlock` reads it as a file of its
+  own and as a BIGF item, not in a FAM (`_in_wwww_archive`): there it stays in the last entry's `post_offset_payload`.
+- `Z<car>.VSM` (every car) / `Z<car>.WSM` (the 8 racers and `TRAFFC`: the car in another color, loaded for racers in
+  odd car slots, `tnfs_carobj` 0x80039604; `TRAFFC`'s is identical) = `BigfBlock` of `<car>.pbs`, `<car>.pdn` (QFS3-compressed PC PBS / PDN layouts; traffic and cop cars
+  have a 16-byte `HI\r\n` placeholder `.pbs`), `<car>.por` / `<car>l.por` (high / low-poly model, magic `ORIX`, raw
+  bytes: not parsed), `<car>.psh` / `<car>l.psh` (`ShppBlock`). Every item ends with its own footer, counted in the
+  BIGF item length: `EacCompressedBlock` takes a trailing footer off before decompressing (QFS3 reads up to the end)
+  and writes it back with a new CRC after recompressing (`CompressedData.crc_footer`). All 31 files write back
+  byte-exact.
 - `Z<track><A|B|C>.INF` (morning / midday / evening) = `TnfsPsxHorizonInfo`: the text + footer;
   `parse_psx_horizon_settings` gives `PsxHorizonSettings` (PC INFO layout without ring type and time of day values,
   plus dithering flag, ratio of the blend and a last value = mirror flag; ring y offset / height halved by the game).

@@ -1,0 +1,26 @@
+<p class="clut-hint">
+  {{ colors.length }} PSX 15-bit colors. The image pixels are indexes into this list. 0x0000 is transparent (checkered),
+  every other color is opaque. Click a color to change it.
+</p>
+<div class="colors-container">
+  @for (color of colors; track $index) {
+    <div
+      class="color-box"
+      [class.transparent]="color === 0"
+      [class.disabled]="!!disabled"
+      [style.--color-fill]="swatch(color)"
+      [matTooltip]="tooltip($index, color)"
+      (click)="onColorClicked($any($event.currentTarget), $index)"></div>
+  }
+</div>
+<input #colorInput type="color" class="color-input-hidden" (change)="onColorChange($any($event.currentTarget).value)" />
+<app-compound-block-ui
+  [resourceId]="resourceId"
+  [resourceName]="resourceName"
+  [resourceSchema]="resourceSchema"
+  [resourceData]="resourceData"
+  [hideName]="true"
+  [hideBlockActions]="true"
+  [preferHorizontalLayout]="true"
+  [disabled]="disabled"
+  [fieldBlacklist]="fieldBlacklist"></app-compound-block-ui>
