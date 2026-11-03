@@ -16,6 +16,23 @@
     canvas {
       position: absolute;
     }
+
+    .lodControls {
+      position: absolute;
+      right: 0;
+      top: 0;
+      padding: 5px;
+      display: flex;
+      flex-direction: column;
+      row-gap: 4px;
+      background-color: #333333;
+      color: white;
+      user-select: none;
+
+      h4 {
+        margin: 0;
+      }
+    }
   }
 
   .previewNavigationContainer {

@@ -119,6 +119,7 @@ export class ConverterComponent implements OnInit, OnDestroy {
       maps__tnfs_chunks_per_file: [1],
       maps__save_spherical_skybox_texture: [true],
       maps__add_props_to_obj: [true],
+      maps__save_all_lods: [false],
       geometry__save_obj: [true],
       geometry__save_blend: [true],
       geometry__export_to_gg_web_engine: [false],

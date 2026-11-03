@@ -30,6 +30,7 @@ export type ConversionConfig = {
   maps__tnfs_chunks_per_file: number;
   maps__save_spherical_skybox_texture: boolean;
   maps__add_props_to_obj: boolean;
+  maps__save_all_lods: boolean;
   geometry__save_obj: boolean;
   geometry__save_blend: boolean;
   geometry__export_to_gg_web_engine: boolean;

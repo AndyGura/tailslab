@@ -84,6 +84,7 @@ class ConfigManager:
                 'maps__tnfs_chunks_per_file': 1,
                 'maps__save_spherical_skybox_texture': True,
                 'maps__add_props_to_obj': True,
+                'maps__save_all_lods': False,
                 'geometry__save_obj': True,
                 'geometry__save_blend': True,
                 'geometry__export_to_gg_web_engine': False,

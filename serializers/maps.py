@@ -658,6 +658,8 @@ class TrackProp:
         self.chunk_index = chunk_index
         # the prop is not confirmed to look like this in game (GUI hides it unless "show hidden fields" is on)
         self.is_unknown = False
+        # more properties of the prop's dummy
+        self.properties = {}
 
     @property
     def is_animated(self):
@@ -813,6 +815,22 @@ class EacTrackSerializer(BaseFileSerializer):
     def __init__(self):
         super().__init__(is_dir=True)
 
+    def _terrain_meshes(self, name: str, lods: List[List[list]], vertices: list, get_texture, pivot_offset=(0, 0, 0)):
+        """Terrain sub-meshes of a track block from its polygon lists by level of detail, the highest first: only the
+        highest one, or every level with the setting maps__save_all_lods, then named "<name>_lod<level>" (the GUI's
+        track viewer shows one level at a time). Polygons are quads, see `_add_quads`"""
+        all_lods = self.settings.maps__save_all_lods
+        meshes = []
+        for lod, polygon_lists in enumerate(lods if all_lods else lods[:1]):
+            model = Mesh()
+            model.name = f'{name}_lod{lod}' if all_lods else name
+            model.pivot_offset = pivot_offset
+            for polygons in polygon_lists:
+                _add_quads(model, polygons, vertices, get_texture)
+            if model.polygons:
+                meshes += [m for m, _, _ in model.split_by_texture_ids()]
+        return meshes
+
     def _prop_meshes(self, model: Mesh, name: str, keyframe) -> List[SubMesh]:
         position, orientation = keyframe
         mesh = Mesh()
@@ -887,7 +905,7 @@ class EacTrackSerializer(BaseFileSerializer):
             position, orientation = prop.keyframes[0]
             chunk_i = prop.chunk_index if prop.chunk_index is not None else nearest_chunk(position)
             pivot = pivots[chunk_i] if chunked else (0, 0, 0)
-            properties = {'is_prop': True, 'type': 'model', 'model_ref_id': model_id}
+            properties = {'is_prop': True, 'type': 'model', 'model_ref_id': model_id, **prop.properties}
             if prop.is_unknown:
                 properties['is_unknown'] = True
             if prop.is_animated:
@@ -1029,18 +1047,20 @@ class TrkMapSerializer(EacTrackSerializer):
         props = []
         prop_models = {}
         for block_i, block in enumerate(blocks):
-            model = Mesh()
-            model.name = f'block_{block_i}'
             pivot = data['block_positions'][block['block_idx']]
             next_pivot = data['block_positions'][block['block_idx'] + 1 if block['block_idx'] < len(blocks) - 1 else 0]
-            model.pivot_offset = (-pivot['x'], -pivot['y'], -pivot['z'])
             vertices = [[v['x'], v['y'], v['z']] for v in block['vertices']]
             for v in vertices[: block['nv8']]:
                 v[0] += next_pivot['x'] - pivot['x']
                 v[1] += next_pivot['y'] - pivot['y']
                 v[2] += next_pivot['z'] - pivot['z']
-            _add_quads(model, block['polygons'][(block['np4'] + block['np2']) :], vertices, polygon_texture)
-            chunks.append(([m for m, _, _ in model.split_by_texture_ids()], _point(pivot)))
+            # np4 polygons of the 1/4 resolution mesh, np2 of the 1/2 one, then the full resolution one
+            polygons, np4, np2 = block['polygons'], block['np4'], block['np2']
+            lods = [[polygons[np4 + np2 :]], [polygons[np4 : np4 + np2]], [polygons[:np4]]]
+            meshes = self._terrain_meshes(
+                f'block_{block_i}', lods, vertices, polygon_texture, (-pivot['x'], -pivot['y'], -pivot['z'])
+            )
+            chunks.append((meshes, _point(pivot)))
 
             descriptions = next(
                 (eb['data_records']['data'] for eb in block['extrablocks'] if eb['type'] == 'prop_descriptions'), []
@@ -1063,9 +1083,9 @@ class TrkMapSerializer(EacTrackSerializer):
         return self._export_track(path, map_scene, chunks, props, prop_models, texture_archive)
 
 
-# Polygon chunks of a NFS3 FRD track block, which make the visible terrain: high-res track and high-res misc
-# (other chunks are lower levels of detail of the same terrain, and lane markings)
-FRD_TERRAIN_POLYGON_CHUNKS = [4, 5]
+# Polygon chunks of a NFS3 FRD track block, which make the visible terrain, by level of detail (highest first): track
+# and misc polygons of high, medium and low resolution (chunk 6 holds lane markings)
+FRD_LOD_POLYGON_CHUNKS = [[4, 5], [2, 3], [0, 1]]
 
 
 class FrdMapSerializer(EacTrackSerializer):
@@ -1119,12 +1139,15 @@ class FrdMapSerializer(EacTrackSerializer):
         for block_i, block in enumerate(blocks):
             polygon_block = data['polygon_blocks'][block_i]
             vertices = [_point(v) for v in block['vertices']]
-            model = Mesh()
-            model.name = f'block_{block_i}'
-            for chunk_i in FRD_TERRAIN_POLYGON_CHUNKS:
-                chunk = polygon_block['polygons'][chunk_i]
-                if chunk['sz'] != 0:
-                    _add_quads(model, chunk['data']['data'], vertices, polygon_texture)
+            lods = [
+                [
+                    polygon_block['polygons'][chunk_i]['data']['data']
+                    for chunk_i in lod_chunks
+                    if polygon_block['polygons'][chunk_i]['sz'] != 0
+                ]
+                for lod_chunks in FRD_LOD_POLYGON_CHUNKS
+            ]
+            meshes = self._terrain_meshes(f'block_{block_i}', lods, vertices, polygon_texture)
             # static objects of the block (POLYOBJ), their vertices are in the block's vertex table
             objects = Mesh()
             objects.name = f'block_{block_i}_objects'
@@ -1133,7 +1156,6 @@ class FrdMapSerializer(EacTrackSerializer):
                     for obj in chunk['data']['data']:
                         if obj['type'] == 1:
                             _add_quads(objects, obj['data']['data'], vertices, polygon_texture)
-            meshes = [m for m, _, _ in model.split_by_texture_ids()]
             if objects.polygons:
                 meshes += [m for m, _, _ in objects.split_by_texture_ids()]
             chunks.append((meshes, _point(block['position'])))
@@ -1184,17 +1206,54 @@ class FrdMapSerializer(EacTrackSerializer):
         return self._export_track(path, map_scene, chunks, props, prop_models, texture_archive)
 
 
-# Polygon chunk field names that make up the visible terrain of a NFS4 track block. "lanes" and
-# the still-unidentified "misc" chunks 1-4 are deliberately excluded: lanes are non-rendered
-# helper polygons and the misc 1-4 chunks' purpose isn't known yet.
-NFS4_TERRAIN_POLYGON_CHUNKS = [
-    'polygons_low_res_track',
-    'polygons_low_res_misc',
-    'polygons_med_res_track',
-    'polygons_med_res_misc',
-    'polygons_high_res_track',
-    'polygons_high_res_misc',
+# NFS4 tracks are 1 / 1.3 of their real size in the files (the nine tracks NFS4 shares with NFS3 are exactly the NFS3
+# ones / 1.3, slices lie 6.0 / 1.3 apart), while nfs4.exe simulates the file units as meters with real-size cars. The
+# export is in meters: every position and distance of the file times this. Cars are not scaled
+NFS4_TRACK_SCALE = 1.3
+
+# Polygon chunks of a NFS4 track block by level of detail (highest first), as nfs4.exe draws a block (0x437770, LOD
+# table 0x5aef48): track and misc polygons of high, medium and low resolution
+NFS4_LOD_POLYGON_CHUNKS = [
+    ['polygons_high_res_track', 'polygons_high_res_misc'],
+    ['polygons_med_res_track', 'polygons_med_res_misc'],
+    ['polygons_low_res_track', 'polygons_low_res_misc'],
 ]
+# Polygon chunks 7..10 of a NFS4 track block: the block objects, drawn at every level of detail. The lanes (chunk 6)
+# are not exported: their texture numbers point past nfs4.exe's texture table
+NFS4_OBJECT_POLYGON_CHUNKS = ['polygons_objects_0', 'polygons_objects_1', 'polygons_objects_2', 'polygons_objects_3']
+
+# u, v repeats of the texture by NFS4 polygon `tex_flags.uv_tiling` (bits 6..8 of nfs4.exe's UV table index)
+NFS4_UV_TILING = {
+    'none': (1, 1),
+    'u2': (2, 1),
+    'v2': (1, 2),
+    'u4': (4, 1),
+    'v4': (1, 4),
+    'clamped': (1, 1),
+    'u2_': (2, 1),
+    'v2_': (1, 2),
+}
+
+
+def nfs4_polygon_uvs(tex_flags: dict) -> List[List[float]]:
+    """UVs of the 4 corners of a NFS4 polygon (image space, v down, as `Mesh.vertex_uvs`), as nfs4.exe's UV table 0x5aef6c (entry
+    tex_flags & 0x1fc) gives them, without the table's 1/128 insets of repeating textures. The polygon drawing
+    (0x434690, 0x434c20) passes the corners in the order 1, 0, 3, 2 with the 4 UV pairs of the entry"""
+    corners = [(0, 0), (1, 0), (1, 1), (0, 1)]
+    repeat_u, repeat_v = NFS4_UV_TILING.get(tex_flags['uv_tiling'], (1, 1))
+    entry = []
+    for i in range(4):
+        u, v = corners[(i + tex_flags['rotation']) % 4]
+        if tex_flags['mirror_u']:
+            u = 1 - u
+        if tex_flags['flip_v']:
+            v = 1 - v
+        entry.append([u * repeat_u, v * repeat_v])
+    return [entry[1], entry[0], entry[3], entry[2]]
+
+
+def _scaled(p: tuple, scale: float) -> tuple:
+    return p[0] * scale, p[1] * scale, p[2] * scale
 
 
 def _require_nfs4_texture_archive(id):
@@ -1236,13 +1295,14 @@ def _is_mirrored_copy(shpi_child) -> bool:
 class Nfs4FrdMapSerializer(EacTrackSerializer):
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
         super().serialize(data, path, id, block, **kwargs)
+        scale = NFS4_TRACK_SCALE
 
         def texture_archive():
             return _require_nfs4_texture_archive(id)
 
         # Unlike NFS3, a NFS4 FRD polygon's texture field indexes the track's QFS/SHPI archive
         # (no local texture table in the FRD itself), and no per-polygon UV corners are
-        # stored anywhere - every polygon is UV-mapped to the full 0..1 quad of its texture.
+        # stored anywhere: the polygon flags pick them from a table of the executable
         try:
             (_, _, qfs_data), _ = texture_archive()
             shpi_aliases = [x['alias'] for x in qfs_data['children'] if x['alias'] and not _is_mirrored_copy(x)]
@@ -1251,14 +1311,8 @@ class Nfs4FrdMapSerializer(EacTrackSerializer):
             shpi_aliases = []
 
         def polygon_texture(p):
-            tex = p['texture'] & 0x07FF
-            uvs = [[0, 1], [1, 1], [1, 0], [0, 0]]
-            if p['tex_flags'] & 0x10:
-                uvs = [uvs[1], uvs[0], uvs[3], uvs[2]]
-            rotate_bits = (p['tex_flags'] >> 7) & 0x3
-            if rotate_bits:
-                uvs = rotate_list(uvs, rotate_bits)
-            return (shpi_aliases[tex] if tex < len(shpi_aliases) else f'{tex:04}'), uvs
+            tex = p['texture']
+            return (shpi_aliases[tex] if tex < len(shpi_aliases) else f'{tex:04}'), nfs4_polygon_uvs(p['tex_flags'])
 
         map_scene = Scene(
             name='map',
@@ -1266,14 +1320,17 @@ class Nfs4FrdMapSerializer(EacTrackSerializer):
             mtl_name='terrain',
             mtl_texture_path_func=lambda x: f'textures/{x}.png',
             skip_obj_export=self.settings.maps__save_as_chunked,
+            # the exported coordinates are the file's times this
+            meta_extras={'trackScale': scale},
         )
 
         # add road spline to map scene
         headers = data['blocks_headers']
+        positions = [_scaled(_point(h['position']), scale) for h in headers]
         curve = {
             'name': 'road_path',
             'closed': True,
-            'points': [[h['position']['x'], h['position']['z'], h['position']['y']] for h in headers],
+            'points': [[p[0], p[2], p[1]] for p in positions],
         }
         map_scene.curves.append(curve)
 
@@ -1285,19 +1342,26 @@ class Nfs4FrdMapSerializer(EacTrackSerializer):
             for i, (header, xobj) in enumerate(zip(chunk['object_headers'], chunk['objects'])):
                 model_id = f'{model_prefix}{i}'
                 model = Mesh()
-                _add_quads(model, xobj['polygons'], [_point(v) for v in xobj['vertices']], polygon_texture)
-                prop = nfs4_extra_object_prop(model_id, header, xobj, chunk_index)
+                _add_quads(
+                    model, xobj['polygons'], [_scaled(_point(v), scale) for v in xobj['vertices']], polygon_texture
+                )
+                prop = nfs4_extra_object_prop(model_id, header, xobj, chunk_index, scale)
                 if prop and model.polygons:
                     prop_models[model_id] = model
                     props.append(prop)
 
-        for block_i, (header, trk_block) in enumerate(zip(headers, data['blocks'])):
-            model = Mesh()
-            model.name = f'block_{block_i}'
-            vertices = [_point(v) for v in trk_block['vertices']]
-            for chunk_name in NFS4_TERRAIN_POLYGON_CHUNKS:
-                _add_quads(model, trk_block[chunk_name], vertices, polygon_texture)
-            chunks.append(([m for m, _, _ in model.split_by_texture_ids()], _point(header['position'])))
+        for block_i, (position, trk_block) in enumerate(zip(positions, data['blocks'])):
+            vertices = [_scaled(_point(v), scale) for v in trk_block['vertices']]
+            lods = [[trk_block[name] for name in lod_chunks] for lod_chunks in NFS4_LOD_POLYGON_CHUNKS]
+            meshes = self._terrain_meshes(f'block_{block_i}', lods, vertices, polygon_texture)
+            # the block objects, drawn at every level of detail
+            objects = Mesh()
+            objects.name = f'block_{block_i}_objects'
+            for name in NFS4_OBJECT_POLYGON_CHUNKS:
+                _add_quads(objects, trk_block[name], vertices, polygon_texture)
+            if objects.polygons:
+                meshes += [m for m, _, _ in objects.split_by_texture_ids()]
+            chunks.append((meshes, position))
             for chunk_i in range(4):
                 add_extra_objects(trk_block[f'extra_objects_{chunk_i}'], f'xobj_{block_i}_{chunk_i}_', block_i)
         # objects not attached to any block
@@ -1306,22 +1370,30 @@ class Nfs4FrdMapSerializer(EacTrackSerializer):
 
         exported = self._export_track(path, map_scene, chunks, props, prop_models, texture_archive)
         # the virtual road (road centre line points with road orientation vectors and wall distances, the data of
-        # NFS3 COL "collision_data"), as parsed: game axes, Y up
+        # NFS3 COL "collision_data"), as parsed (game axes, Y up), positions and distances in meters as the map
+        vroad = deepcopy(data['vroad'])
+        for record in vroad:
+            record['ref_point'] = {k: v * scale for k, v in record['ref_point'].items()}
+            for key in ['left_wall', 'right_wall', 'left_lane_width', 'right_lane_width']:
+                record[key] *= scale
         vroad_file = path_join(path, 'vroad.json')
         with open(vroad_file, 'w') as f:
-            json.dump(data['vroad'], f)
+            json.dump(vroad, f)
         exported.append(vroad_file)
         return exported
 
 
-def nfs4_extra_object_prop(model_id: str, header: dict, xobj: dict, chunk_index) -> Optional[TrackProp]:
-    """A NFS4 extra object as a prop. Vertices are relative to the object position; an animated object (type 3) moves
-    along keyframes, a special object (type 6, physics prop) is rotated by its transform matrix"""
+def nfs4_extra_object_prop(
+    model_id: str, header: dict, xobj: dict, chunk_index, scale: float = 1
+) -> Optional[TrackProp]:
+    """A NFS4 extra object as a prop, positions times `scale`. Vertices are relative to the object position; an
+    animated object (type 3) moves along keyframes, a special object (type 6, physics prop) is rotated by its
+    transform matrix, a billboard (type 2) turns to face the camera in the game (dummy property "billboard")"""
     if header['type'] == 3 and xobj['anim_data'] and xobj['anim_data']['keyframes']:
         animation = xobj['anim_data']
         return TrackProp(
             model_id,
-            [(_point(f['pt']), _quaternion(f['orientation'])) for f in animation['keyframes']],
+            [(_scaled(_point(f['pt']), scale), _quaternion(f['orientation'])) for f in animation['keyframes']],
             delay=animation['delay'],
             chunk_index=chunk_index,
         )
@@ -1330,7 +1402,10 @@ def nfs4_extra_object_prop(model_id: str, header: dict, xobj: dict, chunk_index)
         # the matrix rotates vertices as row vectors (v' = v M): transposed for _matrix_to_quaternion
         t = xobj['special_data']['transform']
         orientation = _matrix_to_quaternion([t[0], t[3], t[6], t[1], t[4], t[7], t[2], t[5], t[8]])
-    return TrackProp(model_id, [(_point(header['pt']), orientation)], chunk_index=chunk_index)
+    prop = TrackProp(model_id, [(_scaled(_point(header['pt']), scale), orientation)], chunk_index=chunk_index)
+    if header['type'] == 2:
+        prop.properties['billboard'] = True
+    return prop
 
 
 def _matrix_to_quaternion(m: list) -> tuple:

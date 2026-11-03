@@ -34,6 +34,17 @@
       [viewModeController]="viewModeController"
       [currentViewMode]="viewMode"
       (viewModeChanged)="setViewMode($event)"></app-view-mode-toolbar>
+    @if (((lodLevels$ | async)?.length || 0) > 1) {
+      <div class="lodControls">
+        <h4>LOD</h4>
+        @for (lod of lodLevels$ | async; track lod) {
+          <label>
+            <input type="radio" name="track_lod" [checked]="(lod$ | async) === lod" (change)="lod$.next(lod)" />
+            {{ lodLabel(lod) }}
+          </label>
+        }
+      </div>
+    }
   </div>
   <div class="previewNavigationContainer">
     <mat-form-field appearance="fill">

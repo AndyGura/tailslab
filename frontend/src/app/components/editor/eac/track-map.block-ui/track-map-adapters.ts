@@ -112,10 +112,19 @@ export const NFS3_TRACK_ADAPTER: TrackMapAdapter = {
   propsController: eacTrackPropsController,
 };
 
+// NFS4 tracks are 1 / 1.3 of their real size in the files: the converter exports them in meters, every position
+// times this (`NFS4_TRACK_SCALE` of serializers/maps.py)
+const NFS4_TRACK_SCALE = 1.3;
+
 // NFS4's FRD track blocks store their position in `blocks_headers[i].position` (a separate array
 // from the block bodies in `blocks`), unlike NFS3 where each block carries its own `position` inline.
 export const NFS4_TRACK_ADAPTER: TrackMapAdapter = {
-  chunkPositions: data => (data['blocks_headers'] || []).map((h: any) => h.position),
+  chunkPositions: data =>
+    (data['blocks_headers'] || []).map((h: any) => ({
+      x: h.position.x * NFS4_TRACK_SCALE,
+      y: h.position.y * NFS4_TRACK_SCALE,
+      z: h.position.z * NFS4_TRACK_SCALE,
+    })),
   textureArchiveKind: 'QFS',
   textureArchivePatterns: resourceId => {
     // Same convention as the backend's Nfs4FrdMapSerializer: the track's texture archive is named

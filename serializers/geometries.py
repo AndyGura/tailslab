@@ -946,7 +946,11 @@ class CrpGeometrySerializer(BaseFileSerializer):
         scene.obj_name = 'geometry'
         scene.sub_meshes = []
         scene.mtl_texture_path_func = lambda name: f'textures/{name}.png'
-        for *_, sub_mesh in self._build_article_meshes(data, block, material_texture):
+        is_track = data['resource_id'] == 'karT'
+        for _, _, part_info, sub_mesh in self._build_article_meshes(data, block, material_texture):
+            # a track's lower levels of detail only with maps__save_all_lods (mesh names have "_LOD<level>_")
+            if is_track and part_info['lod'] != 0 and not self.settings.maps__save_all_lods:
+                continue
             sub_mesh.change_axes(new_y='z', new_z='y')
             scene.sub_meshes.append(sub_mesh)
 
@@ -1081,22 +1085,32 @@ class CrpGeometrySerializer(BaseFileSerializer):
     def _serialize_track_chunks(self, data, path, block, material_texture) -> List[str]:
         """Track viewer output: one `terrain_chunk_<i>.obj` per road piece of the main road section, pivoted at the
         road piece center, plus `track_layout.json` with chunk positions (in CRP coordinates, Y up), road headings and
-        whether the road is a loop. Only LOD 0, not animated, not damaged meshes are exported. Articles of the main
+        whether the road is a loop. Only not animated, not damaged meshes of LOD 0 (every LOD with the setting
+        maps__save_all_lods, mesh names "terrain_chunk_<i>_<j>_lod<level>_<texture>") are exported. Articles of the main
         section go to the chunk of their road piece number, all other articles to the chunk with the nearest center"""
         import bisect
         import json
         import math
 
+        all_lods = self.settings.maps__save_all_lods
         articles = defaultdict(list)
         names = {}
+        # sub-mesh -> its level of detail
+        mesh_lods = {}
         for article_index, name, part_info, sub_mesh in self._build_article_meshes(data, block, material_texture):
-            if part_info['lod'] != 0 or part_info['animation_index'] != 0 or part_info['damage'] != 0:
+            if part_info['animation_index'] != 0 or part_info['damage'] != 0:
+                continue
+            if part_info['lod'] != 0 and not all_lods:
                 continue
             articles[article_index].append(sub_mesh)
             names[article_index] = name
+            mesh_lods[id(sub_mesh)] = part_info['lod']
 
         def center(meshes):
-            vertices = [v for m in meshes for v in m.vertices]
+            # of LOD 0, so that chunks are where they are without the lower levels
+            vertices = [v for m in meshes if mesh_lods[id(m)] == 0 for v in m.vertices] or [
+                v for m in meshes for v in m.vertices
+            ]
             return tuple(sum(v[k] for v in vertices) / len(vertices) for k in range(3))
 
         parsed = {i: self._TRACK_ARTICLE_NAME_REGEX.match(names[i]) for i in articles}
@@ -1142,7 +1156,8 @@ class CrpGeometrySerializer(BaseFileSerializer):
             for j, sub_mesh in enumerate(meshes):
                 sub_mesh.change_axes(new_y='z', new_z='y')
                 sub_mesh.pivot_offset = (position[0], position[2], position[1])
-                sub_mesh.name = f'terrain_chunk_{k}_{j}_{sub_mesh.texture_id}'
+                lod = f'lod{mesh_lods[id(sub_mesh)]}_' if all_lods else ''
+                sub_mesh.name = f'terrain_chunk_{k}_{j}_{lod}{sub_mesh.texture_id}'
             scenes.append(
                 Scene(
                     name=f'terrain_chunk_{k}',

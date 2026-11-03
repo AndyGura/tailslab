@@ -79,6 +79,8 @@ class TestEacTrackSerializers(unittest.TestCase):
                 'geometry__save_obj': True,
                 'geometry__save_blend': False,
                 'geometry__export_to_gg_web_engine': False,
+                # serializer settings are shared by every instance
+                'maps__save_all_lods': False,
                 **settings,
             }
         )
@@ -178,26 +180,112 @@ class TestEacTrackSerializers(unittest.TestCase):
             with open(vroad_file) as f:
                 vroad = json.load(f)
             self.assertEqual(len(vroad), 832)
-            self.assertEqual(
-                vroad[0],
-                {
-                    'ref_point': {'x': -1718.070556640625, 'y': -14.33489990234375, 'z': 374.81488037109375},
-                    'normal': {'x': 0.0, 'y': 0.984375, 'z': -0.0078125},
-                    'forward': {'x': 0.421875, 'y': -0.0078125, 'z': -0.890625},
-                    'right': {'x': -0.890625, 'y': 0.0, 'z': -0.421875},
-                    'left_wall': 7.883923530578613,
-                    'right_wall': 15.767847061157227,
-                    'left_lane_width': 4.5,
-                    'right_lane_width': 4.5,
-                    'unk0': 4294967295,
-                    'left_lanes': 1,
-                    'right_lanes': 2,
-                    'lane_open_bits': 992,
-                    'left_side_type': 4,
-                    'right_side_type': 4,
-                    'unk1': [4, 4],
-                },
+            # positions and distances in meters, as the map: the file's times 1.3
+            expected = {
+                'ref_point': {'x': -1718.070556640625, 'y': -14.33489990234375, 'z': 374.81488037109375},
+                'left_wall': 7.883923530578613,
+                'right_wall': 15.767847061157227,
+                'left_lane_width': 4.5,
+                'right_lane_width': 4.5,
+            }
+            for k in 'xyz':
+                self.assertAlmostEqual(vroad[0]['ref_point'][k], expected['ref_point'][k] * 1.3, places=4)
+            for key in ['left_wall', 'right_wall', 'left_lane_width', 'right_lane_width']:
+                self.assertAlmostEqual(vroad[0][key], expected[key] * 1.3, places=4)
+            self.assertEqual(vroad[0]['normal'], {'x': 0.0, 'y': 0.984375, 'z': -0.0078125})
+            self.assertEqual(vroad[0]['forward'], {'x': 0.421875, 'y': -0.0078125, 'z': -0.890625})
+            self.assertEqual(vroad[0]['lane_open_bits'], 992)
+            self.assertEqual(vroad[0]['left_side_type'], 4)
+
+    def _obj_mesh_names(self, path):
+        with open(path) as f:
+            return [line[2:].strip() for line in f if line.startswith('o ')]
+
+    def test_nfs4_frd_should_export_highest_lod_and_block_objects(self):
+        import os
+        import tempfile
+
+        from library import require_file
+
+        _, _, data = require_file('test/golden_corpus/NFS4_GT1.FRD')
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, 'gt1')
+            self._serialize(
+                'test/golden_corpus/NFS4_GT1.FRD', out, maps__save_as_chunked=True, maps__add_props_to_obj=False
             )
+            names = self._obj_mesh_names(os.path.join(out, 'terrain_chunk_10.obj'))
+            self.assertFalse(any('_lod' in n for n in names))
+            with open(os.path.join(out, 'terrain_chunk_10.obj')) as f:
+                faces = sum(1 for line in f if line.startswith('f '))
+            block = data['blocks'][10]
+            objects = sum(len(block[f'polygons_objects_{i}']) for i in range(4))
+            self.assertGreater(objects, 0)
+            # only chunks 4 and 5 of the terrain, and the objects: no lower levels of detail on top of each other
+            self.assertEqual(
+                faces, len(block['polygons_high_res_track']) + len(block['polygons_high_res_misc']) + objects
+            )
+            self.assertTrue(any(n.startswith('block_10_objects__') for n in names))
+
+    def test_nfs4_frd_should_export_every_lod_with_setting(self):
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, 'gt1')
+            self._serialize(
+                'test/golden_corpus/NFS4_GT1.FRD',
+                out,
+                maps__save_as_chunked=True,
+                maps__add_props_to_obj=False,
+                maps__save_all_lods=True,
+            )
+            names = self._obj_mesh_names(os.path.join(out, 'terrain_chunk_10.obj'))
+            for lod in range(3):
+                self.assertTrue(any(n.startswith(f'block_10_lod{lod}__') for n in names), lod)
+            # objects are drawn at every level of detail
+            self.assertTrue(any(n.startswith('block_10_objects__') for n in names))
+
+    def test_nfs4_frd_should_be_exported_in_meters(self):
+        import json
+        import math
+        import os
+        import tempfile
+
+        from library import require_file
+
+        _, _, data = require_file('test/golden_corpus/NFS4_GT1.FRD')
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, 'gt1')
+            self._serialize(
+                'test/golden_corpus/NFS4_GT1.FRD', out, maps__save_as_chunked=True, maps__add_props_to_obj=False
+            )
+            with open(os.path.join(out, 'map_extra.json')) as f:
+                extra = json.load(f)
+            # the road path goes through the block positions, times 1.3
+            road_path = next(c for c in extra['curves'] if c['name'] == 'road_path')
+            p = data['blocks_headers'][5]['position']
+            self.assertTrue(math.dist(road_path['points'][5], [p['x'] * 1.3, p['z'] * 1.3, p['y'] * 1.3]) < 1e-3)
+            # billboards (trees) are marked
+            dummies = []
+            for name in os.listdir(out):
+                if name.endswith('_extra.json') and name.startswith('terrain_chunk_'):
+                    with open(os.path.join(out, name)) as f:
+                        dummies += json.load(f)['dummies']
+            self.assertEqual(sum(1 for d in dummies if d['properties'].get('billboard')), 350)
+
+    def test_nfs4_polygon_uvs_should_follow_tex_flags(self):
+        from serializers.maps import nfs4_polygon_uvs
+
+        def flags(**patch):
+            return {'rotation': 0, 'mirror_u': False, 'flip_v': False, 'uv_tiling': 'none', **patch}
+
+        # nfs4.exe UV table 0x5aef6c entries 0, 1, 4, 8 and 32 (image space, v down), given to the polygon corners
+        # 1, 0, 3, 2
+        self.assertEqual(nfs4_polygon_uvs(flags()), [[1, 0], [0, 0], [0, 1], [1, 1]])
+        self.assertEqual(nfs4_polygon_uvs(flags(rotation=1)), [[1, 1], [1, 0], [0, 0], [0, 1]])
+        self.assertEqual(nfs4_polygon_uvs(flags(mirror_u=True)), [[0, 0], [1, 0], [1, 1], [0, 1]])
+        self.assertEqual(nfs4_polygon_uvs(flags(flip_v=True)), [[1, 1], [0, 1], [0, 0], [1, 0]])
+        self.assertEqual(nfs4_polygon_uvs(flags(uv_tiling='v2')), [[1, 0], [0, 0], [0, 2], [1, 2]])
 
 
 class TestTriMapSerializer(unittest.TestCase):

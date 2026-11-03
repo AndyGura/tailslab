@@ -226,24 +226,48 @@ class Nfs4TrkBlockHeader(DeclarativeCompoundBlock):
         )
         num_vertices = (
             IntegerBlock(length=4, is_signed=False),
-            {'description': 'Total amount of vertices stored for this block'},
+            {
+                'description': 'Total amount of vertices stored for this block. They are in this order: the '
+                'vertices of the block objects (`num_vertices_obj`), then of the low, medium and high-res terrain '
+                '(each level of detail uses the first `num_vertices_low` / `num_vertices_med` / `num_vertices_high` '
+                'vertices), then of the `lanes`'
+            },
         )
         num_vertices_high = (
             IntegerBlock(length=4, is_signed=False),
-            {'description': 'Amount of vertices used by high-res terrain polygons'},
+            {
+                'description': 'Amount of the first vertices used by the high-res terrain and the objects (the '
+                '`lanes` come after them)'
+            },
         )
         num_vertices_low = (
             IntegerBlock(length=4, is_signed=False),
-            {'description': 'Amount of vertices used by low-res terrain polygons'},
+            {
+                'description': 'Amount of the first vertices used by the low-res terrain and the objects: nfs4.exe '
+                'transforms that many vertices to draw the block at the far level of detail (0x437770, LOD table '
+                '0x5aef48)'
+            },
         )
         num_vertices_med = (
             IntegerBlock(length=4, is_signed=False),
-            {'description': 'Amount of vertices used by medium-res terrain polygons'},
+            {
+                'description': 'Amount of the first vertices used by the medium-res terrain and the objects, '
+                'transformed for the middle level of detail (nfs4.exe 0x437770)'
+            },
         )
-        num_vertices_dup = (IntegerBlock(length=4, is_signed=False), {'description': 'Equals to `num_vertices`'})
+        num_vertices_dup = (
+            IntegerBlock(length=4, is_signed=False),
+            {
+                'description': 'Equals to `num_vertices`: the vertices nfs4.exe transforms for the near level of '
+                'detail, `lanes` included (0x437770)'
+            },
+        )
         num_vertices_obj = (
             IntegerBlock(length=4, is_signed=False),
-            {'description': 'Amount of vertices used by per-block objects?', 'is_unknown': True},
+            {
+                'description': 'Amount of vertices of the block objects (polygon chunks 7..10, '
+                '`polygons_objects_0` .. `polygons_objects_3`), at the start of `vertices`'
+            },
         )
         vertex_pointers = (
             ArrayBlock(child=IntegerBlock(length=4, is_signed=False), length=2),
@@ -411,7 +435,7 @@ class Nfs4RefExtraObject(DeclarativeCompoundBlock):
     class Fields(DeclarativeCompoundBlock.Fields):
         pt = (
             Point3D(child=FixedPointBlock(length=4, fraction_bits=16, is_signed=True)),
-            {'description': 'Position of the object'},
+            {'description': 'Position of the object, file units (see [Nfs4FrdMap](#nfs4frdmap))'},
         )
         radius = (
             FixedPointBlock(length=2, fraction_bits=8, is_signed=True),
@@ -487,10 +511,13 @@ class Nfs4XObjHeader(DeclarativeCompoundBlock):
         type = (
             IntegerBlock(length=4, is_signed=False),
             {
-                'description': 'Object type. One of: 1, 2, 4 (normal static object), 3 (animated object, has '
-                '`anim_data`), 6 (special/physics prop, has `special_data`). Objects of type 6 '
-                'are placed in global chunks of the track file, not in track blocks: nfs4.exe makes rigid bodies '
-                'of them (0x432e40, 0x431550; 306 in the NFS4 tracks, all in `global_objects_1`)'
+                'description': 'Object type, as nfs4.exe draws the objects (0x436a20): 1 the vertices are where '
+                'they are drawn (`pt` is 0 in every NFS4 track); 2 a billboard (trees): drawn at `pt`, turned '
+                'around the vertical axis to face the camera; 3 animated along the keyframes of `anim_data` (5 at '
+                'run time when it moves along a CAN path); 4 drawn at `pt` unless knocked away (the object state of '
+                'its `xobj` reference); 6 special/physics prop, has `special_data`: drawn at its rigid body. '
+                'Objects of type 6 are placed in global chunks of the track file, not in track blocks: nfs4.exe '
+                'makes rigid bodies of them (0x432e40, 0x431550; 306 in the NFS4 tracks, all in `global_objects_1`)'
             },
         )
         index = (IntegerBlock(length=4, is_signed=False), {'is_unknown': True})
@@ -628,9 +655,9 @@ class Nfs4Polygon(DeclarativeCompoundBlock):
     def schema(self) -> Dict:
         return {
             **super().schema,
-            'block_description': 'A single quad polygon of terrain or extra object. UV coordinates are not '
-            'stored: the texture is mapped to the whole polygon, oriented according to '
-            '`tex_flags`',
+            'block_description': 'A single quad polygon of terrain or extra object, 13 bytes. UV coordinates are '
+            "not stored: `tex_flags` picks the polygon's corner UV-s from a table of the executable (nfs4.exe "
+            '0x434690 terrain, 0x434c20 objects)',
         }
 
     class Fields(DeclarativeCompoundBlock.Fields):
@@ -644,22 +671,68 @@ class Nfs4Polygon(DeclarativeCompoundBlock):
         texture = (
             IntegerBlock(length=2, is_signed=False),
             {
-                'description': 'Bits 0-10: index of the texture in the track QFS archive '
-                "(<file>0.QFS), not counting the archive's mirrored texture copies (images with a "
-                '"<mirrored>" text attachment). Other bits: rendering flags'
+                'description': "Slot in nfs4.exe's track texture table (0x64f9d0, 12 bytes per slot; drawing "
+                '0x434690): the index of the texture in the track QFS archive (<file>0.QFS), not counting the '
+                'archive\'s mirrored texture copies (images with a "<mirrored>" text attachment; the "Mirrored" track '
+                'option takes them instead of the "<nonmirrored>" ones, 0x438790). Slots 0..6 are the first 7 images '
+                '(1x1 placeholders in the NFS4 tracks, not loaded by the track texture loader). `lanes` polygons '
+                'have 0x800 + 0, 2, 5 or 6, past the end of the table'
             },
         )
         tex_flags = (
-            IntegerBlock(length=2, is_signed=False),
+            SubByteCompoundBlock(
+                length=2,
+                schema=[
+                    (1, 'two_sided', 'boolean', [], 'Drawn from both sides: no back face test (nfs4.exe 0x434690)'),
+                    (1, 'render_flag_8', 'boolean', [], 'Sets render flag 8 of the polygon (meaning unknown)'),
+                    (
+                        1,
+                        'scrolling',
+                        'boolean',
+                        [],
+                        'With `anim_flags` not 0: the texture scrolls along v with time instead of playing frames',
+                    ),
+                    (4, 'unk', 'number', [], 'Not read by the polygon drawing'),
+                    (
+                        3,
+                        'uv_tiling',
+                        'enum',
+                        ['none', 'u2', 'v2', 'u4', 'v4', 'clamped', 'u2_', 'v2_'],
+                        'Texture repeats over the polygon: u x 2, v x 2, u x 4, v x 4 (u, v: texture axes, after the '
+                        'orientation bits); 5 (`clamped`) maps it 0..0.99; 6 and 7 as 1 and 2. Lower levels of detail '
+                        'use v x 2 (medium) and v x 4 (low): their polygons span 2 and 4 high-res ones along the road',
+                    ),
+                    (1, 'flip_v', 'boolean', [], 'Flips the texture vertically'),
+                    (1, 'mirror_u', 'boolean', [], 'Mirrors the texture horizontally'),
+                    (
+                        2,
+                        'rotation',
+                        'number',
+                        [],
+                        'UV pair i of the table entry is texture corner (i + rotation) % 4 (corners: (0, 0), (1, 0), '
+                        '(1, 1), (0, 1), v down); the pairs go to the polygon corners 1, 0, 3, 2',
+                    ),
+                    (2, 'unk2', 'number', [], 'Not read by the polygon drawing'),
+                ],
+            ),
             {
-                'description': 'UV orientation of the texture on this polygon. Base UV-s of the 4 vertices are '
-                '(0,1), (1,1), (1,0), (0,0); bit 4 mirrors them horizontally, bits 7-8 rotate '
-                'them by 90 degrees x value. Other bits unknown.'
+                'description': "UV-s of the polygon corners: bits 2..8 pick an entry of nfs4.exe's UV table 0x5aef6c "
+                '(tex_flags & 0x1fc, 4 u, v pairs each, given to the corners 1, 0, 3, 2): bits 2, 3 `rotation`, bit 4 '
+                '`mirror_u`, bit 5 `flip_v`, bits 6..8 `uv_tiling`. The table has 80 entries (tiling 0..4); entries '
+                '80..127 read the next table (0x5af96c, the same 80 entries with every texture inset, used instead on '
+                'some 3D cards): 0..0.99, u x 2, v x 2. Repeating textures are inset by 1/128 (0.0078125 .. 1.9922 '
+                'for a texture repeated twice). '
+                'Bit 13 `scrolling`, bit 14 render flag 8, bit 15 `two_sided` (0x434690)'
             },
         )
         anim_flags = (
             IntegerBlock(length=1, is_signed=False),
-            {'description': 'Used for animated textures: length/period', 'is_unknown': True},
+            {
+                'description': 'Animated texture, 0 for none (nfs4.exe 0x434690): bits 0..2 the number of frames, '
+                'bits 3..7 the sim ticks per frame (64 ticks per second). Frame = (tick / ticks per frame) % frames, '
+                'the texture slot is `texture` + frame. With `tex_flags.scrolling` the texture scrolls along v '
+                'instead'
+            },
         )
 
 
@@ -692,7 +765,7 @@ class Nfs4ExtraObject(DeclarativeCompoundBlock):
             ArrayBlock(child=Point3D(child=DecimalBlock(length=4)), length=_object_header_field('num_vertices')),
             {
                 'description': 'Vertices, relative to the object position `pt` of the header (rotated by '
-                '`special_data.transform` for special objects)'
+                '`special_data.transform` for special objects; type 1 objects have `pt` 0), file units'
             },
         )
         vertex_shading = (
@@ -729,13 +802,20 @@ class Nfs4TrkBlock(DeclarativeCompoundBlock):
             **super().schema,
             'block_description': 'Track block body: terrain vertices and polygons at 3 levels of detail, plus '
             'objects placed in this segment of the track. All array sizes come from the '
-            '[Nfs4TrkBlockHeader](#nfs4trkblockheader) with the same index',
+            '[Nfs4TrkBlockHeader](#nfs4trkblockheader) with the same index. nfs4.exe draws a block (0x437770) at '
+            'one level of detail by the distance (LOD table 0x5aef48: chunks 4 + 5 near, 2 + 3, 0 + 1 up to 600 '
+            'units), and at every level the object chunks 7, 8, 9 and 10 (10 not at night (0x7c4cf8) or with '
+            'weather (0x7c4cfc)); the `lanes` only at the near level, then the extra object chunks 0, 1, 2 and 3 '
+            '(3 not at night or with weather)',
         }
 
     class Fields(DeclarativeCompoundBlock.Fields):
         vertices = (
             ArrayBlock(child=Point3D(child=DecimalBlock(length=4)), length=_block_header_field('num_vertices')),
-            {'description': 'Vertices, global coordinates'},
+            {
+                'description': 'Vertices, global coordinates in file units (see [Nfs4FrdMap](#nfs4frdmap)): the '
+                'block objects first, then the terrain, then the lanes (see `num_vertices` of the header)'
+            },
         )
         vertex_shading = (
             ArrayBlock(child=IntegerBlock(length=4, is_signed=False), length=lambda ctx: len(ctx.data('vertices'))),
@@ -772,58 +852,56 @@ class Nfs4TrkBlock(DeclarativeCompoundBlock):
         )
         polygons_low_res_track = (
             ArrayBlock(child=Nfs4Polygon(), length=_block_header_field('polygon_chunk_sizes/0')),
-            {'description': 'Low-res track polygons'},
+            {'description': 'Chunk 0: low-res track polygons, the far level of detail of chunk 4'},
         )
         polygons_low_res_misc = (
             ArrayBlock(child=Nfs4Polygon(), length=_block_header_field('polygon_chunk_sizes/1')),
-            {'description': 'Low-res misc (non-track) polygons'},
+            {'description': 'Chunk 1: low-res misc (non-track) polygons, the far level of detail of chunk 5'},
         )
         polygons_med_res_track = (
             ArrayBlock(child=Nfs4Polygon(), length=_block_header_field('polygon_chunk_sizes/2')),
-            {'description': 'Medium-res track polygons'},
+            {'description': 'Chunk 2: medium-res track polygons, the middle level of detail of chunk 4'},
         )
         polygons_med_res_misc = (
             ArrayBlock(child=Nfs4Polygon(), length=_block_header_field('polygon_chunk_sizes/3')),
-            {'description': 'Medium-res misc (non-track) polygons'},
+            {'description': 'Chunk 3: medium-res misc (non-track) polygons, the middle level of detail of chunk 5'},
         )
         polygons_high_res_track = (
             ArrayBlock(child=Nfs4Polygon(), length=_block_header_field('polygon_chunk_sizes/4')),
-            {'description': 'High-res track polygons'},
+            {'description': 'Chunk 4: high-res track polygons (the road surface: `polygon_vroad_data`)'},
         )
         polygons_high_res_misc = (
             ArrayBlock(child=Nfs4Polygon(), length=_block_header_field('polygon_chunk_sizes/5')),
-            {'description': 'High-res misc (non-track) polygons'},
+            {'description': 'Chunk 5: high-res misc (non-track) polygons'},
         )
         lanes = (
             ArrayBlock(child=Nfs4Polygon(), length=_block_header_field('polygon_chunk_sizes/6')),
-            {'description': 'Lane helper polygons, not meant to be rendered'},
+            {
+                'description': 'Chunk 6: lane polygons. nfs4.exe draws them at the near level of detail only, with '
+                'render flag 0x80 (0x437770); their `texture` (0x800 + n) points past the texture table. Not '
+                'exported by the converter'
+            },
         )
-        polygons_high_res_misc_1 = (
+        polygons_objects_0 = (
             ArrayBlock(child=Nfs4Polygon(), length=_block_header_field('polygon_chunk_sizes/7')),
             {
-                'description': 'Additional polygon chunk, purpose unknown. Not rendered by the converter',
-                'is_unknown': True,
+                'description': 'Chunk 7: polygons of the block objects (buildings, bridges, signs...), drawn at '
+                'every level of detail (nfs4.exe 0x437770). Vertices are the first `num_vertices_obj` of the block'
             },
         )
-        polygons_high_res_misc_2 = (
+        polygons_objects_1 = (
             ArrayBlock(child=Nfs4Polygon(), length=_block_header_field('polygon_chunk_sizes/8')),
-            {
-                'description': 'Additional polygon chunk, purpose unknown. Not rendered by the converter',
-                'is_unknown': True,
-            },
+            {'description': 'Chunk 8: polygons of the block objects, as chunk 7'},
         )
-        polygons_high_res_misc_3 = (
+        polygons_objects_2 = (
             ArrayBlock(child=Nfs4Polygon(), length=_block_header_field('polygon_chunk_sizes/9')),
-            {
-                'description': 'Additional polygon chunk, purpose unknown. Not rendered by the converter',
-                'is_unknown': True,
-            },
+            {'description': 'Chunk 9: polygons of the block objects, as chunk 7'},
         )
-        polygons_high_res_misc_4 = (
+        polygons_objects_3 = (
             ArrayBlock(child=Nfs4Polygon(), length=_block_header_field('polygon_chunk_sizes/10')),
             {
-                'description': 'Additional polygon chunk, purpose unknown. Not rendered by the converter',
-                'is_unknown': True,
+                'description': 'Chunk 10: polygons of the block objects, as chunk 7, but not drawn at night '
+                '(0x7c4cf8) or with weather (0x7c4cfc) (nfs4.exe 0x437770)'
             },
         )
         extra_objects_0 = (
@@ -850,8 +928,8 @@ class Nfs4TrkBlock(DeclarativeCompoundBlock):
         extra_objects_3 = (
             Nfs4XObjChunk(length=_block_header_chunk_count(3)),
             {
-                'description': 'Extra objects chunk #3 of this block. Amount of objects is '
-                '`object_chunk_counts[3].num` of the block header'
+                'description': 'Extra objects chunk #3 of this block, not drawn at night or with weather (nfs4.exe '
+                '0x437770). Amount of objects is `object_chunk_counts[3].num` of the block header'
             },
         )
 
@@ -865,7 +943,12 @@ class Nfs4FrdMap(DeclarativeCompoundBlock):
             'block headers with all counts come first, then block bodies with vertices, '
             'polygons at 3 levels of detail and objects. Polygon textures index the track '
             'QFS archive (<track>0.QFS), skipping its mirrored texture copies; UV-s are not stored, texture orientation '
-            'is defined by polygon flags',
+            'is defined by polygon flags. Units: nfs4.exe simulates the file units as meters (m/s, gravity 9.81) '
+            'with real-size cars, but EA made the tracks 1 / 1.3 of their real size: the nine tracks NFS4 shares '
+            'with NFS3 are exactly the NFS3 ones / 1.3 (Hometown: 4393 / 5713 along the block positions) and every '
+            'NFS4 track lays its slices 4.61 apart (6.0 / 1.3, as TNFS and NFS3 do in meters). The converter exports '
+            'tracks in meters: every position and distance of the file x 1.3 (`NFS4_TRACK_SCALE`). Cars are not '
+            'scaled: their FCE models have real sizes in both games',
         }
 
     class Fields(DeclarativeCompoundBlock.Fields):

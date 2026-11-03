@@ -137,6 +137,11 @@ When you do:
   Blender then splits vertices along texture coordinate seams only. An option that the loaded `exporter.py` does not
   accept yet is dropped (`_gg_export_options` in the Blender script, warning in the converter log) and the GLB keeps
   its normals.
+- Track levels of detail (NFS2 TRK, NFS3 / NFS4 FRD, NFS5 CRP tracks): only the highest one is exported, all of them
+  with the setting `maps__save_all_lods`, the mesh names then carrying `_lod<n>_` (`block_<i>_lod<n>__<texture>`,
+  NFS5 `terrain_chunk_<i>_<j>_lod<n>_<texture>`; meshes drawn at every level have none). The GUI's track viewer
+  exports with it and shows one level at a time (LOD radio group in its viewport, `meshLod` in
+  `track-map-world.entity.ts`).
 - Conversion settings presets (`config.py`): "No preset" is the `[Conversion]` section, a user-defined preset is a
   `[Conversion: <name>]` section with the conversion settings and input / output paths (everything but
   `selected_preset`, see `CONVERSION_NON_PRESET_KEYS`); a setting missing in a preset takes the built-in default.
@@ -547,6 +552,14 @@ When you do:
   records with cell ranges, per-edge wall flags, the surface byte and the chunk-4 polygon number; xobj refs with
   radius, state index and collision type. All 29 `Tr.frd` / `Trn.frd` write back byte-exact (the polygon normals are
   not renormalized).
+- Export (`Nfs4FrdMapSerializer`) in meters: NFS4 tracks are 1 / 1.3 of their real size in the files (the nine tracks
+  shared with NFS3 are exactly NFS3's / 1.3, slices 6.0 / 1.3 apart; nfs4.exe runs the file units as meters with
+  real-size cars), so every position and distance (map, props, `road_path`, `vroad.json` points, walls and lane
+  widths) is the file's x `NFS4_TRACK_SCALE` (1.3; `trackScale` in `map.meta`, the GUI adapter scales chunk positions
+  alike). Cars are not scaled. Terrain is the highest level of detail (chunks 4 + 5) plus the block objects (chunks
+  7..10, mesh `block_<i>_objects`), as nfs4.exe draws a block (0x437770); the lanes (chunk 6) are left out. UVs come
+  from nfs4.exe's UV table (`nfs4_polygon_uvs`: `tex_flags` rotation / mirror / flip / tiling, corners passed as 1, 0,
+  3, 2). Type 2 extra objects (trees) are billboards in the game: dummy property `billboard`.
 - `Nfs4HeightsSim` (`heights.sim`, a float per slice) and `Nfs4SpeedFile` (`spdFA.bin` / `spdRA.bin`, any case:
   ceil(n / 2) speed bytes, n lane bytes, n float AI line offsets; `is_nfs4_speed_file_size`) are picked under a
   `/Data/Tracks/` path, exported as JSON. NFS4 `.CAN` files are `Nfs3CanAnimation` (the same layout).

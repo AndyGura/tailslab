@@ -77,6 +77,9 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
   private serializedFiles: string[] = [];
 
   pointer$: BehaviorSubject<Point3 | null> = new BehaviorSubject<Point3 | null>(null);
+  // Terrain level of detail shown (0 = highest) and the levels the track has (found in the loaded chunks)
+  lod$: BehaviorSubject<number> = new BehaviorSubject<number>(0);
+  lodLevels$: BehaviorSubject<number[]> = new BehaviorSubject<number[]>([]);
 
   selectedSplineIndex$: BehaviorSubject<number> = new BehaviorSubject<number>(0);
   selectedSplineDetails$: BehaviorSubject<{ title: string; resource: Resource }[]> = new BehaviorSubject<
@@ -243,6 +246,10 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
       this.updateSplineDetails();
       this.previewLoading$.next(true);
       const resourceIdChanged = changes.hasOwnProperty('resourceId');
+      if (resourceIdChanged) {
+        this.lodLevels$.next([]);
+        this.lod$.next(0);
+      }
       this.loadTerrainChunks(adapter ? this.resourceId : undefined).then(async () => {
         await this.viewReady;
         if (resourceIdChanged && this.resourceId && adapter?.textureArchivePatterns) {
@@ -361,6 +368,8 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
         maps__tnfs_chunks_per_file: 1,
         maps__save_spherical_skybox_texture: !!this.adapter?.hasSkybox,
         maps__add_props_to_obj: false,
+        // every level of detail, for the LOD switch
+        maps__save_all_lods: true,
       });
       this.serializedFiles = paths;
       let anyObjPath = paths.find(x => x.endsWith('.obj') && x.includes('terrain_chunk_')) || '';
@@ -417,6 +426,10 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
     );
   }
 
+  lodLabel(lod: number): string {
+    return lod === 0 ? 'LOD 0 (highest)' : `LOD ${lod}`;
+  }
+
   onPointerChange(pos: Point3) {
     if (!this.renderer) {
       return;
@@ -468,6 +481,8 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
       chunksGraph,
       this.terrainTexturesPath,
       this.mainService.hideHiddenFields$,
+      this.lod$,
+      this.lodLevels$,
       this.adapter,
       this.terrainChunksObjLocation,
       this.serializedFiles,

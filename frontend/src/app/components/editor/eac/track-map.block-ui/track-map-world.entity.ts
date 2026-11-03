@@ -31,6 +31,13 @@ import { meshTextureName, TrackPropsAssets, TrackPropsController } from './track
 
 export type TrackEntity = Entity3d<TypeDocOf<ThreeGgWorld>>;
 
+// Level of detail of a terrain mesh exported with `maps__save_all_lods`: "block_3_lod1__TEX" (NFS2-NFS4),
+// "terrain_chunk_2_5_lod1_TEX" (NFS5); null for a mesh drawn at every level (objects, tracks without levels)
+export function meshLod(mesh: Object3D): number | null {
+  const match = /_lod(\d+)_/i.exec(mesh.userData['name'] || mesh.name);
+  return match ? +match[1] : null;
+}
+
 // A dummy of "<scene>_extra.json" written by the converter next to an OBJ, in the format of gg-web-engine meta
 // dummies (what the game gets from the ".meta" of the same scene exported to gg-web-engine)
 function extraJsonDummyToGgDummy(dummy: any): GgDummy {
@@ -65,11 +72,16 @@ export class TrackMapWorldEntity extends MapGraph3dEntity<TypeDocOf<ThreeGgWorld
   private readonly objLoader = new OBJLoader();
   private readonly models = new Map<string, Promise<Object3D | null>>();
   private readonly propsController: TrackPropsController | null;
+  // Terrain meshes with a level of detail, by chunk
+  private readonly lodMeshes = new Map<MapGraphNodeType, Mesh[]>();
 
   constructor(
     public override readonly mapGraph: MapGraph,
     public readonly textureArchivePath: string | null,
     private readonly hideUnknownEntities$: BehaviorSubject<boolean>,
+    // The level of detail shown, and the levels found in the loaded chunks so far
+    private readonly lod$: BehaviorSubject<number>,
+    private readonly lodLevels$: BehaviorSubject<number[]>,
     public readonly adapter: TrackMapAdapter,
     // Folder of the serialized chunks: "<chunksLocation>terrain_chunk_<i>.obj"
     public readonly chunksLocation: string,
@@ -90,6 +102,13 @@ export class TrackMapWorldEntity extends MapGraph3dEntity<TypeDocOf<ThreeGgWorld
     this.hideUnknownEntities$.pipe(distinctUntilChanged(), takeUntil(this._onRemoved$)).subscribe(hide => {
       for (const e of this.unknownEntities) {
         e.visible = !hide;
+      }
+    });
+    this.lod$.pipe(distinctUntilChanged(), takeUntil(this._onRemoved$)).subscribe(lod => {
+      for (const meshes of this.lodMeshes.values()) {
+        for (const mesh of meshes) {
+          mesh.visible = meshLod(mesh) === lod;
+        }
       }
     });
   }
@@ -132,11 +151,23 @@ export class TrackMapWorldEntity extends MapGraph3dEntity<TypeDocOf<ThreeGgWorld
   ): Promise<[TrackEntity[], LoadResultWithProps<TypeDocOf<ThreeGgWorld>>]> {
     const object = await this.objLoader.loadAsync(node.path + '.obj');
     object.position.set(node.position.x, node.position.y, node.position.z);
+    const lodMeshes: Mesh[] = [];
+    const levels = new Set(this.lodLevels$.value);
     object.traverse((child: any) => {
       if (child instanceof Mesh) {
         child.material = this.getTerrainMaterial(meshTextureName(child));
+        const lod = meshLod(child);
+        if (lod !== null) {
+          lodMeshes.push(child);
+          levels.add(lod);
+          child.visible = lod === this.lod$.value;
+        }
       }
     });
+    this.lodMeshes.set(node, lodMeshes);
+    if (levels.size !== this.lodLevels$.value.length) {
+      this.lodLevels$.next([...levels].sort((a, b) => a - b));
+    }
     const props = await this.loadChunkProps(node);
     const entity: TrackEntity = new Entity3d({
       object3D: new ThreeDisplayObjectComponent(object),
@@ -212,6 +243,7 @@ export class TrackMapWorldEntity extends MapGraph3dEntity<TypeDocOf<ThreeGgWorld
   }
 
   protected override disposeChunk(node: MapGraphNodeType) {
+    this.lodMeshes.delete(node);
     for (const c of this.loaded.get(node) || []) {
       this.unknownEntities.delete(c as Entity3d);
     }
