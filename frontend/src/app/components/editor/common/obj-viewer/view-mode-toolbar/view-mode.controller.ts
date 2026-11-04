@@ -15,6 +15,9 @@ import {
 
 export type ViewMode = 'material' | 'wireframe' | 'unlit' | 'edges';
 
+// `userData` key of objects the view modes leave alone, with everything under them (viewer overlays)
+export const VIEW_MODE_IGNORE = 'viewModeIgnore';
+
 export class ViewModeController {
   public onFrameAll?: () => void;
   private _viewMode: ViewMode = 'material';
@@ -53,12 +56,24 @@ export class ViewModeController {
     this.onFrameAll?.();
   }
 
+  // Meshes of the tree, without the objects marked `userData.viewModeIgnore` and what is under them: viewer overlays
+  // (an editing gizmo, whose invisible picking meshes must keep their materials and get no edge lines)
+  private forEachMesh(root: Object3D, fn: (mesh: Mesh) => void): void {
+    if (root.userData?.[VIEW_MODE_IGNORE]) {
+      return;
+    }
+    if (root instanceof Mesh) {
+      fn(root);
+    }
+    for (const child of root.children) {
+      this.forEachMesh(child, fn);
+    }
+  }
+
   private captureOriginalMaterials(): void {
     this.originalMaterials.clear();
-    this.rootObject.traverse((obj: Object3D) => {
-      if (obj instanceof Mesh) {
-        this.originalMaterials.set(obj, Array.isArray(obj.material) ? [...obj.material] : obj.material.clone());
-      }
+    this.forEachMesh(this.rootObject, obj => {
+      this.originalMaterials.set(obj, Array.isArray(obj.material) ? [...obj.material] : obj.material.clone());
     });
   }
 
@@ -81,11 +96,7 @@ export class ViewModeController {
   }
 
   private applyViewModeToTree(root: Object3D): void {
-    root.traverse((obj: Object3D) => {
-      if (obj instanceof Mesh) {
-        this.applyViewModeToMesh(obj);
-      }
-    });
+    this.forEachMesh(root, obj => this.applyViewModeToMesh(obj));
   }
 
   private applyViewModeToMesh(obj: Mesh): void {
@@ -185,12 +196,10 @@ export class ViewModeController {
   }
 
   private onChildRemoved(event: any): void {
-    event.child.traverse((obj: Object3D) => {
-      if (obj instanceof Mesh) {
-        this.originalMaterials.delete(obj);
-        this.controllerManagedMaterials.delete(obj);
-        this.meshesWithViewModeMaterials.delete(obj);
-      }
+    this.forEachMesh(event.child, obj => {
+      this.originalMaterials.delete(obj);
+      this.controllerManagedMaterials.delete(obj);
+      this.meshesWithViewModeMaterials.delete(obj);
     });
   }
 

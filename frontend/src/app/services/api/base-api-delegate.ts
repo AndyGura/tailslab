@@ -137,11 +137,6 @@ export abstract class BaseApiDelegateService {
     return (await this.getImpl()).spatialMove(id, kind, moves);
   }
 
-  // a line in the GUI log ([JS] prefix), level 'info', 'warning' or 'error'
-  public async logFrontendMessage(level: string, message: string): Promise<void> {
-    return (await this.getImpl()).logFrontendMessage(level, message);
-  }
-
   // the track viewer's partial export (serializers/common/chunk_export.py)
   public async serializeChunks(id: string, chunks: number[]): Promise<ChunkExportResult> {
     return (await this.getImpl()).serializeChunks(id, chunks);

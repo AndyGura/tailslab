@@ -150,11 +150,6 @@ export class ApiDelegateImplService {
     return this.wrapCall('spatial_move', id, kind, moves);
   }
 
-  // a line in the GUI log ([JS] prefix), level 'info', 'warning' or 'error'
-  public async logFrontendMessage(level: string, message: string): Promise<void> {
-    return this.wrapCallSilent('log_frontend_message', level, message);
-  }
-
   public async serializeChunks(id: string, chunks: number[]): Promise<ChunkExportResult> {
     return this.wrapCall('serialize_chunks', id, chunks);
   }

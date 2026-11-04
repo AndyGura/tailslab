@@ -823,7 +823,6 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
           ? this.map.findProps(handle.match).map(p => p.entity.object3D!.nativeMesh as Object3D)
           : [],
       occluders: () => this.map?.terrainObjects() || [],
-      log: message => this.mainService.api.logFrontendMessage('info', message).catch(() => {}),
       previewStart: handles => this.startSpatialPreview(handles),
       preview: moves => this.updateSpatialPreview(moves),
       previewEnd: () => this.spatialPreview.clear(),

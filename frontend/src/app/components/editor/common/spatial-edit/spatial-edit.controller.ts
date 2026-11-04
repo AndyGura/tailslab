@@ -16,6 +16,7 @@ import {
 } from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { SpatialEditKind, SpatialHandle } from './spatial-edit.types';
+import { VIEW_MODE_IGNORE } from '../obj-viewer/view-mode-toolbar/view-mode.controller';
 
 export type GizmoMode = 'translate' | 'rotate';
 
@@ -50,8 +51,6 @@ export interface SpatialEditHost {
   // writes the moves to the data as one change, resolves with the handles as stored (in the order of `moves`), null
   // when it failed
   commit(moves: SpatialMove[]): Promise<SpatialHandle[] | null>;
-  // a diagnostic line for the application log
-  log?(message: string): void;
 }
 
 const MARKER_COLOR = 0x4fc3f7;
@@ -153,6 +152,11 @@ export class SpatialEditController {
     this.gizmo.addEventListener('objectChange', () => this.onDragMove());
     this.gizmo.addEventListener('axis-changed', () => this.updatePointerCaptured());
     this.gizmo.addEventListener('dragging-changed', () => this.updatePointerCaptured());
+    // overlays: the view modes (wireframe, edges...) must not change them, an edge line on a picking mesh of the gizmo
+    // would be what a ray hits, and an axis without a name moves nothing
+    for (const overlay of [this.pivot, this.gizmo.getHelper(), this.markers, this.hoverMarker, this.selectedMarkers]) {
+      overlay.userData[VIEW_MODE_IGNORE] = true;
+    }
     scene.add(this.pivot, this.gizmo.getHelper(), this.markers, this.hoverMarker, this.selectedMarkers);
     this.box = document.createElement('div');
     Object.assign(this.box.style, {
@@ -518,46 +522,7 @@ export class SpatialEditController {
     return this.dragging || (this.gizmo.object !== undefined && this.gizmo.axis !== null);
   }
 
-  // A press on the canvas with a selection (the gizmo shown): what the event was and whether the gizmo, whose own
-  // pointerdown listener ran before this one, found an axis under it. To find out why the gizmo misses on a device
-  private logPress(e: PointerEvent) {
-    if (!this.host.log || !this.selection$.value.length || !this.gizmo.object) {
-      return;
-    }
-    const rect = this.canvas.getBoundingClientRect();
-    const pivot = this.pivot.position.clone().project(this.camera);
-    const round = (v: number) => Math.round(v * 10) / 10;
-    this.host.log(
-      `spatial edit press: pointerType=${e.pointerType} button=${e.button} buttons=${e.buttons} ` +
-        `client=(${round(e.clientX)}, ${round(e.clientY)}) canvas=(${round(rect.left)}, ${round(rect.top)}, ` +
-        `${round(rect.width)}x${round(rect.height)}) gizmo centre=(${round(rect.left + ((pivot.x + 1) / 2) * rect.width)}, ` +
-        `${round(rect.top + ((1 - pivot.y) / 2) * rect.height)}) mode=${this.gizmo.mode} axis=${this.gizmo.axis} ` +
-        `dragging=${this.gizmo.dragging} pointerLock=${!!document.pointerLockElement} dpr=${window.devicePixelRatio}`,
-    );
-  }
-
-  // The first move over the canvas after the selection changed: the gizmo highlights an axis on moves of a mouse or a
-  // pen only (its listener ran before this one)
-  private loggedMoveFor: SpatialHandle[] | null = null;
-
-  private logFirstMove(e: PointerEvent) {
-    if (
-      !this.host.log ||
-      e.target !== this.canvas ||
-      !this.gizmo.object ||
-      this.loggedMoveFor === this.selection$.value
-    ) {
-      return;
-    }
-    this.loggedMoveFor = this.selection$.value;
-    this.host.log(
-      `spatial edit move: pointerType=${e.pointerType} buttons=${e.buttons} axis=${this.gizmo.axis} ` +
-        `pointerLock=${!!document.pointerLockElement}`,
-    );
-  }
-
   private onPointerDown(e: PointerEvent) {
-    this.logPress(e);
     const free =
       e.button === 0 && !e.altKey && !document.pointerLockElement && !this.gizmoTakesPointer() && !!this.kind;
     this.pointerDownAt = free ? new Vector2(e.clientX, e.clientY) : null;
@@ -599,7 +564,6 @@ export class SpatialEditController {
   }
 
   private onPointerMove(e: PointerEvent) {
-    this.logFirstMove(e);
     if (this.boxSelecting && this.pointerDownAt) {
       if (this.pointerDownAt.distanceTo(new Vector2(e.clientX, e.clientY)) <= CLICK_DISTANCE) {
         return;
