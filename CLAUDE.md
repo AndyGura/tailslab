@@ -151,6 +151,8 @@ When you do:
   WASD flies); the field of view is fixed. Adapters with `chunkExport` (TNFS) get chunk files from `serialize_chunks`
   (`serializers/common/chunk_export.py`): only the chunks the viewer loads are written, and after a change only the
   loaded chunks whose data fingerprint changed are written and reloaded.
+  Viewer overlays (the gizmo, markers) are marked `userData.viewModeIgnore` (`VIEW_MODE_IGNORE`): the shading modes
+  (`ViewModeController`) leave them alone; an edge line on a gizmo picking mesh would take the gizmo's hits.
 - Track levels of detail (NFS2 TRK, NFS3 / NFS4 FRD, NFS5 CRP tracks): only the highest one is exported, all of them
   with the setting `maps__save_all_lods`, the mesh names then carrying `_lod<n>_` (`block_<i>_lod<n>__<texture>`,
   NFS5 `terrain_chunk_<i>_<j>_lod<n>_<texture>`; meshes drawn at every level have none). The GUI's track viewer
