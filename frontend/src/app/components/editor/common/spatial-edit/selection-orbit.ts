@@ -17,8 +17,9 @@ const MIN_DISTANCE = 1;
 const MAX_PITCH_Z = 0.995;
 
 /**
- * The orbit camera around a selection: a left drag turns the camera around the pivot (around the vertical axis and
- * its own horizontal one), the wheel moves it to and from the pivot. It turns from where the camera is and how it looks
+ * The orbit camera around a selection: a middle button drag or an Alt + left drag (the left button alone selects)
+ * turns the camera around the pivot (around the vertical axis and its own horizontal one), the wheel moves it to and
+ * from the pivot. It turns from where the camera is and how it looks
  * (the pivot need not be in the middle of the view), so the view never jumps when the pivot changes; `frame` brings
  * the pivot into the middle. The viewer turns its other camera controller off while `enabled`.
  */
@@ -36,8 +37,15 @@ export class SelectionOrbit {
     private readonly blocked: () => boolean,
   ) {
     this.listen(canvas, 'pointerdown', (e: PointerEvent) => {
-      this.dragFrom = e.button === 0 && this.active && !this.blocked() ? { x: e.clientX, y: e.clientY } : null;
+      const orbitButton = e.button === 1 || (e.button === 0 && e.altKey);
+      this.dragFrom = orbitButton && this.active && !this.blocked() ? { x: e.clientX, y: e.clientY } : null;
+      if (this.dragFrom && e.button === 1) {
+        // no middle button auto scroll
+        e.preventDefault();
+      }
     });
+    // the middle button pressed on the canvas does not start auto scroll in browsers listening to mousedown only
+    this.listen(canvas, 'mousedown', (e: MouseEvent) => e.button === 1 && this.active && e.preventDefault());
     this.listen(window, 'pointermove', (e: PointerEvent) => this.onPointerMove(e));
     this.listen(window, 'pointerup', () => (this.dragFrom = null));
     this.listen(canvas, 'wheel', (e: WheelEvent) => this.onWheel(e), { passive: false });

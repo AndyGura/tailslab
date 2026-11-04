@@ -93,8 +93,9 @@ function handleRotation(handle: SpatialHandle): Quaternion {
 
 /**
  * Moves the handles of one spatial edit kind (library/spatial_edit.py) in a three.js scene: a marker per handle, a
- * click selects one (the nearest marker on screen that is not behind the occluders, or an object drawing a handle),
- * Shift + click adds or removes one, Shift + drag selects the visible ones in a box. A gizmo with the axes the kind
+ * click selects one (the nearest marker on screen that is not behind the occluders, or an object drawing a handle), a
+ * drag on empty space selects the visible ones in a box; with Shift both add to the selection (a click on a selected
+ * one removes it), with Ctrl / Cmd they remove from it. Alt + drag is left to the camera. A gizmo with the axes the kind
  * declares sits at the centre of the selection: moving it moves every selected handle by as much, rotating it turns
  * them around it, each one with it. A drag is previewed by the host; when it ends the host commits the moves of all
  * of them as one change and the selection jumps to the transforms the data holds. The viewer's camera must not take
@@ -126,6 +127,8 @@ export class SpatialEditController {
   private readonly raycaster = new Raycaster();
   private readonly box: HTMLDivElement;
   private pointerDownAt: Vector2 | null = null;
+  // what a press on empty space does: a click picks, a drag draws a box
+  private selectMode: 'replace' | 'add' | 'remove' = 'replace';
   private boxSelecting = false;
   private hoverFrame: number | null = null;
   private dragging = false;
@@ -279,6 +282,29 @@ export class SpatialEditController {
     }
     this.host.preview?.(this.selectionMoves());
     await this.commit();
+  }
+
+  // Moves every selected handle to the centre of the selection (on the axes the kind moves along), as one change. The
+  // handles stay apart in the data: nothing is merged
+  async moveSelectionToCentre() {
+    const handles = this.selection$.value;
+    const axes = this.kind?.translate_axes || '';
+    if (handles.length < 2 || !axes || this.dragging || this.committing$.value) {
+      return;
+    }
+    this.startMove();
+    const centre = this.pivot.position;
+    const moves = handles.map(handle => {
+      const position = handlePosition(handle);
+      for (const axis of ['x', 'y', 'z'] as const) {
+        if (axes.includes(axis)) {
+          position[axis] = centre[axis];
+        }
+      }
+      return { handle, position, rotation: this.kind!.rotate_axes ? handleRotation(handle) : null };
+    });
+    this.host.preview?.(moves);
+    await this.commit(moves);
   }
 
   dispose() {
@@ -491,10 +517,12 @@ export class SpatialEditController {
   }
 
   private onPointerDown(e: PointerEvent) {
-    const free = e.button === 0 && !document.pointerLockElement && !this.gizmoTakesPointer() && !!this.kind;
+    const free =
+      e.button === 0 && !e.altKey && !document.pointerLockElement && !this.gizmoTakesPointer() && !!this.kind;
     this.pointerDownAt = free ? new Vector2(e.clientX, e.clientY) : null;
-    // a Shift + drag draws a selection box, the camera holds still
-    this.boxSelecting = free && e.shiftKey;
+    this.selectMode = e.shiftKey ? 'add' : e.ctrlKey || e.metaKey ? 'remove' : 'replace';
+    // a drag from here draws a selection box, the camera holds still
+    this.boxSelecting = free;
     this.updatePointerCaptured();
   }
 
@@ -509,22 +537,31 @@ export class SpatialEditController {
       return;
     }
     const upAt = new Vector2(e.clientX, e.clientY);
+    const selection = this.selection$.value;
     if (downAt.distanceTo(upAt) <= CLICK_DISTANCE) {
       const handle = this.pick(e);
-      if (e.shiftKey) {
-        if (handle) this.toggle(handle);
-      } else {
+      if (this.selectMode === 'replace') {
         this.select(handle ? [handle] : []);
+      } else if (handle && (this.selectMode === 'add' || selection.some(h => h.id === handle.id))) {
+        this.toggle(handle);
       }
     } else if (boxSelecting) {
-      const selection = this.selection$.value;
-      const added = this.pickInBox(downAt, upAt).filter(h => !selection.some(s => s.id === h.id));
-      this.select([...selection, ...added]);
+      const inBox = this.pickInBox(downAt, upAt);
+      if (this.selectMode === 'replace') {
+        this.select(inBox);
+      } else if (this.selectMode === 'add') {
+        this.select([...selection, ...inBox.filter(h => !selection.some(s => s.id === h.id))]);
+      } else {
+        this.select(selection.filter(h => !inBox.some(b => b.id === h.id)));
+      }
     }
   }
 
   private onPointerMove(e: PointerEvent) {
     if (this.boxSelecting && this.pointerDownAt) {
+      if (this.pointerDownAt.distanceTo(new Vector2(e.clientX, e.clientY)) <= CLICK_DISTANCE) {
+        return;
+      }
       const canvasRect = this.canvas.getBoundingClientRect();
       const parentRect = this.canvas.parentElement!.getBoundingClientRect();
       const x = Math.max(Math.min(e.clientX, canvasRect.right), canvasRect.left);
@@ -578,8 +615,7 @@ export class SpatialEditController {
     }
   }
 
-  private async commit() {
-    const moves = this.selectionMoves();
+  private async commit(moves: SpatialMove[] = this.selectionMoves()) {
     const start = this.moveStart!;
     this.moveStart = null;
     const moved = moves.some(

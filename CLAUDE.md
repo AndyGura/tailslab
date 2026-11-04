@@ -139,12 +139,14 @@ When you do:
   accept yet is dropped (`_gg_export_options` in the Blender script, warning in the converter log) and the GLB keeps
   its normals.
 - Track viewer editing (`TrackMapBlockUiComponent` + `common/spatial-edit/`): the viewport's edit panel offers the
-  `spatial_edit` kinds of the block (View, then e.g. Props / Terrain / Road for TNFS); left click selects, Shift +
-  click adds / removes, Shift + drag selects the visible handles in a box; the gizmo (only the declared axes) sits at
-  the centre of the selection and moves / turns all of it, committed as one change (`spatial_move` takes the moves of
-  every selected handle). G / R / F / Esc = move / rotate / frame / deselect. Camera: while something is selected,
-  `SelectionOrbit` (left drag turns around the selection from where the camera is, the wheel for the distance; held
-  still while the gizmo or the box takes the pointer), else the free camera (right mouse button held looks around,
+  `spatial_edit` kinds of the block (View, then e.g. Props / Terrain / Road for TNFS); left click selects, a left drag
+  on empty space selects the visible handles in a box (Shift adds, Ctrl / Cmd removes, for clicks too); the gizmo
+  (only the declared axes) sits at the centre of the selection and moves / turns all of it, committed as one change
+  (`spatial_move` takes the moves of every selected handle). "To centre" (M) moves every selected handle to the
+  centre of the selection, one change, nothing merged. G / R / F / Esc = move / rotate / frame / deselect. Camera:
+  while something is selected, `SelectionOrbit` (middle drag or Alt + left drag turns around the selection from where
+  the camera is, the wheel for the distance; held still while the gizmo or the box takes the pointer), else the free
+  camera (right mouse button held looks around,
   WASD flies); the field of view is fixed. Adapters with `chunkExport` (TNFS) get chunk files from `serialize_chunks`
   (`serializers/common/chunk_export.py`): only the chunks the viewer loads are written, and after a change only the
   loaded chunks whose data fingerprint changed are written and reloaded.

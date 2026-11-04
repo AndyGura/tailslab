@@ -135,4 +135,80 @@ describe('SpatialEditController', () => {
     expect(controller.selection$.value.map(h => h.id)).toEqual(['2']);
     expect(controller.pivotPosition.toArray()).toEqual([2, 0, 0]);
   });
+
+  // a pointer gesture on the canvas, in its pixels (the camera looks along -z from the origin)
+  function gesture(from: [number, number], to: [number, number], keys: PointerEventInit = {}) {
+    const rect = canvas.getBoundingClientRect();
+    const at = ([x, y]: [number, number]) => ({ clientX: rect.left + x, clientY: rect.top + y });
+    const event = (type: string, p: [number, number]) =>
+      canvas.dispatchEvent(
+        new PointerEvent(type, { button: 0, bubbles: true, pointerId: 1, pointerType: 'mouse', ...keys, ...at(p) }),
+      );
+    event('pointerdown', from);
+    event('pointermove', to);
+    event('pointerup', to);
+  }
+
+  function screenX(handleX: number): number {
+    const v = new Vector3(handleX, 0, -10).project(camera);
+    return ((v.x + 1) / 2) * canvas.getBoundingClientRect().width;
+  }
+
+  let camera: PerspectiveCamera;
+
+  function boxSetup() {
+    camera = (controller as any).camera;
+    camera.updateMatrixWorld();
+    controller.setKind(VERTEX_KIND);
+    controller.setHandles([handle('a', [-1, 0, -10]), handle('b', [1, 0, -10]), handle('c', [3, 0, -10])]);
+  }
+
+  it('should select in a box with a plain drag, add with Shift and remove with Ctrl', () => {
+    boxSetup();
+    const height = canvas.getBoundingClientRect().height;
+    const ids = () => controller.selection$.value.map(h => h.id);
+    // a and b
+    gesture([screenX(-1) - 5, 5], [screenX(1) + 5, height - 5]);
+    expect(ids()).toEqual(['a', 'b']);
+    // a plain box replaces: c only
+    gesture([screenX(3) - 5, 5], [screenX(3) + 5, height - 5]);
+    expect(ids()).toEqual(['c']);
+    // Shift adds a and b
+    gesture([screenX(-1) - 5, 5], [screenX(1) + 5, height - 5], { shiftKey: true });
+    expect(ids()).toEqual(['c', 'a', 'b']);
+    // Ctrl removes b and c
+    gesture([screenX(1) - 5, 5], [screenX(3) + 5, height - 5], { ctrlKey: true });
+    expect(ids()).toEqual(['a']);
+    // Alt + drag is the camera's
+    gesture([screenX(-1) - 5, 5], [screenX(3) + 5, height - 5], { altKey: true });
+    expect(ids()).toEqual(['a']);
+  });
+
+  it('should add and remove with Shift / Ctrl clicks', () => {
+    boxSetup();
+    const y = canvas.getBoundingClientRect().height / 2;
+    const ids = () => controller.selection$.value.map(h => h.id);
+    gesture([screenX(-1), y], [screenX(-1), y]);
+    gesture([screenX(1), y], [screenX(1), y], { shiftKey: true });
+    expect(ids()).toEqual(['a', 'b']);
+    gesture([screenX(-1), y], [screenX(-1), y], { ctrlKey: true });
+    expect(ids()).toEqual(['b']);
+    // a click on empty space deselects
+    gesture([2, 2], [2, 2]);
+    expect(ids()).toEqual([]);
+  });
+
+  it('should move the selection to its centre in one commit', async () => {
+    controller.setKind({ ...VERTEX_KIND, translate_axes: 'xy' });
+    controller.setHandles([handle('1', [0, 0, 5]), handle('2', [4, 2, 1]), handle('3', [8, 4, 0])]);
+    controller.selectById('1', '2', '3');
+    await controller.moveSelectionToCentre();
+    expect(commits.length).toBe(1);
+    // z is not an axis of the kind: it stays
+    expect(commits[0].map(m => m.position.toArray())).toEqual([
+      [4, 2, 5],
+      [4, 2, 1],
+      [4, 2, 0],
+    ]);
+  });
 });

@@ -800,6 +800,8 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
         this.spatialEdit?.select([]);
       } else if ((e.key === 'f' || e.key === 'F') && selected) {
         this.focusSelection();
+      } else if ((e.key === 'm' || e.key === 'M') && selected) {
+        this.spatialEdit?.moveSelectionToCentre();
       } else {
         return;
       }

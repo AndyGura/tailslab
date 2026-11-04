@@ -125,6 +125,10 @@ export class SpatialEditPanelComponent implements OnChanges, OnDestroy {
     this.controller?.select([]);
   }
 
+  async moveToCentre() {
+    await this.controller?.moveSelectionToCentre();
+  }
+
   focus() {
     if (this.selection.length) {
       this.focusSelected.emit();
