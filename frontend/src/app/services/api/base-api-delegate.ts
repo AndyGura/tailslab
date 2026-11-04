@@ -4,6 +4,12 @@ import { BlockData, CustomAction, Resource, ResourceError } from '../../componen
 import { ErrorDialogComponent } from '../../components/error.dialog/error.dialog.component';
 import { ChangeEntry, ChangesFeUpdate } from '../changes.service';
 import {
+  ChunkExportResult,
+  SpatialHandle,
+  SpatialMoveRequest,
+  SpatialMoveResult,
+} from '../../components/editor/common/spatial-edit/spatial-edit.types';
+import {
   ConversionConfig,
   ConversionPresets,
   ExecutableDetectionResult,
@@ -119,6 +125,21 @@ export abstract class BaseApiDelegateService {
 
   public async getNewItemData(id: string, patch: any = {}): Promise<any> {
     return (await this.getImpl()).getNewItemData(id, patch);
+  }
+
+  // spatial edits (library/spatial_edit.py)
+  public async spatialHandles(id: string, kind: string, chunks: number[] | null): Promise<SpatialHandle[]> {
+    return (await this.getImpl()).spatialHandles(id, kind, chunks);
+  }
+
+  // moves of several handles, one change
+  public async spatialMove(id: string, kind: string, moves: SpatialMoveRequest[]): Promise<SpatialMoveResult> {
+    return (await this.getImpl()).spatialMove(id, kind, moves);
+  }
+
+  // the track viewer's partial export (serializers/common/chunk_export.py)
+  public async serializeChunks(id: string, chunks: number[]): Promise<ChunkExportResult> {
+    return (await this.getImpl()).serializeChunks(id, chunks);
   }
 
   // palette indices the images using the palette hold

@@ -3,6 +3,12 @@ import { BehaviorSubject, Subject } from 'rxjs';
 import { BlockData, BlockSchema, CustomAction, Resource, ResourceError } from '../../components/editor/types';
 import { ChangeEntry, ChangesFeUpdate } from '../changes.service';
 import {
+  ChunkExportResult,
+  SpatialHandle,
+  SpatialMoveRequest,
+  SpatialMoveResult,
+} from '../../components/editor/common/spatial-edit/spatial-edit.types';
+import {
   ConversionConfig,
   ConversionPresets,
   ExecutableDetectionResult,
@@ -134,6 +140,18 @@ export class ApiDelegateImplService {
 
   public async getNewItemData(id: string, patch: any = {}): Promise<any> {
     return this.wrapCall('get_new_item_data', id, patch);
+  }
+
+  public async spatialHandles(id: string, kind: string, chunks: number[] | null): Promise<SpatialHandle[]> {
+    return this.wrapCall('spatial_handles', id, kind, chunks);
+  }
+
+  public async spatialMove(id: string, kind: string, moves: SpatialMoveRequest[]): Promise<SpatialMoveResult> {
+    return this.wrapCall('spatial_move', id, kind, moves);
+  }
+
+  public async serializeChunks(id: string, chunks: number[]): Promise<ChunkExportResult> {
+    return this.wrapCall('serialize_chunks', id, chunks);
   }
 
   public async paletteUsage(paletteId: string): Promise<number[]> {

@@ -344,3 +344,68 @@ class TestTriMapSerializer(unittest.TestCase):
             self.assertEqual(len(names), len(set(names)))
             for name in names:
                 self.assertTrue(name.startswith(f'{chunk_name}_background/'))
+
+    def test_tri_partial_chunk_export_should_match_full_export(self):
+        import filecmp
+        import os
+        import tempfile
+
+        from library import require_file
+        from serializers import get_serializer
+
+        (name, block, data) = require_file('test/samples/AL1.TRI')
+        serializer = get_serializer(block, data)
+        with tempfile.TemporaryDirectory() as full, tempfile.TemporaryDirectory() as partial:
+            serializer.patch_settings(
+                {
+                    'maps__save_as_chunked': True,
+                    'maps__tnfs_chunks_per_file': 1,
+                    'maps__add_props_to_obj': False,
+                    'geometry__save_obj': True,
+                    'geometry__save_blend': False,
+                    'geometry__export_to_gg_web_engine': False,
+                }
+            )
+            serializer.serialize(data, full, name, block)
+            lane_merges = [
+                i for i in range(len(data['terrain'])) if data['road_spline'][i * 4]['item_mode'] == 'lane_merge'
+            ]
+            chunks = [0, 10, len(data['terrain']) - 1] + [i + 1 for i in lane_merges]
+            result = serializer.serialize_chunks(data, partial, name, block, chunks)
+            self.assertEqual(sorted(result['chunks']), sorted(set(chunks)))
+            for i in chunks:
+                for suffix in ('.obj', '_extra.json'):
+                    file = f'terrain_chunk_{i}{suffix}'
+                    self.assertEqual(os.path.exists(f'{full}/{file}'), os.path.exists(f'{partial}/{file}'), file)
+                    if os.path.exists(f'{full}/{file}'):
+                        self.assertTrue(filecmp.cmp(f'{full}/{file}', f'{partial}/{file}', shallow=False), file)
+
+    def test_tri_partial_chunk_export_should_drop_only_changed_chunks(self):
+        import os
+        import tempfile
+        from copy import deepcopy
+
+        from library import require_file
+        from library.spatial_edit import apply_spatial_move
+        from serializers import get_serializer
+
+        (name, block, data) = require_file('test/samples/AL1.TRI')
+        data = deepcopy(data)
+        serializer = get_serializer(block, data)
+        with tempfile.TemporaryDirectory() as path:
+            first = serializer.serialize_chunks(data, path, name, block, list(range(5, 15)))
+            mtime = os.path.getmtime(f'{path}/terrain_chunk_12.obj')
+            handle = block.spatial_handle(data, 'terrain_vertex', '10/0/3')
+            position = [handle['position'][0] + 1, handle['position'][1], handle['position'][2]]
+            apply_spatial_move(name, block, data, 'terrain_vertex', '10/0/3', position, None)
+            # the vertex is in the chunks 9 (its next chunk's first row) and 10, chunk 11 has chunk 10 as previous
+            fingerprints = serializer.chunk_fingerprints(data, name)
+            changed = [i for i in range(5, 15) if fingerprints[i] != first['chunks'][i]['fingerprint']]
+            self.assertEqual(changed, [9, 10, 11])
+            second = serializer.serialize_chunks(data, path, name, block, [10, 12])
+            self.assertNotEqual(second['chunks'][10]['fingerprint'], first['chunks'][10]['fingerprint'])
+            # changed chunks not asked for are deleted, the others stay as they were
+            self.assertFalse(os.path.exists(f'{path}/terrain_chunk_9.obj'))
+            self.assertFalse(os.path.exists(f'{path}/terrain_chunk_11.obj'))
+            self.assertTrue(os.path.exists(f'{path}/terrain_chunk_13.obj'))
+            self.assertEqual(os.path.getmtime(f'{path}/terrain_chunk_12.obj'), mtime)

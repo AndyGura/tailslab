@@ -5,7 +5,7 @@ This module handles all serialization-related operations.
 
 import copy
 import time
-from typing import List, Any
+from typing import Any, Dict, List
 
 from library import require_resource
 from library.changes_service import ChangesService
@@ -70,6 +70,28 @@ class SerializationAPI:
         if static_tmp_dir:
             exported_file_paths = [x[len(self.api.static_path) :] for x in exported_file_paths]
         return exported_file_paths
+
+    def serialize_chunks(self, id: str, chunks: List[int]) -> Dict[str, Any]:
+        """
+        The track viewer's partial export (serializers/common/chunk_export.py): chunk files of the requested chunks,
+        written when out of date, into the static folder.
+
+        Args:
+            id: ID of a track block whose serializer has `serialize_chunks`
+            chunks: Chunk indices
+
+        Returns:
+            {'path': the folder of the chunk files, 'chunk_count': n, 'chunks': {index: {'fingerprint', 'files',
+            'position'}}}, paths relative to the static folder
+        """
+        (_, res_block, res), _ = require_resource(id)
+        serializer = get_serializer(res_block, res)
+        path = path_join(self.api.static_path, 'resources', *id.split('/')).replace('\\', '/')
+        result = serializer.serialize_chunks(res, path, id, res_block, chunks)
+        for chunk in result['chunks'].values():
+            chunk['files'] = [x.replace('\\', '/')[len(self.api.static_path) :] for x in chunk['files']]
+        result['path'] = path[len(self.api.static_path) :] + '/'
+        return result
 
     def new_images_from_files(self, id: str, file_paths: List[str]) -> dict:
         """

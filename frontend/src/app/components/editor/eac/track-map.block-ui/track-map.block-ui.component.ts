@@ -17,6 +17,7 @@ import {
   FreeCameraController,
   Gg3dWorld,
   MapGraph,
+  MapGraphNodeType,
   Pnt3,
   Point2,
   Point3,
@@ -26,13 +27,18 @@ import {
 import { BehaviorSubject, debounceTime, filter, Subject, takeUntil } from 'rxjs';
 import {
   AmbientLight,
+  BufferAttribute,
+  Camera,
   CubeReflectionMapping,
   DoubleSide,
   Material,
   Mesh,
   MeshBasicMaterial,
+  Object3D,
+  Quaternion,
   Texture,
   TextureLoader,
+  Vector3,
 } from 'three';
 import { ThreeGgWorld, ThreeSceneComponent, ThreeVisualTypeDocRepo } from '@gg-web-engine/three';
 import { BlockSchema, Resource } from '../../types';
@@ -46,7 +52,25 @@ import {
   TrackSplineDetailPanel,
   TrackSplinePoint,
 } from './track-map-adapters';
-import { TrackEntity, TrackMapWorldEntity } from './track-map-world.entity';
+import { TrackChunkFiles, TrackEntity, TrackMapWorldEntity } from './track-map-world.entity';
+import { TrackProp } from './track-props-controller';
+import { SpatialEditController, SpatialEditHost, SpatialMove } from '../../common/spatial-edit/spatial-edit.controller';
+import { SpatialEditKind, SpatialHandle, spatialEditKinds } from '../../common/spatial-edit/spatial-edit.types';
+import { SelectionOrbit } from '../../common/spatial-edit/selection-orbit';
+
+// Focus brings the camera this close to the selection
+const FOCUS_DISTANCE = 15;
+
+// Mesh vertices at a terrain handle's position (the OBJ splits the terrain by texture, so a vertex has copies) are
+// within this distance of it
+const VERTEX_MATCH_DISTANCE = 0.005;
+
+// What a drag moves before the files are written again, per selected handle: copies of a terrain vertex in the loaded
+// meshes, props
+interface SpatialPreview {
+  vertices: { mesh: Mesh; attribute: BufferAttribute; index: number }[];
+  props: TrackProp[];
+}
 
 // Game coordinates (Y up) -> viewer coordinates (Z up)
 function toViewer(p: Point3): Point3 {
@@ -90,6 +114,8 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
   map: TrackMapWorldEntity | null = null;
   adapter: TrackMapAdapter | null = null;
   controller!: FreeCameraController;
+  // the camera while spatial edit handles are selected: it turns around them
+  selectionOrbit: SelectionOrbit | null = null;
   chunkPositions: Point3[] | null = null;
   splinePoints: TrackSplinePoint[] = [];
   minimapSpline: Point3[] = [];
@@ -98,6 +124,35 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
   viewModeController?: ViewModeController;
   skySphere!: TrackEntity;
   selectionSphere!: TrackEntity;
+
+  // Spatial edits (library/spatial_edit.py): the kinds the block declares, the active one (null = view only)
+  spatialKinds: SpatialEditKind[] = [];
+  editKind$: BehaviorSubject<SpatialEditKind | null> = new BehaviorSubject<SpatialEditKind | null>(null);
+  spatialEdit: SpatialEditController | null = null;
+  // chunks being written again / reloaded after a change
+  rebuilding$: BehaviorSubject<number> = new BehaviorSubject<number>(0);
+  selectedHandleDetail$: BehaviorSubject<{ title: string; resource: Resource } | null> = new BehaviorSubject<{
+    title: string;
+    resource: Resource;
+  } | null>(null);
+  // Terrain chunk nodes of the map graph, by chunk index
+  private chunkNodes: MapGraphNodeType[] = [];
+  private readonly chunkIndices = new Map<MapGraphNodeType, number>();
+  // Chunk files asked for by the map, written in one call (adapters with `chunkExport`)
+  private readonly chunkRequests = new Map<
+    number,
+    { resolve: (f: TrackChunkFiles) => void; reject: (e: any) => void }[]
+  >();
+  private chunkRequestTimer: any = null;
+  // Handles of the active edit kind in the loaded chunks, by chunk; chunks whose handles must be asked for again
+  private readonly handlesByChunk = new Map<number, SpatialHandle[]>();
+  private readonly staleHandleChunks = new Set<number>();
+  private handleSyncTimer: any = null;
+  private handleSync: Promise<void> = Promise.resolve();
+  private chunkRefresh: Promise<void> = Promise.resolve();
+  // by handle id
+  private readonly spatialPreview = new Map<string, SpatialPreview>();
+  private pointerOverViewport = false;
 
   private readonly destroyed$: Subject<void> = new Subject<void>();
   // Resolves once the 3D world is set up; inputs can arrive before that
@@ -176,8 +231,11 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
       cameraRotationElasticity: 30,
       ignoreMouseUnlessPointerLocked: true,
       ignoreKeyboardUnlessPointerLocked: true,
+      // the field of view stays as it is
+      zoomOutInKeys: ['', ''],
     });
     this.world.addEntity(this.controller);
+    this.setupSpatialEdit();
     const updateSize = () => {
       rendererSize$.next({
         x: this.previewCanvasContainer.nativeElement.clientWidth,
@@ -187,10 +245,20 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
     new ResizeObserver(updateSize).observe(this.previewCanvasContainer.nativeElement);
     updateSize();
     this.world.start();
+    // tracks exported per chunk reload the chunks a change made outdated, the others are exported again
     this.changes.change$
       .pipe(
         takeUntil(this.destroyed$),
-        filter(x => !!(this.resourceId && x.startsWith(this.resourceId))),
+        filter(x => !!(this.resourceId && x.startsWith(this.resourceId) && this.adapter?.chunkExport)),
+        debounceTime(100),
+      )
+      .subscribe(() => {
+        this.chunkRefresh = this.chunkRefresh.then(() => this.refreshChangedChunks()).catch(err => console.error(err));
+      });
+    this.changes.change$
+      .pipe(
+        takeUntil(this.destroyed$),
+        filter(x => !!(this.resourceId && x.startsWith(this.resourceId) && !this.adapter?.chunkExport)),
         debounceTime(3000),
       )
       .subscribe(async () => {
@@ -209,6 +277,8 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
       const point = toViewer(splinePoint.position);
       this.selectionSphere.position = point;
       if (this.renderer) {
+        // flying somewhere else: the free camera
+        this.spatialEdit?.select([]);
         this.renderer.position = Pnt3.add(
           point,
           Pnt3.rotAround({ x: 10, y: -12, z: 5 }, { x: 0, y: 0, z: 1 }, -splinePoint.orientation),
@@ -223,6 +293,10 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
   ngOnChanges(changes: SimpleChanges): void {
     if (changes.hasOwnProperty('resourceSchema')) {
       this.adapter = findTrackMapAdapter(this.resourceSchema?.block_class_mro);
+      this.spatialKinds = spatialEditKinds(this.resourceSchema);
+    }
+    if (changes.hasOwnProperty('resourceId')) {
+      this.setEditKind(null);
     }
     if (changes.hasOwnProperty('resourceId') || changes.hasOwnProperty('resourceData')) {
       const data = this.resourceData;
@@ -358,7 +432,12 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
   }
 
   private async loadTerrainChunks(blockId?: string) {
-    if (blockId) {
+    if (blockId && this.adapter?.chunkExport) {
+      // chunk files are written when the map loads them
+      const result = await this.mainService.api.serializeChunks(blockId, []);
+      this.serializedFiles = [];
+      this.terrainChunksObjLocation = result.path;
+    } else if (blockId) {
       const paths = await this.mainService.api.serializeResource(blockId, null, {
         geometry__save_obj: true,
         geometry__save_blend: false,
@@ -434,6 +513,7 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
     if (!this.renderer) {
       return;
     }
+    this.spatialEdit?.select([]);
     this.renderer.position = pos;
   }
 
@@ -477,7 +557,9 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
       ? this.adapter.chunkGraph(chunkNodes)
       : MapGraph.fromMapArray(chunkNodes, this.isClosed);
     this.unloadPreview();
-    this.map = new TrackMapWorldEntity(
+    this.chunkNodes = chunkNodes;
+    chunkNodes.forEach((node, i) => this.chunkIndices.set(node, i));
+    const map = new TrackMapWorldEntity(
       chunksGraph,
       this.terrainTexturesPath,
       this.mainService.hideHiddenFields$,
@@ -486,12 +568,24 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
       this.adapter,
       this.terrainChunksObjLocation,
       this.serializedFiles,
+      this.adapter.chunkExport ? node => this.requestChunkFiles(node) : null,
     );
-    this.world.addEntity(this.map);
+    this.map = map;
+    map.chunksChanged$.pipe(takeUntil(this.destroyed$)).subscribe(node => {
+      if (this.map === map) {
+        this.staleHandleChunks.add(this.chunkIndices.get(node)!);
+        this.scheduleHandleSync();
+      }
+    });
+    this.world.addEntity(map);
     this.cdr.markForCheck();
   }
 
   private unloadPreview() {
+    this.chunkNodes = [];
+    this.chunkIndices.clear();
+    this.handlesByChunk.clear();
+    this.spatialEdit?.setHandles([]);
     if (this.map) {
       this.world.removeEntity(this.map);
       this.map.dispose();
@@ -500,7 +594,357 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
     }
   }
 
+  // Chunk files for the map, of every chunk it asks for within a few ms written in one call
+  private requestChunkFiles(node: MapGraphNodeType): Promise<TrackChunkFiles> {
+    const index = this.chunkIndices.get(node)!;
+    return new Promise((resolve, reject) => {
+      this.chunkRequests.set(index, [...(this.chunkRequests.get(index) || []), { resolve, reject }]);
+      if (this.chunkRequestTimer === null) {
+        this.chunkRequestTimer = setTimeout(() => this.flushChunkRequests(), 20);
+      }
+    });
+  }
+
+  private async flushChunkRequests() {
+    this.chunkRequestTimer = null;
+    const requests = new Map(this.chunkRequests);
+    this.chunkRequests.clear();
+    try {
+      const result = await this.mainService.api.serializeChunks(this.resourceId!, [...requests.keys()]);
+      for (const [i, waiting] of requests) {
+        const chunk = result.chunks[i];
+        const obj = chunk?.files.find(f => f.endsWith('.obj'));
+        for (const w of waiting) {
+          if (obj) {
+            w.resolve({
+              obj,
+              extra: chunk.files.find(f => f.endsWith('_extra.json')) || null,
+              version: chunk.fingerprint,
+            });
+          } else {
+            w.reject(new Error(`Chunk ${i} was not exported`));
+          }
+        }
+      }
+    } catch (err) {
+      requests.forEach(waiting => waiting.forEach(w => w.reject(err)));
+    }
+  }
+
+  // After a change (an edit, undo / redo, a value typed in a panel): the layout from the data, then the loaded chunks
+  // whose files were written again are reloaded. Chunks not loaded are exported when the map loads them
+  private async refreshChangedChunks() {
+    const map = this.map;
+    const adapter = this.adapter;
+    const data = this.resourceData;
+    if (!map || !adapter?.chunkPositions || !data || !this.resourceId) {
+      return;
+    }
+    this.applyLayout({
+      chunkPositions: adapter.chunkPositions(data),
+      splinePoints: adapter.splinePoints ? adapter.splinePoints(data) : [],
+      isClosed: !adapter.isClosed || adapter.isClosed(data),
+    });
+    this.updateSplineDetails();
+    const selection = this.spatialEdit?.selection$.value || [];
+    this.updateSelectedHandleDetail(selection.length === 1 ? selection[0] : null);
+    const positions = this.chunkPositions || [];
+    if (positions.length !== this.chunkNodes.length) {
+      // chunks added or removed: a new map graph
+      await this.loadPreview();
+      return;
+    }
+    // nodes are moved in place: a chunk is placed at its node when it loads
+    this.chunkNodes.forEach((node, i) => (node.position = positions[i]));
+    // the selected handles hold what the last move stored, which an undo right after it changes back without changing
+    // the chunks loaded since
+    for (const handle of this.spatialEdit?.selection$.value || []) {
+      this.staleHandleChunks.add(handle.chunk);
+    }
+    this.scheduleHandleSync();
+    const loaded = map.loadedChunks;
+    const indices = [...loaded.keys()].map(node => this.chunkIndices.get(node)!);
+    const result = await this.mainService.api.serializeChunks(this.resourceId, indices);
+    const outdated = indices.filter(
+      i => result.chunks[i] && result.chunks[i].fingerprint !== loaded.get(this.chunkNodes[i]),
+    );
+    if (!outdated.length || map !== this.map) {
+      return;
+    }
+    this.rebuilding$.next(outdated.length);
+    try {
+      await Promise.all(outdated.map(i => map.reloadChunk(this.chunkNodes[i])));
+    } finally {
+      this.rebuilding$.next(0);
+    }
+  }
+
+  setEditKind(kind: SpatialEditKind | null) {
+    if (kind === this.editKind$.value) {
+      return;
+    }
+    this.editKind$.next(kind);
+    this.handlesByChunk.clear();
+    this.spatialEdit?.setKind(kind);
+    if (!kind && this.previewCanvas && document.pointerLockElement === this.previewCanvas.nativeElement) {
+      document.exitPointerLock();
+    }
+    this.scheduleHandleSync();
+    this.cdr.markForCheck();
+  }
+
+  private scheduleHandleSync() {
+    if (this.handleSyncTimer !== null) {
+      return;
+    }
+    this.handleSyncTimer = setTimeout(() => {
+      this.handleSyncTimer = null;
+      this.handleSync = this.handleSync.then(() => this.syncHandles()).catch(err => console.error(err));
+    }, 50);
+  }
+
+  // Handles of the active kind in the loaded chunks: asked for the chunks loaded or reloaded since the last time
+  private async syncHandles() {
+    const kind = this.editKind$.value;
+    const map = this.map;
+    if (!kind || !map || !this.resourceId || !this.spatialEdit) {
+      return;
+    }
+    const loaded = new Set([...map.loadedChunks.keys()].map(node => this.chunkIndices.get(node)!));
+    for (const i of [...this.handlesByChunk.keys()]) {
+      if (!loaded.has(i)) {
+        this.handlesByChunk.delete(i);
+      }
+    }
+    const missing = [...loaded].filter(i => !this.handlesByChunk.has(i) || this.staleHandleChunks.has(i));
+    missing.forEach(i => this.staleHandleChunks.delete(i));
+    if (missing.length) {
+      const handles = await this.mainService.api.spatialHandles(this.resourceId, kind.kind, missing);
+      if (kind !== this.editKind$.value || map !== this.map) {
+        return;
+      }
+      missing.forEach(i => this.handlesByChunk.set(i, []));
+      for (const handle of handles) {
+        this.handlesByChunk.get(handle.chunk)?.push(handle);
+      }
+    }
+    this.spatialEdit.setHandles([...this.handlesByChunk.values()].flat());
+  }
+
+  private setupSpatialEdit() {
+    const canvas = this.previewCanvas.nativeElement;
+    const container = this.previewCanvasContainer.nativeElement;
+    const camera = (this.renderer!.camera as any).nativeCamera as Camera;
+    this.spatialEdit = new SpatialEditController(
+      this.world.visualScene.nativeScene!,
+      camera,
+      canvas,
+      this.spatialEditHost(),
+    );
+    // While handles are selected the camera turns around them (left drag, the wheel for the distance), else it is the
+    // free camera. The gizmo and the selection box are dragged with the same button: the orbit then holds still
+    const spatialEdit = this.spatialEdit;
+    this.selectionOrbit = new SelectionOrbit(this.renderer!, canvas, () => spatialEdit.pointerCaptured$.value);
+    spatialEdit.selection$.pipe(takeUntil(this.destroyed$)).subscribe(selection => {
+      this.updateSelectedHandleDetail(selection.length === 1 ? selection[0] : null);
+      // also after a move: the orbit turns around where the selection is now
+      this.selectionOrbit!.pivot = selection.length ? spatialEdit.pivotPosition : null;
+      this.applyCameraMode();
+    });
+    const editing = () => !!this.editKind$.value;
+    // While editing, a left click selects (the camera controller would lock the pointer), the right button held
+    // turns the camera (and WASD flies, as with the pointer locked)
+    container.addEventListener('click', e => editing() && e.target === canvas && e.stopPropagation(), true);
+    container.addEventListener(
+      'pointerdown',
+      e => {
+        if (
+          editing() &&
+          !this.selectionOrbit?.enabled &&
+          e.target === canvas &&
+          e.button === 2 &&
+          !document.pointerLockElement
+        ) {
+          canvas.requestPointerLock();
+        }
+      },
+      true,
+    );
+    container.addEventListener('contextmenu', e => editing() && e.target === canvas && e.preventDefault());
+    container.addEventListener('pointerenter', () => (this.pointerOverViewport = true));
+    container.addEventListener('pointerleave', () => (this.pointerOverViewport = false));
+    const onPointerUp = (e: PointerEvent) => {
+      if (editing() && e.button === 2 && document.pointerLockElement === canvas) {
+        document.exitPointerLock();
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        !editing() ||
+        !this.pointerOverViewport ||
+        document.pointerLockElement ||
+        e.ctrlKey ||
+        e.metaKey ||
+        e.altKey ||
+        ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName)
+      ) {
+        return;
+      }
+      const selected = !!this.spatialEdit?.selection$.value.length;
+      if (e.key === 'g' || e.key === 'G') {
+        this.spatialEdit?.setGizmoMode('translate');
+      } else if (e.key === 'r' || e.key === 'R') {
+        this.spatialEdit?.setGizmoMode('rotate');
+      } else if (e.key === 'Escape') {
+        this.spatialEdit?.select([]);
+      } else if ((e.key === 'f' || e.key === 'F') && selected) {
+        this.focusSelection();
+      } else {
+        return;
+      }
+      e.preventDefault();
+    };
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('keydown', onKeyDown);
+    this.destroyed$.subscribe(() => {
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('keydown', onKeyDown);
+    });
+    this.cdr.markForCheck();
+  }
+
+  private spatialEditHost(): SpatialEditHost {
+    return {
+      handleObjects: handle =>
+        this.map && handle.match
+          ? this.map.findProps(handle.match).map(p => p.entity.object3D!.nativeMesh as Object3D)
+          : [],
+      occluders: () => this.map?.terrainObjects() || [],
+      previewStart: handles => this.startSpatialPreview(handles),
+      preview: moves => this.updateSpatialPreview(moves),
+      previewEnd: () => this.spatialPreview.clear(),
+      commit: async moves => {
+        const kind = this.editKind$.value;
+        if (!kind || !this.resourceId) {
+          return null;
+        }
+        const result = await this.mainService.api.spatialMove(
+          this.resourceId,
+          kind.kind,
+          moves.map(m => ({
+            id: m.handle.id,
+            position: m.position.toArray(),
+            rotation: m.rotation ? m.rotation.toArray() : null,
+          })),
+        );
+        return result.handles;
+      },
+    };
+  }
+
+  // What a drag of the selection moves until the chunks are reloaded: the copies of each terrain vertex in the meshes
+  // of its chunk and the neighbour ones (they share edge vertices), the props drawing them
+  private startSpatialPreview(handles: SpatialHandle[]) {
+    this.spatialPreview.clear();
+    const map = this.map;
+    const deforms = !!this.editKind$.value?.deforms_mesh && this.chunkNodes.length > 0;
+    const local = new Vector3();
+    const vertex = new Vector3();
+    const count = this.chunkNodes.length;
+    for (const handle of handles) {
+      const preview: SpatialPreview = { vertices: [], props: [] };
+      if (map && deforms) {
+        const start = new Vector3().fromArray(handle.position);
+        for (const i of new Set([handle.chunk - 1, handle.chunk, handle.chunk + 1].map(j => (j + count) % count))) {
+          const terrain = map.terrainObject(this.chunkNodes[i]);
+          terrain?.updateMatrixWorld(true);
+          terrain?.traverse(o => {
+            if (!(o instanceof Mesh)) return;
+            const attribute = o.geometry.getAttribute('position') as BufferAttribute;
+            o.worldToLocal(local.copy(start));
+            for (let k = 0; k < attribute.count; k++) {
+              if (vertex.fromBufferAttribute(attribute, k).distanceTo(local) < VERTEX_MATCH_DISTANCE) {
+                preview.vertices.push({ mesh: o, attribute, index: k });
+              }
+            }
+          });
+        }
+      }
+      if (map && handle.match) {
+        preview.props = map.findProps(handle.match);
+      }
+      this.spatialPreview.set(handle.id, preview);
+    }
+  }
+
+  private updateSpatialPreview(moves: SpatialMove[]) {
+    const local = new Vector3();
+    const meshes = new Set<Mesh>();
+    for (const { handle, position, rotation } of moves) {
+      const preview = this.spatialPreview.get(handle.id);
+      if (!preview) {
+        continue;
+      }
+      for (const v of preview.vertices) {
+        v.mesh.worldToLocal(local.copy(position));
+        v.attribute.setXYZ(v.index, local.x, local.y, local.z);
+        v.attribute.needsUpdate = true;
+        meshes.add(v.mesh);
+      }
+      for (const prop of preview.props) {
+        prop.entity.position = { x: position.x, y: position.y, z: position.z };
+        if (rotation) {
+          prop.entity.rotation = { x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w };
+        }
+      }
+    }
+    meshes.forEach(mesh => mesh.geometry.computeBoundingSphere());
+  }
+
+  // Brings the camera close to the selection, looking at it from the side it is on
+  focusSelection() {
+    if (this.spatialEdit?.selection$.value.length) {
+      this.selectionOrbit?.frame(FOCUS_DISTANCE);
+    }
+  }
+
+  // One camera controller at a time: the orbit around the selection while there is one, else the free camera
+  private applyCameraMode() {
+    const orbiting = !!this.spatialEdit?.selection$.value.length;
+    if (!this.selectionOrbit || !this.controller || this.selectionOrbit.enabled === orbiting) {
+      return;
+    }
+    if (orbiting && document.pointerLockElement === this.previewCanvas.nativeElement) {
+      document.exitPointerLock();
+    }
+    this.selectionOrbit.enabled = orbiting;
+    // activated, the free camera takes the look direction the camera has now
+    this.controller.active = !orbiting;
+  }
+
+  // The data of the selected handle (its `data_path`), shown under the viewport
+  private updateSelectedHandleDetail(handle: SpatialHandle | null) {
+    if (!handle?.data_path || !this.resourceId || !this.resourceData) {
+      this.selectedHandleDetail$.next(null);
+      return;
+    }
+    let data: any = this.resourceData;
+    let schema: BlockSchema | undefined = this.resourceSchema;
+    for (const key of handle.data_path.split('/')) {
+      data = data?.[key] ?? data?.[+key];
+      schema = schema?.fields
+        ? schema.fields.find((f: { name: string; schema: BlockSchema }) => f.name === key)?.schema
+        : schema?.child_schema;
+    }
+    this.selectedHandleDetail$.next({
+      title: handle.label,
+      resource: { id: joinId(this.resourceId, handle.data_path), data, schema, name: '' },
+    });
+  }
+
   public placeRendererAtHome(): void {
+    this.spatialEdit?.select([]);
     if (this.renderer) {
       this.renderer.camera.position = { x: 0, y: 0, z: 2.5 };
       this.renderer.camera.rotation = Qtrn.lookAt(
@@ -521,6 +965,11 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
 
   ngOnDestroy(): void {
     this.viewModeController?.dispose();
+    this.spatialEdit?.dispose();
+    this.selectionOrbit?.dispose();
+    if (document.pointerLockElement === this.previewCanvas?.nativeElement) {
+      document.exitPointerLock();
+    }
     this.destroyed$.next();
     this.destroyed$.complete();
   }

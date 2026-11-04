@@ -153,6 +153,29 @@ Format-specific serializers (PNG export, OBJ export, WAV export, ...) belong in
 in `serializers/__init__.py` just calls that — so a new serializer module needs an import added to
 `serializers/__init__.py` for its class(es) to be importable/discoverable, but no separate registry.
 
+## Spatial edits and partial chunk export (3D track viewer)
+
+- `library/spatial_edit.py`: a block whose positions the GUI shows in 3D declares kinds in its schema
+  (`spatial_edit`: `kind`, `title`, `description`, `translate_axes` / `rotate_axes` like `'xyz'` / `'z'` / `''`,
+  optional `deforms_mesh`, `pick_entities`) and mixes in `SpatialEditable`: `spatial_handles(data, kind, chunks)`,
+  `spatial_handle(data, kind, id)`, `spatial_move(data, kind, id, position, rotation)` returning
+  `{relative data path: new value}` without changing the data. Everything is in the serializer's export space (the
+  axes / units of the files the viewer loads). `stored_value(block, value)` = the value as the file holds it (write +
+  read back): use it so the handle read back after the move is what the file will contain.
+  `ResourceAPI.spatial_move` takes the moves of all selected handles and applies them as one undoable bundle
+  (`apply_spatial_moves`: each move on the data the earlier ones left, a value changed twice is one change) and returns
+  the handles read back; the GUI snaps to them and shows the difference. A block implements single moves only.
+  Example: `TriMap` (props, terrain vertices, road points).
+- `serializers/common/chunk_export.py`: a track serializer may add `serialize_chunks(data, path, id, block, chunks)`
+  (via `export_chunks`: per-chunk fingerprints of the data a chunk's files are made of, `chunks_state.json` in the
+  output folder). The track viewer then asks for the chunks it loads only and, after any change, reloads the loaded
+  chunks whose fingerprint changed; changed chunks not loaded get their files deleted. The adapter opts in with
+  `chunkExport` (`track-map-adapters.ts`). Example: `TriMapSerializer`.
+- GUI: `frontend/.../editor/common/spatial-edit/` (`SpatialEditController`: markers, picking, multi-selection,
+  `TransformControls` gizmo with the declared axes at the selection's centre, preview / commit through a
+  `SpatialEditHost`; `SelectionOrbit`: the camera turning around the selection; `app-spatial-edit-panel`: the
+  viewport's edit panel). The track viewer is the host; another 3D viewer can host it the same way.
+
 ## Testing & verification
 
 - Backend: `./.venv/bin/python -m unittest` (whole suite) or target a module, e.g.

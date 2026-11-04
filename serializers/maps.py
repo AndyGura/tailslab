@@ -3,6 +3,7 @@ import math
 import os
 import traceback
 from copy import deepcopy
+from types import SimpleNamespace
 from typing import List, Dict, Optional, Tuple
 
 import config
@@ -10,9 +11,15 @@ from library.utils import path_join
 from resources.eac.maps import RoadSplinePoint
 from resources.eac.utils import rotate_list
 from serializers import BaseFileSerializer
+from serializers.common.chunk_export import export_chunks, fingerprint
 from serializers.common.three_d import SubMesh, Mesh, Scene, export_scenes
 
 general_config = config.general_config()
+
+# export_scenes settings of the GUI track viewer's chunk files: OBJ only
+_GUI_CHUNK_EXPORT_SETTINGS = SimpleNamespace(
+    geometry__save_obj=True, geometry__save_blend=False, geometry__export_to_gg_web_engine=False
+)
 
 
 class TriMapSerializer(BaseFileSerializer):
@@ -452,6 +459,163 @@ class TriMapSerializer(BaseFileSerializer):
                     )
         return (meshes, additional_textures)
 
+    def _terrain_chunks(self, data, id, block, is_opened, texture_names: list) -> List['TriMapSerializer.TerrainChunk']:
+        """Terrain chunks of the track, with their matrices read and linked; fence textures go to `texture_names`"""
+        item_mode_names = RoadSplinePoint().field_blocks_map['item_mode'].enum_name_map
+        background_names = self._background_texture_names(id)
+        chunks = []
+        for i, terrain_entry in enumerate(data['terrain']):
+            road_path_index = i * 4
+            chunk = self.TerrainChunk(id, block, data)
+            chunk.read_matrix(terrain_entry['rows'], data['road_spline'][road_path_index : road_path_index + 4])
+            fence = terrain_entry['fence']
+            if fence['has_left_fence'] or fence['has_right_fence']:
+                texture_name = self._fence_texture_name(data, is_opened, fence['texture_id'] + 32, background_names)
+                if texture_name:
+                    chunk.fence_texture_name = f'background/{texture_name}'
+                    chunk.fence_height = chunk.LOW_FENCE_HEIGHT if fence['is_low'] else chunk.FENCE_HEIGHT
+                    chunk.fence_item_mode = item_mode_names.index(data['road_spline'][road_path_index]['item_mode'])
+                    chunk.has_left_fence = fence['has_left_fence']
+                    chunk.has_right_fence = fence['has_right_fence']
+                    texture_names.append(chunk.fence_texture_name)
+            chunks.append(chunk)
+        for i, chunk in enumerate(chunks):
+            chunk.next_chunk = chunks[i + 1] if (i < len(chunks) - 1) else (None if is_opened else chunks[0])
+        return chunks
+
+    def _chunk_meshes(self, data, chunks, i, is_opened, texture_names: list) -> List[SubMesh]:
+        """Terrain meshes of chunk `i` (export axes). Chunks must be built in ascending order, each one once: a lane
+        merge chunk changes the first row of the next one"""
+        terrain_entry = data['terrain'][i]
+        names = [self._get_texture_name_from_id(is_opened, tid) for tid in terrain_entry['texture_ids']]
+        texture_names.extend([f'background/{x}' for x in names])
+        meshes = chunks[i].build_models(i, names)
+        for mesh in meshes:
+            mesh.change_axes(new_z='y', new_y='z')
+        return meshes
+
+    def _chunk_file_scene(
+        self,
+        id,
+        data,
+        is_opened,
+        chunk_meshes,
+        first,
+        end,
+        per_file,
+        n,
+        file_count,
+        texture_names: list,
+        add_props_to_obj: bool,
+    ) -> Tuple[Scene, Dict]:
+        """Scene of output file `n` (chunks `first`..`end` - 1) and its map dummy"""
+        file_prefix = 'terrain_chunk' if per_file == 1 else f'terrain_block{per_file}'
+        position = (
+            data['road_spline'][first * 4]['position']['x'],
+            data['road_spline'][first * 4]['position']['z'],
+            data['road_spline'][first * 4]['position']['y'],
+        )
+        dummy = {
+            'name': f'chunk_{n}',
+            'position': position,
+            'properties': {
+                'is_chunk': True,
+                'chunk': f'{file_prefix}_{n}',
+            },
+        }
+        if n < file_count - 1:
+            dummy['properties']['children'] = [f'chunk_{n + 1}']
+        elif not is_opened:
+            dummy['properties']['children'] = ['chunk_0']
+        meshes = _merge_meshes_by_texture([mesh for meshes in chunk_meshes for mesh in meshes], f'{file_prefix}_{n}')
+        for mesh in meshes:
+            mesh.pivot_offset = position
+        scene = Scene(
+            name=f'{file_prefix}_{n}',
+            sub_meshes=meshes,
+            obj_name=f'{file_prefix}_{n}',
+            mtl_name='terrain',
+            bake_textures=False,
+            skip_mtl_export=True,
+            # nfs-web draws the terrain unlit
+            export_normals=False,
+        )
+        if add_props_to_obj:
+            (meshes, txs) = self.render_tnfs_props(id, data, is_opened, first * 4, end * 4 - 1, position)
+            scene.sub_meshes.extend(meshes)
+            texture_names.extend(txs)
+        else:
+            scene.dummies = [
+                self._prop_json(data, k, o, is_opened, first * 4)
+                for k, o in enumerate(data['props'])
+                if end * 4 > o['road_point_idx'] >= first * 4
+            ]
+            for j, d in enumerate(scene.dummies):
+                d['name'] += str(j)
+        return scene, dummy
+
+    def chunk_fingerprints(self, data, id) -> List[str]:
+        """Per terrain chunk: hash of the data its file (one chunk per file, props as dummies) is made of. A chunk
+        builds on its own 4 road points and rows, the next chunk's first row and road point, and the previous chunk
+        (a lane merge there changes this chunk's first row); its props are those of its road points"""
+        is_opened = data['loop_chunk'] == 0
+        count = len(data['terrain'])
+        common = fingerprint(
+            self.CHUNK_EXPORT_VERSION, is_opened, count, data['fence_texture_id'], self._background_texture_names(id)
+        )
+        props_by_chunk = [[] for _ in range(count)]
+        for k, prop in enumerate(data['props']):
+            if 0 <= prop['road_point_idx'] < count * 4:
+                descr = data['prop_descr'][prop['prop_descr_idx'] % len(data['prop_descr'])]
+                props_by_chunk[prop['road_point_idx'] // 4].append([k, prop, descr])
+        spline = data['road_spline']
+        result = []
+        for i in range(count):
+            neighbours = [j for j in (i - 1, i, i + 1) if not is_opened or 0 <= j < count]
+            neighbours = [j % count for j in neighbours]
+            result.append(
+                fingerprint(
+                    common,
+                    [data['terrain'][j] for j in neighbours],
+                    [spline[j * 4 : j * 4 + 4] for j in neighbours],
+                    props_by_chunk[i],
+                )
+            )
+        return result
+
+    # change it when the chunk files change for the same data, so that the GUI's files are written again
+    CHUNK_EXPORT_VERSION = 1
+
+    def serialize_chunks(self, data: dict, path: str, id=None, block=None, chunks: List[int] = ()) -> Dict:
+        """The GUI track viewer's export (serializers/common/chunk_export.py): OBJ file "terrain_chunk_<i>" per chunk,
+        props as dummies of its "_extra.json", written for the requested chunks when out of date. Returns
+        {'chunk_count': n, 'chunks': {i: {'fingerprint', 'files', 'position'}}}, position in export axes"""
+        is_opened = data['loop_chunk'] == 0
+        count = len(data['terrain'])
+
+        def write_chunks(indices: List[int]) -> Dict[int, List[str]]:
+            texture_names = []
+            terrain_chunks = self._terrain_chunks(data, id, block, is_opened, texture_names)
+            # a lane merge chunk changes the first row of the next chunk: build it first, as the full export does
+            needed = sorted(
+                set(indices) | {i - 1 for i in indices if i > 0 and terrain_chunks[i - 1].lane_merge_initiated}
+            )
+            meshes = {i: self._chunk_meshes(data, terrain_chunks, i, is_opened, texture_names) for i in needed}
+            written = {}
+            for i in indices:
+                scene, _ = self._chunk_file_scene(id, data, is_opened, [meshes[i]], i, i + 1, 1, i, count, [], False)
+                written[i] = export_scenes([scene], path, _GUI_CHUNK_EXPORT_SETTINGS)
+            return written
+
+        states = export_chunks(path, self.chunk_fingerprints(data, id), chunks, write_chunks)
+        return {
+            'chunk_count': count,
+            'chunks': {
+                i: {**state, 'position': _to_export_axes([data['road_spline'][i * 4]['position'][c] for c in 'xyz'])}
+                for i, state in states.items()
+            },
+        }
+
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
         super().serialize(data, path)
         is_opened = data['loop_chunk'] == 0
@@ -509,89 +673,33 @@ class TriMapSerializer(BaseFileSerializer):
         map_scene.curves.append(curve)
 
         # build terrain chunks
-        background_names = self._background_texture_names(id)
-        chunks = []
-        for i, terrain_entry in enumerate(data['terrain']):
-            road_path_index = i * 4
-            chunk = self.TerrainChunk(id, block, data)
-            chunk.read_matrix(terrain_entry['rows'], data['road_spline'][road_path_index : road_path_index + 4])
-            fence = terrain_entry['fence']
-            if fence['has_left_fence'] or fence['has_right_fence']:
-                texture_name = self._fence_texture_name(data, is_opened, fence['texture_id'] + 32, background_names)
-                if texture_name:
-                    chunk.fence_texture_name = f'background/{texture_name}'
-                    chunk.fence_height = chunk.LOW_FENCE_HEIGHT if fence['is_low'] else chunk.FENCE_HEIGHT
-                    chunk.fence_item_mode = item_mode_names.index(data['road_spline'][road_path_index]['item_mode'])
-                    chunk.has_left_fence = fence['has_left_fence']
-                    chunk.has_right_fence = fence['has_right_fence']
-                    map_scene.mtl_texture_names.append(chunk.fence_texture_name)
-            chunks.append(chunk)
-        for i, chunk in enumerate(chunks):
-            chunk.next_chunk = chunks[i + 1] if (i < len(chunks) - 1) else (None if is_opened else chunks[0])
-
+        chunks = self._terrain_chunks(data, id, block, is_opened, map_scene.mtl_texture_names)
         # terrain meshes of every chunk
-        chunk_meshes = []
-        for i, terrain_entry in enumerate(data['terrain']):
-            texture_names = [self._get_texture_name_from_id(is_opened, tid) for tid in terrain_entry['texture_ids']]
-            map_scene.mtl_texture_names.extend([f'background/{x}' for x in texture_names])
-            meshes = chunks[i].build_models(i, texture_names)
-            for mesh in meshes:
-                mesh.change_axes(new_z='y', new_y='z')
-            chunk_meshes.append(meshes)
+        chunk_meshes = [
+            self._chunk_meshes(data, chunks, i, is_opened, map_scene.mtl_texture_names) for i in range(len(chunks))
+        ]
 
         if self.settings.maps__save_as_chunked:
             # one output file ("terrain_chunk_<n>", "terrain_block<per_file>_<n>" for several chunks per file) holds
             # `maps__tnfs_chunks_per_file` chunks of the track, the last one can hold less
             per_file = max(1, int(self.settings.maps__tnfs_chunks_per_file))
-            file_prefix = 'terrain_chunk' if per_file == 1 else f'terrain_block{per_file}'
             file_count = math.ceil(len(chunk_meshes) / per_file)
             for n in range(file_count):
                 first, end = n * per_file, min((n + 1) * per_file, len(chunk_meshes))
-                position = (
-                    data['road_spline'][first * 4]['position']['x'],
-                    data['road_spline'][first * 4]['position']['z'],
-                    data['road_spline'][first * 4]['position']['y'],
+                scene, dummy = self._chunk_file_scene(
+                    id,
+                    data,
+                    is_opened,
+                    chunk_meshes[first:end],
+                    first,
+                    end,
+                    per_file,
+                    n,
+                    file_count,
+                    map_scene.mtl_texture_names,
+                    self.settings.maps__add_props_to_obj,
                 )
-                dummy = {
-                    'name': f'chunk_{n}',
-                    'position': position,
-                    'properties': {
-                        'is_chunk': True,
-                        'chunk': f'{file_prefix}_{n}',
-                    },
-                }
-                if n < file_count - 1:
-                    dummy['properties']['children'] = [f'chunk_{n + 1}']
-                elif not is_opened:
-                    dummy['properties']['children'] = ['chunk_0']
                 map_scene.dummies.append(dummy)
-                meshes = _merge_meshes_by_texture(
-                    [mesh for meshes in chunk_meshes[first:end] for mesh in meshes], f'{file_prefix}_{n}'
-                )
-                for mesh in meshes:
-                    mesh.pivot_offset = position
-                scene = Scene(
-                    name=f'{file_prefix}_{n}',
-                    sub_meshes=meshes,
-                    obj_name=f'{file_prefix}_{n}',
-                    mtl_name='terrain',
-                    bake_textures=False,
-                    skip_mtl_export=True,
-                    # nfs-web draws the terrain unlit
-                    export_normals=False,
-                )
-                if self.settings.maps__add_props_to_obj:
-                    (meshes, txs) = self.render_tnfs_props(id, data, is_opened, first * 4, end * 4 - 1, position)
-                    scene.sub_meshes.extend(meshes)
-                    map_scene.mtl_texture_names.extend(txs)
-                else:
-                    scene.dummies = [
-                        self._prop_json(data, k, o, is_opened, first * 4)
-                        for k, o in enumerate(data['props'])
-                        if end * 4 > o['road_point_idx'] >= first * 4
-                    ]
-                    for j, d in enumerate(scene.dummies):
-                        d['name'] += str(j)
                 scenes.append(scene)
         else:
             for meshes in chunk_meshes:

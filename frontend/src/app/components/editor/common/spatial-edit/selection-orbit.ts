@@ -1,0 +1,126 @@
+import { Point3, Point4, Qtrn } from '@gg-web-engine/core';
+import { Quaternion, Vector3 } from 'three';
+
+// The camera the orbit moves: a gg-web-engine renderer entity
+export interface OrbitCamera {
+  position: Point3;
+  rotation: Point4;
+}
+
+const UP = new Vector3(0, 0, 1);
+// radians per CSS pixel of a drag
+const TURN_PER_PIXEL = 0.005;
+// a wheel step changes the distance to the pivot by this factor
+const WHEEL_FACTOR = 1.15;
+const MIN_DISTANCE = 1;
+// the camera never looks straighter up or down than this (|z| of its view direction)
+const MAX_PITCH_Z = 0.995;
+
+/**
+ * The orbit camera around a selection: a left drag turns the camera around the pivot (around the vertical axis and
+ * its own horizontal one), the wheel moves it to and from the pivot. It turns from where the camera is and how it looks
+ * (the pivot need not be in the middle of the view), so the view never jumps when the pivot changes; `frame` brings
+ * the pivot into the middle. The viewer turns its other camera controller off while `enabled`.
+ */
+export class SelectionOrbit {
+  // the centre of the selection
+  pivot: Vector3 | null = null;
+  enabled = false;
+  private dragFrom: { x: number; y: number } | null = null;
+  private readonly listeners: [EventTarget, string, (e: any) => void, any?][] = [];
+
+  constructor(
+    private readonly camera: OrbitCamera,
+    canvas: HTMLCanvasElement,
+    // the pointer belongs to something else (a gizmo, a selection box)
+    private readonly blocked: () => boolean,
+  ) {
+    this.listen(canvas, 'pointerdown', (e: PointerEvent) => {
+      this.dragFrom = e.button === 0 && this.active && !this.blocked() ? { x: e.clientX, y: e.clientY } : null;
+    });
+    this.listen(window, 'pointermove', (e: PointerEvent) => this.onPointerMove(e));
+    this.listen(window, 'pointerup', () => (this.dragFrom = null));
+    this.listen(canvas, 'wheel', (e: WheelEvent) => this.onWheel(e), { passive: false });
+  }
+
+  private get active(): boolean {
+    return this.enabled && !!this.pivot;
+  }
+
+  // Looks at the pivot from the side the camera is on, `distance` away
+  frame(distance: number) {
+    if (!this.pivot) {
+      return;
+    }
+    const eye = this.cameraPosition();
+    const direction = eye.clone().sub(this.pivot);
+    if (direction.lengthSq() < 1e-6) {
+      direction.set(0, -1, 0.3);
+    }
+    eye.copy(this.pivot).addScaledVector(direction.normalize(), distance);
+    this.camera.position = { x: eye.x, y: eye.y, z: eye.z };
+    this.camera.rotation = Qtrn.lookAt(this.camera.position, this.pivot, UP);
+  }
+
+  dispose() {
+    for (const [target, type, listener, options] of this.listeners) {
+      target.removeEventListener(type, listener, options);
+    }
+  }
+
+  private listen(target: EventTarget, type: string, listener: (e: any) => void, options?: any) {
+    target.addEventListener(type, listener, options);
+    this.listeners.push([target, type, listener, options]);
+  }
+
+  private cameraPosition(): Vector3 {
+    const p = this.camera.position;
+    return new Vector3(p.x, p.y, p.z);
+  }
+
+  private onPointerMove(e: PointerEvent) {
+    if (!this.dragFrom) {
+      return;
+    }
+    if (!this.active || this.blocked()) {
+      this.dragFrom = null;
+      return;
+    }
+    const dx = e.clientX - this.dragFrom.x;
+    const dy = e.clientY - this.dragFrom.y;
+    this.dragFrom = { x: e.clientX, y: e.clientY };
+    this.turn(-dx * TURN_PER_PIXEL, -dy * TURN_PER_PIXEL);
+  }
+
+  // Turns the camera around the pivot: `yaw` around the vertical axis, `pitch` around the camera's horizontal one
+  private turn(yaw: number, pitch: number) {
+    const r = this.camera.rotation;
+    const rotation = new Quaternion(r.x, r.y, r.z, r.w);
+    const right = new Vector3(1, 0, 0).applyQuaternion(rotation);
+    const yawTurn = new Quaternion().setFromAxisAngle(UP, yaw);
+    let turn = yawTurn.clone().multiply(new Quaternion().setFromAxisAngle(right, pitch));
+    const forward = new Vector3(0, 0, -1).applyQuaternion(turn.clone().multiply(rotation));
+    if (Math.abs(forward.z) > MAX_PITCH_Z) {
+      turn = yawTurn;
+    }
+    const eye = this.cameraPosition().sub(this.pivot!).applyQuaternion(turn).add(this.pivot!);
+    const newRotation = turn.multiply(rotation);
+    this.camera.position = { x: eye.x, y: eye.y, z: eye.z };
+    this.camera.rotation = { x: newRotation.x, y: newRotation.y, z: newRotation.z, w: newRotation.w };
+  }
+
+  private onWheel(e: WheelEvent) {
+    if (!this.active || e.deltaY === 0) {
+      return;
+    }
+    e.preventDefault();
+    const offset = this.cameraPosition().sub(this.pivot!);
+    const distance = offset.length();
+    const factor = e.deltaY > 0 ? WHEEL_FACTOR : 1 / WHEEL_FACTOR;
+    if (distance * factor < MIN_DISTANCE && factor < 1) {
+      return;
+    }
+    const eye = offset.multiplyScalar(factor).add(this.pivot!);
+    this.camera.position = { x: eye.x, y: eye.y, z: eye.z };
+  }
+}

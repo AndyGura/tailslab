@@ -68,6 +68,10 @@ export interface TrackMapAdapter {
   loadDepth?: number;
   // Minimap shows spline points as dots instead of a road line
   minimapPointsOnly?: boolean;
+  // The track serializer writes the files of single chunks when the viewer loads them, and again only when their
+  // data changed (`serialize_chunks`, serializers/common/chunk_export.py): edits reload only the chunks they changed.
+  // Chunk positions come from `chunkPositions`
+  chunkExport?: boolean;
   // Panels with the data of the selected spline point. When set, `commonFields` lists the fields
   // shown in the "Common" panel instead of the whole track block
   splineDetailPanels?: TrackSplineDetailPanel[];
@@ -175,6 +179,7 @@ export const TNFS_TRACK_ADAPTER: TrackMapAdapter = {
     geometry__export_to_gg_web_engine: false,
   },
   hasSkybox: true,
+  chunkExport: true,
   setupTerrainTexture: (texture: Texture) => {
     texture.wrapS = RepeatWrapping;
     texture.wrapT = ClampToEdgeWrapping;

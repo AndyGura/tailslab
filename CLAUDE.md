@@ -47,6 +47,7 @@ docs and a working GUI editor for free.
 | `library/lazy.py` | Lazy parts: `LazyDict` archive entries / bundle chunks parsed on first access, untouched ones written back as original bytes; file and memory sources. `require_file` is lazy by default (`lazy_loading` setting). The GUI receives unloaded parts as `__lazy__` markers and fetches them with `load_lazy_part` when shown. |
 | `library/loader.py` | File-type auto-detection (`probe_block_class`) by extension/magic bytes; top-level `require_file`/`require_resource` with an in-process file cache bounded by the `file_cache_size` setting (least recently required files dropped, `pin_file` keeps the GUI's open file). |
 | `library/changes_service.py` | Tracks unsaved GUI edits against the loaded data tree. |
+| `library/spatial_edit.py` | Spatial edits: blocks declaring `spatial_edit` kinds in their schema (`SpatialEditable`) take "moved handle X to position / rotation" events from a 3D viewer, return the native values to change, and the handle is read back as stored (one undoable change). Skill `read-block-framework`. |
 | `library/utils/asm_runner.py` | 32-bit x86 snippet interpreter (IDA syntax) used to execute and progressively port disassembled game routines; production code never uses it, the ASM-driven decompressor twins in `test/resources/eac/archives/test_compressed_block.py` do. |
 | `resources/eac/` | EA Canada format definitions built from `read_blocks` primitives (bitmaps, archives, fonts, audio, geometries, maps, car specs, TNFS replays). Shared across many NFS titles. `compressions/` holds the pure-Python decompressors and compressors (RefPack, QFS2, QFS3, NFSU's JDLZ, NFSU2's HUFF = QFS3 behind a 16-byte header) behind `EacCompressedBlock`, which writes a resource back with the algorithm it was read with (`compression_flags` in its data, new data gets RefPack). Formats, game addresses and compressor notes: `resources/eac_compressions.md`. Compressor output is checked with the games' ASM decoders in `test_compressed_block.py`. |
 | `resources/eac/maps/`, `resources/eac/geometries/` | Per-game specializations (`tnfs.py`, `nfs2.py`, `nfs3.py`, `nfs5.py`, ...). |
@@ -137,6 +138,16 @@ When you do:
   Blender then splits vertices along texture coordinate seams only. An option that the loaded `exporter.py` does not
   accept yet is dropped (`_gg_export_options` in the Blender script, warning in the converter log) and the GLB keeps
   its normals.
+- Track viewer editing (`TrackMapBlockUiComponent` + `common/spatial-edit/`): the viewport's edit panel offers the
+  `spatial_edit` kinds of the block (View, then e.g. Props / Terrain / Road for TNFS); left click selects, Shift +
+  click adds / removes, Shift + drag selects the visible handles in a box; the gizmo (only the declared axes) sits at
+  the centre of the selection and moves / turns all of it, committed as one change (`spatial_move` takes the moves of
+  every selected handle). G / R / F / Esc = move / rotate / frame / deselect. Camera: while something is selected,
+  `SelectionOrbit` (left drag turns around the selection from where the camera is, the wheel for the distance; held
+  still while the gizmo or the box takes the pointer), else the free camera (right mouse button held looks around,
+  WASD flies); the field of view is fixed. Adapters with `chunkExport` (TNFS) get chunk files from `serialize_chunks`
+  (`serializers/common/chunk_export.py`): only the chunks the viewer loads are written, and after a change only the
+  loaded chunks whose data fingerprint changed are written and reloaded.
 - Track levels of detail (NFS2 TRK, NFS3 / NFS4 FRD, NFS5 CRP tracks): only the highest one is exported, all of them
   with the setting `maps__save_all_lods`, the mesh names then carrying `_lod<n>_` (`block_<i>_lod<n>__<texture>`,
   NFS5 `terrain_chunk_<i>_<j>_lod<n>_<texture>`; meshes drawn at every level have none). The GUI's track viewer
@@ -196,6 +207,17 @@ When you do:
   of the file's road points go in it, positions relative to it. Strips and fences of a file are merged into one mesh
   per texture, `<file name>_<texture>` (`_merge_meshes_by_texture`). The GUI's track viewer always asks for 1 chunk
   per file.
+- `TriMapSerializer.serialize_chunks` (the GUI viewer's partial export) writes the same `terrain_chunk_<i>` files as
+  the chunked export with one chunk per file and props as dummies. A chunk's fingerprint (`chunk_fingerprints`)
+  covers the previous, own and next terrain entries and their road points (a lane merge changes the next chunk's first
+  row, so chunks are built in ascending order, each once), its props and their descriptions, the fence settings and
+  the FAM bitmap names; bump `CHUNK_EXPORT_VERSION` when the chunk files change for the same data.
+- Spatial edits of `TriMap` (export space = game axes with y / z swapped): `prop` (re-anchored to the nearest road
+  point, 8.8 offset, yaw as the 8-bit angle relative to the road heading), `terrain_vertex` (id `<chunk>/<row>/<A
+  index>`; rows are offset chains A0 <- road point, A1 / A6 <- A0, A2..A5 / A7..A10 <- the previous one: the next
+  vertex's offset is fixed so it stays), `road_point` (its terrain row and props move with it; orientation, slope =
+  atan2(dy, horizontal distance) and side normal of the point and the previous one are recomputed, side normal kept
+  half-length with its tilt).
 - Props are dummies `proxy_<n>` (`_prop_json`) with properties `is_prop`, `type`, `road_index`, `object_index` (index
   in the TRI `props` array, the game's road object index for `get_sign_status`) and `object_rotation` (raw 8-bit
   `rotation` byte; a knocked-down bitmap sign falls the other way when > 64), plus the model / texture keys of the

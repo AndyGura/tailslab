@@ -36,6 +36,7 @@ import { MinimapComponent } from './common/minimap/minimap.component';
 import { BlockActionsComponent } from './common/block-actions/block-actions.component';
 import { ObjViewerComponent } from './common/obj-viewer/obj-viewer.component';
 import { ViewModeToolbarComponent } from './common/obj-viewer/view-mode-toolbar/view-mode-toolbar.component';
+import { SpatialEditPanelComponent } from './common/spatial-edit/spatial-edit-panel/spatial-edit-panel.component';
 
 import { MatSliderModule } from '@angular/material/slider';
 import { ImageBlockUiComponent } from './eac/image.block-ui/image.block-ui.component';
@@ -78,6 +79,7 @@ import { Nfs2CarAiBlockUiComponent } from './eac/nfs2-car-ai.block-ui/nfs2-car-a
     BlockActionsComponent,
     ObjViewerComponent,
     ViewModeToolbarComponent,
+    SpatialEditPanelComponent,
     ArchiveItemEditDialogComponent,
     ImportGuideDialogComponent,
     ArchiveDelegateItemTypeDialogComponent,

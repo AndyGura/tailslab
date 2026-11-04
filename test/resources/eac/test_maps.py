@@ -27,6 +27,124 @@ class TestTriMap(unittest.TestCase):
         self.assertEqual(tri['road_spline'][length - 1 - 100]['item_mode'], 'waterfall_audio_right_channel')
         self.assertEqual(tri['road_spline'][length - 1 - 200]['item_mode'], 'waterfall_audio_left_channel')
 
+    def _handle_from_file(self, block, tri, kind, handle_id):
+        """The handle as read back from the written file"""
+        written = block.unpack_from_bytes(block.pack(tri))
+        return block.spatial_handle(written, kind, handle_id)
+
+    def test_spatial_terrain_vertex_move_should_keep_next_vertices(self):
+        from library.spatial_edit import apply_spatial_move
+
+        (name, block, tri) = require_file('test/samples/AL1.TRI')
+        tri = deepcopy(tri)
+        before = block._terrain_row_vertices(tri, 10, 2)
+        handle = block.spatial_handle(tri, 'terrain_vertex', '10/2/3')
+        target = [handle['position'][0] + 1.2345, handle['position'][1] - 0.5, handle['position'][2] + 2.001]
+        changes, stored = apply_spatial_move(name, block, tri, 'terrain_vertex', '10/2/3', target, None)
+        self.assertEqual([c['id'] for c in changes], [f'{name}__terrain/10/rows/2/3', f'{name}__terrain/10/rows/2/4'])
+        after = block._terrain_row_vertices(tri, 10, 2)
+        for column in range(11):
+            if column != 3:
+                self.assertEqual(before[column], after[column])
+        # 9.7 fixed point: within 1/256 m of the target
+        for a, b in zip(stored['position'], target):
+            self.assertAlmostEqual(a, b, delta=1 / 256)
+        self.assertEqual(self._handle_from_file(block, tri, 'terrain_vertex', '10/2/3'), stored)
+
+    def test_spatial_terrain_center_vertex_move_should_keep_both_sides(self):
+        from library.spatial_edit import apply_spatial_move
+
+        (name, block, tri) = require_file('test/samples/AL1.TRI')
+        tri = deepcopy(tri)
+        before = block._terrain_row_vertices(tri, 20, 0)
+        handle = block.spatial_handle(tri, 'terrain_vertex', '20/0/0')
+        target = [handle['position'][0] + 3, handle['position'][1], handle['position'][2] - 1]
+        apply_spatial_move(name, block, tri, 'terrain_vertex', '20/0/0', target, None)
+        after = block._terrain_row_vertices(tri, 20, 0)
+        self.assertEqual(before[1:], after[1:])
+
+    def test_spatial_prop_move_should_reanchor_prop_and_snap_rotation(self):
+        import math
+
+        from library.spatial_edit import apply_spatial_move
+
+        (name, block, tri) = require_file('test/samples/AL1.TRI')
+        tri = deepcopy(tri)
+        handle = block.spatial_handle(tri, 'prop', '5')
+        self.assertEqual(handle['match'], {'object_index': 5})
+        target = [handle['position'][0] + 40, handle['position'][1] + 3, handle['position'][2]]
+        yaw = 0.7
+        rotation = [0, 0, math.sin(yaw / 2), math.cos(yaw / 2)]
+        _, stored = apply_spatial_move(name, block, tri, 'prop', '5', target, rotation)
+        point = tri['props'][5]['road_point_idx']
+        # the nearest road point
+        spline = tri['road_spline'][: len(tri['terrain']) * 4]
+        self.assertEqual(
+            point,
+            min(
+                range(len(spline)),
+                key=lambda n: sum((spline[n]['position'][c] - target_c) ** 2 for c, target_c in zip('xzy', target)),
+            ),
+        )
+        self.assertEqual(stored['chunk'], point // 4)
+        # 8-bit angle relative to the road: within half a step of the asked yaw
+        stored_yaw = 2 * math.atan2(stored['rotation'][2], stored['rotation'][3])
+        self.assertAlmostEqual((stored_yaw - yaw + math.pi) % (2 * math.pi) - math.pi, 0, delta=math.pi / 256)
+        self.assertEqual(self._handle_from_file(block, tri, 'prop', '5'), stored)
+
+    def test_spatial_road_point_move_should_update_angles_and_carry_terrain(self):
+        import math
+
+        from library.spatial_edit import apply_spatial_move
+
+        (name, block, tri) = require_file('test/samples/AL1.TRI')
+        tri = deepcopy(tri)
+        row_before = block._terrain_row_vertices(tri, 25, 1)
+        handle = block.spatial_handle(tri, 'road_point', '101')
+        self.assertEqual(apply_spatial_move(name, block, tri, 'road_point', '101', handle['position'], None)[0], [])
+        target = [handle['position'][0] + 2, handle['position'][1], handle['position'][2] + 1]
+        apply_spatial_move(name, block, tri, 'road_point', '101', target, None)
+        a, b = tri['road_spline'][100]['position'], tri['road_spline'][101]['position']
+        heading = math.atan2(b['x'] - a['x'], b['z'] - a['z']) % (2 * math.pi)
+        self.assertAlmostEqual(tri['road_spline'][100]['orientation'], heading, delta=2 * math.pi / 0x4000)
+        normal = tri['road_spline'][100]['side_normal']
+        self.assertAlmostEqual(math.sqrt(sum(v * v for v in normal.values())), 0.5, delta=0.001)
+        # the terrain row of the point is relative to it
+        row_after = block._terrain_row_vertices(tri, 25, 1)
+        for before, after in zip(row_before, row_after):
+            self.assertAlmostEqual(after['x'] - before['x'], 2, delta=0.001)
+            self.assertAlmostEqual(after['y'] - before['y'], 1, delta=0.001)
+
+    def test_spatial_moves_of_a_vertex_chain_should_be_one_change(self):
+        from library.spatial_edit import apply_spatial_moves
+
+        (name, block, original) = require_file('test/samples/AL1.TRI')
+        for ids in (['10/2/2', '10/2/3', '10/2/4'], ['10/2/4', '10/2/3', '10/2/2']):
+            tri = deepcopy(original)
+            before = block._terrain_row_vertices(tri, 10, 2)
+            moves = []
+            for handle_id in ids:
+                position = block.spatial_handle(tri, 'terrain_vertex', handle_id)['position']
+                moves.append(
+                    {'id': handle_id, 'position': [position[0], position[1], position[2] + 2], 'rotation': None}
+                )
+            changes, handles = apply_spatial_moves(name, block, tri, 'terrain_vertex', moves)
+            self.assertEqual([h['id'] for h in handles], ids)
+            # raised together, A3 and A4 keep their offsets: A2 goes up, A5's offset goes down to keep it, each once
+            # (the changes in between cancel out)
+            self.assertEqual(sorted(c['id'] for c in changes), [f'{name}__terrain/10/rows/2/{c}' for c in (2, 5)])
+            after = block._terrain_row_vertices(tri, 10, 2)
+            for column in range(11):
+                delta = 2 if column in (2, 3, 4) else 0
+                # the game's y is the export z
+                self.assertAlmostEqual(after[column]['y'] - before[column]['y'], delta, delta=1 / 128, msg=ids)
+                self.assertEqual(after[column]['x'], before[column]['x'])
+            # undo: the old values give the original data back
+            for change in changes:
+                column = int(change['id'].rsplit('/', 1)[1])
+                tri['terrain'][10]['rows'][2][column] = change['oldValue']
+            self.assertEqual(tri['terrain'][10], original['terrain'][10])
+
     def test_police_spots(self):
         (name, block, tri) = require_file('test/samples/AL1.TRI')
         spots = [i for i, p in enumerate(tri['road_spline']) if p['police_spot']['is_spot']]

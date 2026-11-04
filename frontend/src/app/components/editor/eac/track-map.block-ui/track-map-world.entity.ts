@@ -8,7 +8,7 @@ import {
   MapGraphNodeType,
   Qtrn,
 } from '@gg-web-engine/core';
-import { BehaviorSubject, distinctUntilChanged, takeUntil } from 'rxjs';
+import { BehaviorSubject, distinctUntilChanged, Subject, takeUntil } from 'rxjs';
 import {
   DoubleSide,
   Euler,
@@ -27,9 +27,26 @@ import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 import { setupNfs1Texture } from '../../../../../nfs-three-lib/nfs1-model-utils';
 import { TrackMapAdapter } from './track-map-adapters';
-import { meshTextureName, TrackPropsAssets, TrackPropsController } from './track-props-controller';
+import { meshTextureName, TrackProp, TrackPropsAssets, TrackPropsController } from './track-props-controller';
 
 export type TrackEntity = Entity3d<TypeDocOf<ThreeGgWorld>>;
+
+// Files of a terrain chunk: "<name>.obj" and its "_extra.json" (props), null when it has none. `version` changes
+// when the files are written again (a part of the URL, so that the browser does not serve the old ones)
+export interface TrackChunkFiles {
+  obj: string;
+  extra: string | null;
+  version: string;
+}
+
+// A loaded chunk, made before it is added to the map (a reload makes the new one before the old one goes)
+interface BuiltChunk {
+  entities: TrackEntity[];
+  terrain: Object3D;
+  lodMeshes: Mesh[];
+  props: TrackProp[];
+  version: string;
+}
 
 // Level of detail of a terrain mesh exported with `maps__save_all_lods`: "block_3_lod1__TEX" (NFS2-NFS4),
 // "terrain_chunk_2_5_lod1_TEX" (NFS5); null for a mesh drawn at every level (objects, tracks without levels)
@@ -74,6 +91,13 @@ export class TrackMapWorldEntity extends MapGraph3dEntity<TypeDocOf<ThreeGgWorld
   private readonly propsController: TrackPropsController | null;
   // Terrain meshes with a level of detail, by chunk
   private readonly lodMeshes = new Map<MapGraphNodeType, Mesh[]>();
+  // Terrain object, props and files version of each loaded chunk
+  private readonly terrains = new Map<MapGraphNodeType, Object3D>();
+  private readonly props = new Map<MapGraphNodeType, TrackProp[]>();
+  private readonly versions = new Map<MapGraphNodeType, string>();
+  private readonly reloads = new Map<MapGraphNodeType, number>();
+  // A chunk was loaded, reloaded or unloaded
+  readonly chunksChanged$ = new Subject<MapGraphNodeType>();
 
   constructor(
     public override readonly mapGraph: MapGraph,
@@ -87,6 +111,9 @@ export class TrackMapWorldEntity extends MapGraph3dEntity<TypeDocOf<ThreeGgWorld
     public readonly chunksLocation: string,
     // Files written by the track serializer (chunks and what comes with them)
     public readonly serializedFiles: string[] = [],
+    // Files of a chunk, written on demand (the partial export of serializers/common/chunk_export.py). Default: the
+    // chunk files are among `serializedFiles`
+    private readonly chunkSource: ((node: MapGraphNodeType) => Promise<TrackChunkFiles>) | null = null,
   ) {
     super(mapGraph, { loadDepth: adapter.loadDepth ?? 40, inertia: 2 });
     this.propsController = adapter.propsController ? adapter.propsController(this) : null;
@@ -149,37 +176,117 @@ export class TrackMapWorldEntity extends MapGraph3dEntity<TypeDocOf<ThreeGgWorld
   protected override async loadChunk(
     node: MapGraphNodeType,
   ): Promise<[TrackEntity[], LoadResultWithProps<TypeDocOf<ThreeGgWorld>>]> {
-    const object = await this.objLoader.loadAsync(node.path + '.obj');
+    const built = await this.buildChunk(node);
+    this.addChunk(node, built);
+    return [built.entities, null!];
+  }
+
+  // Loads the chunk's files again (written again after an edit), if it is loaded. The old version stays shown until
+  // the new one is ready
+  async reloadChunk(node: MapGraphNodeType) {
+    if (!this.loaded.has(node)) {
+      return;
+    }
+    const reload = (this.reloads.get(node) || 0) + 1;
+    this.reloads.set(node, reload);
+    const built = await this.buildChunk(node);
+    if (this.reloads.get(node) !== reload || !this.loaded.has(node)) {
+      return;
+    }
+    this.disposeChunk(node);
+    this.addChunk(node, built);
+  }
+
+  // Loaded chunk nodes and the version of their files
+  get loadedChunks(): Map<MapGraphNodeType, string> {
+    return new Map(this.versions);
+  }
+
+  // Terrain objects of the loaded chunks
+  terrainObjects(): Object3D[] {
+    return [...this.terrains.values()];
+  }
+
+  terrainObject(node: MapGraphNodeType): Object3D | null {
+    return this.terrains.get(node) || null;
+  }
+
+  // Loaded props whose dummy has these property values
+  findProps(match: { [key: string]: any }): TrackProp[] {
+    const found: TrackProp[] = [];
+    for (const props of this.props.values()) {
+      for (const prop of props) {
+        if (Object.entries(match).every(([key, value]) => prop.dummy[key] === value)) {
+          found.push(prop);
+        }
+      }
+    }
+    return found;
+  }
+
+  private async chunkFiles(node: MapGraphNodeType): Promise<TrackChunkFiles> {
+    if (this.chunkSource) {
+      return this.chunkSource(node);
+    }
+    const extra = `${node.path}_extra.json`;
+    return { obj: `${node.path}.obj`, extra: this.serializedFiles.includes(extra) ? extra : null, version: '' };
+  }
+
+  private async buildChunk(node: MapGraphNodeType): Promise<BuiltChunk> {
+    const files = await this.chunkFiles(node);
+    const query = files.version ? `?v=${files.version}` : '';
+    const object = await this.objLoader.loadAsync(files.obj + query);
     object.position.set(node.position.x, node.position.y, node.position.z);
     const lodMeshes: Mesh[] = [];
-    const levels = new Set(this.lodLevels$.value);
     object.traverse((child: any) => {
       if (child instanceof Mesh) {
         child.material = this.getTerrainMaterial(meshTextureName(child));
         const lod = meshLod(child);
         if (lod !== null) {
           lodMeshes.push(child);
-          levels.add(lod);
           child.visible = lod === this.lod$.value;
         }
       }
     });
-    this.lodMeshes.set(node, lodMeshes);
-    if (levels.size !== this.lodLevels$.value.length) {
-      this.lodLevels$.next([...levels].sort((a, b) => a - b));
-    }
-    const props = await this.loadChunkProps(node);
+    const props = files.extra ? await this.loadChunkProps(node, files.extra + query) : [];
     const entity: TrackEntity = new Entity3d({
       object3D: new ThreeDisplayObjectComponent(object),
     });
-    this.addChildren(entity, ...props);
-    this.loaded.set(node, [entity, ...props]);
-    return [[entity, ...props], null!];
+    return {
+      entities: [entity, ...props.map(p => p.entity as TrackEntity)],
+      terrain: object,
+      lodMeshes,
+      props,
+      version: files.version,
+    };
   }
 
-  private async loadChunkProps(node: MapGraphNodeType): Promise<TrackEntity[]> {
-    const extraPath = `${node.path}_extra.json`;
-    if (!this.propsController || !this.serializedFiles.includes(extraPath)) {
+  private addChunk(node: MapGraphNodeType, built: BuiltChunk) {
+    const levels = new Set(this.lodLevels$.value);
+    for (const mesh of built.lodMeshes) {
+      levels.add(meshLod(mesh)!);
+      mesh.visible = meshLod(mesh) === this.lod$.value;
+    }
+    if (levels.size !== this.lodLevels$.value.length) {
+      this.lodLevels$.next([...levels].sort((a, b) => a - b));
+    }
+    this.lodMeshes.set(node, built.lodMeshes);
+    this.terrains.set(node, built.terrain);
+    this.props.set(node, built.props);
+    this.versions.set(node, built.version);
+    for (const prop of built.props) {
+      if (prop.isUnknown) {
+        this.markUnknown(prop.entity as TrackEntity);
+      }
+    }
+    const [terrain, ...props] = built.entities;
+    this.addChildren(terrain, ...props);
+    this.loaded.set(node, built.entities);
+    this.chunksChanged$.next(node);
+  }
+
+  private async loadChunkProps(node: MapGraphNodeType, extraPath: string): Promise<TrackProp[]> {
+    if (!this.propsController) {
       return [];
     }
     let dummies: GgDummy[];
@@ -189,13 +296,7 @@ export class TrackMapWorldEntity extends MapGraph3dEntity<TypeDocOf<ThreeGgWorld
       console.warn(`Could not load props of ${node.path}`, err);
       return [];
     }
-    const props = await this.propsController.spawnChunkProps(dummies, node.position);
-    for (const prop of props) {
-      if (prop.isUnknown) {
-        this.markUnknown(prop.entity as TrackEntity);
-      }
-    }
-    return props.map(p => p.entity as TrackEntity);
+    return this.propsController.spawnChunkProps(dummies, node.position);
   }
 
   // `TrackPropsAssets`: models are the OBJ files of the converter
@@ -243,11 +344,18 @@ export class TrackMapWorldEntity extends MapGraph3dEntity<TypeDocOf<ThreeGgWorld
   }
 
   protected override disposeChunk(node: MapGraphNodeType) {
+    const wasLoaded = this.loaded.has(node);
     this.lodMeshes.delete(node);
+    this.terrains.delete(node);
+    this.props.delete(node);
+    this.versions.delete(node);
     for (const c of this.loaded.get(node) || []) {
       this.unknownEntities.delete(c as Entity3d);
     }
     super.disposeChunk(node);
+    if (wasLoaded) {
+      this.chunksChanged$.next(node);
+    }
   }
 
   getTerrainMaterial(matId: string): Material {

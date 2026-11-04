@@ -10,6 +10,7 @@ from typing import Dict, Any, List
 from library import require_resource
 from library.changes_service import ChangesService
 from library.lazy import LazyDict, load_all
+from library.spatial_edit import apply_spatial_moves
 from library.read_blocks.optional import OptionalBlock, TrailingOptionalBlock
 from library.utils.id import join_id
 from serializers.misc.json_utils import convert_bytes, serialize_exceptions
@@ -107,6 +108,40 @@ class ResourceAPI:
                     }
                 ]
             )
+
+    def spatial_handles(self, resource_id: str, kind: str, chunks: List[int] = None) -> List[Dict[str, Any]]:
+        """
+        Handles of a spatial edit kind (library/spatial_edit.py) in the given chunks of the track viewer.
+
+        Args:
+            resource_id: ID of a block declaring `spatial_edit` in its schema
+            kind: The edit kind
+            chunks: Chunk indices, None for all
+
+        Returns:
+            The handles, positions in export space
+        """
+        (_, res_block, read_data), _ = require_resource(resource_id)
+        return self.render_data(res_block.spatial_handles(read_data, kind, chunks))
+
+    def spatial_move(self, resource_id: str, kind: str, moves: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Moves handles of a spatial edit kind, all at once: the block changes its data (one undoable change, sent to
+        the GUI like the changes of custom actions) and the handles are read back from it.
+
+        Args:
+            moves: [{'id': handle id, 'position': [x, y, z], 'rotation': [x, y, z, w] or None}], export space
+
+        Returns:
+            {'handles': the handles as stored, in the order of `moves`, 'changed': whether any value changed}
+        """
+        (_, res_block, read_data), _ = require_resource(resource_id)
+        changes, handles = apply_spatial_moves(resource_id, res_block, read_data, kind, moves)
+        if changes:
+            ChangesService.append_changes(
+                [{'id': '', 'timestamp': int(time.time() * 1000), 'op': 'bundle', 'changes': changes}]
+            )
+        return self.render_data({'handles': handles, 'changed': bool(changes)})
 
     def _diff_to_changes(self, base_id: str, old: Any, new: Any) -> List[Dict[str, Any]]:
         """
