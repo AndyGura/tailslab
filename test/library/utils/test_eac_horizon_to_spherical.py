@@ -181,9 +181,19 @@ class TestSunText(unittest.TestCase):
         self.assertIsNone(parse_sun_text('A0 B45'))
 
 
+def _temporary_directory_for_ids() -> tempfile.TemporaryDirectory:
+    """A temporary directory whose path can be in a resource id: ids split at the first "__" (`id_to_path`), which a
+    random temporary directory name can have"""
+    while True:
+        directory = tempfile.TemporaryDirectory()
+        if '__' not in directory.name:
+            return directory
+        directory.cleanup()
+
+
 class TestArchiveKind(unittest.TestCase):
     def test_kinds(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with _temporary_directory_for_ids() as tmp:
             for directory, files in [
                 ('GAMEDATA/TRACKS/SE', ['TR020.QFS', '3TR02.HRZ']),
                 ('GAMEDATA/TRACKS/PC', ['TR020.QFS', 'TR02.HRZ']),
