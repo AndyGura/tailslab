@@ -109,6 +109,8 @@ class API:
         return __version__
 
     def log_frontend_message(self, level: str, message: str):
-        """Write a frontend error (uncaught exception, console.error...) to the log, every line prefixed with [JS]."""
+        """Write a frontend message (uncaught exception, console.error, a diagnostic) to the log, every line prefixed
+        with [JS]. Levels: 'info', 'warning', anything else is an error"""
         text = '\n'.join(f'[JS] {line}' for line in str(message)[:20000].splitlines())
-        _frontend_logger.log(logging.WARNING if level == 'warning' else logging.ERROR, text)
+        levels = {'info': logging.INFO, 'warning': logging.WARNING}
+        _frontend_logger.log(levels.get(level, logging.ERROR), text)

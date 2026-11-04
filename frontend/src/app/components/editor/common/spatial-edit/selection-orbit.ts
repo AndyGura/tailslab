@@ -10,18 +10,36 @@ export interface OrbitCamera {
 const UP = new Vector3(0, 0, 1);
 // radians per CSS pixel of a drag
 const TURN_PER_PIXEL = 0.005;
-// a wheel step changes the distance to the pivot by this factor
+// a mouse wheel step changes the distance to the pivot by this factor
 const WHEEL_FACTOR = 1.15;
+// a pinch (wheel event with Ctrl, deltaY in pixels) changes the distance by e^(deltaY * this)
+const PINCH_ZOOM_PER_PIXEL = 0.01;
 const MIN_DISTANCE = 1;
 // the camera never looks straighter up or down than this (|z| of its view direction)
 const MAX_PITCH_Z = 0.995;
 
+// Whether a wheel event comes from a touchpad swipe rather than a mouse wheel notch. Browsers do not tell: a swipe
+// has a sideways part or fractional deltas, or (Chrome, Safari) a `wheelDeltaY` of -3 x `deltaY` (a mouse notch has
+// +-120 there)
+export function isTouchpadScroll(e: WheelEvent): boolean {
+  if (e.deltaMode !== WheelEvent.DOM_DELTA_PIXEL) {
+    return false;
+  }
+  const wheelDelta: number | undefined = (e as any).wheelDeltaY;
+  return (
+    e.deltaX !== 0 ||
+    !Number.isInteger(e.deltaY) ||
+    (wheelDelta !== undefined && e.deltaY !== 0 && wheelDelta === -3 * e.deltaY)
+  );
+}
+
 /**
- * The orbit camera around a selection: a middle button drag or an Alt + left drag (the left button alone selects)
- * turns the camera around the pivot (around the vertical axis and its own horizontal one), the wheel moves it to and
- * from the pivot. It turns from where the camera is and how it looks
- * (the pivot need not be in the middle of the view), so the view never jumps when the pivot changes; `frame` brings
- * the pivot into the middle. The viewer turns its other camera controller off while `enabled`.
+ * The orbit camera around a selection, the way Blender does it (the left button selects): a right button drag (also a
+ * middle button drag, Alt + left drag) or a two finger touchpad swipe turns the camera around the pivot (around the
+ * vertical axis and its own horizontal one); the mouse wheel or a touchpad pinch moves it to and from the pivot. It
+ * turns from where the camera is and how it looks (the pivot need not be in the middle of the view), so the view never
+ * jumps when the pivot changes; `frame` brings the pivot into the middle. The viewer turns its other camera controller
+ * off while `enabled` (and keeps the context menu off the canvas).
  */
 export class SelectionOrbit {
   // the centre of the selection
@@ -37,7 +55,7 @@ export class SelectionOrbit {
     private readonly blocked: () => boolean,
   ) {
     this.listen(canvas, 'pointerdown', (e: PointerEvent) => {
-      const orbitButton = e.button === 1 || (e.button === 0 && e.altKey);
+      const orbitButton = e.button === 2 || e.button === 1 || (e.button === 0 && e.altKey);
       this.dragFrom = orbitButton && this.active && !this.blocked() ? { x: e.clientX, y: e.clientY } : null;
       if (this.dragFrom && e.button === 1) {
         // no middle button auto scroll
@@ -118,14 +136,25 @@ export class SelectionOrbit {
   }
 
   private onWheel(e: WheelEvent) {
-    if (!this.active || e.deltaY === 0) {
+    if (!this.active || (e.deltaX === 0 && e.deltaY === 0)) {
       return;
     }
     e.preventDefault();
+    if (e.ctrlKey) {
+      // a touchpad pinch (or Ctrl + wheel)
+      this.zoom(Math.exp(e.deltaY * PINCH_ZOOM_PER_PIXEL));
+    } else if (isTouchpadScroll(e)) {
+      // a two finger swipe turns the view like a drag of it would
+      this.turn(e.deltaX * TURN_PER_PIXEL, e.deltaY * TURN_PER_PIXEL);
+    } else if (e.deltaY !== 0) {
+      this.zoom(e.deltaY > 0 ? WHEEL_FACTOR : 1 / WHEEL_FACTOR);
+    }
+  }
+
+  // Multiplies the distance to the pivot
+  private zoom(factor: number) {
     const offset = this.cameraPosition().sub(this.pivot!);
-    const distance = offset.length();
-    const factor = e.deltaY > 0 ? WHEEL_FACTOR : 1 / WHEEL_FACTOR;
-    if (distance * factor < MIN_DISTANCE && factor < 1) {
+    if (offset.length() * factor < MIN_DISTANCE && factor < 1) {
       return;
     }
     const eye = offset.multiplyScalar(factor).add(this.pivot!);

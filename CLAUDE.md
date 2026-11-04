@@ -144,9 +144,10 @@ When you do:
   (only the declared axes) sits at the centre of the selection and moves / turns all of it, committed as one change
   (`spatial_move` takes the moves of every selected handle). "To centre" (M) moves every selected handle to the
   centre of the selection, one change, nothing merged. G / R / F / Esc = move / rotate / frame / deselect. Camera:
-  while something is selected, `SelectionOrbit` (middle drag or Alt + left drag turns around the selection from where
-  the camera is, the wheel for the distance; held still while the gizmo or the box takes the pointer), else the free
-  camera (right mouse button held looks around,
+  while something is selected, `SelectionOrbit` as in Blender (right drag, middle drag, Alt + left drag or a two
+  finger touchpad swipe turns around the selection from where the camera is; the mouse wheel or a pinch for the
+  distance; `isTouchpadScroll` tells a swipe from a wheel notch; held still while the gizmo or the box takes the
+  pointer), else the free camera (right mouse button held looks around,
   WASD flies); the field of view is fixed. Adapters with `chunkExport` (TNFS) get chunk files from `serialize_chunks`
   (`serializers/common/chunk_export.py`): only the chunks the viewer loads are written, and after a change only the
   loaded chunks whose data fingerprint changed are written and reloaded.

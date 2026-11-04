@@ -137,6 +137,9 @@ class ResourceAPI:
         """
         (_, res_block, read_data), _ = require_resource(resource_id)
         changes, handles = apply_spatial_moves(resource_id, res_block, read_data, kind, moves)
+        print(
+            f'✏️ {kind} move of {", ".join(m["id"] for m in moves[:8])}{"..." if len(moves) > 8 else ""}: {len(changes)} values'
+        )
         if changes:
             ChangesService.append_changes(
                 [{'id': '', 'timestamp': int(time.time() * 1000), 'op': 'bundle', 'changes': changes}]
