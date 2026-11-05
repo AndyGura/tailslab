@@ -13,7 +13,12 @@ import { BehaviorSubject, debounceTime, filter, Subject, takeUntil } from 'rxjs'
 import { ObjViewerCustomControl, ViewFilterOpts } from '../../common/obj-viewer/obj-viewer.component';
 import { steeringControl, wheelSpeedControl } from '../../common/obj-viewer/car-preview-controls';
 import { Object3D } from 'three';
-import { FceCarMeshController, fceColorToRgb, FceDummy, FceVersion } from './fce-car-mesh-controller';
+import {
+  FceCarMeshController,
+  fceColorToRgb,
+  FceDummy,
+  FceVersion,
+} from '../../../../../nfs-three-lib/fce-car-mesh-controller';
 
 @Component({
   selector: 'app-fce-geometry-block-ui',
