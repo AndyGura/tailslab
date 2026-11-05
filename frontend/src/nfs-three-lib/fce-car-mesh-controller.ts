@@ -10,6 +10,7 @@ import {
   Texture,
   TextureLoader,
   Vector3,
+  Vector4,
 } from 'three';
 
 export type FceDummy = { name: string; position: [number, number, number] };
@@ -28,10 +29,80 @@ export const fceColorToRgb = (color: FceColor): number => {
   return (f(5) << 16) | (f(3) << 8) | f(1);
 };
 
-export type FceVersion = 3 | 4;
+/** 0xRRGGBB to an FCE color with the given transparency (HSB as nfs3.exe reads it: hue sector = hue * 6 >> 8) */
+export const rgbToFceColor = (rgb: number, transparency: number): FceColor => {
+  const [r, g, b] = [rgb >> 16, (rgb >> 8) & 0xff, rgb & 0xff];
+  const max = Math.max(r, g, b);
+  const delta = max - Math.min(r, g, b);
+  let hue = 0;
+  if (delta > 0) {
+    const sector = max === r ? (g - b) / delta : max === g ? (b - r) / delta + 2 : (r - g) / delta + 4;
+    hue = Math.min(255, Math.floor((((sector + 6) % 6) / 6) * 256));
+  }
+  return { hue, saturation: max ? Math.round((delta / max) * 255) : 0, brightness: max, transparency };
+};
 
-// FCE3: texture alpha of painted pixels: below this value it is primary color (car body), above it is secondary color
-const FCE3_SECONDARY_COLOR_ALPHA_THRESHOLD = 160;
+/**
+ * nfs3.exe 0x49ca50: FCE color (HSB) to RGB, every component 0..255, integer math of the exe (sector = hue * 6 >> 8,
+ * its fraction as 16.16, rounded fixed-point products)
+ */
+export const fce3HsbToRgb = (color: FceColor): [number, number, number] => {
+  const { hue: h, saturation: s, brightness: v } = color;
+  const clamp = (c: number) => Math.max(0, Math.min(255, c));
+  if (v <= 0) {
+    return [0, 0, 0];
+  }
+  if (s <= 0) {
+    return [clamp(v), clamp(v), clamp(v)];
+  }
+  const sector = (h * 6) >> 8;
+  // trunc(h * 6.0 - sector * 256) as 16.16 of x / 256
+  const x = h * 6 - sector * 256;
+  const p = (v * (256 - s)) >> 8;
+  // fixmul(s, x * 256) and fixmul(s, 0x10000 - x * 256), rounded: (s * k + 128) >> 8
+  const q = ((256 - ((s * x + 128) >> 8)) * v) >> 8;
+  const t = ((256 - ((s * (256 - x) + 128) >> 8)) * v) >> 8;
+  const rgb: [number, number, number][] = [
+    [v, t, p],
+    [q, v, p],
+    [p, v, t],
+    [p, q, v],
+    [t, p, v],
+    [v, p, q],
+  ];
+  return rgb[sector].map(clamp) as [number, number, number];
+};
+
+/**
+ * nfs3.exe 0x49cc50: the paint of a car texel, 0..255 RGB before the exe's reduction to 5 bits. The texel's blue
+ * channel (5 bits, << 3) shades the color's brightness: brightness * blue / (255 - transparency) (transparency 255:
+ * brightness * blue), truncated, at most 255; float32 as the exe stores the factor
+ */
+export const fce3PaintColor = (blue: number, color: FceColor): [number, number, number] => {
+  const blue8 = (blue >> 3) << 3;
+  const factor = color.transparency === 255 ? blue8 : Math.fround(blue8 / (255 - color.transparency));
+  const brightness = Math.min(255, Math.trunc(color.brightness * factor));
+  return fce3HsbToRgb({ ...color, brightness });
+};
+
+/**
+ * nfs3.exe 0x49cd00 (car texture upload): a texel of car00.tga (RGB, its alpha) as the game draws it, 0..255 RGB. Alpha
+ * 1..127: primary paint, 128..254: secondary paint, 255: the texel; every channel then reduced to 5 bits (the 16-bit
+ * 1555 texture), shown as 5-bit unorm (c / 31). Alpha 0 is a transparent texel.
+ * SKIPPED: an opaque black texel (0x8000) becomes 0x8001 when the renderer asks for it (flag 0x7a3a6c, colour key)
+ */
+export const fce3TexelColor = (
+  rgb: [number, number, number],
+  alpha: number,
+  primary: FceColor,
+  secondary: FceColor,
+): [number, number, number] => {
+  const color = alpha > 0 && alpha < 0x80 ? primary : alpha > 0 && alpha < 0xff ? secondary : null;
+  const painted = color ? fce3PaintColor(rgb[2], color) : rgb;
+  return painted.map(c => Math.round(((c >> 3) * 255) / 31)) as [number, number, number];
+};
+
+export type FceVersion = 3 | 4;
 
 // FCE4: texture alpha of pixels, painted with primary, interior, secondary and driver hair color
 const FCE4_COLOR_ALPHAS = [224, 164, 96, 32];
@@ -59,14 +130,15 @@ export const fcePaintMaskNextToTexture = (texture: Texture): string | null => {
 
 /**
  * Index of the paint (see FceCarMeshController.colors) of a paint mask alpha, -1 for unpainted (0 and 255). Kept in
- * sync with fcePaint in the fragment shader (FCE4: the nearest of FCE4_COLOR_ALPHAS, the first one on a tie)
+ * sync with fcePaint in the fragment shader. FCE3 as nfs3.exe 0x49cd00: 1..127 primary, 128..254 secondary. FCE4: the
+ * nearest of FCE4_COLOR_ALPHAS, the first one on a tie (not verified in nfs4.exe yet)
  */
 export const fcePaintIndexOfAlpha = (version: FceVersion, alpha: number): number => {
   if (alpha === 0 || alpha === 255) {
     return -1;
   }
   if (version === 3) {
-    return alpha < FCE3_SECONDARY_COLOR_ALPHA_THRESHOLD ? 0 : 1;
+    return alpha < 0x80 ? 0 : 1;
   }
   let result = 0;
   FCE4_COLOR_ALPHAS.forEach((value, i) => {
@@ -77,7 +149,10 @@ export const fcePaintIndexOfAlpha = (version: FceVersion, alpha: number): number
   return result;
 };
 
-/** Painted 0..255 sRGB channel: the texture is a greyscale shading of the paint, mid-grey is exactly the paint */
+/**
+ * FCE4: painted 0..255 sRGB channel, the texture a greyscale shading of the paint, mid-grey exactly the paint (not
+ * verified in nfs4.exe yet)
+ */
 export const fcePaintChannel = (texel: number, paint: number): number =>
   Math.min(255, Math.round((texel * paint) / 128));
 
@@ -87,7 +162,8 @@ class PaintUniforms {
   readonly enabled = { value: 0 };
 
   constructor(
-    readonly colors: { value: Vector3[] },
+    /** FCE3: hue, saturation, brightness, transparency. FCE4: RGB */
+    readonly colors: { value: Vector4[] },
     readonly fce4: { value: number },
   ) {}
 }
@@ -117,27 +193,58 @@ function paintInShader(material: Material, uniforms: PaintUniforms) {
       .replace(
         '#include <map_pars_fragment>',
         `#include <map_pars_fragment>
-        uniform vec3 fcePaintColors[ 4 ];
+        uniform vec4 fcePaintColors[ 4 ];
         uniform float fcePaintFce4;
         uniform sampler2D fcePaintMask;
         uniform float fcePaintEnabled;
         uniform float fcePaintFiltered;
+        float fceShr8( float a ) { return floor( a / 256.0 ); }
+        // fce3HsbToRgb: integer math in floats, exact below 2^24
+        vec3 fce3HsbToRgb( vec4 hsb ) {
+          float h = hsb.x, s = hsb.y, v = hsb.z;
+          if ( v <= 0.0 ) {
+            return vec3( 0.0 );
+          }
+          if ( s <= 0.0 ) {
+            return vec3( clamp( v, 0.0, 255.0 ) );
+          }
+          float sector = fceShr8( h * 6.0 );
+          float x = h * 6.0 - sector * 256.0;
+          float p = fceShr8( v * ( 256.0 - s ) );
+          float q = fceShr8( ( 256.0 - fceShr8( s * x + 128.0 ) ) * v );
+          float t = fceShr8( ( 256.0 - fceShr8( s * ( 256.0 - x ) + 128.0 ) ) * v );
+          vec3 rgb = sector < 0.5 ? vec3( v, t, p ) : sector < 1.5 ? vec3( q, v, p ) : sector < 2.5 ? vec3( p, v, t )
+            : sector < 3.5 ? vec3( p, q, v ) : sector < 4.5 ? vec3( t, p, v ) : vec3( v, p, q );
+          return clamp( rgb, 0.0, 255.0 );
+        }
+        // fce3PaintColor
+        vec3 fce3PaintColor( float blue, vec4 color ) {
+          float blue8 = floor( blue / 8.0 ) * 8.0;
+          float factor = color.w == 255.0 ? blue8 : blue8 / ( 255.0 - color.w );
+          return fce3HsbToRgb( vec4( color.xy, min( 255.0, floor( color.z * factor ) ), color.w ) );
+        }
         vec4 fcePaint( vec4 sampled, vec2 uv ) {
           float alpha = floor( textureLod( fcePaintMask, uv, 0.0 ).a * 255.0 + 0.5 );
-          if ( alpha == 0.0 || alpha == 255.0 ) {
-            return sampled;
-          }
-          vec3 paint;
-          if ( fcePaintFce4 < 0.5 ) {
-            paint = alpha < ${FCE3_SECONDARY_COLOR_ALPHA_THRESHOLD}.0 ? fcePaintColors[ 0 ] : fcePaintColors[ 1 ];
-          } else {
-            paint = alpha >= ${(FCE4_COLOR_ALPHAS[0] + FCE4_COLOR_ALPHAS[1]) / 2}.0 ? fcePaintColors[ 0 ]
-              : alpha >= ${(FCE4_COLOR_ALPHAS[1] + FCE4_COLOR_ALPHAS[2]) / 2}.0 ? fcePaintColors[ 1 ]
-              : alpha >= ${(FCE4_COLOR_ALPHAS[2] + FCE4_COLOR_ALPHAS[3]) / 2}.0 ? fcePaintColors[ 2 ]
-              : fcePaintColors[ 3 ];
-          }
           vec3 texel = floor( sRGBTransferOETF( sampled ).rgb * 255.0 + 0.5 );
-          vec3 painted = min( floor( texel * paint / 128.0 + 0.5 ), 255.0 );
+          vec3 painted;
+          if ( fcePaintFce4 < 0.5 ) {
+            // fce3TexelColor: every texel of the texture goes through the 16-bit texture
+            if ( alpha > 0.0 && alpha < 128.0 ) {
+              texel = fce3PaintColor( texel.b, fcePaintColors[ 0 ] );
+            } else if ( alpha > 0.0 && alpha < 255.0 ) {
+              texel = fce3PaintColor( texel.b, fcePaintColors[ 1 ] );
+            }
+            painted = floor( floor( texel / 8.0 ) * 255.0 / 31.0 + 0.5 );
+          } else {
+            if ( alpha == 0.0 || alpha == 255.0 ) {
+              return sampled;
+            }
+            vec3 paint = alpha >= ${(FCE4_COLOR_ALPHAS[0] + FCE4_COLOR_ALPHAS[1]) / 2}.0 ? fcePaintColors[ 0 ].rgb
+              : alpha >= ${(FCE4_COLOR_ALPHAS[1] + FCE4_COLOR_ALPHAS[2]) / 2}.0 ? fcePaintColors[ 1 ].rgb
+              : alpha >= ${(FCE4_COLOR_ALPHAS[2] + FCE4_COLOR_ALPHAS[3]) / 2}.0 ? fcePaintColors[ 2 ].rgb
+              : fcePaintColors[ 3 ].rgb;
+            painted = min( floor( texel * paint / 128.0 + 0.5 ), 255.0 );
+          }
           return vec4( sRGBTransferEOTF( vec4( painted / 255.0, 1.0 ) ).rgb, sampled.a );
         }`,
       )
@@ -181,8 +288,9 @@ function paintInShader(material: Material, uniforms: PaintUniforms) {
 /**
  * Animates car.fce model: steers and spins wheels, shows light dummies, paints the car in the fragment shader of its
  * materials (the textures stay as they are). Expects meshes, exported by Fce3GeometrySerializer/Fce4GeometrySerializer:
- * "<lod>_<part index>_<part name>[__<texture>][_damaged]". A texture is painted where its paint mask
- * (`paintMaskUrl`, the alpha channel of car00.tga) has an alpha other than 0 and 255. Materials are changed in place:
+ * "<lod>_<part index>_<part name>[__<texture>][_damaged]". A texture is painted by its paint mask (`paintMaskUrl`, the
+ * alpha channel of car00.tga, see fcePaintIndexOfAlpha; FCE3: fce3TexelColor, the whole texture as nfs3.exe uploads
+ * it, at 5 bits per channel). Materials are changed in place:
  * a material shared with another copy of the model gets this controller's paint
  */
 export class FceCarMeshController {
@@ -196,15 +304,15 @@ export class FceCarMeshController {
   private disposed = false;
 
   // FCE3: primary, secondary. FCE4: primary, interior, secondary, driver hair
-  private readonly colors: number[];
-  private readonly colorUniforms = { value: [new Vector3(), new Vector3(), new Vector3(), new Vector3()] };
+  private readonly colors: FceColor[];
+  private readonly colorUniforms = { value: [new Vector4(), new Vector4(), new Vector4(), new Vector4()] };
 
-  getColor(index: number): number {
+  getColor(index: number): FceColor {
     return this.colors[index];
   }
 
-  setColor(index: number, value: number) {
-    this.colors[index] = value;
+  setColor(index: number, value: FceColor) {
+    this.colors[index] = { ...value };
     this.updateColorUniforms();
   }
 
@@ -275,10 +383,10 @@ export class FceCarMeshController {
     mesh: Object3D,
     private readonly version: FceVersion,
     dummies: FceDummy[],
-    colors: number[],
+    colors: FceColor[],
     paintMaskUrl: (texture: Texture) => string | null = fcePaintMaskNextToTexture,
   ) {
-    this.colors = [...colors];
+    this.colors = colors.map(c => ({ ...c }));
     this.updateColorUniforms();
     this.setupPaint(mesh, paintMaskUrl);
     // wheel meshes by part index
@@ -397,7 +505,14 @@ export class FceCarMeshController {
   }
 
   private updateColorUniforms() {
-    this.colors.forEach((c, i) => this.colorUniforms.value[i]?.set(c >> 16, (c >> 8) & 0xff, c & 0xff));
+    this.colors.forEach((c, i) => {
+      if (this.version === 3) {
+        this.colorUniforms.value[i]?.set(c.hue, c.saturation, c.brightness, c.transparency);
+      } else {
+        const rgb = fceColorToRgb(c);
+        this.colorUniforms.value[i]?.set(rgb >> 16, (rgb >> 8) & 0xff, rgb & 0xff, 0);
+      }
+    });
   }
 
   /** Color of light dummy, null if dummy is not a light */

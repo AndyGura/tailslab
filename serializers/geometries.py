@@ -1410,8 +1410,9 @@ class Fce3GeometrySerializer(BaseFileSerializer):
             except Exception:
                 traceback.print_exc()
                 continue
-            # alpha channel of car textures is not transparency, but a paint mask: the less alpha, the more car
-            # color is applied. Kept in a separate file for GUI preview
+            # alpha channel of car textures is not transparency, but a paint mask. FCE3 (nfs3.exe 0x49cd00, car
+            # texture upload): 1..127 primary color, 128..254 secondary color, 255 the texel as it is, 0 a texel
+            # without the 1555 alpha bit. Kept in a separate file for the paint (nfs-three-lib fce3TexelColor)
             image.save(path_join(path, f'assets/{name}_paint_mask.png'))
             image.putalpha(self._transparency_mask(image))
             image.save(path_join(path, f'assets/{name}.png'))
@@ -1505,15 +1506,39 @@ class Fce3GeometrySerializer(BaseFileSerializer):
         half_size = data['half_size']
         scene.meta_extras = {
             'collisionHalfSize': {'x': half_size['x'], 'y': half_size['y'], 'z': half_size['z']},
+            'fceColors': self._fce_colors(data),
         }
         scene.mtl_texture_names = sorted({m.texture_id for m in scene.sub_meshes if m.texture_id != 'untextured'})
         scene.mtl_texture_path_func = lambda name: f'assets/{name.removesuffix("_translucent")}.png'
         scene.mtl_texture_alpha_modes = {name: alpha_modes.get(name, 'cutout') for name in scene.mtl_texture_names}
         return export_scenes([scene], path, self.settings)
 
+    @staticmethod
+    def _color_list(data, key: str, count: int):
+        return [
+            {k: c[k] for k in ('hue', 'saturation', 'brightness', 'transparency')} for c in data[key][: max(count, 0)]
+        ]
+
+    def _fce_colors(self, data):
+        # the car's paints, FCE colors as they are (HSB + transparency, 0..255). nfs3.exe paints color set i with
+        # primary i and secondary i (the secondary of the primary nearest to the picked color, 0x49d240), see
+        # fce3TexelColor in nfs-three-lib
+        return {
+            'primary': self._color_list(data, 'primary_colors', data['num_primary_colors']),
+            'secondary': self._color_list(data, 'secondary_colors', data['num_secondary_colors']),
+        }
+
 
 class Fce4GeometrySerializer(Fce3GeometrySerializer):
     v_from_bottom = False
+
+    def _fce_colors(self, data):
+        # color set i: primary, interior, secondary and driver hair color i
+        count = data['num_colors']
+        return {
+            key: self._color_list(data, f'{key}_colors', count)
+            for key in ('primary', 'interior', 'secondary', 'driver_hair')
+        }
 
     def _transparency_mask(self, image: Image.Image) -> Image.Image:
         # texture alpha 0 is transparency (wheel rims, steering wheel), other values are paint mask

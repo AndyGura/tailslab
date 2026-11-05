@@ -587,8 +587,23 @@ class TestFce3GeometrySerializer(unittest.TestCase):
         from test.resources.eac.test_geometries import build_fce3_data
 
         # not swapped to the GLB axes (x, z, y) as vertices and dummies are
+        extras = self._exported_meta_extras(build_fce3_data)
+        self.assertEqual(extras['collisionHalfSize'], {'x': 1.25, 'y': 0.5, 'z': 2.75})
+
+    def test_meta_has_car_colors(self):
+        from test.resources.eac.test_geometries import build_fce3_data
+
+        def with_colors():
+            block, data = build_fce3_data()
+            color = {'hue': 10, 'saturation': 20, 'brightness': 30, 'transparency': 40}
+            data['num_primary_colors'] = 1
+            data['primary_colors'] = [color] + [{**color, 'hue': 0}] * 15
+            data['num_secondary_colors'] = 0
+            return block, data
+
+        colors = self._exported_meta_extras(with_colors)['fceColors']
         self.assertEqual(
-            self._exported_meta_extras(build_fce3_data), {'collisionHalfSize': {'x': 1.25, 'y': 0.5, 'z': 2.75}}
+            colors, {'primary': [{'hue': 10, 'saturation': 20, 'brightness': 30, 'transparency': 40}], 'secondary': []}
         )
 
 
@@ -601,9 +616,9 @@ class TestFce4GeometrySerializer(unittest.TestCase):
     def test_meta_has_collision_half_size_in_game_axes(self):
         from test.resources.eac.test_geometries import build_fce4_data
 
-        self.assertEqual(
-            self._exported_meta_extras(build_fce4_data), {'collisionHalfSize': {'x': 1.25, 'y': 0.5, 'z': 2.75}}
-        )
+        extras = self._exported_meta_extras(build_fce4_data)
+        self.assertEqual(extras['collisionHalfSize'], {'x': 1.25, 'y': 0.5, 'z': 2.75})
+        self.assertEqual(set(extras['fceColors']), {'primary', 'interior', 'secondary', 'driver_hair'})
 
     def test_exports_damaged_copy_of_parts(self):
         from test.resources.eac.test_geometries import build_fce4_data
