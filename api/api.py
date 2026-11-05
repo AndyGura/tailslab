@@ -65,11 +65,14 @@ class API:
         bridge.expose(self.resource_api.get_trailing_optional_field_data)
         bridge.expose(self.resource_api.archive_image_stats)
         bridge.expose(self.resource_api.palette_usage)
+        bridge.expose(self.resource_api.spatial_handles)
+        bridge.expose(self.resource_api.spatial_move)
 
         # Serialization API
         bridge.expose(self.serialization_api.serialize_resource)
         bridge.expose(self.serialization_api.deserialize_resource)
         bridge.expose(self.serialization_api.new_images_from_files)
+        bridge.expose(self.serialization_api.serialize_chunks)
 
         # Conversion API
         bridge.expose(self.conversion_api.convert_files)
@@ -106,6 +109,8 @@ class API:
         return __version__
 
     def log_frontend_message(self, level: str, message: str):
-        """Write a frontend error (uncaught exception, console.error...) to the log, every line prefixed with [JS]."""
+        """Write a frontend message (uncaught exception, console.error, a diagnostic) to the log, every line prefixed
+        with [JS]. Levels: 'info', 'warning', anything else is an error"""
         text = '\n'.join(f'[JS] {line}' for line in str(message)[:20000].splitlines())
-        _frontend_logger.log(logging.WARNING if level == 'warning' else logging.ERROR, text)
+        levels = {'info': logging.INFO, 'warning': logging.WARNING}
+        _frontend_logger.log(levels.get(level, logging.ERROR), text)

@@ -1,4 +1,5 @@
-from typing import Dict
+from math import atan2, cos, hypot, sin
+from typing import Dict, List, Optional
 
 from library.read_blocks import (
     BitFlagsBlock,
@@ -14,6 +15,7 @@ from library.read_blocks import (
     SubByteCompoundBlock,
 )
 from library.read_blocks.misc.value_validators import Eq
+from library.spatial_edit import SpatialEditable, stored_value
 from resources.eac.fields.misc import Point3D
 from resources.eac.fields.numbers import Nfs1Angle14, Nfs1Angle8, Nfs1TimeField
 
@@ -173,16 +175,24 @@ class RoadSplinePoint(DeclarativeCompoundBlock):
         )
         unk2 = (IntegerBlock(length=2, value_validator=Eq(0)), {'is_unknown': True})
 
+    @staticmethod
+    def side_normal_for(orientation: float, side_normal_y: float) -> Dict:
+        """`side_normal` of a point heading `orientation`, keeping its tilt `side_normal_y`: the stored values are
+        half the unit vector"""
+        from math import cos, sin, sqrt
+
+        horizontal = sqrt(max(0.25 - side_normal_y**2, 0))
+        return {'x': horizontal * cos(orientation), 'y': side_normal_y, 'z': -horizontal * sin(orientation)}
+
     def update_orientations(self, read_data, next_spline_point):
-        from math import atan2, cos, sin
+        from math import atan2
 
         orientation = atan2(
             next_spline_point['position']['x'] - read_data['position']['x'],
             next_spline_point['position']['z'] - read_data['position']['z'],
         )
         read_data['orientation'] = orientation
-        read_data['side_normal']['x'] = cos(orientation)
-        read_data['side_normal']['z'] = -sin(orientation)
+        read_data['side_normal'] = self.side_normal_for(orientation, read_data['side_normal']['y'])
 
 
 class ModelPropDescrData(DeclarativeCompoundBlock):
@@ -423,7 +433,7 @@ class AIEntry(DeclarativeCompoundBlock):
         )
 
 
-class TriMap(DeclarativeCompoundBlock):
+class TriMap(DeclarativeCompoundBlock, SpatialEditable):
     @property
     def schema(self) -> Dict:
         return {
@@ -449,6 +459,35 @@ class TriMap(DeclarativeCompoundBlock):
                     'description': 'Makes track shorter or longer by scaling it. Does not affect objects and terrain size',
                     'is_pure': False,
                     'args': [{'id': 'scale', 'title': 'Scale', 'type': 'number'}],
+                },
+            ],
+            'spatial_edit': [
+                {
+                    'kind': 'prop',
+                    'title': 'Props',
+                    'description': 'Move props and turn them around the vertical axis. A prop is stored relative to '
+                    'a road point (8.8 fixed point offset, 8-bit angle relative to the road heading): it is '
+                    're-anchored to the road point nearest to it',
+                    'translate_axes': 'xyz',
+                    'rotate_axes': 'z',
+                    'pick_entities': True,
+                },
+                {
+                    'kind': 'terrain_vertex',
+                    'title': 'Terrain',
+                    'description': 'Move terrain vertices. Each one is stored relative to the previous one of its '
+                    'row (9.7 fixed point), so the next vertices keep their places',
+                    'translate_axes': 'xyz',
+                    'rotate_axes': '',
+                    'deforms_mesh': True,
+                },
+                {
+                    'kind': 'road_point',
+                    'title': 'Road',
+                    'description': 'Move road spline points. The terrain row and the props of the point move with '
+                    'it; the heading, slope and side normal of the point and of the previous one are recomputed',
+                    'translate_axes': 'xyz',
+                    'rotate_axes': '',
                 },
             ],
             'block_description': 'Map TRI file, represents terrain mesh, road itself, props locations etc.',
@@ -704,3 +743,206 @@ class TriMap(DeclarativeCompoundBlock):
             vertex['position']['x'] *= scale
             vertex['position']['y'] *= scale
             vertex['position']['z'] *= scale
+
+    # Spatial edits (library/spatial_edit.py). Export space = the game's axes with y and z swapped, as the
+    # TriMapSerializer writes the chunks: [x, z, y]
+
+    @staticmethod
+    def _to_export(p: Dict) -> List[float]:
+        return [p['x'], p['z'], p['y']]
+
+    @staticmethod
+    def _from_export(v: List[float]) -> Dict:
+        return {'x': float(v[0]), 'y': float(v[2]), 'z': float(v[1])}
+
+    @staticmethod
+    def _road_length(read_data) -> int:
+        return len(read_data['terrain']) * 4
+
+    def _field_block(self, *path):
+        block = self
+        for key in path:
+            block = block.child if key == '*' else block.field_blocks_map[key]
+        return block
+
+    def spatial_handles(self, read_data, kind: str, chunks: Optional[List[int]] = None) -> List[Dict]:
+        chunk_set = None if chunks is None else set(chunks)
+        in_chunks = lambda chunk: chunk_set is None or chunk in chunk_set
+        if kind == 'prop':
+            return [
+                self.spatial_handle(read_data, kind, str(k))
+                for k, prop in enumerate(read_data['props'])
+                if 0 <= prop['road_point_idx'] < self._road_length(read_data) and in_chunks(prop['road_point_idx'] // 4)
+            ]
+        if kind == 'terrain_vertex':
+            return [
+                self.spatial_handle(read_data, kind, f'{i}/{row}/{column}')
+                for i in range(len(read_data['terrain']))
+                if in_chunks(i)
+                for row in range(4)
+                for column in range(11)
+            ]
+        if kind == 'road_point':
+            return [
+                self.spatial_handle(read_data, kind, str(n))
+                for n in range(self._road_length(read_data))
+                if in_chunks(n // 4)
+            ]
+        raise ValueError(f'Unknown spatial edit kind {kind}')
+
+    def spatial_handle(self, read_data, kind: str, handle_id: str) -> Dict:
+        if kind == 'prop':
+            k = int(handle_id)
+            prop = read_data['props'][k]
+            point = read_data['road_spline'][prop['road_point_idx']]
+            yaw = -(prop['rotation'] + point['orientation'])
+            descr = read_data['prop_descr'][prop['prop_descr_idx'] % len(read_data['prop_descr'])]
+            return {
+                'id': handle_id,
+                'chunk': prop['road_point_idx'] // 4,
+                'position': [
+                    a + b for a, b in zip(self._to_export(point['position']), self._to_export(prop['position']))
+                ],
+                'rotation': [0.0, 0.0, sin(yaw / 2), cos(yaw / 2)],
+                'label': f'Prop #{k} ({descr["type"].replace("_", " ")}, description {prop["prop_descr_idx"]})',
+                'data_path': f'props/{k}',
+                'match': {'object_index': k},
+            }
+        if kind == 'terrain_vertex':
+            i, row, column = (int(x) for x in handle_id.split('/'))
+            vertices = self._terrain_row_vertices(read_data, i, row)
+            side = 'center' if column == 0 else ('right' if column <= 5 else 'left')
+            return {
+                'id': handle_id,
+                'chunk': i,
+                'position': self._to_export(vertices[column]),
+                'rotation': None,
+                'label': f'Terrain chunk {i}, road point {i * 4 + row}, vertex A{column} ({side})',
+                'data_path': f'terrain/{i}/rows/{row}/{column}',
+            }
+        if kind == 'road_point':
+            n = int(handle_id)
+            return {
+                'id': handle_id,
+                'chunk': n // 4,
+                'position': self._to_export(read_data['road_spline'][n]['position']),
+                'rotation': None,
+                'label': f'Road point {n} (terrain chunk {n // 4})',
+                'data_path': f'road_spline/{n}',
+            }
+        raise ValueError(f'Unknown spatial edit kind {kind}')
+
+    @staticmethod
+    def _terrain_chain_previous(column: int) -> Optional[int]:
+        """Stored terrain row vertices are offsets: A0 from the road point, A1 and A6 from A0, A2..A5 and A7..A10
+        from the previous one. None = the road point"""
+        if column == 0:
+            return None
+        return 0 if column in (1, 6) else column - 1
+
+    @staticmethod
+    def _terrain_chain_next(column: int) -> List[int]:
+        if column == 0:
+            return [1, 6]
+        return [] if column in (5, 10) else [column + 1]
+
+    def _terrain_row_vertices(self, read_data, chunk: int, row: int) -> List[Dict]:
+        """Absolute positions (game axes) of the 11 vertices of a terrain row, in stored order A0, A1..A5, A6..A10"""
+        offsets = read_data['terrain'][chunk]['rows'][row]
+        base = read_data['road_spline'][chunk * 4 + row]['position']
+        vertices = [None] * 11
+        for column in range(11):
+            previous = self._terrain_chain_previous(column)
+            origin = base if previous is None else vertices[previous]
+            vertices[column] = {c: origin[c] + offsets[column][c] for c in 'xyz'}
+        return vertices
+
+    def _nearest_road_point(self, read_data, position: Dict) -> int:
+        spline = read_data['road_spline'][: self._road_length(read_data)]
+        return min(
+            range(len(spline)),
+            key=lambda n: sum((spline[n]['position'][c] - position[c]) ** 2 for c in 'xyz'),
+        )
+
+    def spatial_move(self, read_data, kind: str, handle_id: str, position, rotation) -> Dict:
+        target = self._from_export(position)
+        if kind == 'prop':
+            k = int(handle_id)
+            prop = read_data['props'][k]
+            n = self._nearest_road_point(read_data, target)
+            point = read_data['road_spline'][n]
+            changes = {
+                f'props/{k}/road_point_idx': n,
+                f'props/{k}/position': stored_value(
+                    self._field_block('props', '*', 'position'),
+                    {c: target[c] - point['position'][c] for c in 'xyz'},
+                ),
+            }
+            if rotation is not None:
+                # heading of the rotated x axis around the vertical (export z) axis
+                qx, qy, qz, qw = rotation
+                yaw = atan2(2 * (qx * qy + qw * qz), 1 - 2 * (qy * qy + qz * qz))
+                changes[f'props/{k}/rotation'] = stored_value(
+                    self._field_block('props', '*', 'rotation'), -yaw - point['orientation']
+                )
+            else:
+                # keep the heading in the world when the road point changes
+                changes[f'props/{k}/rotation'] = stored_value(
+                    self._field_block('props', '*', 'rotation'),
+                    prop['rotation']
+                    + read_data['road_spline'][prop['road_point_idx']]['orientation']
+                    - point['orientation'],
+                )
+            return changes
+        if kind == 'terrain_vertex':
+            i, row, column = (int(x) for x in handle_id.split('/'))
+            vertices = self._terrain_row_vertices(read_data, i, row)
+            point_block = self._field_block('terrain', '*', 'rows', '*', '*')
+            previous = self._terrain_chain_previous(column)
+            origin = read_data['road_spline'][i * 4 + row]['position'] if previous is None else vertices[previous]
+            offset = stored_value(point_block, {c: target[c] - origin[c] for c in 'xyz'})
+            moved = {c: origin[c] + offset[c] for c in 'xyz'}
+            changes = {f'terrain/{i}/rows/{row}/{column}': offset}
+            # the next vertices of the chain stay where they are
+            for next_column in self._terrain_chain_next(column):
+                changes[f'terrain/{i}/rows/{row}/{next_column}'] = stored_value(
+                    point_block, {c: vertices[next_column][c] - moved[c] for c in 'xyz'}
+                )
+            return changes
+        if kind == 'road_point':
+            n = int(handle_id)
+            spline = read_data['road_spline']
+            length = self._road_length(read_data)
+            is_closed = read_data['loop_chunk'] != 0
+            new_position = stored_value(self._field_block('road_spline', '*', 'position'), target)
+            if new_position == spline[n]['position']:
+                # the game's angles differ a bit from recomputed ones: leave them when nothing moved
+                return {}
+            positions = {n: new_position}
+            changes = {f'road_spline/{n}/position': new_position}
+            # heading, slope and side normal of a point look at the next point
+            for m in (n - 1, n):
+                if m < 0 and not is_closed:
+                    continue
+                m %= length
+                next_m = m + 1
+                if next_m >= length:
+                    if not is_closed:
+                        continue
+                    next_m = 0
+                a = positions.get(m, spline[m]['position'])
+                b = positions.get(next_m, spline[next_m]['position'])
+                dx, dy, dz = (b[c] - a[c] for c in 'xyz')
+                orientation = atan2(dx, dz)
+                changes[f'road_spline/{m}/orientation'] = stored_value(
+                    self._field_block('road_spline', '*', 'orientation'), orientation
+                )
+                changes[f'road_spline/{m}/slope'] = stored_value(
+                    self._field_block('road_spline', '*', 'slope'), atan2(dy, hypot(dx, dz))
+                )
+                changes[f'road_spline/{m}/side_normal'] = stored_value(
+                    self._field_block('road_spline', '*', 'side_normal'),
+                    RoadSplinePoint.side_normal_for(orientation, spline[m]['side_normal']['y']),
+                )
+            return changes
+        raise ValueError(f'Unknown spatial edit kind {kind}')

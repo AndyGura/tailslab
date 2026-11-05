@@ -1,0 +1,154 @@
+// Dark viewport panel, like the view mode toolbar
+.spatialEditPanel {
+  display: flex;
+  flex-direction: column;
+  row-gap: 6px;
+  width: 17rem;
+  padding: 6px;
+  background-color: #333333;
+  color: #eeeeee;
+  border-radius: 4px;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+  font-size: 12px;
+  user-select: none;
+
+  button {
+    display: flex;
+    align-items: center;
+    column-gap: 3px;
+    background: none;
+    border: none;
+    color: inherit;
+    font: inherit;
+    padding: 3px 6px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+
+    mat-icon {
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
+    }
+
+    &:hover:not(:disabled) {
+      background-color: #444444;
+    }
+
+    &.selected {
+      background-color: #4a90e2;
+    }
+
+    &:disabled {
+      opacity: 0.35;
+      cursor: default;
+    }
+  }
+
+  .modes,
+  .tools,
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    align-items: center;
+  }
+
+  .tools {
+    border-top: 1px solid #555555;
+    padding-top: 6px;
+
+    .spacer {
+      flex-grow: 1;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      column-gap: 4px;
+      color: #bbbbbb;
+    }
+  }
+
+  .selection {
+    display: flex;
+    flex-direction: column;
+    row-gap: 4px;
+
+    .label {
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .fields {
+      display: flex;
+      column-gap: 4px;
+
+      label {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        background-color: #222222;
+        border-radius: 3px;
+        padding-right: 3px;
+
+        &.disabled {
+          opacity: 0.4;
+        }
+      }
+
+      .axis {
+        padding: 2px 4px;
+        border-radius: 3px 0 0 3px;
+        font-weight: 600;
+        color: #111111;
+
+        &.axis-x {
+          background-color: #ff6b6b;
+        }
+
+        &.axis-y {
+          background-color: #8bd36b;
+        }
+
+        &.axis-z {
+          background-color: #6ba8ff;
+        }
+      }
+
+      input {
+        width: 100%;
+        min-width: 0;
+        background: none;
+        border: none;
+        color: inherit;
+        font: inherit;
+        padding: 2px 3px;
+        outline: none;
+      }
+
+      .unit {
+        color: #999999;
+      }
+    }
+
+    .snap {
+      display: flex;
+      align-items: center;
+      column-gap: 4px;
+      color: #ffcc80;
+
+      mat-icon {
+        font-size: 16px;
+        width: 16px;
+        height: 16px;
+      }
+    }
+  }
+
+  .hint {
+    color: #aaaaaa;
+  }
+}

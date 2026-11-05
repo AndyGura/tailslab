@@ -34,6 +34,16 @@
       [viewModeController]="viewModeController"
       [currentViewMode]="viewMode"
       (viewModeChanged)="setViewMode($event)"></app-view-mode-toolbar>
+    @if (spatialKinds.length) {
+      <app-spatial-edit-panel
+        class="spatialEditPanel"
+        [kinds]="spatialKinds"
+        [activeKind]="editKind$ | async"
+        [controller]="spatialEdit"
+        [rebuilding]="(rebuilding$ | async) || 0"
+        (activeKindChange)="setEditKind($event)"
+        (focusSelected)="focusSelection()"></app-spatial-edit-panel>
+    }
     @if (((lodLevels$ | async)?.length || 0) > 1) {
       <div class="lodControls">
         <h4>LOD</h4>
@@ -66,6 +76,17 @@
       (pointerChange)="onPointerChange($event)"></app-minimap>
   </div>
 </div>
+@if (selectedHandleDetail$ | async; as detail) {
+  <h4>Selected: {{ detail.title }}</h4>
+  @if (detail.resource.schema) {
+    <app-compound-block-ui
+      [resourceId]="detail.resource.id"
+      [resourceName]="detail.resource.name"
+      [resourceSchema]="detail.resource.schema"
+      [resourceData]="detail.resource.data"
+      [hideBlockActions]="true"></app-compound-block-ui>
+  }
+}
 @if (adapter?.commonFields) {
   @for (detail of selectedSplineDetails$ | async; track detail.title) {
     <h4>{{ detail.title }}</h4>

@@ -1,0 +1,118 @@
+<div class="spatialEditPanel" (keydown)="$event.stopPropagation()">
+  <div class="modes" role="radiogroup" aria-label="Edit mode">
+    <button
+      [class.selected]="!activeKind"
+      (click)="setKind(null)"
+      matTooltip="View: the camera only, nothing is selected">
+      <mat-icon>visibility</mat-icon>
+      <span>View</span>
+    </button>
+    @for (kind of kinds; track kind.kind) {
+      <button
+        [class.selected]="activeKind?.kind === kind.kind"
+        (click)="setKind(kind)"
+        [matTooltip]="kind.description || kind.title">
+        <mat-icon>{{ kindIcon(kind) }}</mat-icon>
+        <span>{{ kind.title }}</span>
+      </button>
+    }
+  </div>
+
+  @if (activeKind) {
+    <div class="tools">
+      <button
+        [class.selected]="gizmoMode === 'translate'"
+        [disabled]="!canTranslate"
+        (click)="setGizmoMode('translate')"
+        matTooltip="Move (G)">
+        <mat-icon>open_with</mat-icon>
+      </button>
+      <button
+        [class.selected]="gizmoMode === 'rotate'"
+        [disabled]="!canRotate"
+        (click)="setGizmoMode('rotate')"
+        [matTooltip]="canRotate ? 'Rotate (R)' : activeKind.title + ' cannot be rotated'">
+        <mat-icon>rotate_right</mat-icon>
+      </button>
+      <span class="spacer"></span>
+      @if (committing || rebuilding) {
+        <span
+          class="status"
+          [matTooltip]="committing ? 'Writing the move to the file data' : 'Rebuilding changed chunks'">
+          <mat-spinner diameter="14"></mat-spinner>
+          {{ committing ? 'Saving' : 'Rebuilding ' + rebuilding }}
+        </span>
+      }
+    </div>
+
+    @if (selection.length) {
+      <div class="selection">
+        <div class="label" [title]="selectionLabel">{{ selectionLabel }}</div>
+        <div class="fields">
+          @for (axis of ['x', 'y', 'z']; track axis; let i = $index) {
+            <label [class.disabled]="!axisEditable(axis, false)">
+              <span class="axis axis-{{ axis }}">{{ axis | uppercase }}</span>
+              <input
+                type="number"
+                step="0.1"
+                [disabled]="!axisEditable(axis, false)"
+                [(ngModel)]="position[i]"
+                (change)="applyInputs()" />
+            </label>
+          }
+        </div>
+        @if (showRotation) {
+          <div class="fields">
+            @for (axis of ['x', 'y', 'z']; track axis; let i = $index) {
+              @if (!yawOnly || axis === 'z') {
+                <label [class.disabled]="!axisEditable(axis, true)">
+                  <span class="axis axis-{{ axis }}">{{ yawOnly ? 'Yaw' : 'R' + (axis | uppercase) }}</span>
+                  <input
+                    type="number"
+                    step="1"
+                    [disabled]="!axisEditable(axis, true)"
+                    [(ngModel)]="rotationDegrees[i]"
+                    (change)="applyInputs()" />
+                  <span class="unit">°</span>
+                </label>
+              }
+            }
+          </div>
+        }
+        @if (snap) {
+          <div
+            class="snap"
+            matTooltip="The file stores this with less precision or in a limited range: the values above are what it holds now">
+            <mat-icon>straighten</mat-icon>
+            Snapped to the file's precision by {{ snapText(snap) }}
+          </div>
+        }
+        <div class="actions">
+          <button (click)="focus()" matTooltip="Frame the selection (F)">
+            <mat-icon>center_focus_strong</mat-icon>Focus
+          </button>
+          @if (selection.length > 1 && canTranslate) {
+            <button
+              (click)="moveToCentre()"
+              [disabled]="committing"
+              matTooltip="Move every selected handle to the centre of the selection, as one change (M). Nothing is merged: they stay separate, at the same spot (within the file's precision)">
+              <mat-icon>compress</mat-icon>To centre
+            </button>
+          }
+          <button (click)="deselect()" matTooltip="Deselect (Esc)"><mat-icon>close</mat-icon>Deselect</button>
+        </div>
+      </div>
+    } @else {
+      <div class="hint">Click a {{ activeKind.title.toLowerCase() }} marker to select it</div>
+    }
+    <div class="hint">Drag on empty space to select in a box; with Shift to add, with Ctrl / Cmd to remove</div>
+    @if (selection.length) {
+      <div class="hint">
+        Right drag or a two finger swipe turns around the selection, wheel or pinch to come closer, F to frame it, Esc
+        to fly freely
+      </div>
+    } @else {
+      <div class="hint">Hold the right mouse button to look around, with WASD to fly</div>
+    }
+  }
+</div>
