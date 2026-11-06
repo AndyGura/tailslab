@@ -42,7 +42,7 @@ class WwwwBlock(ArchiveBlock):
         return schema
 
     def __init__(self, **kwargs):
-        from resources.eac.geometries import OripGeometry
+        from resources.eac.geometries import OripGeometry, OrixGeometry
 
         super().__init__(
             item_block=AutoDetectBlock(
@@ -50,6 +50,7 @@ class WwwwBlock(ArchiveBlock):
                     ShpiBlock(),
                     ShppBlock(),
                     OripGeometry(),
+                    OrixGeometry(),
                     self,
                     BytesBlock(
                         length=(
@@ -221,7 +222,7 @@ class BigfBlock(ArchiveBlock):
         return schema
 
     def __init__(self, **kwargs):
-        from resources.eac.geometries import GeoGeometry, Fce3Geometry, Fce4Geometry, EaglModel
+        from resources.eac.geometries import GeoGeometry, Fce3Geometry, Fce4Geometry, EaglModel, OrixGeometry
         from resources.eac.car_specs import (
             Nfs2CarPhysics,
             Nfs2SimTune,
@@ -239,6 +240,7 @@ class BigfBlock(ArchiveBlock):
                     Fce3Geometry(),
                     Fce4Geometry(),
                     EaglModel(),
+                    OrixGeometry(),
                     ShpiBlock(),
                     ShppBlock(),
                     EacCompressedBlock(),

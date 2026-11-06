@@ -10,8 +10,9 @@ import {
 } from '@angular/core';
 import { GuiComponent } from '../../gui.component';
 import { BehaviorSubject, debounceTime, filter, Subject, takeUntil } from 'rxjs';
-import { Object3D } from 'three';
-import { ObjViewerCustomControl } from '../../common/obj-viewer/obj-viewer.component';
+import { Mesh, MeshBasicMaterial, Object3D, Texture } from 'three';
+import { ObjViewerControl, ObjViewerCustomControl } from '../../common/obj-viewer/obj-viewer.component';
+import { setupNfs1Texture } from '../../../../../nfs-three-lib/nfs1-model-utils';
 import { steeringControl, wheelSpeedControl } from '../../common/obj-viewer/car-preview-controls';
 import {
   TnfsCarColors,
@@ -68,7 +69,22 @@ export class OripGeometryBlockUiComponent extends GuiComponent implements AfterV
   }
 
   async onObjectLoaded(obj: Object3D) {
-    if (this.resourceId && this.resourceId.includes('.CFM__')) {
+    // TNFS draws texels unfiltered (PC and PSX), and the car colors are replaced by exact texel color
+    obj.traverse(o => {
+      if (o instanceof Mesh) {
+        for (const material of Array.isArray(o.material) ? o.material : [o.material]) {
+          const map: Texture | null = (material as MeshBasicMaterial).map;
+          if (map) {
+            setupNfs1Texture(map);
+            map.generateMipmaps = false;
+            map.needsUpdate = true;
+          }
+        }
+      }
+    });
+    // a PSX car model (ORIX of a VSM / WSM car archive): no palette, the game writes over CLUT entries
+    const isPsxCar = !!this.resourceId && /\.(VSM|WSM)__/i.test(this.resourceId);
+    if (this.resourceId && (this.resourceId.includes('.CFM__') || isPsxCar)) {
       try {
         const objPath = this.previewPaths$.value![0];
         const assetsPath = objPath.substring(0, objPath.lastIndexOf('/')) + `/assets`;
@@ -81,8 +97,8 @@ export class OripGeometryBlockUiComponent extends GuiComponent implements AfterV
           carColors = null;
         }
         this.disposeMeshController();
-        // the preview shows indices 250..253 black, as the game draws them on cars
-        const meshController = new TnfsCarMeshController(obj, carColors, assetsPath, true);
+        // the preview shows indices 250..253 black, as the game draws them on cars (PSX: as in the textures)
+        const meshController = new TnfsCarMeshController(obj, carColors, assetsPath, !isPsxCar);
         this.meshController = meshController;
         // the tyre textures animate as if the car drove along x at the wheel speed, as nfs-web's /car-tex-debug
         let speed = 0;
@@ -97,25 +113,46 @@ export class OripGeometryBlockUiComponent extends GuiComponent implements AfterV
           {
             title: 'TNFS car features',
             controls: [
-              {
-                label: 'Brake lights on',
-                type: 'checkbox',
-                value: false,
-                change: v => {
-                  meshController.tailLightsOn = v;
-                },
-              },
-              {
-                label: 'Colors 250-253 (light bar)',
-                type: 'radio',
-                options: Object.keys(LIGHT_BAR_OPTIONS),
-                value: 'Black (car)',
-                change: v => {
-                  const [mode, sirenActive] = LIGHT_BAR_OPTIONS[v];
-                  meshController.lightBar = mode;
-                  meshController.sirenActive = sirenActive;
-                },
-              },
+              // PSX: only the models with such CLUT entries have the lights
+              ...(!isPsxCar || carColors?.tail_lights
+                ? [
+                    {
+                      label: 'Brake lights on',
+                      type: 'checkbox',
+                      value: false,
+                      change: (v: boolean) => {
+                        meshController.tailLightsOn = v;
+                      },
+                    } as ObjViewerControl,
+                  ]
+                : []),
+              ...(isPsxCar
+                ? carColors?.light_bar
+                  ? [
+                      {
+                        label: 'Siren flashing (cop)',
+                        type: 'checkbox',
+                        value: false,
+                        change: (v: boolean) => {
+                          meshController.lightBar = v ? 'siren' : 'black';
+                          meshController.sirenActive = v;
+                        },
+                      } as ObjViewerControl,
+                    ]
+                  : []
+                : [
+                    {
+                      label: 'Colors 250-253 (light bar)',
+                      type: 'radio',
+                      options: Object.keys(LIGHT_BAR_OPTIONS),
+                      value: 'Black (car)',
+                      change: (v: string) => {
+                        const [mode, sirenActive] = LIGHT_BAR_OPTIONS[v];
+                        meshController.lightBar = mode;
+                        meshController.sirenActive = sirenActive;
+                      },
+                    } as ObjViewerControl,
+                  ]),
               ...(meshController.hasWheels
                 ? [wheelSpeedControl(v => (speed = v)), steeringControl(v => (meshController.steeringAngle = v))]
                 : []),

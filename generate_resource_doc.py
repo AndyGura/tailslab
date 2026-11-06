@@ -205,7 +205,9 @@ EXPORT_RESOURCES = {
 
 **Z<track>_PSH.FAM** {render_type(eac.archives.WwwwBlock())} of {render_type(eac.archives.ShppBlock())} items. The CRC footer follows its last item
 
-**Z<car>.VSM**, **Z<car>.WSM** car archive. {render_type(eac.archives.BigfBlock())} of the car's files, every one ending with its own CRC footer (counted in the item length): `<car>.pbs` player car physics, {render_type(eac.car_specs.PlayerCarPhysics())}, [compressed](eac_compressions.md) (QFS3; traffic and cop cars have a 16-byte placeholder `HI\\r\\n` + CRC footer instead), `<car>.pdn` car AI and crash body, {render_type(eac.car_specs.CarAiAndCrashBody())}, [compressed](eac_compressions.md), `<car>.por` / `<car>l.por` high-poly / low-poly 3D model (`ORIX`, a PSX variant of ORIP: not parsed yet), `<car>.psh` / `<car>l.psh` their textures, {render_type(eac.archives.ShppBlock())} (high-poly: pieces `J000`.., a few named ones like the wheels `tyr1`..`tyr4` and the shadow `shad`; low-poly: `frnt`, `rear`, `side`). Every car has a VSM; the 8 racers and the Warrior (`TRAFFC`) also have a WSM: the same `.pbs` / `.pdn`, the car in another color (red / yellow F512TR, black / purple LDIABL...; the Warrior's is identical), with slightly different models. The game loads the WSM for the racers in odd car slots (`tnfs_carobj` 0x80039604: slot < number of racers and odd), so a second car of the same model (the opponent in a head-to-head race, player 2 in split screen) looks different""",
+**Z<track>_POR.FAM** track props. {render_type(eac.archives.WwwwBlock())} of {render_type(eac.geometries.OrixGeometry())} items, the textures of each are the item of the same index of `Z<track>_PSH.FAM`. The CRC footer follows its last item
+
+**Z<car>.VSM**, **Z<car>.WSM** car archive. {render_type(eac.archives.BigfBlock())} of the car's files, every one ending with its own CRC footer (counted in the item length): `<car>.pbs` player car physics, {render_type(eac.car_specs.PlayerCarPhysics())}, [compressed](eac_compressions.md) (QFS3; traffic and cop cars have a 16-byte placeholder `HI\\r\\n` + CRC footer instead), `<car>.pdn` car AI and crash body, {render_type(eac.car_specs.CarAiAndCrashBody())}, [compressed](eac_compressions.md), `<car>.por` / `<car>l.por` high-poly / low-poly 3D model, {render_type(eac.geometries.OrixGeometry())}, `<car>.psh` / `<car>l.psh` their textures, {render_type(eac.archives.ShppBlock())} (high-poly: pieces `J000`.., a few named ones like the wheels `tyr1`..`tyr4` and the shadow `shad`; low-poly: `frnt`, `rear`, `side`). Every car has a VSM; the 8 racers and the Warrior (`TRAFFC`) also have a WSM: the same `.pbs` / `.pdn`, the car in another color (red / yellow F512TR, black / purple LDIABL...; the Warrior's is identical), with slightly different models. The game loads the WSM for the racers in odd car slots (`tnfs_carobj` 0x80039604: slot < number of racers and odd), so a second car of the same model (the opponent in a head-to-head race, player 2 in split screen) looks different""",
         'blocks': {
             'Archives': [
                 eac.archives.ShppBlock(),
@@ -215,6 +217,16 @@ EXPORT_RESOURCES = {
             'Physics': [
                 eac.car_specs.PlayerCarPhysics(),
                 eac.car_specs.CarAiAndCrashBody(),
+            ],
+            'Geometries': [
+                eac.geometries.OrixGeometry(),
+                eac.geometries.OrixPolygonTexture(),
+                eac.geometries.OrixPolygon(),
+                eac.geometries.OripVertexUV(),
+                eac.geometries.OrixMaterial(),
+                eac.geometries.OripMorph(),
+                eac.geometries.OripPartition(),
+                eac.geometries.NamedIndex(),
             ],
             'Images': [
                 eac_psx_bitmaps.PsxImage(),

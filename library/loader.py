@@ -298,6 +298,10 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.geometries import OripGeometry
 
             return OripGeometry
+        elif header_str == 'ORIX':
+            from resources.eac.geometries import OrixGeometry
+
+            return OrixGeometry
         elif header_str == 'EACS':
             from resources.eac.audios import EacsAudioFile
 

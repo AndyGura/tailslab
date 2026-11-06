@@ -32,4 +32,8 @@ from .tnfs import (
     OripPartition,
     NamedIndex,
     OripGeometry,
+    OrixPolygon,
+    OrixPolygonTexture,
+    OrixMaterial,
+    OrixGeometry,
 )

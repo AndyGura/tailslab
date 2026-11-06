@@ -11,7 +11,7 @@ from PIL import Image
 from library.exceptions import DataIntegrityException
 from library.utils import path_join
 from library.utils.id import join_id
-from resources.eac.archives import ShpiBlock
+from resources.eac.archives import ShpiBlock, ShppBlock
 from resources.eac.bitmaps import EacImage
 from serializers import BaseFileSerializer
 from serializers.common.three_d import SubMesh, Mesh, export_scenes, Scene
@@ -54,7 +54,8 @@ class OripGeometrySerializer(BaseFileSerializer):
             if texture:
                 try:
                     c = next(x for x in textures_shpi_data['children'] if x['alias'] == texture)
-                    u_multiplier, v_multiplier = (1 / c['item']['data']['width'], 1 / c['item']['data']['height'])
+                    width, height = self._texture_size(c['item']['data'])
+                    u_multiplier, v_multiplier = (1 / width, 1 / height)
 
                 except StopIteration, ValueError:
                     pass
@@ -67,6 +68,14 @@ class OripGeometrySerializer(BaseFileSerializer):
                 ]
             )
         return vertices_file_indices_map[model][key]
+
+    def _texture_size(self, image_data: dict) -> Tuple[int, int]:
+        """Width and height in texels of a texture of the archive next to the model, as the UVs count them"""
+        return image_data['width'], image_data['height']
+
+    def _material_names(self, data: dict, texture_names: List[str]) -> List[str]:
+        """Exported material name of each polygon"""
+        return orip_material_names(data, texture_names)
 
     def require_shpi(self, id):
         # shpi is always next block
@@ -88,8 +97,8 @@ class OripGeometrySerializer(BaseFileSerializer):
         vertices_file_indices_map = defaultdict(lambda: dict())
         sub_models = defaultdict(SubMesh)
         fsh_names = [x['alias'] for x in textures_shpi_data['children']]
-        sub_model_names, partitions = orip_sub_mesh_names(data, fsh_names)
-        material_names = orip_material_names(data, fsh_names)
+        material_names = self._material_names(data, fsh_names)
+        sub_model_names, partitions = orip_sub_mesh_names(data, fsh_names, material_names)
         self.mesh_partitions = {}
         # sub-mesh -> (index in its polygons, ORIP polygon index, written reversed) of the first face of each polygon
         source_faces = defaultdict(list)
@@ -428,15 +437,17 @@ def is_orip_name(name: str) -> bool:
     return bool(name) and all(0x20 < ord(c) < 0x7F for c in name)
 
 
-def orip_sub_mesh_names(data: dict, fsh_names=None) -> Tuple[List[str], List[Optional[str]]]:
+def orip_sub_mesh_names(data: dict, fsh_names=None, material_names=None) -> Tuple[List[str], List[Optional[str]]]:
     """Name of the exported mesh of each ORIP polygon, and the partition of each polygon (`orip_polygon_partitions`).
-    Polygons are grouped by label and material (`orip_material_names`, with the FSH bitmap names `fsh_names`): "lbl__<label>__<material>", "lbl__<label>" or
+    Polygons are grouped by label and material (`material_names`, by default `orip_material_names` with the FSH bitmap
+    names `fsh_names`): "lbl__<label>__<material>", "lbl__<label>" or
     "<material>", labels with a
     garbage name (`is_orip_name`) left out. A mesh
     holds polygons of one partition only: when a group spans several, the partition with the most of its polygons
     (on a tie, the one of its first polygon) keeps the name, the others get "__<partition>" ("__none" without one)"""
     partitions = orip_polygon_partitions(data)
-    material_names = orip_material_names(data, fsh_names)
+    if material_names is None:
+        material_names = orip_material_names(data, fsh_names)
     base_names = []
     for pi, polygon in enumerate(data['polygons']):
         texture_id = material_names[pi]
@@ -499,6 +510,117 @@ def orip_fx_dummies(data: dict) -> List[dict]:
             }
         )
     return dummies
+
+
+# the tyre texture the PSX game puts on the wheel quads of a car at load (`tire4`'s, car model setup 0x8004ea54)
+ORIX_TYRE_TEXTURE = 'tyr4'
+
+
+def orix_polygon_textures(data: dict, psh_names=None) -> List[Optional[str]]:
+    """PSH image name of each ORIX polygon, as the PSX game assigns them (`orisetdefaulmaterialtextures` 0x80081e28):
+    a material with `per_polygon_textures` gives its `polygon_textures` items to the polygons they name, another one
+    its `file_name` to all of its polygons; the wheel materials `frntires` / `rertires` without an image get the
+    tyre texture `tyr4` at run time. None for a polygon left without an image of the PSH (`psh_names`, None to take
+    every name as found): none in the game files"""
+    own = {}
+    for material in data['materials']:
+        textures = material['textures']
+        if textures['per_polygon_textures']:
+            first = textures['first_polygon_texture']
+            for entry in data['polygon_textures'][first : first + textures['num_polygon_textures']]:
+                own[entry['polygon_index']] = entry['file_name']
+    result = []
+    for pi, polygon in enumerate(data['polygons']):
+        material = data['materials'][polygon['material_index']]
+        if pi in own:
+            name = own[pi]
+        elif material['textures']['per_polygon_textures']:
+            name = None
+        else:
+            name = material['file_name']
+        name = (name or '').rstrip('\0')
+        if (not name or (psh_names is not None and name not in psh_names)) and (
+            material['name'].rstrip(b'\0') in ORIP_TYRE_MATERIAL_NAMES
+        ):
+            name = ORIX_TYRE_TEXTURE
+        result.append(name if name and (psh_names is None or name in psh_names) else None)
+    return result
+
+
+class OrixGeometrySerializer(OripGeometrySerializer):
+    """PSX TNFS geometry (`OrixGeometry`: car models of `.VSM` / `.WSM`, track props of `_POR.FAM`), exported like the
+    PC one (`OripGeometrySerializer`: mesh names by label, texture and partition, fx dummies, steering morphs), with
+    the images of the PSH next to it as textures: most polygons have an image of their own"""
+
+    def ui_serialization(self):
+        return {
+            'file_type': 'OBJ + MTL directory',
+            'is_directory': True,
+            'output_file_name_suffix': None,
+            'reversible': False,
+            'reversible_settings_patch': {},
+        }
+
+    def deserialize(self, file_paths: List[str], id=None, block=None, **kwargs) -> dict:
+        raise NotImplementedError('Importing PSX geometry is not supported')
+
+    def require_shpi(self, id):
+        """The PSH of the model: the next item of a car archive, the item of the same index of `Z<track>_PSH.FAM`
+        for a prop of `Z<track>_POR.FAM`"""
+        from library import require_resource
+
+        file_path, _, item_path = id.partition('__')
+        if file_path.upper().endswith('_POR.FAM'):
+            is_lower = file_path[-7:-4].islower()
+            psh_id = f'{file_path[:-7]}{"psh" if is_lower else "PSH"}{file_path[-4:]}__{item_path}'
+        else:
+            parts = id.split('/')
+            parts[-3] = str(int(parts[-3]) + 1)
+            psh_id = '/'.join(parts)
+        (psh_id, psh_block, psh_data), _ = require_resource(psh_id)
+        if not psh_data or not isinstance(psh_block, ShppBlock):
+            raise DataIntegrityException('Cannot find PSH archive for ORIX geometry')
+        return psh_id, psh_block, psh_data
+
+    def _texture_size(self, image_data: dict) -> Tuple[int, int]:
+        from resources.eac.psx_bitmaps import psx_image_is_rotated
+
+        # UVs are in texels of the image as shown: one stored rotated has width and height exchanged
+        if psx_image_is_rotated(image_data):
+            return image_data['height'], image_data['width']
+        return image_data['width'], image_data['height']
+
+    def _material_names(self, data: dict, texture_names: List[str]) -> List[str]:
+        # a polygon without an image (none in the game files) gets a black material
+        return [x or f'{ORIP_FLAT_MATERIAL_PREFIX}000000' for x in orix_polygon_textures(data, texture_names)]
+
+    def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
+        BaseFileSerializer.serialize(self, data, path)
+        psh_id, psh_block, psh_data, sub_models = self.build_mesh(data, id)
+
+        scene = Scene()
+        scene.sub_meshes = [sm for sm in sub_models.values()]
+        scene.dummies = orip_fx_dummies(data)
+        scene.object_properties = {name: {'partition': p} for name, p in self.mesh_partitions.items()}
+        scene.name = 'body'
+        scene.obj_name = 'geometry'
+        scene.mtl_name = 'material'
+        for c in psh_data['children']:
+            if isinstance(c['item']['data'], dict) and 'width' in c['item']['data']:
+                scene.mtl_texture_names.append(c['alias'])
+                # texels of colour 0x0000 are not drawn, every other one is opaque
+                scene.mtl_texture_alpha_modes[c['alias']] = 'cutout'
+        scene.mtl_texture_path_func = lambda name: f'assets/{name}.png'
+        for sub_model in sub_models.values():
+            if (sub_model.texture_id or '').startswith(ORIP_FLAT_MATERIAL_PREFIX):
+                scene.mtl_flat_colors[sub_model.texture_id] = (0, 0, 0)
+        # as the PC models: nfs-web draws TNFS models unlit
+        scene.export_normals = False
+
+        from serializers import ShppArchiveSerializer
+
+        ShppArchiveSerializer().serialize(psh_data, path_join(path, 'assets/'), psh_id, psh_block)
+        return export_scenes([scene], path, self.settings)
 
 
 class GeoGeometrySerializer(BaseFileSerializer):

@@ -314,11 +314,35 @@ When you do:
   own and as a BIGF item, not in a FAM (`_in_wwww_archive`): there it stays in the last entry's `post_offset_payload`.
 - `Z<car>.VSM` (every car) / `Z<car>.WSM` (the 8 racers and `TRAFFC`: the car in another color, loaded for racers in
   odd car slots, `tnfs_carobj` 0x80039604; `TRAFFC`'s is identical) = `BigfBlock` of `<car>.pbs`, `<car>.pdn` (QFS3-compressed PC PBS / PDN layouts; traffic and cop cars
-  have a 16-byte `HI\r\n` placeholder `.pbs`), `<car>.por` / `<car>l.por` (high / low-poly model, magic `ORIX`, raw
-  bytes: not parsed), `<car>.psh` / `<car>l.psh` (`ShppBlock`). Every item ends with its own footer, counted in the
+  have a 16-byte `HI\r\n` placeholder `.pbs`), `<car>.por` / `<car>l.por` (high / low-poly model, `OrixGeometry`),
+  `<car>.psh` / `<car>l.psh` (`ShppBlock`, their textures). Every item ends with its own footer, counted in the
   BIGF item length: `EacCompressedBlock` takes a trailing footer off before decompressing (QFS3 reads up to the end)
   and writes it back with a new CRC after recompressing (`CompressedData.crc_footer`). All 31 files write back
   byte-exact.
+- `OrixGeometry` (`resources/eac/geometries/tnfs.py`, magic `ORIX`, version 800): the PSX ORIP. Header 120 bytes
+  (ORIP's + count and offset of `polygon_textures`), 16-byte polygons (`draw_type` = GPU primitive, always 12 = textured
+  quad), 24-byte materials (`textures` bit field instead of the colour), then morphs, partitions, fx points, labels,
+  vertices and vmap as in ORIP (their blocks are shared). Cars (buffer name `.VSM` / `.WSM` / `.POR`) have 32:7
+  vertices, props (`Z<track>_POR.FAM`, a `WwwwBlock` item) 32:4. Ends with its own CRC footer in a BIGF item, not in
+  a FAM. Most polygons have an image of their own (`J000`..): a material with `per_polygon_textures` owns a run of
+  `polygon_textures` (polygon index, PSH image name), other materials give `file_name` to their polygons, `frntires`
+  / `rertires` without one get `tyr4` at run time (`orix_polygon_textures`, as `orisetdefaulmaterialtextures`
+  0x80081e28). UVs are texels of the image as shown (a rotated image has width / height exchanged); without `use_uv`
+  the image covers the quad. All 62 car models and 39 props write back byte-exact.
+- `OrixGeometrySerializer` (subclass of `OripGeometrySerializer`: same mesh names `lbl__<label>__<image>`, partitions
+  in the extras, fx dummies, steering morphs, no normals) takes the PSH after the model in the car archive, or the
+  item of the same index of `Z<track>_PSH.FAM` for a prop, writes its PNGs to `assets/` and every texture as
+  `alpha_mode cutout`. No import (`reversible` False).
+- `car_colors.json` of a car PSH (`ShppArchiveSerializer` for a PSH inside a `.VSM` / `.WSM`,
+  `serializers/misc/tnfs_psx_car_colors.py`), keys of the PC one: the PSX game (texture upload 0x8004e72c) takes the
+  CLUT entries (first 16 of each image) of pure green (5-bit r < 2, g > 29, b < 2) of a racer's high-poly textures as
+  brake lights and writes 0x0008 / 0x001F to them (`tail_lights`); the cop's pure red and pure blue entries exchange
+  red and blue every 16 clock units in a chase (`light_bar`, two colours; other cars keep the texture colours).
+  Written only for a model with one such colour (every game file).
+- GUI: `OripGeometryBlockUiComponent` renders `OrixGeometry` too (`DATA_BLOCK_COMPONENTS_MAP`), with
+  `TnfsCarMeshController` for a model of a `.VSM` / `.WSM` (`blackLightBar` off; brake lights and siren controls only
+  when `car_colors.json` has them). It sets every texture of an ORIP / ORIX preview to nearest filtering
+  (`setupNfs1Texture`): the colour replacement matches exact texel colours.
 - `Z<track><A|B|C>.INF` (morning / midday / evening) = `TnfsPsxHorizonInfo`: the text + footer;
   `parse_psx_horizon_settings` gives `PsxHorizonSettings` (PC INFO layout without ring type and time of day values,
   plus dithering flag, ratio of the blend and a last value = mirror flag; ring y offset / height halved by the game).

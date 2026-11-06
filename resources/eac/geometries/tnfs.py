@@ -1,7 +1,8 @@
+from io import SEEK_CUR
 from math import floor
 from typing import Dict
 
-from library.context import WriteContext
+from library.context import ReadContext, WriteContext
 from library.exceptions import DataIntegrityException
 from library.read_blocks import (
     DeclarativeCompoundBlock,
@@ -13,10 +14,14 @@ from library.read_blocks import (
     BitFlagsBlock,
     FixedPointBlock,
     Padding,
+    SubByteCompoundBlock,
+    TrailingOptionalBlock,
 )
+from library.read_blocks.archives import ArchiveBlock
 from library.read_blocks.misc.value_validators import Eq
 from library.read_blocks.strings import NullTerminatedUTF8Block
 from resources.eac.fields.misc import Point3D
+from resources.eac.psx import CRCF_FOOTER_LENGTH, PsxCrcFooter, with_crc_footer
 
 # "Verified" in the descriptions below: read in the game code (TNFS DOS, PSX and Win95 SE executables, tnfs-1995
 # Ghidra projects; DOS `gfx_oriload` 0xa1148, `gfx_orilocatemorph` 0xa14d0, `gfx_oriapplymorph` 0xa16a4,
@@ -591,3 +596,401 @@ class OripGeometry(DeclarativeCompoundBlock):
         from serializers import OripGeometrySerializer
 
         return OripGeometrySerializer
+
+
+# "Verified" in the ORIX descriptions below: read in the PSX executable (SLUS-00204, tnfs-1995 Ghidra project:
+# `oriload` 0x80081610, `tnfs_ori_inst` 0x800819ac, `orisetdefaulmaterialtextures` 0x80081e28, `buildprimlist`
+# 0x80084c08, material texture setter 0x80085e74, car model setup 0x8004ea54, car texture upload 0x8004e72c,
+# `gfx_draw_car_model` 0x80050024) or checked against every ORIX of the game files (62 car models, 37 track props)
+
+
+class OrixPolygon(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'A polygon of a PSX geometry: the ORIP polygon with the type of the GPU primitive '
+            'the game draws it with',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        polygon_type = (
+            IntegerBlock(length=1),
+            {
+                'description': 'Polygon type, as in ORIP: bits 0-2 number of vertices, bit 0x08 colour-keyed, bit 0x80 '
+                'textured. The PSX draw code does not read it (verified): `draw_type` picks the primitive, and the GPU '
+                'skips texels of colour 0x0000 on every textured one. Values in the files: 0x84 and 0x8C (quads)'
+            },
+        )
+        mapping = (
+            OripPolygon.Fields.mapping[0],
+            {
+                'description': 'Polygon flags, as in ORIP (verified): `two_sided` or `not_in_draw_list` = no backface '
+                'culling, `flip_normal` = reversed winding, `use_uv` = has texture coordinates (without it the '
+                'texture is mapped to the corners of the quad: vertex 0 to its top left texel, 1 top right, 2 bottom '
+                'right, 3 bottom left)'
+            },
+        )
+        material_index = (
+            IntegerBlock(length=1),
+            {'description': "Index of the polygon's material in `materials` (verified)"},
+        )
+        unk = (IntegerBlock(length=1), {'description': 'Always 0', 'is_unknown': True})
+        draw_type = (
+            IntegerBlock(length=4),
+            {
+                'description': 'GPU primitive of the polygon (verified, the low byte is read): 5 textured triangle, 9 '
+                'Gouraud-shaded textured triangle, 12 textured quad, 16 Gouraud-shaded textured quad; 1 / 2 lines, 3 / '
+                '8 untextured triangles and 10 untextured quad are not drawn (the game only prints their names). '
+                'Always 12 in the files'
+            },
+        )
+        offset_3d = OripPolygon.Fields.offset_3d
+        offset_2d = OripPolygon.Fields.offset_2d
+
+
+class OrixPolygonTexture(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'Texture of one polygon (verified): the PSX version cuts the texture of a material '
+            'into one small image per polygon',
+            'inline_description': True,
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        polygon_index = (IntegerBlock(length=4), {'description': 'Index of the polygon in `polygons`'})
+        file_name = (
+            UTF8Block(length=4),
+            {
+                'description': 'Name of the image in the PSH archive next to this ORIX (`J000`, `J001`...). Mirrored '
+                'polygons of the left and right side share an image'
+            },
+        )
+
+
+class OrixMaterial(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'A material of a PSX geometry: the image of the polygons that use it, or the list '
+            'of their own images',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        name = (
+            BytesBlock(length=8),
+            {
+                'description': 'Material name, 8 bytes, NUL-padded when shorter, empty in most materials. The game '
+                'looks up `frntires` and `rertires` (the wheel quads, which get the tyre textures `tyr1`..`tyr4`) '
+                'and `tire1`..`tire4` (verified)'
+            },
+        )
+        file_name = (
+            UTF8Block(length=4),
+            {
+                'description': 'Name of the image in the PSH archive next to this ORIX, used when '
+                '`per_polygon_textures` is off (verified). With it on: the name of the PC texture that was cut into '
+                'the polygon images, or garbage. Empty in `frntires` / `rertires` of most cars: the game sets their '
+                'texture at run time'
+            },
+        )
+        textures = (
+            SubByteCompoundBlock(
+                length=4,
+                schema=[
+                    (10, 'unknown', 'number', [], 'Bit 22 is set in every material of some models, never read'),
+                    (
+                        10,
+                        'num_polygon_textures',
+                        'number',
+                        [],
+                        'Number of items of `polygon_textures` of this material',
+                    ),
+                    (
+                        10,
+                        'first_polygon_texture',
+                        'number',
+                        [],
+                        'Index of the first item of this material in `polygon_textures`. Set in every material, '
+                        'also the ones without items',
+                    ),
+                    (
+                        1,
+                        'per_polygon_textures',
+                        'boolean',
+                        [],
+                        'The polygons of the material have their own images, listed in `polygon_textures`',
+                    ),
+                    (1, 'unknown_bit_0', 'boolean', [], 'Always set, never read'),
+                ],
+            ),
+            {'description': 'Where the textures of the polygons come from (verified)'},
+        )
+        unknown_0x10 = (
+            IntegerBlock(length=4),
+            {'description': 'Never read by the game (verified), always 0', 'is_unknown': True},
+        )
+        unknown_0x14 = (
+            IntegerBlock(length=4),
+            {
+                'description': 'Never read by the game (verified). One value per model, the same in all of its '
+                'materials',
+                'is_unknown': True,
+            },
+        )
+
+
+def _in_wwww_archive(ctx) -> bool:
+    """Whether the closest archive the block is read in is a wwww one (FAM)"""
+    parent = ctx
+    while parent is not None:
+        if isinstance(parent.block, ArchiveBlock):
+            return parent.block.__class__.__name__ == 'WwwwBlock'
+        parent = parent.parent
+    return False
+
+
+class OrixGeometry(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'Geometry block of the PSX TNFS: car models (`<car>.por` / `<car>l.por` of the car '
+            'archives `.VSM` / `.WSM`) and track props (`Z<track>_POR.FAM`). The PSX counterpart of ORIP: the same '
+            'header with 8 more bytes, 16-byte polygons, 24-byte materials and a table of per-polygon textures. '
+            'Textures are the images of the PSH archive that follows it in the car archive (in a `_POR.FAM`: the '
+            'item of the same index in `Z<track>_PSH.FAM`). Brake lights are no part of the model: in the high-poly '
+            'textures of a racer the game takes every CLUT entry of pure green (5-bit red < 2, green > 29, blue < '
+            '2, at most 5) and writes 0x0008 (dark red) to it, 0x001F (red) while the brake is at 11 or more; the '
+            "cop's pure red and pure blue entries exchange red (0x001F) and blue (0x7C00) every 16 clock units "
+            'during a chase (verified). Exported to OBJ + MTL',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        resource_id = (UTF8Block(value_validator=Eq('ORIX'), length=4), {'description': 'Resource ID'})
+        block_size = (
+            IntegerBlock(length=4, programmatic_value=lambda ctx: ctx.block.orix_length(ctx.get_full_data())),
+            {'description': 'Total ORIX block size in bytes, without the CRC footer'},
+        )
+        version = (
+            IntegerBlock(length=4, value_validator=Eq(800)),
+            {'description': 'Format version (verified): 800, the game warns about any other value (PC ORIP: 700)'},
+        )
+        instance_counter = (
+            IntegerBlock(length=4),
+            {
+                'description': 'Number of instances of the model: zeroed by the game at load and incremented per '
+                'instance at run time (verified). The files have leftovers of a path string here (`SX_C`, `IPER`...)'
+            },
+        )
+        num_vrtx = OripGeometry.Fields.num_vrtx
+        num_shape_vrtx = (
+            OripGeometry.Fields.num_shape_vrtx[0],
+            {
+                'description': 'Number of shape vertices: `vertices` without the morph delta vectors (`num_vrtx` - '
+                'the vertices of all morphs)'
+            },
+        )
+        vrtx_ptr = OripGeometry.Fields.vrtx_ptr
+        num_uvs = (
+            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('vertex_uvs'))),
+            {'description': 'Amount of vertex UV-s (texture coordinates)'},
+        )
+        uvs_ptr = (
+            IntegerBlock(
+                length=4,
+                programmatic_value=lambda ctx: ctx.block.offset_to_child_when_packed(ctx.get_full_data(), 'vertex_uvs'),
+            ),
+            {'description': 'An offset to vertex_uvs'},
+        )
+        num_polygons = OripGeometry.Fields.num_polygons
+        polygons_ptr = (
+            IntegerBlock(
+                length=4,
+                programmatic_value=lambda ctx: ctx.block.offset_to_child_when_packed(ctx.get_full_data(), 'polygons'),
+            ),
+            {'description': 'An offset to polygons block. Always equals to `120 + num_polygon_textures*8`'},
+        )
+        name = (
+            UTF8Block(length=12),
+            {'description': 'Model name, like "_SUPRA", "_TINYSUPR" (low-poly) or "_TRESTLE". Never read by the game'},
+        )
+        num_materials = OripGeometry.Fields.num_materials
+        materials_ptr = (
+            IntegerBlock(
+                length=4,
+                programmatic_value=lambda ctx: ctx.block.offset_to_child_when_packed(ctx.get_full_data(), 'materials'),
+            ),
+            {'description': 'An offset to materials. Always equals to `uvs_ptr + num_uvs*8`'},
+        )
+        num_morphs = OripGeometry.Fields.num_morphs
+        morphs_ptr = (
+            OripGeometry.Fields.morphs_ptr[0],
+            {'description': 'An offset to morphs. Always equals to `materials_ptr + num_materials*24`'},
+        )
+        num_partitions = OripGeometry.Fields.num_partitions
+        partitions_ptr = OripGeometry.Fields.partitions_ptr
+        vmap_ptr = OripGeometry.Fields.vmap_ptr
+        num_fxp = OripGeometry.Fields.num_fxp
+        fxp_ptr = OripGeometry.Fields.fxp_ptr
+        num_lbl = OripGeometry.Fields.num_lbl
+        lbl_ptr = OripGeometry.Fields.lbl_ptr
+        num_jld = (
+            IntegerBlock(length=4),
+            {
+                'description': 'Number of JLD items (verified: when not 0, the game allocates num_jld * 0x24 bytes '
+                '"INVMATRX" at `jld_runtime_ptr`). 0 in every file',
+            },
+        )
+        jld_ptr = (
+            IntegerBlock(
+                length=4,
+                programmatic_value=lambda ctx: ctx.block.offset_to_child_when_packed(ctx.get_full_data(), 'polygons'),
+            ),
+            {'description': 'Offset of the JLD items. Equals to `polygons_ptr` in every file, where there are none'},
+        )
+        num_polygon_textures = (
+            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('polygon_textures'))),
+            {'description': 'Amount of items in polygon_textures block'},
+        )
+        polygon_textures_ptr = (
+            IntegerBlock(length=4, value_validator=Eq(120)),
+            {'description': 'Offset of polygon_textures block (the end of the header)'},
+        )
+        jld_runtime_ptr = (
+            IntegerBlock(length=4),
+            {'description': 'Run time pointer to the JLD inverse matrices (verified), 0 in the files'},
+        )
+        polygon_textures = (
+            ArrayBlock(child=OrixPolygonTexture(), length=lambda ctx: ctx.data('num_polygon_textures')),
+            {
+                'description': 'Images of single polygons, grouped by material: a material with '
+                '`per_polygon_textures` has `num_polygon_textures` items from `first_polygon_texture` on (verified). '
+                'Polygons of other materials have none'
+            },
+        )
+        polygons = (
+            ArrayBlock(child=OrixPolygon(), length=lambda ctx: ctx.data('num_polygons')),
+            {'description': 'A block with polygons of the geometry'},
+        )
+        vertex_uvs = (
+            ArrayBlock(child=OripVertexUV(), length=lambda ctx: ctx.data('num_uvs')),
+            {
+                'description': 'A table of texture coordinates, in texels of the image as shown (the game turns '
+                'them for an image stored rotated, and clamps them to the image; verified). Items are retrieved by '
+                'index, located in vmap. Only polygons with `use_uv` have them: the low-poly models and a few '
+                'polygons of the others'
+            },
+        )
+        materials = (
+            ArrayBlock(child=OrixMaterial(), length=lambda ctx: ctx.data('num_materials')),
+            {'description': 'A table of materials. Items are retrieved by index, located in polygon item'},
+        )
+        morphs = (
+            ArrayBlock(child=OripMorph(), length=lambda ctx: ctx.data('num_morphs')),
+            {
+                'description': 'Morphs, as in ORIP: `left_turn` and `right_turn` of the racer models, the front '
+                "wheel steering. The game applies them to the player's car only (verified)"
+            },
+        )
+        partitions = (
+            ArrayBlock(child=OripPartition(), length=lambda ctx: ctx.data('num_partitions')),
+            {
+                'description': 'Partitions, as in ORIP: the game draws `inside`, then `surface`, then `outside` '
+                '(then `convex`, never present), each depth-sorted on its own (verified)'
+            },
+        )
+        fx_polys = (
+            ArrayBlock(child=NamedIndex(), length=lambda ctx: ctx.data('num_fxp')),
+            {
+                'description': 'Named vertices, as in ORIP: the game looks up `smok` and the wheel ground points '
+                "`FL0`..`RR1` of the player's car (verified)"
+            },
+        )
+        labels = (
+            ArrayBlock(child=NamedIndex(), length=lambda ctx: ctx.data('num_lbl')),
+            {
+                'description': 'Named polygons, as in ORIP: the game looks up the wheel quads `lt_frnt`, `rt_frnt`, '
+                "`lt_rear`, `rt_rear` of the player's car (verified)"
+            },
+        )
+        vertices = (
+            DelegateBlock(
+                choice_index=lambda ctx, **_: (
+                    0 if str(getattr(ctx.buffer, 'name', '')).upper().endswith(('.VSM', '.WSM', '.POR')) else 1
+                ),
+                possible_blocks=[
+                    ArrayBlock(
+                        child=Point3D(child=FixedPointBlock(length=4, fraction_bits=7, is_signed=True)),
+                        length=lambda ctx: ctx.data('num_vrtx'),
+                    ),
+                    ArrayBlock(
+                        child=Point3D(child=FixedPointBlock(length=4, fraction_bits=4, is_signed=True)),
+                        length=lambda ctx: ctx.data('num_vrtx'),
+                    ),
+                ],
+            ),
+            {
+                'description': 'A table of mesh vertices 3D coordinates, as in ORIP: for cars 32:7 points, else '
+                '32:4, in meters (the game reads the low 16 bits of each coordinate; verified). The first '
+                '`num_shape_vrtx` items are the vertices of the model, the others are the delta vectors of the morphs'
+            },
+        )
+        vmap = (
+            ArrayBlock(
+                child=IntegerBlock(length=4),
+                length=(
+                    lambda ctx: floor((ctx.data('block_size') + ctx.read_start_offset - ctx.buffer.tell()) / 4),
+                    '?',
+                ),
+            ),
+            {
+                'description': 'A table of indices the other blocks point into, as in ORIP: vertex and texture '
+                'coordinate indices of the polygons, the moved vertices of the morphs and the polygon lists of the '
+                'partitions'
+            },
+        )
+        crc_footer = (
+            TrailingOptionalBlock(child=PsxCrcFooter()),
+            {
+                'usage': 'ui,doc',
+                'description': 'CRC footer after the ORIX (`block_size` does not count it) in a car archive item: '
+                'inside a FAM archive it follows the last item of the FAM',
+            },
+        )
+
+    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
+        start = ctx.buffer.tell()
+        res = super().read(ctx, name, read_bytes_amount)
+        res['crc_footer'] = None
+        # the footer of the BIGF item: a FAM has the footer of the whole FAM after its last item
+        if (
+            not _in_wwww_archive(ctx)
+            and read_bytes_amount is not None
+            and read_bytes_amount - (ctx.buffer.tell() - start) == CRCF_FOOTER_LENGTH
+        ):
+            footer = ctx.buffer.read(CRCF_FOOTER_LENGTH)
+            if footer[:4] == b'CRCF':
+                res['crc_footer'] = self.field_blocks_map['crc_footer'].child.unpack_from_bytes(footer)
+            else:
+                ctx.buffer.seek(-len(footer), SEEK_CUR)
+        return res
+
+    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
+        return with_crc_footer(super().write(data, ctx, name), data.get('crc_footer'))
+
+    def orix_length(self, data) -> int:
+        """Value of the `block_size` field: the ORIX without the CRC footer"""
+        return super().estimate_packed_size(data)
+
+    def estimate_packed_size(self, data, ctx: WriteContext = None):
+        footer_length = CRCF_FOOTER_LENGTH if data.get('crc_footer') is not None else 0
+        return super().estimate_packed_size(data, ctx) + footer_length
+
+    def serializer_class(self):
+        from serializers import OrixGeometrySerializer
+
+        return OrixGeometrySerializer

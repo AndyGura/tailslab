@@ -280,12 +280,28 @@ class ShpiArchiveSerializer(BaseFileSerializer):
 
 
 class ShppArchiveSerializer(ShpiArchiveSerializer):
-    """PSX SHPP (`.PSH`): a PNG per image (`PsxImageSerializer`), and for the track textures of a time of day
+    """PSX SHPP (`.PSH`): a PNG per image (`PsxImageSerializer`), `car_colors.json` for the textures of a car model
+    (a PSH of a `.VSM` / `.WSM` car archive, `tnfs_psx_car_colors`), and for the track textures of a time of day
     (`Z<track><time>.PSH` with `hrz0`..`hrz7` and the `.INF` next to it) the sky sphere texture `spherical.png`, as
     the PC FAM export makes it"""
 
     def ui_serialization(self):
         return {**super().ui_serialization(), 'reversible': False, 'reversible_settings_patch': {}}
+
+    def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
+        output = super().serialize(data, path, id=id, block=block, **kwargs)
+        if id and any(x in id.upper() for x in ('.VSM__', '.WSM__')):
+            # textures of a car model
+            from serializers.misc.tnfs_psx_car_colors import tnfs_psx_car_colors
+
+            items = [
+                (x['alias'], x['item']['data'], block.item_block.possible_blocks[x['item']['choice_index']])
+                for x in data['children']
+            ]
+            with open(path_join(path, 'car_colors.json'), 'w') as f:
+                json.dump(tnfs_psx_car_colors(items), f, indent=2)
+            output.append(path_join(path, 'car_colors.json'))
+        return output
 
     def serialize_sky(self, items, path: str, id) -> List[str]:
         from library.loader import id_to_path

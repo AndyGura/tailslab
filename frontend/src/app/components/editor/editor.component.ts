@@ -92,6 +92,7 @@ export class EditorComponent implements OnDestroy {
 
     // TNFS-specific blocks
     OripGeometry: OripGeometryBlockUiComponent,
+    OrixGeometry: OripGeometryBlockUiComponent,
     EacsAudioFile: EacsAudioBlockUiComponent,
     AsfAudio: EacsAudioBlockUiComponent,
     SoundBank: SoundbankBlockUiComponent,

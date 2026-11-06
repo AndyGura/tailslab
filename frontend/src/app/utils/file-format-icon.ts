@@ -28,6 +28,7 @@ const iconMap: Record<string, string> = {
   EacCompressedBlock: 'archive',
 
   OripGeometry: 'view_in_ar',
+  OrixGeometry: 'view_in_ar',
   GeoGeometry: 'view_in_ar',
   Fce3Geometry: 'view_in_ar',
   Fce4Geometry: 'view_in_ar',

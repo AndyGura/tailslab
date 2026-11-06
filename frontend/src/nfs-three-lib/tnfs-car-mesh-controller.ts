@@ -64,7 +64,9 @@ type CarPartition = 'inside' | 'surface' | 'outside';
 /**
  * `car_colors.json` TailsLab writes next to the textures of a TNFS car model (CFM): colors of the PNGs (`#rrggbb`)
  * that stand for palette indices the game draws in other colors (Win95 SE gfx_draw_car_model 0x458d4c,
- * gfx_shpi_remap_to_vga_palette 0x4470e0), and the textures having them. The same keys for every car: which role a car
+ * gfx_shpi_remap_to_vga_palette 0x4470e0), and the textures having them. A PSX model (the PSH of a VSM / WSM car
+ * archive) has the same file for the CLUT entries the PSX game writes over: `tail_lights`, and a `light_bar` of two
+ * colors (red, blue) which other cars keep as in the PNGs (`blackLightBar` off). The same keys for every car: which role a car
  * has (a cop) is up to the game. TailsLab keeps these PNG colors unique
  */
 export interface TnfsCarColors {
@@ -451,7 +453,8 @@ export class TnfsCarMeshController {
     // (a set: meshes can share a material, the OBJ loader's do, and its shader must be changed once)
     const recoloredMaterials = new Map<string, Set<MeshBasicMaterial>>();
     // car model id 1 in gfx_car_tyre_textures
-    this.frontTyresIgnoreMotion = assetsPath.includes('LDIABL.CFM');
+    // the PC model LDIABL.CFM, the PSX ones ZLDIABL.VSM / .WSM
+    this.frontTyresIgnoreMotion = /LDIABL\.(CFM|VSM|WSM)/i.test(assetsPath);
     this.wheels = [null!, null!, null!, null!];
     this.frontWheels = [null!, null!];
     // for the wheels' depth bias: the body's widest |x|, the innermost |x| of each wheel and how far a steering morph

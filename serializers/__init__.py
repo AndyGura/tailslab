@@ -19,6 +19,7 @@ from .bitmaps import (
 from .fonts import FfnFontSerializer
 from .geometries import (
     OripGeometrySerializer,
+    OrixGeometrySerializer,
     GeoGeometrySerializer,
     CrpGeometrySerializer,
     Fce3GeometrySerializer,
