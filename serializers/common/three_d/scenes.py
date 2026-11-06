@@ -10,7 +10,7 @@ from typing import Tuple
 from library.utils import path_join
 from .blender_scripts import get_blender_save_script, run_blender
 from .gg_web_engine_exporter import ensure_gg_web_engine_exporter_installed, export_option_names
-from .glb_morph_targets import add_glb_morph_targets
+from .glb_morph_targets import add_glb_morph_targets, add_glb_vertex_attributes
 from .mesh import SubMesh
 
 
@@ -246,10 +246,13 @@ $extra_script
                 if scene.mtl_name:
                     f.write(f'mtllib {scene.mtl_name}.mtl')
                 face_index_increment = 1
+                normal_index_increment = 1
                 for sub_model in scene.sub_meshes:
-                    obj, fii = sub_model.to_obj(face_index_increment)
+                    obj, fii = sub_model.to_obj(face_index_increment, normal_index_increment=normal_index_increment)
                     f.write(obj)
                     face_index_increment += fii
+                    if sub_model.vertices and len(sub_model.vertex_normals) == len(sub_model.vertices):
+                        normal_index_increment += len(sub_model.vertex_normals)
             exported_files.append(file_path)
         if scene.dummies or scene.curves or scene.object_properties or scene.extras:
             file_path = path_join(scene_path, f'{scene.obj_name}_extra.json')
@@ -329,6 +332,8 @@ $extra_script
                 morph_meshes = [sm for sm in scene.sub_meshes if sm.morph_targets]
                 if morph_meshes:
                     add_glb_morph_targets(scene_file_path + '.glb', morph_meshes)
+                # nor custom normals
+                add_glb_vertex_attributes(scene_file_path + '.glb', scene.sub_meshes)
                 _add_meta_curve_properties(scene_file_path + '.meta', scene.curves)
                 _add_meta_top_level_keys(scene_file_path + '.meta', scene.meta_extras)
 

@@ -126,8 +126,9 @@ When you do:
   `custom_offset`, `usage` (comma-separated subset of `ui`/`io`/`doc`, default = everywhere).
 - `frontend/src/nfs-three-lib/` (README there) is copied into the nfs-web game as it is: its files import only each
   other and `three`, `@gg-web-engine/core`, `rxjs`, nothing else of the frontend (a part they need is brought into it),
-  and hold no specs (they are tested next to the GUI components using them). It has `TnfsCarMeshController` and
-  `setupNfs1Texture`; the other car mesh controllers (`*-car-mesh-controller.ts`) and the track props controllers
+  and hold no specs (they are tested next to the GUI components using them). It has `TnfsCarMeshController`,
+  `Nfs2CarMeshController`, `FceCarMeshController` (NFS3 / NFS4 paint in the fragment shader, by the paint mask's
+  alpha; NFS3 chrome) and `setupNfs1Texture`; the other car mesh controllers (`*-car-mesh-controller.ts`) and the track props controllers
   (`*track-props-controller.ts`) in `frontend/.../editor/eac/` are copied into nfs-web too, with their import paths
   changed: keep them free of GUI services, depending on three.js, gg-web-engine and rxjs only. Meshes of the GUI's OBJ
   models share a material per MTL material, nfs-web's GLB ones don't: code changing a material's shader must change
@@ -528,6 +529,21 @@ When you do:
   acceleration tables) 1 (0x41); `Chain` (a group: `MCF1.DES`, `TRAFCFG.DES`, `PRSONAL.DES`) n = everything below
   it: 94 bytes of garbage, int data size, int size of the child records, a copy of the group's data, then its child
   records.
+
+## NFS3 car models (`GameData/CarModel/<car>/car.viv`: `car.fce`)
+
+- `Fce3GeometrySerializer` mesh names `<lod>_<part>_<name>[__<texture>[_translucent]][_matte|_high_chrome]`: triangles
+  split by their chrome flags, node extras `{"fceChrome": "normal" | "high" | "none"}` (`Scene.object_properties`);
+  the FCE vertex normals go to the OBJ as `vn` and to the GLB as the vertex attribute `_GAME_NORMAL`
+  (`add_glb_vertex_attributes`, `serializers/common/three_d/glb_morph_targets.py`; three.js `_game_normal`), the GLB
+  `NORMAL` stays Blender's. `FceCarMeshController` draws nfs3.exe's chrome pass from them, turned to the camera
+  drawing the car in `onBeforeRender` (math and blending in its doc comments: `fce3ChromeEnvMatrix`, `fce3ChromeUv`,
+  `fce3ChromeAdd`, verified in nfs3.exe and its Direct3D driver `D3DA.DLL`, nfs-web `decomp/nfs3/`). Its source:
+  `chromeTexture` (a track's `SKY.FSH` `CHRD`, the sphere map the game uses for nothing else), else the sky of the
+  scene (`scene.background` when it is a cube texture, e.g. gg-web-engine's baked sky: the camera's direction
+  reflected by the normal, alpha `fce3SkyChromeAlpha`), `chromeEnabled` off for none. The GUI uses the viewer's sky.
+  Wheels spin as nfs3.exe spins them (`fce3WheelSpinStep`: per 1/64 s tick, at most 8 turns per second; `handbrake`
+  slows the rear ones). nfs-web reads the mesh names, extras and the attribute: keep them stable.
 
 ## NFS3 car physics (`GameData/CarModel/<car>/car.viv`: `carp.txt`)
 

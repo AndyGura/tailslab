@@ -13,7 +13,17 @@ import { BehaviorSubject, debounceTime, filter, Subject, takeUntil } from 'rxjs'
 import { ObjViewerCustomControl, ViewFilterOpts } from '../../common/obj-viewer/obj-viewer.component';
 import { steeringControl, wheelSpeedControl } from '../../common/obj-viewer/car-preview-controls';
 import { Object3D } from 'three';
-import { FceCarMeshController, fceColorToRgb, FceDummy, FceVersion } from './fce-car-mesh-controller';
+import {
+  FceCarMeshController,
+  FceColor,
+  fce3HsbToRgb,
+  fceColorToRgb,
+  FceDummy,
+  FceVersion,
+  rgbToFceColor,
+} from '../../../../../nfs-three-lib/fce-car-mesh-controller';
+
+const rgbOf = ([r, g, b]: [number, number, number]): number => (r << 16) | (g << 8) | b;
 
 @Component({
   selector: 'app-fce-geometry-block-ui',
@@ -84,10 +94,20 @@ export class FceGeometryBlockUiComponent extends GuiComponent implements AfterVi
           controls.push({
             label,
             type: 'color',
-            value: color,
-            change: c => this.debounced(() => meshController.setColor(i, c)),
+            value: this.version === 3 ? rgbOf(fce3HsbToRgb(color)) : fceColorToRgb(color),
+            // the picked color keeps the transparency of the car's color: it shades the paint (nfs3.exe)
+            change: c => this.debounced(() => meshController.setColor(i, rgbToFceColor(c, color.transparency))),
           }),
         );
+      }
+      if (meshController.hasChrome) {
+        // reflects the viewer's sky (no chromeTexture)
+        controls.push({
+          label: 'Chrome',
+          type: 'checkbox',
+          value: meshController.chromeEnabled,
+          change: v => (meshController.chromeEnabled = v),
+        });
       }
       if (meshController.hasLights) {
         controls.push({
@@ -102,6 +122,14 @@ export class FceGeometryBlockUiComponent extends GuiComponent implements AfterVi
           wheelSpeedControl(v => (meshController.speed = v)),
           steeringControl(v => (meshController.steeringAngle = v)),
         );
+        if (this.version === 3) {
+          controls.push({
+            label: 'Handbrake',
+            type: 'checkbox',
+            value: meshController.handbrake,
+            change: v => (meshController.handbrake = v),
+          });
+        }
       }
       this.customControls = controls.length > 0 ? [{ title: `NFS${this.version} car features`, controls }] : [];
       this.cdr.markForCheck();
@@ -115,11 +143,12 @@ export class FceGeometryBlockUiComponent extends GuiComponent implements AfterVi
   }
 
   /** Colors of car paint: the first color set of the model */
-  private get paints(): { label: string; color: number }[] {
+  private get paints(): { label: string; color: FceColor }[] {
     const data = this.resourceData;
     const paint = (label: string, colorsKey: string, numColors: number, fallback: number) => ({
       label,
-      color: numColors > 0 ? fceColorToRgb(data[colorsKey][0]) : fallback,
+      // fallback: transparency 127, texel blue 128 shows the brightness
+      color: numColors > 0 ? { ...data[colorsKey][0] } : rgbToFceColor(fallback, 127),
     });
     if (this.version === 4) {
       return [

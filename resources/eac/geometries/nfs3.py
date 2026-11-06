@@ -37,7 +37,9 @@ class FceColor(DeclarativeCompoundBlock):
         return {
             **super().schema,
             'block_description': 'Car color in HSB. Every component is 0..255: hue = degrees / 360 * 255, '
-            'saturation = percent / 100 * 255, brightness = percent / 100 * 255',
+            'saturation = percent / 100 * 255, brightness = percent / 100 * 255. nfs3.exe paints a car texel '
+            '(0x49cc50) with brightness * texel blue / (255 - transparency) (transparency 255: brightness * texel '
+            'blue), truncated, at most 255, converted to RGB with hue sector = hue * 6 >> 8 (0x49ca50)',
             'inline_description': True,
         }
 
@@ -45,7 +47,13 @@ class FceColor(DeclarativeCompoundBlock):
         hue = (IntegerBlock(length=4), {'description': 'Hue'})
         saturation = (IntegerBlock(length=4), {'description': 'Saturation'})
         brightness = (IntegerBlock(length=4), {'description': 'Brightness'})
-        transparency = (IntegerBlock(length=4), {'description': 'Transparency'})
+        transparency = (
+            IntegerBlock(length=4),
+            {
+                'description': 'Transparency. nfs3.exe uses it as the shading of the paint: a texel of blue '
+                '255 - transparency shows the color at its brightness'
+            },
+        )
 
 
 class Fce3Triangle(DeclarativeCompoundBlock):
@@ -78,7 +86,12 @@ class Fce3Triangle(DeclarativeCompoundBlock):
                 'description': 'Triangle flags. "matte": no environment reflection (underbody), "high_chrome": '
                 'strong reflection (windows), "no_cull": triangle is visible from both sides, "semi_transparent": '
                 'translucent triangle (windows). Triangle is visible behind a semi-transparent triangle only if it '
-                'has smaller index'
+                'has smaller index. nfs3.exe (0x49cfa0, 0x49dbf0): the body part (0) gets a second, environment '
+                'mapped pass with the sky texture (`SKY.FSH` `CHRD`, a 4444 texture), vertex color 0x7f7f7f7f, '
+                '"high_chrome" 0xffffffff, "matte" none, added to the framebuffer (Direct3D driver D3DA.DLL: '
+                'source alpha, one; texel times vertex color, the texel alpha); texture coordinates from the '
+                'vertex normals (0x49db70, a sphere map). "semi_transparent" triangles are drawn white with vertex '
+                'alpha 0x4f, others with the lighting and alpha 0x8f'
             },
         )
         u = (

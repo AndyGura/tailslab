@@ -148,3 +148,58 @@ def add_glb_morph_targets(glb_path: str, sub_meshes: List[SubMesh], tolerance: f
         mesh.setdefault('extras', {})['targetNames'] = target_names
     gltf['buffers'][0]['byteLength'] = len(binary) + (-len(binary) % 4)
     write_glb(glb_path, gltf, bytes(binary))
+
+
+def _match_normal(sub_mesh: SubMesh, position, uv, gltf_normal, tolerance: float) -> List[float]:
+    """Game normal of the sub-mesh vertex exported as the glTF vertex at `position`: of the vertices at that position,
+    those with the texture coordinates `uv` when their normals differ, then the one nearest to the glTF normal"""
+    pivot = sub_mesh.pivot_offset
+    candidates = [
+        i for i, v in enumerate(sub_mesh.vertices) if _close([v[k] - pivot[k] for k in range(3)], position, tolerance)
+    ]
+    if not candidates:
+        raise ValueError(f'Mesh "{sub_mesh.name}": no vertex at {position} for the game normals')
+
+    def normals_of(indices):
+        return {tuple(sub_mesh.vertex_normals[i]) for i in indices}
+
+    if len(normals_of(candidates)) > 1 and uv is not None:
+        candidates = [i for i in candidates if _close(sub_mesh.vertex_uvs[i], uv, tolerance)] or candidates
+    if len(normals_of(candidates)) > 1 and gltf_normal is not None:
+        candidates.sort(key=lambda i: -sum(a * b for a, b in zip(sub_mesh.vertex_normals[i], gltf_normal)))
+    return sub_mesh.vertex_normals[candidates[0]]
+
+
+def add_glb_vertex_attributes(glb_path: str, sub_meshes: List[SubMesh], tolerance: float = 1e-4):
+    """Adds the `vertex_normals` of `sub_meshes` to the meshes of the nodes with their names in the GLB file, as the
+    vertex attribute `_GAME_NORMAL` (an application-specific glTF attribute; three.js GLTFLoader reads it as the
+    geometry attribute `_game_normal`). The GLB keeps Blender's NORMAL: the game normals are for code that follows the
+    game's own shading (FCE chrome, `FceCarMeshController`). Vertices are matched as for the morph targets"""
+    sub_meshes = [sm for sm in sub_meshes if sm.vertices and len(sm.vertex_normals) == len(sm.vertices)]
+    if not sub_meshes:
+        return
+    gltf, binary = read_glb(glb_path)
+    binary = bytearray(binary)
+    nodes = {node.get('name'): node for node in gltf.get('nodes', []) if 'mesh' in node}
+    for sub_mesh in sub_meshes:
+        node = nodes.get(sub_mesh.name)
+        if node is None:
+            raise ValueError(f'Cannot add game normals: no mesh node "{sub_mesh.name}" in {glb_path}')
+        for primitive in gltf['meshes'][node['mesh']]['primitives']:
+            attributes = primitive['attributes']
+            positions = read_accessor(gltf, binary, attributes['POSITION'])
+            uvs = (
+                read_accessor(gltf, binary, attributes['TEXCOORD_0'])
+                if 'TEXCOORD_0' in attributes
+                else [None] * len(positions)
+            )
+            normals = (
+                read_accessor(gltf, binary, attributes['NORMAL']) if 'NORMAL' in attributes else [None] * len(positions)
+            )
+            attributes['_GAME_NORMAL'] = _append_vec3_accessor(
+                gltf,
+                binary,
+                [_match_normal(sub_mesh, p, uv, n, tolerance) for p, uv, n in zip(positions, uvs, normals)],
+            )
+    gltf['buffers'][0]['byteLength'] = len(binary) + (-len(binary) % 4)
+    write_glb(glb_path, gltf, bytes(binary))

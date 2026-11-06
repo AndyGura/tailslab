@@ -26,7 +26,13 @@ from serializers.geometries import (
     texture_alpha_mode,
 )
 from serializers.common.three_d import SubMesh
-from serializers.common.three_d.glb_morph_targets import add_glb_morph_targets, read_accessor, read_glb, write_glb
+from serializers.common.three_d.glb_morph_targets import (
+    add_glb_morph_targets,
+    add_glb_vertex_attributes,
+    read_accessor,
+    read_glb,
+    write_glb,
+)
 
 
 class TestCrpImageAtlasPosition(unittest.TestCase):
@@ -264,6 +270,25 @@ class TestAddGlbMorphTargets(unittest.TestCase):
         self.assertEqual((accessor['min'], accessor['max']), ([0, 0, -1], [0, 0, 0]))
         # the original data is kept
         self.assertEqual(read_accessor(gltf, binary, 0)[0], (1.0, 0.0, 0.0))
+        self.assertEqual(gltf['buffers'][0]['byteLength'], len(binary))
+
+    def test_adds_game_normals_matched_by_position(self):
+        mesh = SubMesh()
+        mesh.name = 'wheel'
+        mesh.vertices = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]]
+        mesh.vertex_uvs = [[0, 0], [1, 0], [1, 1], [0, 1]]
+        mesh.vertex_normals = [[0, 0, 1], [1, 0, 0], [0, 1, 0], [0, 0, -1]]
+        other = SubMesh()
+        other.name = 'fx_smok'
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, 'body.glb')
+            self._write_quad_glb(path)
+            add_glb_vertex_attributes(path, [mesh, other])
+            gltf, binary = read_glb(path)
+        attributes = gltf['meshes'][0]['primitives'][0]['attributes']
+        self.assertEqual(
+            read_accessor(gltf, binary, attributes['_GAME_NORMAL']), [(1, 0, 0), (0, 0, 1), (0, 1, 0), (0, 0, -1)]
+        )
         self.assertEqual(gltf['buffers'][0]['byteLength'], len(binary))
 
     def test_missing_node_is_an_error(self):
@@ -554,6 +579,41 @@ class TestFce3GeometrySerializer(unittest.TestCase):
         # V goes from bottom to top, as in OBJ
         self.assertIn('vt 0.0 0.25', obj)
 
+    def test_exports_game_normals_and_chrome_classes(self):
+        import json
+
+        from test.resources.eac.test_geometries import build_fce3_data
+
+        def with_flags():
+            block, data = build_fce3_data()
+            data['normals'][1] = {'x': 0.0, 'y': 0.0, 'z': 1.0}
+            data['triangles'][1]['flags']['matte'] = True
+            data['triangles'][2]['flags']['high_chrome'] = True
+            return block, data
+
+        out_path = self._serialize_car_viv(with_flags)
+        with open(os.path.join(out_path, 'geometry.obj')) as f:
+            obj = f.read()
+        objects = re.findall(r'^o (.*)$', obj, re.MULTILINE)
+        self.assertEqual(
+            objects, ['hp_0_HB__car00', 'hp_0_HB__car00_matte', 'hp_1_HLFW__car00_translucent_high_chrome']
+        )
+        # FCE normals, axes (x, z, y) as the vertices; corners carry the normal index of their vertex
+        normals = re.findall(r'^vn (.*)$', obj, re.MULTILINE)
+        self.assertEqual(normals[:3], ['0.0 0.0 1.0', '0.0 1.0 0.0', '0.0 0.0 1.0'])
+        self.assertEqual(len(normals), len(re.findall(r'^v ', obj, re.MULTILINE)))
+        self.assertIn('f 1/1/1 2/2/2 3/3/3', obj)
+        with open(os.path.join(out_path, 'geometry_extra.json')) as f:
+            extra = json.load(f)
+        self.assertEqual(
+            extra['objects'],
+            {
+                'hp_0_HB__car00': {'fceChrome': 'normal'},
+                'hp_0_HB__car00_matte': {'fceChrome': 'none'},
+                'hp_1_HLFW__car00_translucent_high_chrome': {'fceChrome': 'high'},
+            },
+        )
+
     def test_exports_dummies(self):
         out_path = self._serialize_car_viv()
         import json
@@ -587,8 +647,23 @@ class TestFce3GeometrySerializer(unittest.TestCase):
         from test.resources.eac.test_geometries import build_fce3_data
 
         # not swapped to the GLB axes (x, z, y) as vertices and dummies are
+        extras = self._exported_meta_extras(build_fce3_data)
+        self.assertEqual(extras['collisionHalfSize'], {'x': 1.25, 'y': 0.5, 'z': 2.75})
+
+    def test_meta_has_car_colors(self):
+        from test.resources.eac.test_geometries import build_fce3_data
+
+        def with_colors():
+            block, data = build_fce3_data()
+            color = {'hue': 10, 'saturation': 20, 'brightness': 30, 'transparency': 40}
+            data['num_primary_colors'] = 1
+            data['primary_colors'] = [color] + [{**color, 'hue': 0}] * 15
+            data['num_secondary_colors'] = 0
+            return block, data
+
+        colors = self._exported_meta_extras(with_colors)['fceColors']
         self.assertEqual(
-            self._exported_meta_extras(build_fce3_data), {'collisionHalfSize': {'x': 1.25, 'y': 0.5, 'z': 2.75}}
+            colors, {'primary': [{'hue': 10, 'saturation': 20, 'brightness': 30, 'transparency': 40}], 'secondary': []}
         )
 
 
@@ -601,9 +676,9 @@ class TestFce4GeometrySerializer(unittest.TestCase):
     def test_meta_has_collision_half_size_in_game_axes(self):
         from test.resources.eac.test_geometries import build_fce4_data
 
-        self.assertEqual(
-            self._exported_meta_extras(build_fce4_data), {'collisionHalfSize': {'x': 1.25, 'y': 0.5, 'z': 2.75}}
-        )
+        extras = self._exported_meta_extras(build_fce4_data)
+        self.assertEqual(extras['collisionHalfSize'], {'x': 1.25, 'y': 0.5, 'z': 2.75})
+        self.assertEqual(set(extras['fceColors']), {'primary', 'interior', 'secondary', 'driver_hair'})
 
     def test_exports_damaged_copy_of_parts(self):
         from test.resources.eac.test_geometries import build_fce4_data
