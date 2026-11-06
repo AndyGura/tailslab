@@ -1,6 +1,7 @@
 import {
   BufferAttribute,
   BoxGeometry,
+  CubeTexture,
   DataTexture,
   LinearFilter,
   Mesh,
@@ -20,6 +21,8 @@ import {
   fce3ChromeAdd,
   fce3ChromeEnvMatrix,
   fce3ChromeUv,
+  fce3SkyChromeAlpha,
+  fce3WheelSpinStep,
   fceColorToRgb,
   fce3HsbToRgb,
   fce3PaintColor,
@@ -52,6 +55,16 @@ function maskUrl(alphas: number[]): string {
   });
   ctx.putImageData(data, 0, 0);
   return canvas.toDataURL('image/png');
+}
+
+/** A 1 x 1 canvas of a color */
+function pixelCanvas([r, g, b]: number[]): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 1;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+  ctx.fillRect(0, 0, 1, 1);
+  return canvas;
 }
 
 function texture(): DataTexture {
@@ -257,6 +270,121 @@ describe('FceCarMeshController', () => {
     Array.from(pixel.slice(0, 3)).forEach((c, i) => expect(Math.abs(c - expected[i])).toBeLessThanOrEqual(1));
     controller.dispose();
     renderer.dispose();
+  });
+
+  it('reflects the sky of the scene without a chrome texture', () => {
+    const canvas = document.createElement('canvas');
+    let renderer: WebGLRenderer;
+    try {
+      renderer = new WebGLRenderer({ canvas, preserveDrawingBuffer: true });
+    } catch {
+      pending('no WebGL');
+      return;
+    }
+    renderer.setPixelRatio(1);
+    renderer.setSize(1, 1, false);
+    const black = new DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
+    black.needsUpdate = true;
+    const plane = new Mesh(new PlaneGeometry(2, 2), new MeshBasicMaterial({ map: black }));
+    plane.name = 'hp_0_body__car00';
+    const normal = new Vector3(0.3, -0.8, 0.5).normalize();
+    const normals = new Float32Array(4 * 3).map((_, i) => normal.getComponent(i % 3));
+    plane.geometry.setAttribute('_game_normal', new BufferAttribute(normals, 3));
+    const scene = new Scene();
+    scene.add(plane);
+    // a color per cube face: +x, -x, +y, -y, +z, -z
+    const faces = [
+      [240, 30, 70],
+      [20, 200, 90],
+      [100, 100, 255],
+      [180, 140, 10],
+      [60, 220, 220],
+      [250, 250, 120],
+    ];
+    const sky = new CubeTexture(faces.map(pixelCanvas));
+    sky.colorSpace = SRGBColorSpace;
+    // one color per face: WebGL 2 filters a cube texture across the face edges
+    sky.magFilter = NearestFilter;
+    sky.minFilter = NearestFilter;
+    sky.generateMipmaps = false;
+    sky.needsUpdate = true;
+    scene.background = sky;
+    const controller = new FceCarMeshController(plane, 3, [], [], () => null);
+    const camera = new Vector3(3, -5, 2);
+    const view = new OrthographicCamera(-0.1, 0.1, 0.1, -0.1, -100, 100);
+    view.position.copy(camera);
+    view.lookAt(0, 0, 0);
+    const pixel = new Uint8Array(4);
+    const gl = renderer.getContext();
+    renderer.render(scene, view);
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+    // the camera's direction reflected by the normal, looked up as three.js draws a cube background (x mirrored)
+    const eye = camera.clone().normalize();
+    const r = normal
+      .clone()
+      .multiplyScalar(2 * normal.dot(eye))
+      .sub(eye);
+    expect(r.z).toBeGreaterThan(0.1);
+    const lookup = [-r.x, r.y, r.z];
+    const axis = [0, 1, 2].reduce((a, c) => (Math.abs(lookup[c]) > Math.abs(lookup[a]) ? c : a), 0);
+    const face = faces[axis * 2 + (lookup[axis] < 0 ? 1 : 0)];
+    const expected = fce3ChromeAdd([...face, fce3SkyChromeAlpha(r.z) * 255] as any, 0x7f / 255);
+    Array.from(pixel.slice(0, 3)).forEach((c, i) => expect(Math.abs(c - expected[i])).toBeLessThanOrEqual(1));
+    // no chrome without the option, or without a sky
+    controller.chromeEnabled = false;
+    renderer.render(scene, view);
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+    expect(Array.from(pixel.slice(0, 3))).toEqual([0, 0, 0]);
+    controller.chromeEnabled = true;
+    scene.background = null;
+    renderer.render(scene, view);
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+    expect(Array.from(pixel.slice(0, 3))).toEqual([0, 0, 0]);
+    controller.dispose();
+    sky.dispose();
+    renderer.dispose();
+  });
+
+  it('gives the sky chrome the alpha the game gives the sky, none to the ground', () => {
+    expect(fce3SkyChromeAlpha(1)).toBe(0.6);
+    expect(fce3SkyChromeAlpha(0.1)).toBe(0.6);
+    expect(fce3SkyChromeAlpha(0)).toBeCloseTo(0.3, 6);
+    expect(fce3SkyChromeAlpha(-0.1)).toBe(0);
+    expect(fce3SkyChromeAlpha(-1)).toBe(0);
+  });
+
+  it('spins the FCE3 wheels per sim tick as nfs3.exe, at most 8 turns per second', () => {
+    expect(fce3WheelSpinStep(0, true, false)).toBe(0);
+    expect(fce3WheelSpinStep(6, true, false)).toBeCloseTo(0.05, 9);
+    expect(fce3WheelSpinStep(15, true, false)).toBe(0.125);
+    expect(fce3WheelSpinStep(80, false, false)).toBe(0.125);
+    expect(fce3WheelSpinStep(-80, true, false)).toBe(-0.125);
+    // the handbrake slows the rear wheels only
+    expect(fce3WheelSpinStep(80, false, true)).toBeCloseTo(0.0125, 9);
+    expect(fce3WheelSpinStep(1.2, false, true)).toBeCloseTo(0.01, 9);
+    expect(fce3WheelSpinStep(80, true, true)).toBe(0.125);
+  });
+
+  it('spins the FCE3 wheels by the sim ticks passed', () => {
+    const car = new Object3D();
+    const wheels: Mesh[] = [];
+    for (const name of ['hp_1_wheel', 'hp_3_wheel']) {
+      const wheel = new Mesh(new BoxGeometry());
+      wheel.name = name;
+      car.add(wheel);
+      wheels.push(wheel);
+    }
+    const now = spyOn(performance, 'now').and.returnValue(1000);
+    const controller = new FceCarMeshController(car, 3, [], [], () => null);
+    controller.speed = 6;
+    controller.handbrake = true;
+    // 10 ticks of 1/64 s
+    now.and.returnValue(1000 + 10 * (1000 / 64));
+    (controller as any).spinWheels();
+    // front 10 * 0.05 turns, rear (handbrake) 10 * 0.0125 turns; negative rolls forward
+    expect(wheels[0].rotation.x).toBeCloseTo(-Math.PI, 6);
+    expect(wheels[1].rotation.x).toBeCloseTo(-Math.PI / 4, 6);
+    controller.dispose();
   });
 
   for (const [version, filtered] of [

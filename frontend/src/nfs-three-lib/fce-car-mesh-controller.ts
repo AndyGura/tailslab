@@ -8,6 +8,7 @@ import {
   MeshBasicMaterial,
   NearestFilter,
   Object3D,
+  Scene,
   SphereGeometry,
   SRGBColorSpace,
   Texture,
@@ -119,8 +120,23 @@ const FCE4_WHEEL_REGEX = /^(?:hp|mp)_\d+_[HM][LR]([FMR])W(?=__|_damaged$|$)/i;
 // FCE4: front brakes steer together with wheels, but don't spin
 const FCE4_BRAKE_REGEX = /^hp_\d+_O[LR]B(?=__|_damaged$|$)/i;
 
-// wheel radius (m) for the spin rate at a speed
+// FCE4: wheel radius (m) for the spin rate at a speed
 const WHEEL_RADIUS = 0.33;
+
+// nfs3.exe: wheel spin steps per second (one per sim tick)
+const FCE3_WHEEL_TICKS_PER_SECOND = 64;
+
+/**
+ * nfs3.exe 0x4b9140 (front wheels) / 0x4b9280 (rear wheels): the spin of a wheel in one sim tick (1/64 s), in turns,
+ * positive rolls forward: 0.25 * clamp(speed / 30, -0.5, 0.5), so at most 8 turns per second (from 15 m/s on); the
+ * rear wheels with the handbrake (car+0x50d) at most +-0.05 * 0.25. The speed is the car's forward speed in m/s
+ * (car+0x4f4). SKIPPED: + 0.1 to the clamped value of the front wheels with car+0x598 set, of the rear ones at the
+ * rev limiter (car+0x594), the random up and down offset of the wheels (0x4b90e0, car+0x930)
+ */
+export const fce3WheelSpinStep = (speed: number, isFront: boolean, handbrake: boolean): number => {
+  const limit = !isFront && handbrake ? 0.05 : 0.5;
+  return 0.25 * Math.max(-limit, Math.min(limit, speed / 30));
+};
 
 /**
  * Paint mask of a texture: "<texture>_paint_mask.png" next to the texture file (TailsLab's OBJ textures), null when
@@ -339,19 +355,48 @@ export const fce3ChromeAdd = (texel: [number, number, number, number], vertexCol
   return [r, g, b].map(c => c * vertexColor * a * 255);
 };
 
+/**
+ * The alpha of the chrome texel of a direction of the scene's sky (no texture alpha there), by the direction's height
+ * (unit vector, up = 1): the game's CHR* textures of SKY.FSH reflect the sky with an alpha of 0.4..1 (0.6 in most
+ * tracks) and the ground with about 0, the horizon in between
+ */
+export const fce3SkyChromeAlpha = (up: number): number => {
+  const t = Math.max(0, Math.min(1, (up + 0.1) / 0.2));
+  return 0.6 * t * t * (3 - 2 * t);
+};
+
+/** Chrome pass sources: none, a sphere map of the game (CHRD), the scene's sky (a cube texture) */
+const enum ChromeMode {
+  OFF = 0,
+  SPHERE_MAP = 1,
+  SKY = 2,
+}
+
 /** Uniforms of the chrome pass of one car, shared by its chrome materials */
 class ChromeUniforms {
   readonly map: { value: Texture | null } = { value: null };
-  readonly enabled = { value: 0 };
+  readonly cube: { value: Texture | null } = { value: null };
+  readonly mode = { value: ChromeMode.OFF };
   // mesh normal (local axes of the GLB / OBJ: x, y forward, z up) to the environment matrix space
   readonly matrix = { value: new Matrix3() };
+  // mesh normal to the world, unit direction from the car to the camera in the world
+  readonly worldMatrix = { value: new Matrix3() };
+  readonly eye = { value: new Vector3(0, 0, 1) };
+  // world direction to the direction to look up in the cube texture, as three.js draws it as a background
+  readonly cubeMatrix = { value: new Matrix3() };
 }
+
+// three.js WebGLBackground: a cube texture of images (not a render target) is mirrored in x
+const CUBE_FLIP = new Matrix3().set(-1, 0, 0, 0, 1, 0, 0, 0, 1);
 
 /**
  * The chrome pass of nfs3.exe (Render_CarPolyList 0x434120, a second pass of every body triangle but matte ones),
  * added in the fragment shader of the material over its own color: texture coordinates per vertex from the game's
  * normal (`_game_normal`, else `normal`), the chrome texel as fce3ChromeAdd, added in the output color space (the game
- * blends in the framebuffer's), divided by the fragment's alpha (or premultiplied) so that blending adds it whole
+ * blends in the framebuffer's), divided by the fragment's alpha (or premultiplied) so that blending adds it whole.
+ * Sky mode (ChromeMode.SKY): the texel is the scene's sky cube texture in the direction the normal reflects the
+ * camera's direction to (per vertex, interpolated, as the game's coordinates), alpha fce3SkyChromeAlpha, reduced to
+ * 4 bits as the game's texture
  */
 function chromeInShader(material: Material, uniforms: ChromeUniforms, vertexColor: number, gameNormals: boolean) {
   const previous = material.onBeforeCompile;
@@ -359,8 +404,12 @@ function chromeInShader(material: Material, uniforms: ChromeUniforms, vertexColo
   material.onBeforeCompile = (shader, renderer) => {
     previous.call(material, shader, renderer);
     shader.uniforms['fceChromeMap'] = uniforms.map;
-    shader.uniforms['fceChromeEnabled'] = uniforms.enabled;
+    shader.uniforms['fceChromeCube'] = uniforms.cube;
+    shader.uniforms['fceChromeMode'] = uniforms.mode;
     shader.uniforms['fceChromeMatrix'] = uniforms.matrix;
+    shader.uniforms['fceChromeWorldMatrix'] = uniforms.worldMatrix;
+    shader.uniforms['fceChromeEye'] = uniforms.eye;
+    shader.uniforms['fceChromeCubeMatrix'] = uniforms.cubeMatrix;
     shader.uniforms['fceChromeColor'] = { value: vertexColor };
     shader.uniforms['fceChromeFlipY'] = {
       get value() {
@@ -383,8 +432,11 @@ function chromeInShader(material: Material, uniforms: ChromeUniforms, vertexColo
         `#include <fog_pars_vertex>
         ${gameNormals ? 'attribute vec3 _game_normal;' : ''}
         uniform mat3 fceChromeMatrix;
+        uniform mat3 fceChromeWorldMatrix;
+        uniform vec3 fceChromeEye;
         uniform float fceChromeFlipY;
-        varying vec2 vFceChromeUv;`,
+        varying vec2 vFceChromeUv;
+        varying vec3 vFceChromeReflect;`,
       )
       .replace(
         '#include <fog_vertex>',
@@ -395,18 +447,23 @@ function chromeInShader(material: Material, uniforms: ChromeUniforms, vertexColo
         // D3D: v = 0 is the top row
         if ( fceChromeFlipY > 0.5 ) {
           vFceChromeUv.y = 1.0 - vFceChromeUv.y;
-        }`,
+        }
+        vec3 fceChromeWorldNormal = normalize( fceChromeWorldMatrix * ${gameNormals ? '_game_normal' : 'normal'} );
+        vFceChromeReflect = reflect( -fceChromeEye, fceChromeWorldNormal );`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <fog_pars_fragment>',
         `#include <fog_pars_fragment>
         uniform sampler2D fceChromeMap;
-        uniform float fceChromeEnabled;
+        uniform samplerCube fceChromeCube;
+        uniform mat3 fceChromeCubeMatrix;
+        uniform float fceChromeMode;
         uniform float fceChromeColor;
         uniform float fceChromeFiltered;
         uniform float fceChromeSrgb;
         varying vec2 vFceChromeUv;
+        varying vec3 vFceChromeReflect;
         // a texel of the 4444 chrome texture, 0..1
         vec4 fceChromeTexel( ivec2 c ) {
           vec4 t = texelFetch( fceChromeMap, c, 0 );
@@ -414,25 +471,38 @@ function chromeInShader(material: Material, uniforms: ChromeUniforms, vertexColo
             t = vec4( sRGBTransferOETF( t ).rgb, t.a );
           }
           return floor( floor( t * 255.0 + 0.5 ) / 16.0 ) / 15.0;
+        }
+        // the scene's sky in a world direction as a 4444 chrome texel, 0..1 (linear texels to the output's sRGB)
+        vec4 fceChromeSkyTexel( vec3 direction ) {
+          vec3 d = normalize( direction );
+          vec4 t = vec4(
+            sRGBTransferOETF( vec4( textureCube( fceChromeCube, fceChromeCubeMatrix * d ).rgb, 1.0 ) ).rgb,
+            // fce3SkyChromeAlpha
+            0.6 * smoothstep( -0.1, 0.1, d.z ) );
+          return floor( floor( clamp( t, 0.0, 1.0 ) * 255.0 + 0.5 ) / 16.0 ) / 15.0;
         }`,
       )
       .replace(
         '#include <premultiplied_alpha_fragment>',
         `#include <premultiplied_alpha_fragment>
-        if ( fceChromeEnabled > 0.5 ) {
-          ivec2 size = textureSize( fceChromeMap, 0 );
-          ivec2 last = size - 1;
+        if ( fceChromeMode > 0.5 ) {
           vec4 env;
-          if ( fceChromeFiltered > 0.5 ) {
-            vec2 p = vFceChromeUv * vec2( size ) - 0.5;
-            ivec2 i0 = ivec2( floor( p ) );
-            vec2 f = p - floor( p );
-            env = mix(
-              mix( fceChromeTexel( clamp( i0, ivec2( 0 ), last ) ), fceChromeTexel( clamp( i0 + ivec2( 1, 0 ), ivec2( 0 ), last ) ), f.x ),
-              mix( fceChromeTexel( clamp( i0 + ivec2( 0, 1 ), ivec2( 0 ), last ) ), fceChromeTexel( clamp( i0 + ivec2( 1, 1 ), ivec2( 0 ), last ) ), f.x ),
-              f.y );
+          if ( fceChromeMode > 1.5 ) {
+            env = fceChromeSkyTexel( vFceChromeReflect );
           } else {
-            env = fceChromeTexel( clamp( ivec2( floor( vFceChromeUv * vec2( size ) ) ), ivec2( 0 ), last ) );
+            ivec2 size = textureSize( fceChromeMap, 0 );
+            ivec2 last = size - 1;
+            if ( fceChromeFiltered > 0.5 ) {
+              vec2 p = vFceChromeUv * vec2( size ) - 0.5;
+              ivec2 i0 = ivec2( floor( p ) );
+              vec2 f = p - floor( p );
+              env = mix(
+                mix( fceChromeTexel( clamp( i0, ivec2( 0 ), last ) ), fceChromeTexel( clamp( i0 + ivec2( 1, 0 ), ivec2( 0 ), last ) ), f.x ),
+                mix( fceChromeTexel( clamp( i0 + ivec2( 0, 1 ), ivec2( 0 ), last ) ), fceChromeTexel( clamp( i0 + ivec2( 1, 1 ), ivec2( 0 ), last ) ), f.x ),
+                f.y );
+            } else {
+              env = fceChromeTexel( clamp( ivec2( floor( vFceChromeUv * vec2( size ) ) ), ivec2( 0 ), last ) );
+            }
           }
           vec3 fceChromeAdd = env.rgb * fceChromeColor * env.a;
           #ifdef PREMULTIPLIED_ALPHA
@@ -460,7 +530,8 @@ export class FceCarMeshController {
   // every wheel can consist of a few meshes (one per texture, damaged copy)
   private wheels: { meshes: Mesh[]; isFront: boolean; spins: boolean }[] = [];
   private lights: Group | null = null;
-  private spinAngle = 0;
+  // spin of the front and the rear wheels, turns (positive rolls forward)
+  private readonly spinTurns = { front: 0, rear: 0 };
   // paint uniforms by texture
   private readonly paintTextures = new Map<Texture, PaintUniforms>();
   private readonly paintedMaterials = new Set<Material>();
@@ -474,18 +545,15 @@ export class FceCarMeshController {
     return this.chromeMeshes.length > 0;
   }
 
-  /**
-   * The chrome (environment) texture, nfs3.exe: the track's SKY.FSH `CHRD` (day; `CHRN` night, `CHRW` / `CHNW` in
-   * the rain), null for no chrome (the game's "carchrome" option off). Not owned by the controller
-   */
-  get chromeTexture(): Texture | null {
-    return this.chrome.map.value;
-  }
+  /** Whether the FCE3 body draws its chrome pass (the game's "carchrome" option) */
+  chromeEnabled = true;
 
-  set chromeTexture(value: Texture | null) {
-    this.chrome.map.value = value;
-    this.chrome.enabled.value = value && this.chromeMeshes.length ? 1 : 0;
-  }
+  /**
+   * The chrome (environment) texture as nfs3.exe draws it: the track's SKY.FSH `CHRD` (day; `CHRN` night, `CHRW` /
+   * `CHNW` in the rain). Null: the chrome reflects the sky of the scene drawing the car (`scene.background` when it is
+   * a cube texture, e.g. gg-web-engine's baked sky), no chrome without one. Not owned by the controller
+   */
+  chromeTexture: Texture | null = null;
 
   // FCE3: primary, secondary. FCE4: primary, interior, secondary, driver hair
   private readonly colors: FceColor[];
@@ -506,29 +574,63 @@ export class FceCarMeshController {
   private animationTimer: any = null;
 
   private _speed = 0;
-  /** Car speed in m/s, the wheels spin at it (backwards when negative). Can be set every frame */
+  /**
+   * Car speed in m/s, the wheels spin at it (backwards when negative). Can be set every frame. FCE3: as nfs3.exe spins
+   * them (fce3WheelSpinStep), FCE4: rolling at a radius of WHEEL_RADIUS
+   */
   get speed(): number {
     return this._speed;
   }
 
   set speed(value: number) {
-    // the timer keeps running while the wheels spin
-    const wasSpinning = this._speed !== 0;
     this._speed = value;
-    if (wasSpinning === (value !== 0)) {
+    this.updateAnimationTimer();
+  }
+
+  private _handbrake = false;
+  /** FCE3: the handbrake slows the rear wheels down (fce3WheelSpinStep) */
+  get handbrake(): boolean {
+    return this._handbrake;
+  }
+
+  set handbrake(value: boolean) {
+    this._handbrake = value;
+  }
+
+  // FCE3: sim ticks of the spin done since the timer started, and that time (ms)
+  private spinTicks = 0;
+  private spinStart = 0;
+
+  // the timer runs while the wheels spin
+  private updateAnimationTimer() {
+    if (!!this.animationTimer === (this._speed !== 0 && !this.disposed)) {
       return;
     }
     if (this.animationTimer) {
       clearInterval(this.animationTimer);
       this.animationTimer = null;
+      return;
     }
-    if (value !== 0) {
-      this.animationTimer = setInterval(() => {
-        // negative angle rolls wheels forward
-        this.spinAngle -= this._speed / WHEEL_RADIUS / 60;
-        this.updateWheels();
-      }, 1000 / 60);
+    this.spinTicks = 0;
+    this.spinStart = performance.now();
+    this.animationTimer = setInterval(() => this.spinWheels(), 1000 / 60);
+  }
+
+  private spinWheels() {
+    if (this.version === 3) {
+      const ticks = Math.floor(((performance.now() - this.spinStart) * FCE3_WHEEL_TICKS_PER_SECOND) / 1000);
+      for (; this.spinTicks < ticks; this.spinTicks++) {
+        for (const key of ['front', 'rear'] as const) {
+          const turns = this.spinTurns[key] + fce3WheelSpinStep(this._speed, key === 'front', this._handbrake);
+          // wrapped to -1..1 as the exe
+          this.spinTurns[key] = turns - Math.trunc(turns);
+        }
+      }
+    } else {
+      const turns = this.spinTurns.front + this._speed / WHEEL_RADIUS / 60 / (2 * Math.PI);
+      this.spinTurns.front = this.spinTurns.rear = turns - Math.trunc(turns);
     }
+    this.updateWheels();
   }
 
   private _steeringAngle: number = 0;
@@ -672,16 +774,14 @@ export class FceCarMeshController {
         return clone;
       };
       o.material = o.material instanceof Array ? o.material.map(copy) : copy(o.material);
-      if (!this.chromeMeshes.length) {
-        // turned to every camera that draws it, before the draw
-        const previous = o.onBeforeRender;
-        o.onBeforeRender = (renderer, scene, camera, ...rest) => {
-          previous.call(o, renderer, scene, camera, ...rest);
-          if (!this.disposed) {
-            this.updateChrome(camera.getWorldPosition(this.cameraPosition));
-          }
-        };
-      }
+      // turned to every camera that draws it, before the draw of each mesh (the shown ones depend on the LOD)
+      const previous = o.onBeforeRender;
+      o.onBeforeRender = (renderer, scene, camera, ...rest) => {
+        previous.call(o, renderer, scene, camera, ...rest);
+        if (!this.disposed) {
+          this.updateChrome(camera.getWorldPosition(this.cameraPosition), scene, o);
+        }
+      };
       this.chromeMeshes.push(o);
     });
   }
@@ -690,23 +790,45 @@ export class FceCarMeshController {
 
   /**
    * Turns the chrome to the camera (CarDraw_SetupChrome 0x4ba350: the environment matrix from the camera's
-   * direction, fce3ChromeEnvMatrix). Called before the body is drawn, with the camera drawing it. The world is expected in TailsLab's export
-   * axes (x, y = game z, z up = game y): the GLB / OBJ axes, nfs-web's world and TailsLab's viewers
+   * direction, fce3ChromeEnvMatrix) and picks its source (chromeTexture, else the sky of `scene`). Called before a
+   * chrome mesh (`mesh`, default the first one) is drawn, with the camera drawing it. The world is expected in
+   * TailsLab's export axes (x, y = game z, z up = game y): the GLB / OBJ axes, nfs-web's world and TailsLab's viewers
    */
-  updateChrome(cameraPosition: Vector3) {
-    const body = this.chromeMeshes[0];
-    if (!body || !this.chrome.enabled.value) {
+  updateChrome(cameraPosition: Vector3, scene?: Scene, mesh: Mesh = this.chromeMeshes[0]) {
+    const chrome = this.chrome;
+    const background = scene?.background as Texture | null | undefined;
+    const sky = background && (background as any).isCubeTexture ? background : null;
+    chrome.map.value = this.chromeTexture;
+    chrome.cube.value = sky;
+    chrome.mode.value =
+      !mesh || !this.chromeEnabled
+        ? ChromeMode.OFF
+        : this.chromeTexture
+          ? ChromeMode.SPHERE_MAP
+          : sky
+            ? ChromeMode.SKY
+            : ChromeMode.OFF;
+    if (chrome.mode.value === ChromeMode.OFF) {
       return;
     }
     this.root.updateWorldMatrix(true, false);
-    body.updateWorldMatrix(true, false);
+    mesh.updateWorldMatrix(true, false);
     const d = cameraPosition.clone().sub(new Vector3().setFromMatrixPosition(this.root.matrixWorld));
+    const rotation = new Matrix3().setFromMatrix4(new Matrix4().extractRotation(mesh.matrixWorld));
+    chrome.worldMatrix.value.copy(rotation);
+    chrome.eye.value.copy(d).normalize();
+    if (sky && scene) {
+      // as three.js turns a background cube texture (WebGLBackground)
+      chrome.cubeMatrix.value.setFromMatrix4(new Matrix4().makeRotationFromEuler(scene.backgroundRotation)).transpose();
+      if (!(sky as any).isRenderTargetTexture) {
+        chrome.cubeMatrix.value.premultiply(CUBE_FLIP);
+      }
+    }
     const e = fce3ChromeEnvMatrix([d.x, d.z, d.y]);
     // column vectors: env normal = Env^T (game normal), game normal = S (world normal), world normal = R (mesh normal)
     const envT = new Matrix3().set(e[0], e[3], e[6], e[1], e[4], e[7], e[2], e[5], e[8]);
     const swap = new Matrix3().set(1, 0, 0, 0, 0, 1, 0, 1, 0);
-    const rotation = new Matrix3().setFromMatrix4(new Matrix4().extractRotation(body.matrixWorld));
-    this.chrome.matrix.value.copy(envT.multiply(swap).multiply(rotation));
+    chrome.matrix.value.copy(envT.multiply(swap).multiply(rotation));
   }
 
   /** Every material with a texture that has a paint mask URL paints in its shader once the mask is loaded */
@@ -794,7 +916,9 @@ export class FceCarMeshController {
   private updateWheels() {
     for (const { meshes, isFront, spins } of this.wheels) {
       for (const m of meshes) {
-        m.rotation.set(spins ? this.spinAngle : 0, 0, isFront ? this._steeringAngle : 0);
+        // a negative angle rolls the wheels forward
+        const spin = spins ? -this.spinTurns[isFront ? 'front' : 'rear'] * 2 * Math.PI : 0;
+        m.rotation.set(spin, 0, isFront ? this._steeringAngle : 0);
       }
     }
   }
