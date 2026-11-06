@@ -12,7 +12,7 @@ import { GuiComponent } from '../../gui.component';
 import { BehaviorSubject, debounceTime, filter, Subject, takeUntil } from 'rxjs';
 import { ObjViewerCustomControl, ViewFilterOpts } from '../../common/obj-viewer/obj-viewer.component';
 import { steeringControl, wheelSpeedControl } from '../../common/obj-viewer/car-preview-controls';
-import { Object3D } from 'three';
+import { Object3D, SRGBColorSpace, Texture, TextureLoader } from 'three';
 import {
   FceCarMeshController,
   FceColor,
@@ -100,6 +100,16 @@ export class FceGeometryBlockUiComponent extends GuiComponent implements AfterVi
           }),
         );
       }
+      if (meshController.hasChrome) {
+        const skies = await this.findTrackSkies();
+        if (skies.length > 0) {
+          const options = ['Off', ...skies.map(x => x.label)];
+          const pick = (label: string) =>
+            this.loadChromeTexture(meshController, skies.find(x => x.label === label)?.path || null);
+          controls.push({ label: 'Chrome (track sky)', type: 'radio', options, value: options[1], change: pick });
+          pick(options[1]).then();
+        }
+      }
       if (meshController.hasLights) {
         controls.push({
           label: 'Show lights',
@@ -119,6 +129,56 @@ export class FceGeometryBlockUiComponent extends GuiComponent implements AfterVi
     } catch (err) {
       console.error(err);
     }
+  }
+
+  /**
+   * NFS3 tracks' SKY.FSH next to the car: <GameData>/CarModel/<car>/car.viv -> <GameData>/Tracks/TRK<nnn>/SKY.FSH
+   * (nfs3.exe "%sTRK%03x\\sky.fsh"), any case
+   */
+  private async findTrackSkies(): Promise<{ label: string; path: string }[]> {
+    const filePath = (this.resourceId || '').split('__')[0].replace(/_%5F/g, '__').replace('---DRIVE', ':');
+    const match = /^(.*\/)carmodel\//i.exec(filePath.replace(/\\/g, '/'));
+    if (!match) {
+      return [];
+    }
+    const patterns = Array.from(
+      { length: 32 },
+      (_, i) => `${match[1]}Tracks/TRK${i.toString(16).padStart(3, '0')}/SKY.FSH`,
+    );
+    try {
+      const found = await this.mainService.api.findFiles(patterns);
+      return found.map(path => ({ label: /([^/\\]+)[/\\][^/\\]+$/.exec(path)?.[1] || path, path }));
+    } catch (err) {
+      console.warn('Could not look up the tracks sky files', err);
+      return [];
+    }
+  }
+
+  private chromeTexture: Texture | null = null;
+
+  /** The chrome texture of a track: CHRD (day) of its SKY.FSH, as nfs3.exe draws it (CarDraw_SetupChrome) */
+  private async loadChromeTexture(meshController: FceCarMeshController, skyPath: string | null) {
+    let texture: Texture | null = null;
+    if (skyPath) {
+      try {
+        const id = skyPath.replace(/\\/g, '/').replace(':', '---DRIVE').replace(/__/g, '_%5F');
+        const paths = await this.mainService.api.serializeResource(id, null, {});
+        const chrd = paths.find(x => /[/\\]CHRD\.png$/i.test(x));
+        if (chrd) {
+          texture = await new TextureLoader().loadAsync(chrd);
+          texture.colorSpace = SRGBColorSpace;
+        }
+      } catch (err) {
+        console.warn('Cannot load the chrome texture', err);
+      }
+    }
+    if (this.meshController !== meshController) {
+      texture?.dispose();
+      return;
+    }
+    this.chromeTexture?.dispose();
+    this.chromeTexture = texture;
+    meshController.chromeTexture = texture;
   }
 
   get version(): FceVersion {
@@ -196,6 +256,8 @@ export class FceGeometryBlockUiComponent extends GuiComponent implements AfterVi
 
   ngOnDestroy(): void {
     this.meshController?.dispose();
+    this.chromeTexture?.dispose();
+    this.chromeTexture = null;
     this.destroyed$.next();
     this.destroyed$.complete();
   }

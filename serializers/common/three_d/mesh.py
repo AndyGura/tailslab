@@ -15,6 +15,11 @@ class BaseMesh(ABC):
         # morph targets by the gg-web-engine export (`add_glb_morph_targets`). Only `change_axes` keeps them in sync
         # with the vertices
         self.morph_targets = {}
+        # unit normal [x, y, z] per vertex (parallel to `vertices`) or empty: written to the OBJ as `vn` (corners with
+        # the normal of their vertex) and, by the gg-web-engine export, to the GLB as the vertex attribute
+        # `_GAME_NORMAL` (`add_glb_vertex_attributes`; three.js geometry attribute `_game_normal`): the game's own
+        # normals, which Blender's may differ from. Only `change_axes` keeps them in sync with the vertices
+        self.vertex_normals = []
 
     def rotate_z(self, angle):
         c, s = math.cos(angle), math.sin(angle)
@@ -73,6 +78,7 @@ class BaseMesh(ABC):
 
         self.vertices = convert(self.vertices)
         self.morph_targets = {name: convert(deltas) for name, deltas in self.morph_targets.items()}
+        self.vertex_normals = convert(self.vertex_normals)
 
     # after deleting polygons should call this function
     def remove_orphaned_vertices(self):
@@ -150,7 +156,9 @@ class SubMesh(BaseMesh):
         super().__init__()
         self.texture_id = None
 
-    def to_obj(self, face_index_increment, mtllib=None, pivot_offset=None) -> Tuple[str, int]:
+    def to_obj(
+        self, face_index_increment, mtllib=None, pivot_offset=None, normal_index_increment=None
+    ) -> Tuple[str, int]:
         if pivot_offset is None:
             pivot_offset = self.pivot_offset
         res = f'\n\no {self.name}'
@@ -163,14 +171,19 @@ class SubMesh(BaseMesh):
             ]
         )
         res += '\n' + '\n'.join([f'vt {uv[0]} {1 - uv[1]}' for uv in self.vertex_uvs])
+        has_normals = len(self.vertex_normals) == len(self.vertices) and self.vertices
+        if has_normals:
+            res += '\n' + '\n'.join([f'vn {n[0]} {n[1]} {n[2]}' for n in self.vertex_normals])
         if self.texture_id:
             res += '\nusemtl ' + self.texture_id
-        res += '\n' + '\n'.join(
-            [
-                'f ' + ' '.join([f'{x + face_index_increment}/{x + face_index_increment}' for x in polygon])
-                for polygon in self.polygons
-            ]
-        )
+        # normals are counted apart from the vertices in an OBJ: the scene passes how many came before
+        vn_increment = face_index_increment if normal_index_increment is None else normal_index_increment
+
+        def corner(x):
+            index = x + face_index_increment
+            return f'{index}/{index}/{x + vn_increment}' if has_normals else f'{index}/{index}'
+
+        res += '\n' + '\n'.join(['f ' + ' '.join([corner(x) for x in polygon]) for polygon in self.polygons])
         return res, len(self.vertices)
 
 
@@ -191,6 +204,7 @@ class Mesh(BaseMesh):
             sm.name = self.name + '__' + (sm.texture_id or 'None')
             sm.vertices = self.vertices
             sm.vertex_uvs = self.vertex_uvs
+            sm.vertex_normals = self.vertex_normals
             sm.polygons = self.polygons
             return [(sm, list(range(len(self.vertices))), list(range(len(self.polygons))))]
         res = []
@@ -216,6 +230,8 @@ class Mesh(BaseMesh):
             for v_idx in vertex_indices:
                 sm.vertices.append(self.vertices[v_idx])
                 sm.vertex_uvs.append(self.vertex_uvs[v_idx])
+                if self.vertex_normals:
+                    sm.vertex_normals.append(self.vertex_normals[v_idx])
             res.append((sm, vertex_indices, polygon_indices))
         return res
 

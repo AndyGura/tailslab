@@ -2,11 +2,14 @@ import {
   Box3,
   Group,
   Material,
+  Matrix3,
+  Matrix4,
   Mesh,
   MeshBasicMaterial,
   NearestFilter,
   Object3D,
   SphereGeometry,
+  SRGBColorSpace,
   Texture,
   TextureLoader,
   Vector3,
@@ -286,6 +289,166 @@ function paintInShader(material: Material, uniforms: PaintUniforms) {
 }
 
 /**
+ * nfs3.exe 0x49d780 (CarDraw_SetEnvMatrix): the chrome environment matrix (3x3, rows) from the direction `d` from the
+ * car to the camera (CarDraw_SetupChrome 0x4ba350: camera position - car position), game axes (x right, y up, z
+ * forward): RotY(atan2(d.x, d.z) - 0.5 turn) RotX(atan2(hypot(d.x, d.z), d.y) - 0.25 turn), the exe's rotation
+ * matrices (RotY rows (c 0 -s) (0 1 0) (s 0 c), RotX rows (1 0 0) (0 c s) (0 -s c)). A normal n (row vector, world
+ * game axes) gets the chrome texture coordinates of fce3ChromeUv(n M)
+ */
+export const fce3ChromeEnvMatrix = (d: [number, number, number]): number[] => {
+  const turn = 2 * Math.PI;
+  const a = (Math.atan2(d[0], d[2]) / turn - 0.5) * turn;
+  const b = (Math.atan2(Math.hypot(d[0], d[2]), d[1]) / turn - 0.25) * turn;
+  const [sy, cy, sx, cx] = [Math.sin(a), Math.cos(a), Math.sin(b), Math.cos(b)];
+  const rotY = [cy, 0, -sy, 0, 1, 0, sy, 0, cy];
+  const rotX = [1, 0, 0, 0, cx, sx, 0, -sx, cx];
+  const m: number[] = [];
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 3; c++) {
+      m.push(rotY[r * 3] * rotX[c] + rotY[r * 3 + 1] * rotX[3 + c] + rotY[r * 3 + 2] * rotX[6 + c]);
+    }
+  }
+  return m;
+};
+
+/**
+ * nfs3.exe 0x49db70 (CarDraw_EnvMapUVs): chrome texture coordinates (D3D's: v = 0 at the top row) of a normal in the
+ * environment matrix space, a sphere map with both hemispheres alike. Computed per vertex, interpolated over triangles
+ */
+export const fce3ChromeUv = (n: [number, number, number]): [number, number] => {
+  const m = 0.707106 / Math.sqrt((Math.abs(n[2]) + 1) * 2);
+  return [n[0] * m + 0.5, n[1] * m + 0.5];
+};
+
+/**
+ * Vertex color of the chrome pass (CarDraw_QueuePolys 0x49dbf0, CarDraw_SetChromeColors 0x49d800): 0x7f7f7f7f, a
+ * "high_chrome" triangle 0xffffffff, none for a "matte" one (Fce3GeometrySerializer's mesh name suffixes and
+ * "fceChrome" extras). SKIPPED: both are scaled by [0x6fbc38] when it is below 1 (hardware renderers)
+ */
+const FCE3_CHROME_COLORS = { normal: 0x7f / 255, high: 1 };
+
+/**
+ * One chrome pass color added over the framebuffer, 0..255: the chrome texel (ARGB4444, texture type 7 of the
+ * Direct3D driver D3DA.DLL: every channel 8 bits >> 4, shown as c / 15) times the vertex color, D3D's
+ * D3DTBLEND_MODULATE (the texture's alpha, the vertex alpha is not used), blended with source alpha and one (THRASH
+ * state 0x68 = 1). The reduction of the SKY.FSH texel to 4 bits is assumed (the exe's 32-bit to 4444 conversion is
+ * not verified)
+ */
+export const fce3ChromeAdd = (texel: [number, number, number, number], vertexColor: number): number[] => {
+  const [r, g, b, a] = texel.map(c => (c >> 4) / 15);
+  return [r, g, b].map(c => c * vertexColor * a * 255);
+};
+
+/** Uniforms of the chrome pass of one car, shared by its chrome materials */
+class ChromeUniforms {
+  readonly map: { value: Texture | null } = { value: null };
+  readonly enabled = { value: 0 };
+  // mesh normal (local axes of the GLB / OBJ: x, y forward, z up) to the environment matrix space
+  readonly matrix = { value: new Matrix3() };
+}
+
+/**
+ * The chrome pass of nfs3.exe (Render_CarPolyList 0x434120, a second pass of every body triangle but matte ones),
+ * added in the fragment shader of the material over its own color: texture coordinates per vertex from the game's
+ * normal (`_game_normal`, else `normal`), the chrome texel as fce3ChromeAdd, added in the output color space (the game
+ * blends in the framebuffer's), divided by the fragment's alpha (or premultiplied) so that blending adds it whole
+ */
+function chromeInShader(material: Material, uniforms: ChromeUniforms, vertexColor: number, gameNormals: boolean) {
+  const previous = material.onBeforeCompile;
+  const previousKey = material.customProgramCacheKey;
+  material.onBeforeCompile = (shader, renderer) => {
+    previous.call(material, shader, renderer);
+    shader.uniforms['fceChromeMap'] = uniforms.map;
+    shader.uniforms['fceChromeEnabled'] = uniforms.enabled;
+    shader.uniforms['fceChromeMatrix'] = uniforms.matrix;
+    shader.uniforms['fceChromeColor'] = { value: vertexColor };
+    shader.uniforms['fceChromeFlipY'] = {
+      get value() {
+        return uniforms.map.value?.flipY ? 1 : 0;
+      },
+    };
+    shader.uniforms['fceChromeFiltered'] = {
+      get value() {
+        return uniforms.map.value && uniforms.map.value.magFilter !== NearestFilter ? 1 : 0;
+      },
+    };
+    shader.uniforms['fceChromeSrgb'] = {
+      get value() {
+        return uniforms.map.value?.colorSpace === SRGBColorSpace ? 1 : 0;
+      },
+    };
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <fog_pars_vertex>',
+        `#include <fog_pars_vertex>
+        ${gameNormals ? 'attribute vec3 _game_normal;' : ''}
+        uniform mat3 fceChromeMatrix;
+        uniform float fceChromeFlipY;
+        varying vec2 vFceChromeUv;`,
+      )
+      .replace(
+        '#include <fog_vertex>',
+        `#include <fog_vertex>
+        vec3 fceChromeNormal = fceChromeMatrix * ${gameNormals ? '_game_normal' : 'normal'};
+        float fceChromeM = 0.707106 / sqrt( ( abs( fceChromeNormal.z ) + 1.0 ) * 2.0 );
+        vFceChromeUv = fceChromeNormal.xy * fceChromeM + 0.5;
+        // D3D: v = 0 is the top row
+        if ( fceChromeFlipY > 0.5 ) {
+          vFceChromeUv.y = 1.0 - vFceChromeUv.y;
+        }`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <fog_pars_fragment>',
+        `#include <fog_pars_fragment>
+        uniform sampler2D fceChromeMap;
+        uniform float fceChromeEnabled;
+        uniform float fceChromeColor;
+        uniform float fceChromeFiltered;
+        uniform float fceChromeSrgb;
+        varying vec2 vFceChromeUv;
+        // a texel of the 4444 chrome texture, 0..1
+        vec4 fceChromeTexel( ivec2 c ) {
+          vec4 t = texelFetch( fceChromeMap, c, 0 );
+          if ( fceChromeSrgb > 0.5 ) {
+            t = vec4( sRGBTransferOETF( t ).rgb, t.a );
+          }
+          return floor( floor( t * 255.0 + 0.5 ) / 16.0 ) / 15.0;
+        }`,
+      )
+      .replace(
+        '#include <premultiplied_alpha_fragment>',
+        `#include <premultiplied_alpha_fragment>
+        if ( fceChromeEnabled > 0.5 ) {
+          ivec2 size = textureSize( fceChromeMap, 0 );
+          ivec2 last = size - 1;
+          vec4 env;
+          if ( fceChromeFiltered > 0.5 ) {
+            vec2 p = vFceChromeUv * vec2( size ) - 0.5;
+            ivec2 i0 = ivec2( floor( p ) );
+            vec2 f = p - floor( p );
+            env = mix(
+              mix( fceChromeTexel( clamp( i0, ivec2( 0 ), last ) ), fceChromeTexel( clamp( i0 + ivec2( 1, 0 ), ivec2( 0 ), last ) ), f.x ),
+              mix( fceChromeTexel( clamp( i0 + ivec2( 0, 1 ), ivec2( 0 ), last ) ), fceChromeTexel( clamp( i0 + ivec2( 1, 1 ), ivec2( 0 ), last ) ), f.x ),
+              f.y );
+          } else {
+            env = fceChromeTexel( clamp( ivec2( floor( vFceChromeUv * vec2( size ) ) ), ivec2( 0 ), last ) );
+          }
+          vec3 fceChromeAdd = env.rgb * fceChromeColor * env.a;
+          #ifdef PREMULTIPLIED_ALPHA
+          gl_FragColor.rgb += fceChromeAdd;
+          #else
+          gl_FragColor.rgb += fceChromeAdd / max( gl_FragColor.a, 1.0 / 255.0 );
+          #endif
+        }`,
+      );
+  };
+  material.customProgramCacheKey = () =>
+    `${previousKey.call(material)}|fce-chrome-${gameNormals ? 'game' : 'normal'}-${vertexColor}`;
+  material.needsUpdate = true;
+}
+
+/**
  * Animates car.fce model: steers and spins wheels, shows light dummies, paints the car in the fragment shader of its
  * materials (the textures stay as they are). Expects meshes, exported by Fce3GeometrySerializer/Fce4GeometrySerializer:
  * "<lod>_<part index>_<part name>[__<texture>][_damaged]". A texture is painted by its paint mask (`paintMaskUrl`, the
@@ -302,6 +465,27 @@ export class FceCarMeshController {
   private readonly paintTextures = new Map<Texture, PaintUniforms>();
   private readonly paintedMaterials = new Set<Material>();
   private disposed = false;
+  private readonly chrome = new ChromeUniforms();
+  // FCE3 body meshes with a chrome pass
+  private readonly chromeMeshes: Mesh[] = [];
+
+  /** Whether the model has meshes with chrome (FCE3 body triangles but matte ones) */
+  get hasChrome(): boolean {
+    return this.chromeMeshes.length > 0;
+  }
+
+  /**
+   * The chrome (environment) texture, nfs3.exe: the track's SKY.FSH `CHRD` (day; `CHRN` night, `CHRW` / `CHNW` in
+   * the rain), null for no chrome (the game's "carchrome" option off). Not owned by the controller
+   */
+  get chromeTexture(): Texture | null {
+    return this.chrome.map.value;
+  }
+
+  set chromeTexture(value: Texture | null) {
+    this.chrome.map.value = value;
+    this.chrome.enabled.value = value && this.chromeMeshes.length ? 1 : 0;
+  }
 
   // FCE3: primary, secondary. FCE4: primary, interior, secondary, driver hair
   private readonly colors: FceColor[];
@@ -388,6 +572,10 @@ export class FceCarMeshController {
   ) {
     this.colors = colors.map(c => ({ ...c }));
     this.updateColorUniforms();
+    this.root = mesh;
+    if (version === 3) {
+      this.setupChrome(mesh);
+    }
     this.setupPaint(mesh, paintMaskUrl);
     // wheel meshes by part index
     const parts: { [index: number]: { meshes: Mesh[]; isFront: boolean; spins: boolean } } = {};
@@ -453,6 +641,72 @@ export class FceCarMeshController {
       }
       (body as Mesh).add(this.lights);
     }
+  }
+
+  private readonly root: Object3D;
+
+  /**
+   * Gives every FCE3 body mesh (part 0) but matte ones its own copies of its materials, with the chrome pass (shared
+   * materials: the wheels and the other parts draw the same textures without it)
+   */
+  private setupChrome(mesh: Object3D) {
+    mesh.traverse(o => {
+      if (!(o instanceof Mesh) || !/^(hp|mp)_0(?:_|$)/.test(o.name)) {
+        return;
+      }
+      const name = o.name.replace(/_damaged$/, '');
+      const kind: string =
+        o.userData?.['fceChrome'] ?? (/_matte$/.test(name) ? 'none' : /_high_chrome$/.test(name) ? 'high' : 'normal');
+      const color = FCE3_CHROME_COLORS[kind as keyof typeof FCE3_CHROME_COLORS];
+      if (color === undefined) {
+        return;
+      }
+      const gameNormals = !!o.geometry.getAttribute('_game_normal');
+      const copy = (material: Material) => {
+        const clone = material.clone();
+        if (clone.transparent) {
+          // the base pass blended as before, the chrome added whole (source alpha, one)
+          clone.premultipliedAlpha = true;
+        }
+        chromeInShader(clone, this.chrome, color, gameNormals);
+        return clone;
+      };
+      o.material = o.material instanceof Array ? o.material.map(copy) : copy(o.material);
+      if (!this.chromeMeshes.length) {
+        // turned to every camera that draws it, before the draw
+        const previous = o.onBeforeRender;
+        o.onBeforeRender = (renderer, scene, camera, ...rest) => {
+          previous.call(o, renderer, scene, camera, ...rest);
+          if (!this.disposed) {
+            this.updateChrome(camera.getWorldPosition(this.cameraPosition));
+          }
+        };
+      }
+      this.chromeMeshes.push(o);
+    });
+  }
+
+  private readonly cameraPosition = new Vector3();
+
+  /**
+   * Turns the chrome to the camera (CarDraw_SetupChrome 0x4ba350: the environment matrix from the camera's
+   * direction, fce3ChromeEnvMatrix). Called before the body is drawn, with the camera drawing it. The world is expected in TailsLab's export
+   * axes (x, y = game z, z up = game y): the GLB / OBJ axes, nfs-web's world and TailsLab's viewers
+   */
+  updateChrome(cameraPosition: Vector3) {
+    const body = this.chromeMeshes[0];
+    if (!body || !this.chrome.enabled.value) {
+      return;
+    }
+    this.root.updateWorldMatrix(true, false);
+    body.updateWorldMatrix(true, false);
+    const d = cameraPosition.clone().sub(new Vector3().setFromMatrixPosition(this.root.matrixWorld));
+    const e = fce3ChromeEnvMatrix([d.x, d.z, d.y]);
+    // column vectors: env normal = Env^T (game normal), game normal = S (world normal), world normal = R (mesh normal)
+    const envT = new Matrix3().set(e[0], e[3], e[6], e[1], e[4], e[7], e[2], e[5], e[8]);
+    const swap = new Matrix3().set(1, 0, 0, 0, 0, 1, 0, 1, 0);
+    const rotation = new Matrix3().setFromMatrix4(new Matrix4().extractRotation(body.matrixWorld));
+    this.chrome.matrix.value.copy(envT.multiply(swap).multiply(rotation));
   }
 
   /** Every material with a texture that has a paint mask URL paints in its shader once the mask is loaded */

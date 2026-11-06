@@ -1,4 +1,5 @@
 import {
+  BufferAttribute,
   BoxGeometry,
   DataTexture,
   LinearFilter,
@@ -11,10 +12,14 @@ import {
   Scene,
   SRGBColorSpace,
   Texture,
+  Vector3,
   WebGLRenderer,
 } from 'three';
 import {
   FceCarMeshController,
+  fce3ChromeAdd,
+  fce3ChromeEnvMatrix,
+  fce3ChromeUv,
   fceColorToRgb,
   fce3HsbToRgb,
   fce3PaintColor,
@@ -137,10 +142,121 @@ describe('FceCarMeshController', () => {
     );
     expect(controller.isPaintable).toBeTrue();
     expect(controller.hasWheels).toBeTrue();
-    expect(painted.map).toBe(map);
-    expect(painted.customProgramCacheKey()).toContain('fce-paint');
+    // the body has a copy of its own (chrome), painted
+    const body = (car.children[0] as Mesh).material as MeshBasicMaterial;
+    expect(body.map).toBe(map);
+    expect(body.customProgramCacheKey()).toContain('fce-paint');
     expect(plain.customProgramCacheKey()).not.toContain('fce-paint');
     controller.dispose();
+  });
+
+  it('builds the chrome environment matrix as nfs3.exe', () => {
+    // camera straight behind a car heading +z: the identity
+    const behind = fce3ChromeEnvMatrix([0, 0, -10]);
+    [1, 0, 0, 0, 1, 0, 0, 0, 1].forEach((v, i) => expect(behind[i]).toBeCloseTo(v, 6));
+    // camera to the left: RotY(0.25 turn)
+    const left = fce3ChromeEnvMatrix([-10, 0, 0]);
+    [0, 0, -1, 0, 1, 0, 1, 0, 0].forEach((v, i) => expect(left[i]).toBeCloseTo(v, 6));
+    // camera above: RotX(-0.25 turn) after RotY(-0.5 turn)
+    const above = fce3ChromeEnvMatrix([0, 10, -1e-9]);
+    [1, 0, 0, 0, 0, -1, 0, 1, 0].forEach((v, i) => expect(above[i]).toBeCloseTo(v, 6));
+  });
+
+  it('maps a normal to the chrome sphere map as nfs3.exe', () => {
+    expect(fce3ChromeUv([0, 0, -1])).toEqual([0.5, 0.5]);
+    expect(fce3ChromeUv([0, 0, 1])).toEqual([0.5, 0.5]);
+    const [u, v] = fce3ChromeUv([1, 0, 0]);
+    expect(u).toBeCloseTo(1, 5);
+    expect(v).toBe(0.5);
+    expect(fce3ChromeUv([0, -1, 0])[1]).toBeCloseTo(0, 5);
+  });
+
+  it('adds the chrome texel at 4 bits, times the vertex color and the texel alpha', () => {
+    expect(fce3ChromeAdd([255, 128, 15, 255], 1)).toEqual([255, 136, 0]);
+    expect(fce3ChromeAdd([255, 255, 255, 136], 1)).toEqual([136, 136, 136]);
+    fce3ChromeAdd([240, 0, 0, 255], 0x7f / 255).forEach((c, i) => expect(c).toBeCloseTo([0x7f, 0, 0][i], 5));
+  });
+
+  it('gives chrome to the FCE3 body but matte meshes, with materials of their own', () => {
+    const car = new Object3D();
+    const shared = new MeshBasicMaterial({ map: new Texture() });
+    const meshes: { [name: string]: Mesh } = {};
+    for (const name of [
+      'hp_0_body__car00',
+      'hp_0_body__car00_matte',
+      'hp_0_body__car00_high_chrome',
+      'hp_1_wheel__car00',
+    ]) {
+      meshes[name] = new Mesh(new BoxGeometry(), shared);
+      meshes[name].name = name;
+      car.add(meshes[name]);
+    }
+    const controller = new FceCarMeshController(car, 3, [], [], () => null);
+    expect(controller.hasChrome).toBeTrue();
+    const key = (name: string) => (meshes[name].material as MeshBasicMaterial).customProgramCacheKey();
+    expect(key('hp_0_body__car00')).toContain(`fce-chrome-normal-${0x7f / 255}`);
+    expect(key('hp_0_body__car00_high_chrome')).toContain('fce-chrome-normal-1');
+    expect(meshes['hp_0_body__car00_matte'].material).toBe(shared);
+    expect(meshes['hp_1_wheel__car00'].material).toBe(shared);
+    expect(meshes['hp_0_body__car00'].material).not.toBe(shared);
+    expect(new FceCarMeshController(car.clone(), 4, [], [], () => null).hasChrome).toBeFalse();
+    controller.dispose();
+  });
+
+  it('draws the chrome pass in the shader as the exe', () => {
+    const canvas = document.createElement('canvas');
+    let renderer: WebGLRenderer;
+    try {
+      renderer = new WebGLRenderer({ canvas, preserveDrawingBuffer: true });
+    } catch {
+      pending('no WebGL');
+      return;
+    }
+    renderer.setPixelRatio(1);
+    renderer.setSize(1, 1, false);
+    const black = new DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
+    black.needsUpdate = true;
+    const plane = new Mesh(new PlaneGeometry(2, 2), new MeshBasicMaterial({ map: black }));
+    plane.name = 'hp_0_body__car00';
+    // the game's normal, mesh axes (x, y forward, z up)
+    const normal = new Vector3(0.3, -0.8, 0.5).normalize();
+    const normals = new Float32Array(4 * 3).map((_, i) => normal.getComponent(i % 3));
+    plane.geometry.setAttribute('_game_normal', new BufferAttribute(normals, 3));
+    const scene = new Scene();
+    scene.add(plane);
+    // 2 x 2 chrome texture, the first row on top (flipY false: v = 0 is the first row, as in D3D)
+    const texels = [
+      [250, 30, 70, 255],
+      [20, 200, 90, 160],
+      [100, 100, 255, 255],
+      [180, 140, 10, 90],
+    ];
+    const chrome = new DataTexture(new Uint8Array(texels.flat()), 2, 2);
+    chrome.colorSpace = SRGBColorSpace;
+    chrome.magFilter = NearestFilter;
+    chrome.minFilter = NearestFilter;
+    chrome.needsUpdate = true;
+    const controller = new FceCarMeshController(plane, 3, [], [], () => null);
+    controller.chromeTexture = chrome;
+    // the chrome turns to the camera drawing the car
+    const camera = new Vector3(3, -5, 2);
+    const view = new OrthographicCamera(-0.1, 0.1, 0.1, -0.1, -100, 100);
+    view.position.copy(camera);
+    view.lookAt(0, 0, 0);
+    renderer.render(scene, view);
+    const pixel = new Uint8Array(4);
+    const gl = renderer.getContext();
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+    // the same in the game's axes: (x, z, y)
+    const e = fce3ChromeEnvMatrix([camera.x, camera.z, camera.y]);
+    const g = [normal.x, normal.z, normal.y];
+    const n = [0, 1, 2].map(c => g[0] * e[c] + g[1] * e[3 + c] + g[2] * e[6 + c]) as [number, number, number];
+    const [u, v] = fce3ChromeUv(n);
+    const texel = texels[Math.floor(v * 2) * 2 + Math.floor(u * 2)] as [number, number, number, number];
+    const expected = fce3ChromeAdd(texel, 0x7f / 255);
+    Array.from(pixel.slice(0, 3)).forEach((c, i) => expect(Math.abs(c - expected[i])).toBeLessThanOrEqual(1));
+    controller.dispose();
+    renderer.dispose();
   });
 
   for (const [version, filtered] of [

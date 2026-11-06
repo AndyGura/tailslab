@@ -87,9 +87,11 @@ class Fce3Triangle(DeclarativeCompoundBlock):
                 'strong reflection (windows), "no_cull": triangle is visible from both sides, "semi_transparent": '
                 'translucent triangle (windows). Triangle is visible behind a semi-transparent triangle only if it '
                 'has smaller index. nfs3.exe (0x49cfa0, 0x49dbf0): the body part (0) gets a second, environment '
-                'mapped pass with the sky texture (`SKY.FSH`), vertex color 0x7f7f7f7f, "high_chrome" 0xffffffff, '
-                '"matte" none; "semi_transparent" triangles are drawn white with vertex alpha 0x4f, others with '
-                'the lighting and alpha 0x8f'
+                'mapped pass with the sky texture (`SKY.FSH` `CHRD`, a 4444 texture), vertex color 0x7f7f7f7f, '
+                '"high_chrome" 0xffffffff, "matte" none, added to the framebuffer (Direct3D driver D3DA.DLL: '
+                'source alpha, one; texel times vertex color, the texel alpha); texture coordinates from the '
+                'vertex normals (0x49db70, a sphere map). "semi_transparent" triangles are drawn white with vertex '
+                'alpha 0x4f, others with the lighting and alpha 0x8f'
             },
         )
         u = (

@@ -128,7 +128,7 @@ When you do:
   other and `three`, `@gg-web-engine/core`, `rxjs`, nothing else of the frontend (a part they need is brought into it),
   and hold no specs (they are tested next to the GUI components using them). It has `TnfsCarMeshController`,
   `Nfs2CarMeshController`, `FceCarMeshController` (NFS3 / NFS4 paint in the fragment shader, by the paint mask's
-  alpha) and `setupNfs1Texture`; the other car mesh controllers (`*-car-mesh-controller.ts`) and the track props controllers
+  alpha; NFS3 chrome) and `setupNfs1Texture`; the other car mesh controllers (`*-car-mesh-controller.ts`) and the track props controllers
   (`*track-props-controller.ts`) in `frontend/.../editor/eac/` are copied into nfs-web too, with their import paths
   changed: keep them free of GUI services, depending on three.js, gg-web-engine and rxjs only. Meshes of the GUI's OBJ
   models share a material per MTL material, nfs-web's GLB ones don't: code changing a material's shader must change
@@ -529,6 +529,18 @@ When you do:
   acceleration tables) 1 (0x41); `Chain` (a group: `MCF1.DES`, `TRAFCFG.DES`, `PRSONAL.DES`) n = everything below
   it: 94 bytes of garbage, int data size, int size of the child records, a copy of the group's data, then its child
   records.
+
+## NFS3 car models (`GameData/CarModel/<car>/car.viv`: `car.fce`)
+
+- `Fce3GeometrySerializer` mesh names `<lod>_<part>_<name>[__<texture>[_translucent]][_matte|_high_chrome]`: triangles
+  split by their chrome flags, node extras `{"fceChrome": "normal" | "high" | "none"}` (`Scene.object_properties`);
+  the FCE vertex normals go to the OBJ as `vn` and to the GLB as the vertex attribute `_GAME_NORMAL`
+  (`add_glb_vertex_attributes`, `serializers/common/three_d/glb_morph_targets.py`; three.js `_game_normal`), the GLB
+  `NORMAL` stays Blender's. `FceCarMeshController` draws nfs3.exe's chrome pass from them (`chromeTexture`: the
+  track's `SKY.FSH` `CHRD`, turned to the camera drawing the car in `onBeforeRender`; math and blending in its doc
+  comments: `fce3ChromeEnvMatrix`, `fce3ChromeUv`, `fce3ChromeAdd`, verified in nfs3.exe and its Direct3D driver
+  `D3DA.DLL`, nfs-web `decomp/nfs3/`). The GUI picks the chrome from `<GameData>/Tracks/TRK<nnn>/SKY.FSH` next to the
+  car (`findFiles`). nfs-web reads the mesh names, extras and the attribute: keep them stable.
 
 ## NFS3 car physics (`GameData/CarModel/<car>/car.viv`: `carp.txt`)
 
