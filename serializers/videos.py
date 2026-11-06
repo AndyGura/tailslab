@@ -18,9 +18,10 @@ class FfmpegSupportedVideoSerializer(BaseFileSerializer):
                 '0',
                 '-i',
                 data,
-                # add video on black square so we will not have transparent pixels (displays wrong in chrome)
-                '-filter_complex',
-                'color=black,format=rgb24[c];[c][0]scale2ref[c][i];[c][i]overlay=format=auto:shortest=1,setsar=1',
+                # transparent pixels black (they display wrong in Chrome), keeping the video's own frame rate (TNFS's
+                # TGVs are 15 fps; a black `color` source under it made them 25 fps, repeating frames unevenly)
+                '-vf',
+                'format=rgba,premultiply=inplace=1,setsar=1',
                 '-c:v',
                 'libx264',
                 # AAC: iOS plays MP3 audio in an MP4 as silence (the picture plays, no sound); Chrome and Firefox
