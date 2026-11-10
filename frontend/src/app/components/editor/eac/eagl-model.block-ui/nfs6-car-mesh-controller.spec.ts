@@ -107,6 +107,53 @@ describe('Nfs6CarMeshController', () => {
     expect(new Nfs6CarMeshController(new Group().add(mesh('hp_0_X', 0, 0, 0, paint)), [], skins).skin).toBeNull();
   });
 
+  it('keeps the materials of an export without the game shaders', () => {
+    const hood = car.getObjectByName('hp_4_ALPHA_OPAQUE_HOODShape') as Mesh;
+    const controller = new Nfs6CarMeshController(car, [], []);
+    expect(controller.hasGameShading).toBeFalse();
+    expect(hood.material).toBe(paint);
+    hood.userData = { eaglShader: 'paint', eaglBlend: 'opaque' };
+    expect(new Nfs6CarMeshController(car, [], []).hasGameShading).toBeTrue();
+    expect(hood.material).not.toBe(paint);
+  });
+
+  it('spins the wheels while the speed is set every frame, backwards in reverse', () => {
+    jasmine.clock().install();
+    try {
+      const controller = new Nfs6CarMeshController(car, [], []);
+      const wheel = car.getObjectByName('hp_6_ALPHA_OPAQUE_RUBBER_Shape')!;
+      for (let i = 0; i < 10; i++) {
+        controller.speed = 10;
+        jasmine.clock().tick(1000 / 60);
+      }
+      // negative angle rolls forward
+      expect(wheel.rotation.x).toBeLessThan(0);
+      const forward = wheel.rotation.x;
+      controller.speed = -10;
+      jasmine.clock().tick(1000 / 60);
+      expect(wheel.rotation.x).toBeGreaterThan(forward);
+      controller.speed = 0;
+      const stopped = wheel.rotation.x;
+      jasmine.clock().tick(1000);
+      expect(wheel.rotation.x).toBe(stopped);
+      controller.dispose();
+    } finally {
+      jasmine.clock().uninstall();
+    }
+  });
+
+  it('loads skins from the given folder', () => {
+    const skins = [
+      { name: 'skin00', label: 'red', texture: 'textures/skins/skin00-skin.png' },
+      { name: 'skin01', label: 'black', texture: 'textures/skins/skin01-skin.png' },
+    ];
+    const controller = new Nfs6CarMeshController(car, [], skins, null, null, 'https://cdn/cars/murcie/');
+    const load = spyOn((controller as any).textureLoader, 'load');
+    controller.skin = 'skin01';
+    expect(controller.skin).toBe('skin01');
+    expect(load.calls.mostRecent().args[0]).toBe('https://cdn/cars/murcie/textures/skins/skin01-skin.png');
+  });
+
   it('takes the shader constants as the exe', () => {
     // D3D lit: 0 when n.h <= 0, the power clamped
     expect(nfs6Lit(-0.2, 5)).toBe(0);
@@ -210,6 +257,7 @@ describe('Nfs6CarMeshController', () => {
     // a tiny plane at the car's origin: the environment map normal is the normal
     const plane = new Mesh(new PlaneGeometry(0.001, 0.001), skin);
     plane.name = 'hp_1_ALPHA_OPAQUE_HOODShape';
+    plane.userData = { eaglShader: 'paint', eaglBlend: 'opaque' };
     const normal = new Vector3(0.3, -0.4, 0.8).normalize();
     const normals = new Float32Array(4 * 3).map((_, i) => normal.getComponent(i % 3));
     plane.geometry.setAttribute('normal', new BufferAttribute(normals, 3));

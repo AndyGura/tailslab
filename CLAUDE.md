@@ -383,8 +383,11 @@ When you do:
   `nfs6Lit`, `nfs6PixelColor`... tested in `eagl-model.block-ui/nfs6-car-mesh-controller.spec.ts`, also by rendering),
   world up = +z, sun position in the track export's axes (`nfs6TrackToWorld`). The GUI lights the car with
   Parkland's lighting.ini by default (location radio, track / showroom environment map, road light level 1). Not
-  ported: damage texture, fog, technique sampler states, draw order within a pass, addon visibility. nfs-web reads
-  the mesh names, properties and JSON files: keep them stable.
+  ported: damage texture, fog, technique sampler states, draw order within a pass, addon visibility. A model whose
+  meshes have no `eaglShader` property (an older export) keeps its materials (`hasGameShading` false). `baseUrl`
+  gives the skins' folder for a GLB (embedded textures); `speed` can be set every frame, negative in reverse. nfs-web
+  (`Nfs6CarModel`) uses it with the location `lighting.json` picks and its environment map, and reads the mesh names,
+  properties and JSON files: keep them stable.
 
 ## NFS Hot Pursuit 2 PlayStation 2 (`games/nfs6_ps2`, SLUS-20362, doc `resources/NFS6_PS2.md`)
 

@@ -439,6 +439,7 @@ export class Nfs6CarMeshController {
   private readonly uniforms = new Nfs6CarUniforms();
   private readonly root: Object3D;
   private disposed = false;
+  private _hasGameShading = false;
 
   private _skin: string | null = null;
   get skin(): string | null {
@@ -515,13 +516,18 @@ export class Nfs6CarMeshController {
     return this._speed;
   }
 
+  // can be set every frame, negative in reverse: the timer keeps running while the wheels spin
   set speed(value: number) {
+    const wasSpinning = this._speed !== 0;
     this._speed = value;
+    if (wasSpinning === (value !== 0)) {
+      return;
+    }
     if (this.animationTimer) {
       clearInterval(this.animationTimer);
       this.animationTimer = null;
     }
-    if (value > 0) {
+    if (value !== 0) {
       this.animationTimer = setInterval(() => {
         // negative angle rolls wheels forward
         this.spinAngle -= this._speed / WHEEL_RADIUS / 60;
@@ -558,9 +564,16 @@ export class Nfs6CarMeshController {
     return !!this.lights;
   }
 
+  /** Whether the meshes have the game's shaders: an export without "eaglShader" properties keeps its materials */
+  get hasGameShading(): boolean {
+    return this._hasGameShading;
+  }
+
   /**
    * @param objects mesh properties by mesh name ("objects" of "<obj>_extra.json"), default: the mesh's `userData`
    * (GLB node extras)
+   * @param baseUrl folder of the exported model (with trailing slash), skin textures are relative to it. Default: taken
+   * from the URL of the "textures/skin.png" texture (an OBJ's; a GLB's textures are embedded)
    */
   constructor(
     mesh: Object3D,
@@ -568,8 +581,10 @@ export class Nfs6CarMeshController {
     readonly skins: Nfs6CarSkin[],
     readonly lighting: Nfs6CarLighting | null = null,
     objects: { [name: string]: Nfs6CarMeshProperties } | null = null,
+    baseUrl: string | null = null,
   ) {
     this.root = mesh;
+    this.baseUrl = baseUrl;
     this.setupWheels(mesh);
     this.setupShaders(mesh, objects);
     this.setupSkinMaterials(mesh);
@@ -644,9 +659,18 @@ export class Nfs6CarMeshController {
    * material, microcode and blend) and the game's blend: opaque writes depth, "trans" (alpha blended) and "add"
    * (source alpha, one) do not and are drawn after the opaque meshes, "add" last (0x413890). SKIPPED: the draw order
    * within a pass (the model's; here three.js sorts the translucent meshes by depth), addons (ADDON_ geometries are
-   * drawn as the others, whatever the skin's addons_enable)
+   * drawn as the others, whatever the skin's addons_enable). None when no mesh has an "eaglShader" property (an export
+   * of an older TailsLab, without normals): the materials stay as they are
    */
   private setupShaders(mesh: Object3D, objects: { [name: string]: Nfs6CarMeshProperties } | null) {
+    mesh.traverse(o => {
+      if (o instanceof Mesh && (objects?.[o.name] ?? o.userData)?.eaglShader) {
+        this._hasGameShading = true;
+      }
+    });
+    if (!this._hasGameShading) {
+      return;
+    }
     const copies = new Map<string, Material>();
     mesh.traverse(o => {
       if (!(o instanceof Mesh) || o.parent === this.lights) {
