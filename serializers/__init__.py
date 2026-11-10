@@ -15,6 +15,7 @@ from .bitmaps import (
     PaletteSerializer,
     ShpiTextSerializer,
     NfsuTexturePackSerializer,
+    Nfs6Ps2TexturePackSerializer,
 )
 from .fonts import FfnFontSerializer
 from .geometries import (
@@ -25,6 +26,7 @@ from .geometries import (
     Fce3GeometrySerializer,
     Fce4GeometrySerializer,
     EaglModelSerializer,
+    Nfs6Ps2CarSerializer,
 )
 from .json import JsonSerializer, TnfsPsxHorizonInfoSerializer, Nfs3CarPhysicsSerializer
 from .horizons import EacHorizonSettingsSerializer
@@ -35,6 +37,7 @@ from .maps import (
     Nfs4FrdMapSerializer,
     Nfs6AiPathsSerializer,
     NfsuTrackBundleSerializer,
+    Nfs6Ps2TrackBundleSerializer,
 )
 from .videos import FfmpegSupportedVideoSerializer
 

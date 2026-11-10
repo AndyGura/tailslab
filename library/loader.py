@@ -377,6 +377,11 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.blackbox.archives import NfsuJdlzCompressedBlock
 
             return NfsuJdlzCompressedBlock
+        elif header_str == 'COMP' and (length is None or int.from_bytes(_peek(buffer, 16)[12:16], 'little') == length):
+            # the compressed length must be the file's: NFSHP2/ZZDATA.BIN of the PS2 disc starts with a COMP file
+            from resources.blackbox.archives import Nfs6Ps2CompressedBlock
+
+            return Nfs6Ps2CompressedBlock
     try:
         resource_id = header_bytes[0]
         if resource_id in [0x22, 0x24, 0x29, 0x2A, 0x2D]:
@@ -435,6 +440,24 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
 
         chunk_ids = walk_nfsu_chunk_ids(buffer, length)
         if chunk_ids:
+            from resources.blackbox.maps.nfs6_ps2 import (
+                is_nfs6_ps2_bundle,
+                is_nfs6_ps2_car_bundle,
+                is_nfs6_ps2_track_bundle,
+            )
+
+            if is_nfs6_ps2_bundle(chunk_ids):
+                if is_nfs6_ps2_track_bundle(chunk_ids):
+                    from resources.blackbox.maps.nfs6_ps2 import Nfs6Ps2TrackBundle
+
+                    return Nfs6Ps2TrackBundle
+                if is_nfs6_ps2_car_bundle(chunk_ids):
+                    from resources.blackbox.maps.nfs6_ps2 import Nfs6Ps2CarGeometry
+
+                    return Nfs6Ps2CarGeometry
+                from resources.blackbox.maps.nfs6_ps2 import Nfs6Ps2ChunkBundle
+
+                return Nfs6Ps2ChunkBundle
             # streaming sections table: NFSU race bundle (0x00034107) or NFSU2 location bundle (0x00034110)
             if 0x00034107 in chunk_ids or 0x00034110 in chunk_ids:
                 from resources.blackbox.maps.nfsu import NfsuTrackBundle

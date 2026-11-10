@@ -2156,6 +2156,415 @@ def nfsu_geometry_meshes(geometry_data: dict) -> List[NfsuMesh]:
     return meshes
 
 
+def nfs6_ps2_strip_skips(num_vertices: int, mask: List[int]) -> List[bool]:
+    """Vertices of an NFS Hot Pursuit 2 (PS2) VIF packet which end no triangle (the first two of every triangle strip):
+    the GS ADC bit the VU1 microprogram (SLUS_203.62 .vutext, 0x1af..0x1dd) writes with each vertex. It is bit 15 of the
+    VU's R register (RNEXT into the w field of the vertex) after one RNEXT per vertex (`lfsr_next`). R is loaded (RINIT)
+    from the fields of the packet's mask qword at VU address 1 in a jump table run once per group of 4 vertices: field
+    x first, then x, z and w before the group 11, 7 and 3 groups before the last one (y is never used; a packet has
+    10 groups at most). The microprogram is software pipelined: a reload before group g takes effect at vertex
+    4 * g + 3, or 0 for the first group"""
+    from library.utils.ps2 import lfsr_next
+
+    groups = (num_vertices + 3) // 4
+    reloads = {}
+    for distance, field in ((11, 0), (7, 2), (3, 3)):
+        group = groups - 1 - distance
+        if group >= 0:
+            reloads[0 if group == 0 else 4 * group + 3] = field
+    r = mask[0] & 0x7FFFFF
+    skips = []
+    for vertex in range(num_vertices):
+        if vertex in reloads:
+            r = mask[reloads[vertex]] & 0x7FFFFF
+        r = lfsr_next(r)
+        skips.append(bool(r & 0x8000))
+    return skips
+
+
+def nfs6_ps2_mesh(mesh_data: dict) -> Optional[NfsuMesh]:
+    """Mesh of NFS Hot Pursuit 2 (PS2) mesh chunk (`Nfs6Ps2Mesh` data), in its local coordinates, with RGBA vertex
+    colours (`colors`, 0x80 = 1.0: the GS multiplies the texture by colour / 0x80).
+
+    Every draw group is a run of VIF packets, each one VU1 memory image (VU1 microprogram SLUS_203.62 .vutext):
+    addr 0 V4-8 header (vertex count, groups of 4 - 1, 3 x count), addr 1 the strip mask (`nfs6_ps2_strip_skips`),
+    from addr 2 positions in groups of 4 vertices: x of the 4, y of the 4, z of the 4 (the last group with fewer
+    fields), from 0x20 UVs (two vertices per qword: u, v of the first, v, u of the second), from 0x34 RGBA 5551
+    colours (one per qword), from 0x5c normals as signed bytes in groups like the positions (`vu_flags` 0x4100 only)"""
+    from library.utils.ps2 import as_float, vif_packets
+
+    sub_chunks = mesh_data['sub_chunks']
+    header = _nfsu_sub_chunk_data(sub_chunks, 0x00034003)
+    draw_groups = _nfsu_sub_chunk_data(sub_chunks, 0x00034004)
+    vif = _nfsu_sub_chunk_data(sub_chunks, 0x00034005)
+    textures = _nfsu_sub_chunk_data(sub_chunks, 0x00034006)
+    if header is None or draw_groups is None or vif is None:
+        return None
+    texture_ids = [x[0] for x in textures['textures']] if textures else []
+    mesh = NfsuMesh(header['mesh_id'], header['name'])
+    mesh.colors = []
+    parts = {}
+    for group in draw_groups['draw_groups']:
+        index = group['texture_index']
+        texture_id = texture_ids[index] if index < len(texture_ids) else None
+        triangles = parts.setdefault(texture_id, [])
+        offset = group['data_offset']
+        for memory in vif_packets(vif['data'][offset : offset + group['num_qwords'] * 16]):
+            num_vertices = memory.get(0, [0])[0] & 0xFF
+            skips = nfs6_ps2_strip_skips(num_vertices, memory.get(1, [0, 0, 0, 0]))
+            base = len(mesh.vertices)
+            for k in range(num_vertices):
+                group_index, lane = divmod(k, 4)
+                position = [memory.get(2 + 3 * group_index + c, [0, 0, 0, 0])[lane] for c in range(3)]
+                mesh.vertices.append(tuple(as_float(x) for x in position))
+                uv = memory.get(0x20 + k // 2, [0, 0, 0, 0])
+                # u, v of the first vertex of a pair, then v, u of the second (the microprogram swaps its lanes)
+                mesh.uvs.append(
+                    (as_float(uv[0]), as_float(uv[1])) if k % 2 == 0 else (as_float(uv[3]), as_float(uv[2]))
+                )
+                mesh.colors.append(tuple(memory.get(0x34 + k, [0x80, 0x80, 0x80, 0x80])))
+            strip_start = 0
+            for k in range(num_vertices):
+                if skips[k] and (k == 0 or not skips[k - 1]):
+                    strip_start = k
+                if k >= 2 and not skips[k]:
+                    if (k - strip_start) % 2 == 0:
+                        triangles.append([base + k - 2, base + k - 1, base + k])
+                    else:
+                        triangles.append([base + k - 1, base + k - 2, base + k])
+    mesh.parts = [(texture_id, triangles) for texture_id, triangles in parts.items() if triangles]
+    return mesh
+
+
+def nfs6_ps2_solid_pack_meshes(solid_pack_data: dict) -> List[NfsuMesh]:
+    """Meshes of NFS Hot Pursuit 2 (PS2) mesh pack (`Nfs6Ps2SolidPack` data)"""
+    meshes = []
+    for chunk in solid_pack_data['sub_chunks']:
+        if isinstance(chunk['data'], dict) and chunk['data'].get('chunk_id') == 0x80034002:
+            mesh = nfs6_ps2_mesh(chunk['data'])
+            if mesh is not None:
+                meshes.append(mesh)
+    return meshes
+
+
+# NFS Hot Pursuit 2 (PS2) car parts, after "<model name>_" in the mesh name (cut to 23 characters)
+_NFS6_PS2_CAR_LODS = {'A': 'hp', 'B': 'mp', 'C': 'lp', 'D': 'vlp'}
+
+
+def nfs6_ps2_paint_label(image: Image.Image) -> str:
+    """Color name of a car paint texture (the game has none): of its most frequent color (the body), not counting the
+    dark pixels when they are less than 60% of the texture. Gray colors are black, gray, silver or white by
+    brightness, others are named by hue"""
+    import colorsys
+
+    import numpy as np
+
+    pixels = np.asarray(image.convert('RGB'), dtype=np.int32).reshape(-1, 3)
+    bright = pixels[pixels.max(axis=1) >= 48]
+    if len(bright) >= 0.4 * len(pixels):
+        pixels = bright
+    keys = (pixels[:, 0] // 32) * 64 + (pixels[:, 1] // 32) * 8 + pixels[:, 2] // 32
+    values, counts = np.unique(keys, return_counts=True)
+    r, g, b = pixels[keys == values[np.argmax(counts)]].mean(axis=0) / 255
+    hue, saturation, value = colorsys.rgb_to_hsv(r, g, b)
+    if saturation < 0.25 or value < 0.15:
+        return 'black' if value < 0.2 else 'gray' if value < 0.55 else 'silver' if value < 0.85 else 'white'
+    hue *= 360
+    if hue < 15 or hue >= 340:
+        return 'red'
+    if hue < 40:
+        return 'brown' if value < 0.6 else 'orange'
+    if hue < 70:
+        return 'gold' if value < 0.8 else 'yellow'
+    if hue < 165:
+        return 'green' if value < 0.6 else 'light green'
+    if hue < 260:
+        return 'blue' if value < 0.6 or saturation > 0.6 else 'light blue'
+    return 'purple'
+
+
+def nfs6_ps2_car_files(geometry_path: str) -> Tuple[List[str], List[str]]:
+    """(GLOBAL/GLOBALB bundles, texture packs) of NFS Hot Pursuit 2 (PS2) car model CARS/<car>/GEOMETRY.LZC: the car
+    types table and the shared car textures (windows, tyres, brakes, license plates) are in GLOBALB, the textures of
+    every car in CARS/TEXTURES.BIN"""
+    from library.utils.file_utils import find_files_case_insensitive
+
+    cars_dir = os.path.dirname(os.path.dirname(geometry_path))
+    global_dir = path_join(os.path.dirname(cars_dir), 'GLOBAL')
+    globalb = find_files_case_insensitive([path_join(global_dir, 'GLOBALB.BUN')]) or find_files_case_insensitive(
+        [path_join(global_dir, 'GLOBALB.LZC')]
+    )
+    return globalb, find_files_case_insensitive([path_join(cars_dir, 'TEXTURES.BIN')]) + globalb
+
+
+def nfs6_ps2_car_texture_slots(model_name: str) -> Dict[int, str]:
+    """Texture slots of NFS Hot Pursuit 2 (PS2) car meshes, filled by the game (SLUS_203.62 0x11e860, names of
+    0x188790): name hash -> material name. "skin" / "skin_b" are the paint (<car>_SKIN<n>, <car>_SKIN<n>B of the
+    chosen paint), the windows take WINDOW (WINDOW_DAMAGE0..2 when broken), the lights <car>_HEADLIGHT,
+    <car>_BRAKELIGHT (their _ON and _DAMAGE0 textures at run time)"""
+    slots = {
+        bin_hash(f'{model_name}_SKIN1'): 'skin',
+        bin_hash(f'{model_name}_SKIN1B'): 'skin_b',
+        bin_hash(f'{model_name}_HEADLIGHT_LEFT'): 'headlight',
+        bin_hash(f'{model_name}_HEADLIGHT_RIGHT'): 'headlight',
+        bin_hash(f'{model_name}_BRAKELIGHT_LEFT'): 'brakelight',
+        bin_hash(f'{model_name}_BRAKELIGHT_RIGHT'): 'brakelight',
+    }
+    for window in ['FRONT', 'REAR', 'LEFT_FRONT', 'LEFT_REAR', 'RIGHT_FRONT', 'RIGHT_REAR']:
+        slots[bin_hash(f'WINDOW_{window}')] = 'window'
+    return slots
+
+
+# names of NFS Hot Pursuit 2 (PS2) car parts after "<model name>_", as the game formats them (SLUS_203.62 0x11e860):
+# it finds the meshes by `bin_hash` of these names, the names in the meshes are cut to 23 characters
+_NFS6_PS2_CAR_PART_NAMES = (
+    ['A', 'B', 'C', 'D']
+    + [f'TIRE_{axle}_{lod}' for axle in ('FRONT', 'REAR') for lod in 'ABC']
+    + ['BRAKE_FRONT', 'BRAKE_REAR', 'WHEEL_BLUR', 'WHEEL_BLUR_F', 'WHEEL_BLUR_R']
+    + ['WIPER_LEFT', 'WIPER_RIGHT', 'SIDE_MIRROR_LEFT', 'SIDE_MIRROR_RIGHT', 'LICENSE_PLATE_FRONT']
+    + ['LICENSE_PLATE_REAR', 'SCUFFS', 'DASH_WHEEL', 'DASH_WINDOW', 'SPEED_NEEDLE', 'TACH_NEEDLE']
+)
+
+
+def nfs6_ps2_car_parts(model_name: str, meshes: List['NfsuMesh'], wheels: List[dict]):
+    """Parts of NFS Hot Pursuit 2 (PS2) car model: (name, mesh, transform) per drawn part, transform = (turned 180
+    degrees around Z, translation) in car coordinates (X forward, Y left, Z up). Meshes are told by their id, the
+    `bin_hash` of the full part name (`_NFS6_PS2_CAR_PART_NAMES`), else by their (cut) name. Bodies <car>_A.._D are the
+    levels of detail hp, mp, lp, vlp. Tyres <car>_TIRE_FRONT_<lod> / _REAR_<lod>, brakes <car>_BRAKE_FRONT / _REAR and
+    wheel blur discs <car>_WHEEL_BLUR(_F / _R) are drawn at each wheel of the car type (front: wheels 0, 1, rear: 2,
+    3; a missing rear part takes the front one, as the game does): they are modelled as right wheels (rim at -Y), the
+    left ones are turned around (without `wheels`: once, where the model has them). Other parts (mirrors, wipers,
+    license plate, scuffs) are placed in the model"""
+    prefix = model_name + '_'
+    full_names = {bin_hash(prefix + x): x for x in _NFS6_PS2_CAR_PART_NAMES}
+    named = []
+    for mesh in meshes:
+        name = full_names.get(mesh.mesh_id)
+        if name is None:
+            upper = mesh.name.upper()
+            name = upper[len(prefix) :] if upper.startswith(prefix) else upper
+        named.append((name, mesh))
+    by_name = {name: mesh for name, mesh in named}
+    wheel_names = {0: 'fl', 1: 'fr', 2: 'rr', 3: 'rl'}
+    parts = []
+    for name, mesh in named:
+        if name in _NFS6_PS2_CAR_LODS:
+            parts.append((f'{_NFS6_PS2_CAR_LODS[name]}_body', mesh, (False, (0.0, 0.0, 0.0))))
+            continue
+        match = re.fullmatch(r'(TIRE|BRAKE|WHEEL_BLUR)(?:_(FRONT|REAR|F|R))?(?:_([A-D]))?', name)
+        if match:
+            kind, axle, lod = match.groups()
+            if not wheels:
+                # no car type: where the model has it
+                parts.append((f'{_NFS6_PS2_CAR_LODS[lod or "A"]}_{name.lower()}', mesh, (False, (0.0, 0.0, 0.0))))
+                continue
+            if axle in ('REAR', 'R'):
+                continue
+            rear_mesh = by_name.get(name.replace('_FRONT', '_REAR') if axle == 'FRONT' else f'{kind}_R', mesh)
+            for wheel in wheels:
+                index = wheel['index']
+                if index not in wheel_names:
+                    continue
+                position = (wheel['position']['x'], wheel['position']['y'], wheel['position']['z'])
+                parts.append(
+                    (
+                        f'{_NFS6_PS2_CAR_LODS[lod or "A"]}_{kind.lower()}_{wheel_names[index]}',
+                        mesh if index < 2 or not axle else rear_mesh,
+                        (position[1] > 0, position),
+                    )
+                )
+            continue
+        part = re.sub(r'[^0-9A-Za-z]+', '_', name.lower()).strip('_') or 'part'
+        lod = 'hp'
+        lod_match = re.fullmatch(r'(.+)_([a-d])', part)
+        if lod_match:
+            part, lod = lod_match.group(1), _NFS6_PS2_CAR_LODS[lod_match.group(2).upper()]
+        parts.append((f'{lod}_{part}', mesh, (False, (0.0, 0.0, 0.0))))
+    return parts
+
+
+class Nfs6Ps2CarSerializer(BaseFileSerializer):
+    """NFS Hot Pursuit 2 (PS2) car model (CARS/<car>/GEOMETRY.LZC): every part (`nfs6_ps2_car_parts`) as objects
+    "<lod>_<part>__<material>" (lod hp, mp, lp, vlp; parts body, tire_fl.., brake_fl.., wheel_blur_fl..,
+    side_mirror_left..), X right, Y forward, Z up, the vertex colors in the GLB (COLOR_0: the
+    GS colour / 0xFF, textures saved at double brightness, so that texture * COLOR_0 is the game's shading). Materials are texture names, but the texture slots of the game
+    (`nfs6_ps2_car_texture_slots`): "skin" (the first paint), "skin_b", "window", "headlight", "brakelight".
+    "skins.json" lists the paints ({"name", "label", "texture", "texture_b"}, textures in "textures/skins/"),
+    "car.json" the wheels ({"name", "position", "radius"}) and the light textures ("textures/lights/"). Wheels are
+    also dummies "wheel_<fl|fr|rr|rl>"."""
+
+    def __init__(self):
+        super().__init__(is_dir=True)
+
+    def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
+        import json
+
+        from library import require_resource
+        from library.loader import id_to_path, path_to_name
+        from serializers.bitmaps import ImageSerializer, nfs6_ps2_texture_pack_textures, nfs6_ps2_texture_to_image
+        from serializers.maps import nfs6_ps2_bundle_chunks
+
+        super().serialize(data, path, id, block, **kwargs)
+        geometry_path = id_to_path(id) if id else ''
+        model_name = os.path.basename(os.path.dirname(geometry_path)).upper()
+        meshes = []
+        for chunk in nfs6_ps2_bundle_chunks(data):
+            if isinstance(chunk['data'], dict) and chunk['data'].get('chunk_id') == 0x80034000:
+                meshes += nfs6_ps2_solid_pack_meshes(chunk['data'])
+        if not model_name or not any(m.name.upper().startswith(model_name + '_') for m in meshes):
+            # the model name is the prefix of the body meshes "<car>_A"
+            bodies = [m.name[:-2] for m in meshes if re.fullmatch(r'.+_[A-D]', m.name)]
+            model_name = bodies[0].upper() if bodies else model_name
+        globalb, texture_packs = nfs6_ps2_car_files(geometry_path) if geometry_path else ([], [])
+        textures = {}
+        car_type = None
+        for pack_path in texture_packs:
+            try:
+                (_, _, pack_data), _ = require_resource(path_to_name(pack_path))
+            except Exception:
+                traceback.print_exc()
+                continue
+            for chunk in nfs6_ps2_bundle_chunks(pack_data):
+                chunk_data = chunk['data']
+                if not isinstance(chunk_data, dict):
+                    continue
+                if chunk_data.get('chunk_id') == 0xB0300001:
+                    for info, image_data in nfs6_ps2_texture_pack_textures(chunk_data):
+                        textures.setdefault(info['name_hash'], (info, image_data))
+                elif chunk_data.get('chunk_id') == 0x00034600 and car_type is None:
+                    car_type = next((x for x in chunk_data['car_types'] if x['model_name'] == model_name), None)
+        wheels = car_type['wheels'] if car_type else []
+
+        texture_dir = path_join(path, 'textures')
+        os.makedirs(path_join(texture_dir, 'skins'), exist_ok=True)
+        os.makedirs(path_join(texture_dir, 'lights'), exist_ok=True)
+        by_name = {info['name'].upper(): (info, image_data) for info, image_data in textures.values()}
+
+        def save(texture, file_name: str) -> Image.Image:
+            # the GS draws texture * vertex colour / 0x80, car vertex colours are up to 0xF8: the textures are stored
+            # at half brightness. Saved doubled, the vertex colours / 0xFF (COLOR_0) give the game's shading
+            image = nfs6_ps2_texture_to_image(*texture).convert('RGBA')
+            r, g, b, a = image.split()
+            image = Image.merge('RGBA', [x.point(lambda v: min(255, v * 2)) for x in (r, g, b)] + [a])
+            ImageSerializer.save_png(image, path_join(texture_dir, f'{file_name}.png'))
+            return image
+
+        slot_textures = {
+            'skin': f'{model_name}_SKIN1',
+            'skin_b': f'{model_name}_SKIN1B',
+            'window': 'WINDOW',
+            'headlight': f'{model_name}_HEADLIGHT',
+            'brakelight': f'{model_name}_BRAKELIGHT',
+        }
+        slots = nfs6_ps2_car_texture_slots(model_name)
+        materials = {}
+        alpha_modes = {}
+
+        def material(texture_id) -> str:
+            if texture_id not in materials:
+                materials[texture_id] = 'untextured'
+                slot = slots.get(texture_id)
+                texture = by_name.get(slot_textures[slot]) if slot else textures.get(texture_id)
+                if texture is not None:
+                    name = slot or re.sub(r'[^0-9A-Za-z_-]', '_', texture[0]['name'])
+                    try:
+                        alpha_modes[name] = texture_alpha_mode(save(texture, name))
+                        materials[texture_id] = name
+                    except Exception:
+                        traceback.print_exc()
+            return materials[texture_id]
+
+        sub_meshes = []
+        for part_name, mesh, (turned, position) in nfs6_ps2_car_parts(model_name, meshes, wheels):
+            # several texture slots take one material (the windows): one object per material
+            by_material = {}
+            for texture_id, triangles in mesh.parts:
+                by_material.setdefault(material(texture_id), []).extend(triangles)
+            for material_name, triangles in by_material.items():
+                used = sorted({i for t in triangles for i in t})
+                remap = {old: new for new, old in enumerate(used)}
+                sm = SubMesh()
+                sm.texture_id = material_name
+                sm.name = f'{part_name}__{material_name}'
+                vertices = []
+                for x, y, z in (mesh.vertices[i] for i in used):
+                    if turned:
+                        x, y = -x, -y
+                    x, y, z = x + position[0], y + position[1], z + position[2]
+                    # car X forward, Y left -> X right, Y forward
+                    vertices.append([-y, x, z])
+                sm.vertices = vertices
+                sm.vertex_uvs = [list(mesh.uvs[i]) for i in used]
+                sm.vertex_colors = [
+                    [r / 255, g / 255, b / 255, min(1.0, a / 128)] for r, g, b, a in (mesh.colors[i] for i in used)
+                ]
+                sm.polygons = [[remap[i] for i in t] for t in triangles]
+                sub_meshes.append(sm)
+
+        skins = []
+        for n in range(1, 10):
+            skin = by_name.get(f'{model_name}_SKIN{n}')
+            if skin is None:
+                continue
+            image = save(skin, f'skins/{model_name}_SKIN{n}')
+            entry = {
+                'name': f'SKIN{n}',
+                'label': nfs6_ps2_paint_label(image),
+                'texture': f'textures/skins/{model_name}_SKIN{n}.png',
+            }
+            skin_b = by_name.get(f'{model_name}_SKIN{n}B')
+            if skin_b is not None:
+                save(skin_b, f'skins/{model_name}_SKIN{n}B')
+                entry['texture_b'] = f'textures/skins/{model_name}_SKIN{n}B.png'
+            skins.append(entry)
+        lights = {}
+        for light in ['HEADLIGHT', 'BRAKELIGHT', 'REVERSELIGHT']:
+            states = {}
+            for state, suffix in [('off', ''), ('on', '_ON'), ('damaged', '_DAMAGE0')]:
+                texture = by_name.get(f'{model_name}_{light}{suffix}')
+                if texture is not None:
+                    save(texture, f'lights/{model_name}_{light}{suffix}')
+                    states[state] = f'textures/lights/{model_name}_{light}{suffix}.png'
+            if states:
+                lights[light.lower()] = states
+        wheel_names = {0: 'fl', 1: 'fr', 2: 'rr', 3: 'rl'}
+        car_wheels = [
+            {
+                'name': wheel_names.get(w['index'], str(w['index'])),
+                'position': [-w['position']['y'], w['position']['x'], w['position']['z']],
+                'radius': w['radius'],
+            }
+            for w in wheels
+        ]
+        scene = Scene(
+            name='body',
+            obj_name='geometry',
+            mtl_name='material',
+            sub_meshes=sub_meshes,
+            mtl_texture_names=sorted({m.texture_id for m in sub_meshes if m.texture_id != 'untextured'}),
+            mtl_texture_path_func=lambda name: f'textures/{name}.png',
+            mtl_texture_alpha_modes=alpha_modes,
+            dummies=[{'name': f'wheel_{w["name"]}', 'position': w['position']} for w in car_wheels],
+        )
+        paths = export_scenes([scene], path, self.settings)
+        skins_path = path_join(path, 'skins.json')
+        with open(skins_path, 'w') as f:
+            json.dump(skins, f, indent=2)
+        car_path = path_join(path, 'car.json')
+        with open(car_path, 'w') as f:
+            json.dump(
+                {
+                    'model': model_name,
+                    'car_type': car_type['name'] if car_type else None,
+                    'wheels': car_wheels,
+                    'lights': lights,
+                },
+                f,
+                indent=2,
+            )
+        return paths + [skins_path, car_path]
+
+
 def _nfsmw_mesh(header: dict, texture_ids: list, container: dict, faces_chunk, materials: list) -> Optional[NfsuMesh]:
     """NFS Most Wanted mesh: vertex buffers are concatenated, triangles of every material are shifted by the offset of
     its buffer"""

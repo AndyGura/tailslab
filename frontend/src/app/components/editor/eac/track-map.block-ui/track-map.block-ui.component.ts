@@ -330,6 +330,9 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
           await this.findTextureArchives(adapter.textureArchivePatterns(this.resourceId));
           await this.onTextureArchiveSelected(this.textureArchiveOptions$.value[0] || null, true);
         } else {
+          if (adapter?.bundledTextures && adapter.hasSkybox) {
+            await this.loadBundledSky();
+          }
           await this.loadPreview();
         }
         this.previewLoading$.next(false);
@@ -388,6 +391,24 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
     material.needsUpdate = true;
     // without the track's sky the viewer's background sky shows
     mesh.visible = !!texture;
+  }
+
+  // The sky of a track whose serializer writes `spherical.png` next to the chunks
+  private async loadBundledSky() {
+    const skyPath = this.serializedFiles.find(x => x.endsWith('spherical.png'));
+    if (!skyPath) {
+      this.setSkyTexture(null);
+      return;
+    }
+    try {
+      const tex = await new TextureLoader().loadAsync(skyPath);
+      tex.colorSpace = 'srgb';
+      tex.mapping = CubeReflectionMapping;
+      this.setSkyTexture(tex);
+    } catch (err) {
+      console.warn('Could not load the sky texture', err);
+      this.setSkyTexture(null);
+    }
   }
 
   async onTextureArchiveSelected(path: string | null, force: boolean = false) {

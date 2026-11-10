@@ -170,12 +170,56 @@ def _match_normal(sub_mesh: SubMesh, position, uv, gltf_normal, tolerance: float
     return sub_mesh.vertex_normals[candidates[0]]
 
 
+def _append_float_accessor(gltf: dict, binary: bytearray, vectors: List[List[float]], type_name: str) -> int:
+    size = len(vectors[0]) if vectors else 0
+    binary.extend(b'\x00' * (-len(binary) % 4))
+    data = b''.join(struct.pack(f'<{size}f', *v) for v in vectors)
+    gltf.setdefault('bufferViews', []).append(
+        {'buffer': 0, 'byteOffset': len(binary), 'byteLength': len(data), 'target': _ARRAY_BUFFER}
+    )
+    binary.extend(data)
+    gltf.setdefault('accessors', []).append(
+        {'bufferView': len(gltf['bufferViews']) - 1, 'componentType': _FLOAT, 'count': len(vectors), 'type': type_name}
+    )
+    return len(gltf['accessors']) - 1
+
+
+def _position_index(sub_mesh: SubMesh) -> dict:
+    """Sub-mesh vertex indices by position rounded to 1 mm"""
+    pivot = sub_mesh.pivot_offset
+    index = {}
+    for i, v in enumerate(sub_mesh.vertices):
+        index.setdefault(tuple(round(v[k] - pivot[k], 3) for k in range(3)), []).append(i)
+    return index
+
+
+def _match_color(sub_mesh: SubMesh, index: dict, position, uv, tolerance: float) -> List[float]:
+    """Vertex color of the sub-mesh vertex exported as the glTF vertex at `position`: of the vertices at that position,
+    one with the texture coordinates `uv`"""
+    candidates = index.get(tuple(round(x, 3) for x in position))
+    if not candidates:
+        pivot = sub_mesh.pivot_offset
+        candidates = [
+            i
+            for i, v in enumerate(sub_mesh.vertices)
+            if _close([v[k] - pivot[k] for k in range(3)], position, tolerance)
+        ]
+    if not candidates:
+        raise ValueError(f'Mesh "{sub_mesh.name}": no vertex at {position} for the vertex colors')
+    if uv is not None:
+        candidates = [i for i in candidates if _close(sub_mesh.vertex_uvs[i], uv, tolerance)] or candidates
+    return list(sub_mesh.vertex_colors[candidates[0]])
+
+
 def add_glb_vertex_attributes(glb_path: str, sub_meshes: List[SubMesh], tolerance: float = 1e-4):
     """Adds the `vertex_normals` of `sub_meshes` to the meshes of the nodes with their names in the GLB file, as the
     vertex attribute `_GAME_NORMAL` (an application-specific glTF attribute; three.js GLTFLoader reads it as the
-    geometry attribute `_game_normal`). The GLB keeps Blender's NORMAL: the game normals are for code that follows the
-    game's own shading (FCE chrome, `FceCarMeshController`). Vertices are matched as for the morph targets"""
-    sub_meshes = [sm for sm in sub_meshes if sm.vertices and len(sm.vertex_normals) == len(sm.vertices)]
+    geometry attribute `_game_normal`), and their `vertex_colors` as COLOR_0. The GLB keeps Blender's NORMAL: the game
+    normals are for code that follows the game's own shading (FCE chrome, `FceCarMeshController`). Vertices are matched
+    as for the morph targets"""
+    with_normals = {sm.name for sm in sub_meshes if sm.vertices and len(sm.vertex_normals) == len(sm.vertices)}
+    with_colors = {sm.name for sm in sub_meshes if len(sm.vertices) and len(sm.vertex_colors) == len(sm.vertices)}
+    sub_meshes = [sm for sm in sub_meshes if sm.name in with_normals or sm.name in with_colors]
     if not sub_meshes:
         return
     gltf, binary = read_glb(glb_path)
@@ -184,7 +228,7 @@ def add_glb_vertex_attributes(glb_path: str, sub_meshes: List[SubMesh], toleranc
     for sub_mesh in sub_meshes:
         node = nodes.get(sub_mesh.name)
         if node is None:
-            raise ValueError(f'Cannot add game normals: no mesh node "{sub_mesh.name}" in {glb_path}')
+            raise ValueError(f'Cannot add vertex attributes: no mesh node "{sub_mesh.name}" in {glb_path}')
         for primitive in gltf['meshes'][node['mesh']]['primitives']:
             attributes = primitive['attributes']
             positions = read_accessor(gltf, binary, attributes['POSITION'])
@@ -193,13 +237,24 @@ def add_glb_vertex_attributes(glb_path: str, sub_meshes: List[SubMesh], toleranc
                 if 'TEXCOORD_0' in attributes
                 else [None] * len(positions)
             )
-            normals = (
-                read_accessor(gltf, binary, attributes['NORMAL']) if 'NORMAL' in attributes else [None] * len(positions)
-            )
-            attributes['_GAME_NORMAL'] = _append_vec3_accessor(
-                gltf,
-                binary,
-                [_match_normal(sub_mesh, p, uv, n, tolerance) for p, uv, n in zip(positions, uvs, normals)],
-            )
+            if sub_mesh.name in with_normals:
+                normals = (
+                    read_accessor(gltf, binary, attributes['NORMAL'])
+                    if 'NORMAL' in attributes
+                    else [None] * len(positions)
+                )
+                attributes['_GAME_NORMAL'] = _append_vec3_accessor(
+                    gltf,
+                    binary,
+                    [_match_normal(sub_mesh, p, uv, n, tolerance) for p, uv, n in zip(positions, uvs, normals)],
+                )
+            if sub_mesh.name in with_colors:
+                index = _position_index(sub_mesh)
+                attributes['COLOR_0'] = _append_float_accessor(
+                    gltf,
+                    binary,
+                    [_match_color(sub_mesh, index, p, uv, tolerance) for p, uv in zip(positions, uvs)],
+                    'VEC4',
+                )
     gltf['buffers'][0]['byteLength'] = len(binary) + (-len(binary) % 4)
     write_glb(glb_path, gltf, bytes(binary))

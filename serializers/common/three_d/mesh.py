@@ -20,6 +20,9 @@ class BaseMesh(ABC):
         # `_GAME_NORMAL` (`add_glb_vertex_attributes`; three.js geometry attribute `_game_normal`): the game's own
         # normals, which Blender's may differ from. Only `change_axes` keeps them in sync with the vertices
         self.vertex_normals = []
+        # [r, g, b, a] (0..1) per vertex (parallel to `vertices`) or empty: written by the gg-web-engine export to the
+        # GLB as the vertex attribute COLOR_0 (`add_glb_vertex_attributes`). Not in the OBJ
+        self.vertex_colors = []
 
     def rotate_z(self, angle):
         c, s = math.cos(angle), math.sin(angle)
@@ -171,7 +174,7 @@ class SubMesh(BaseMesh):
             ]
         )
         res += '\n' + '\n'.join([f'vt {uv[0]} {1 - uv[1]}' for uv in self.vertex_uvs])
-        has_normals = len(self.vertex_normals) == len(self.vertices) and self.vertices
+        has_normals = len(self.vertex_normals) == len(self.vertices) and len(self.vertices) > 0
         if has_normals:
             res += '\n' + '\n'.join([f'vn {n[0]} {n[1]} {n[2]}' for n in self.vertex_normals])
         if self.texture_id:

@@ -49,10 +49,10 @@ docs and a working GUI editor for free.
 | `library/changes_service.py` | Tracks unsaved GUI edits against the loaded data tree. |
 | `library/spatial_edit.py` | Spatial edits: blocks declaring `spatial_edit` kinds in their schema (`SpatialEditable`) take "moved handle X to position / rotation" events from a 3D viewer, return the native values to change, and the handle is read back as stored (one undoable change). Skill `read-block-framework`. |
 | `library/utils/asm_runner.py` | 32-bit x86 snippet interpreter (IDA syntax) used to execute and progressively port disassembled game routines; production code never uses it, the ASM-driven decompressor twins in `test/resources/eac/archives/test_compressed_block.py` do. |
-| `resources/eac/` | EA Canada format definitions built from `read_blocks` primitives (bitmaps, archives, fonts, audio, geometries, maps, car specs, TNFS replays). Shared across many NFS titles. `compressions/` holds the pure-Python decompressors and compressors (RefPack, QFS2, QFS3, NFSU's JDLZ, NFSU2's HUFF = QFS3 behind a 16-byte header) behind `EacCompressedBlock`, which writes a resource back with the algorithm it was read with (`compression_flags` in its data, new data gets RefPack). Formats, game addresses and compressor notes: `resources/eac_compressions.md`. Compressor output is checked with the games' ASM decoders in `test_compressed_block.py`. |
+| `resources/eac/` | EA Canada format definitions built from `read_blocks` primitives (bitmaps, archives, fonts, audio, geometries, maps, car specs, TNFS replays). Shared across many NFS titles. `compressions/` holds the pure-Python decompressors and compressors (RefPack, QFS2, QFS3, NFSU's JDLZ, NFSU2's HUFF = QFS3 behind a 16-byte header, NFS HP2 PS2's COMP) behind `EacCompressedBlock`, which writes a resource back with the algorithm it was read with (`compression_flags` in its data, new data gets RefPack). Formats, game addresses and compressor notes: `resources/eac_compressions.md`. Compressor output is checked with the games' ASM decoders in `test_compressed_block.py`. |
 | `resources/eac/maps/`, `resources/eac/geometries/` | Per-game specializations (`tnfs.py`, `nfs2.py`, `nfs3.py`, `nfs5.py`, ...). |
 | `resources/common/` | Vendor-neutral formats reused as fallbacks (e.g. Targa image). |
-| `resources/blackbox/` | Blackbox-studio (later NFS titles) formats, NFS Underground 1, 2 and Most Wanted: `chunks.py` (generic id+length chunk dispatch helpers), `geometries/` (car and world geometry packs), `bitmaps/` (texture packs, TPK), `maps/` (chunk bundles, scenery, streaming sections; `NfsuTrackBundle` is a race's `TRACKBnnnn.lzc` or an NFSU2/NFSMW location bundle `LxRA.BUN`), `archives.py` (JDLZ-compressed files). |
+| `resources/blackbox/` | Blackbox-studio (later NFS titles) formats, NFS Underground 1, 2 and Most Wanted, NFS Hot Pursuit 2 PS2 (`nfs6_ps2.py` modules, see its section below): `chunks.py` (generic id+length chunk dispatch helpers), `geometries/` (car and world geometry packs), `bitmaps/` (texture packs, TPK), `maps/` (chunk bundles, scenery, streaming sections; `NfsuTrackBundle` is a race's `TRACKBnnnn.lzc` or an NFSU2/NFSMW location bundle `LxRA.BUN`), `archives.py` (JDLZ-compressed files). |
 | `resources/eac/fields/` | Small reusable domain blocks: `Point2D`/`Point3D`/`RGBBlock`, angle/time fields. |
 | `resources/*.md` | **Auto-generated** per-game docs (`generate_resource_doc.py`). Never hand-edit — edit the block definitions/descriptions and regenerate. |
 | `serializers/` | Turn parsed block data into common output formats and back. One serializer class per resource kind, returned by a block's `serializer_class()`. |
@@ -128,7 +128,7 @@ When you do:
   other and `three`, `@gg-web-engine/core`, `rxjs`, nothing else of the frontend (a part they need is brought into it),
   and hold no specs (they are tested next to the GUI components using them). It has `TnfsCarMeshController`,
   `Nfs2CarMeshController`, `FceCarMeshController` (NFS3 / NFS4 paint in the fragment shader, by the paint mask's
-  alpha; NFS3 chrome) and `setupNfs1Texture`; the other car mesh controllers (`*-car-mesh-controller.ts`) and the track props controllers
+  alpha; NFS3 chrome), `Nfs6Ps2CarMeshController` (NFS HP2 PS2 cars) and `setupNfs1Texture`; the other car mesh controllers (`*-car-mesh-controller.ts`) and the track props controllers
   (`*track-props-controller.ts`) in `frontend/.../editor/eac/` are copied into nfs-web too, with their import paths
   changed: keep them free of GUI services, depending on three.js, gg-web-engine and rxjs only. Meshes of the GUI's OBJ
   models share a material per MTL material, nfs-web's GLB ones don't: code changing a material's shader must change
@@ -296,6 +296,46 @@ When you do:
   from the `.bin` header (`Nfs5SkyBin`, `resources/eac/maps/nfs5_sky.py`, exported as `<name>.bin.json`). The last
   texel row of each strip is transparent padding. Below the horizon one flat colour (mean of the band's lowest drawn
   row). `hzcl`, `hor0`.., region B, wind and warp are not used.
+
+## NFS Hot Pursuit 2 PlayStation 2 (`games/nfs6_ps2`, SLUS-20362, doc `resources/NFS6_PS2.md`)
+
+- The disc keeps its files in `NFSHP2/ZZDATA.BIN`, listed by `NFSHP2/ZDIR.BIN` (12-byte entries: `bin_hash` of the path
+  as the executable writes it, e.g. `TRACKS\TRACKB11.LZC`, 2048-byte sector, size). `games/nfs6_ps2/ZZDATA/` has them
+  unpacked under the paths found in the executable's strings and the car types table (136 entries without a known path:
+  `UNKNOWN/<hash>.BIN`).
+  The converter does not read `ZZDATA.BIN` itself. Track = location * 10 + variant (locations 1, 2, 3, 4, 6).
+- `*.LZC` = `COMP` (`resources/eac/compressions/comp.py`, `Nfs6Ps2CompressedBlock`): byte-exact port of the game's
+  `lzcompress.cpp` (SLUS_203.62 0x1b3dd0 / 0x1b41c8); all 81 `COMP` files of the disc compress back to the same bytes.
+- Files are Black Box chunk bundles with NFSU's chunk ids but other layouts (`resources/blackbox/{geometries,bitmaps,maps}/
+  nfs6_ps2.py`): the loader picks `Nfs6Ps2ChunkBundle` for a bundle with a mesh pack 0x80034000 or a texture pack
+  0xB0300001 (`is_nfs6_ps2_bundle`; NFSU's are 0x80134000 / 0xB3300000), `Nfs6Ps2TrackBundle` with sceneries too. Every
+  track and global bundle writes back byte-exact.
+- Meshes (`nfs6_ps2_mesh`): VIF packets for the game's VU1 microprogram (layout in its docstring, strips:
+  `nfs6_ps2_strip_skips`, the R register LFSR of the VU). Vertices are local: a scenery instance places them
+  (`v @ rotation + position`, rotation 2.14 fixed point); the mesh header's matrix is the modelling one, not used.
+- Textures (`nfs6_ps2_texture_to_image`, `library/utils/ps2.py`): 4 / 8-bit indexes, GS-swizzled when the level's
+  `swizzled` flag is set (whole GS pages), 256-colour palettes in CSM1 order, alpha 0x80 = opaque (doubled).
+- `Nfs6Ps2TrackBundleSerializer` (an `NfsuTrackBundleSerializer`): one chunk per scenery (game axes, Z up), textures of
+  `TEX<track>TRACK.BIN`, `TEX<track>LOCATION.BIN`, `GLOBAL/INGAMEB`, `GLOBAL/DRIVTEX.BIN` (`nfs6_ps2_texture_pack_paths`).
+  The sky dome `SKYDOME` (placed by its scenery instance, 0x11c5f8) is not in the chunks: `spherical.png`
+  (`library/utils/nfs6_ps2_sky_to_spherical.py`). `track_route.json`: path 0 of the track paths chunk 0x80034147 (the
+  race route, 2D) with heights from the world's floor triangles (`nfs6_ps2_ground_heights`). GUI:
+  `NFS6_PS2_TRACK_ADAPTER` (`loadLayout`; a bundled-textures adapter with `hasSkybox` takes `spherical.png` from the
+  chunk export, `loadBundledSky`).
+- Cars: `CARS/<car>/GEOMETRY.LZC` (`Nfs6Ps2CarGeometry`, a bundle starting with chunk 0x34013:
+  `is_nfs6_ps2_car_bundle`; 44 models, folder names from the car types table) holds the meshes only. The car types
+  table is chunk 0x34600 of `GLOBAL/GLOBALB.LZC` (`Nfs6Ps2CarTypeInfos`, 0x560 bytes per car type, wheels at +0x120:
+  X forward, Y left, Z up), the textures are in `CARS/TEXTURES.BIN` (`<car>_SKIN<n>`, lights...) and GLOBALB (windows,
+  tyres, brakes, license plates). `Nfs6Ps2CarSerializer`: parts by mesh id (`bin_hash` of the game's part names,
+  `nfs6_ps2_car_parts`; stored names are cut to 23 characters), tyres / brakes / blur discs drawn at each wheel (left
+  ones turned around), texture slots of the game (`nfs6_ps2_car_texture_slots`: materials `skin`, `skin_b`, `window`,
+  `headlight`, `brakelight`), `skins.json` (labels `nfs6_ps2_paint_label`) and `car.json` (wheels, light textures).
+  Car textures are written at double brightness and the vertex colours (the baked shading, 0x80 = 1.0) go to the GLB
+  as COLOR_0 / 0xFF (`SubMesh.vertex_colors`, `add_glb_vertex_attributes`). GUI: `Nfs6Ps2CarBlockUiComponent` with
+  `Nfs6Ps2CarMeshController` (`nfs-three-lib`: paint, lights, wheels, vertex colours of a GLB). nfs-web reads these
+  names and files: keep them stable.
+- Ghidra: nfs-web `decomp/nfs6_ps2/SLUS_203.62.gzf` (R5900 language of the extension `ghidra-emotionengine-reloaded`),
+  VU1 microcode: nfs-web `decomp/vu1dis.py`. Not read yet: sound, NIS, the 136 unnamed files.
 
 ## NFS5 data files (`resources/eac/car_specs.py`, `resources/eac/maps/nfs5.py`, `resources/eac/geometries/nfs5.py`)
 

@@ -1,6 +1,6 @@
 from copy import deepcopy
 from io import BytesIO
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 from PIL import Image
@@ -550,6 +550,85 @@ def nfsu_texture_to_image(info: dict, d3d_format: int, data: bytes, indexed: boo
             return ImageSerializer.indexed_image(indices.tolist(), width, height, colors)
         return Image.frombytes('RGBA', (width, height), palette[indices].tobytes())
     raise NotImplementedError(f'Unsupported NFSU texture format {d3d_format}')
+
+
+def nfs6_ps2_texture_pack_textures(tpk_data: dict) -> List[tuple]:
+    """Textures of NFS Hot Pursuit 2 (PS2) texture pack (TPK chunk data): list of (texture info, data bytes of the
+    pack). Texture info offsets point into the data bytes"""
+    infos = _sub_chunk(tpk_data, 0x30300003)
+    data_chunk = _sub_chunk(tpk_data, 0x30300004)
+    if infos is None or data_chunk is None:
+        return []
+    return [(info, data_chunk['data']) for info in infos['textures']]
+
+
+def nfs6_ps2_texture_indexes(info: dict, data: bytes) -> Tuple[bytes, List[int]]:
+    """Palette indexes (a byte per pixel, row by row) and RGBA palette colors (0xRRGGBBAA, in index order) of the
+    full-size image of an NFS Hot Pursuit 2 (PS2) texture. PS2 alpha 0x80 is opaque: doubled, up to 0xFF. The 256
+    colours of an 8-bit palette are stored in CSM1 order (`csm1_index`)"""
+    from library.utils.ps2 import csm1_index, unswizzle
+
+    width, height, bits = info['width'], info['height'], info['bits_per_pixel']
+    offset = info['image_placement']
+    pixels = data[offset : offset + width * height * bits // 8]
+    if info['levels'][0]['swizzled']:
+        indexes = unswizzle(pixels, width, height, bits)
+    elif bits == 8:
+        indexes = pixels
+    else:
+        packed = np.frombuffer(pixels, dtype=np.uint8)
+        indexes = np.stack([packed & 15, packed >> 4], axis=1).tobytes()
+    palette_bytes = data[info['palette_placement'] : info['palette_placement'] + info['palette_size']]
+    stored = [
+        (r << 24) | (g << 16) | (b << 8) | min(0xFF, a * 2)
+        for r, g, b, a in (palette_bytes[i : i + 4] for i in range(0, len(palette_bytes) - 3, 4))
+    ]
+    if bits == 8 and len(stored) >= 256:
+        stored = [stored[csm1_index(i)] for i in range(256)]
+    return indexes, stored
+
+
+def nfs6_ps2_texture_to_image(info: dict, data: bytes, indexed: bool = False) -> Image.Image:
+    """Full-size image of NFS Hot Pursuit 2 (PS2) texture, RGBA, or with `indexed` an indexed image of the same RGBA
+    (`ImageSerializer.indexed_image`), to save it to PNG"""
+    import numpy as np
+
+    indexes, colors = nfs6_ps2_texture_indexes(info, data)
+    width, height = info['width'], info['height']
+    if indexed:
+        image = ImageSerializer.indexed_image(indexes, width, height, colors)
+        if image is not None:
+            return image
+    palette = np.array(colors + [0] * (256 - len(colors)), dtype='>u4')
+    rgba = palette[np.frombuffer(indexes, dtype=np.uint8)].astype('>u4').tobytes()
+    return Image.frombytes('RGBA', (width, height), rgba)
+
+
+class Nfs6Ps2TexturePackSerializer(BaseFileSerializer):
+    """NFS Hot Pursuit 2 (PS2) texture pack: every texture as "<name>.png" """
+
+    def __init__(self):
+        super().__init__(is_dir=True)
+
+    def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
+        import os
+        import re
+        import traceback
+
+        super().serialize(data, path, id=id, block=block)
+        os.makedirs(path, exist_ok=True)
+        files = []
+        for info, image_data in nfs6_ps2_texture_pack_textures(data):
+            name = re.sub(r'[^0-9A-Za-z_-]', '_', info['name']) or f'{info["name_hash"]:08x}'
+            try:
+                image = nfs6_ps2_texture_to_image(info, image_data, indexed=True)
+            except Exception:
+                traceback.print_exc()
+                continue
+            file_path = os.path.join(path, f'{name}.png')
+            ImageSerializer.save_png(image, file_path)
+            files.append(file_path)
+        return files
 
 
 class NfsuTexturePackSerializer(BaseFileSerializer):

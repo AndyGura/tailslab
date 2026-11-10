@@ -39,6 +39,7 @@ import { FontBlockUiComponent } from './eac/font.block-ui/font.block-ui.componen
 import { ArchiveBlockUiComponent } from './library/archive.block-ui/archive.block-ui.component';
 import { TargaImageBlockUiComponent } from './common/targa-image.block-ui/targa-image.block-ui.component';
 import { NfsuBinGeometryBlockUiComponent } from './blackbox/nfsu-bin-geometry.block-ui/nfsu-bin-geometry.block-ui.component';
+import { Nfs6Ps2CarBlockUiComponent } from './blackbox/nfs6-ps2-car.block-ui/nfs6-ps2-car.block-ui.component';
 import { EaglModelBlockUiComponent } from './eac/eagl-model.block-ui/eagl-model.block-ui.component';
 import { PlayerCarPhysicsBlockUiComponent } from './eac/player-car-physics.block-ui/player-car-physics.block-ui.component';
 import { CarAiAndCrashBodyBlockUiComponent } from './eac/car-ai-and-crash-body.block-ui/car-ai-and-crash-body.block-ui.component';
@@ -122,6 +123,10 @@ export class EditorComponent implements OnDestroy {
     Nfs6AiPaths: TrackMapBlockUiComponent,
     NfsuTrackBundle: TrackMapBlockUiComponent,
     EaglModel: EaglModelBlockUiComponent,
+
+    // NFS6 PS2-specific blocks
+    Nfs6Ps2TrackBundle: TrackMapBlockUiComponent,
+    Nfs6Ps2CarGeometry: Nfs6Ps2CarBlockUiComponent,
 
     // NFSU-specific blocks
     NfsuBinGeometry: NfsuBinGeometryBlockUiComponent,

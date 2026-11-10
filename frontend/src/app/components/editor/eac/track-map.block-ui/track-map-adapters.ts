@@ -54,7 +54,8 @@ export interface TrackMapAdapter {
   terrainAlphaTest?: number;
   // Serializer settings patch used when exporting the texture archive
   textureArchiveSettings?: { [key: string]: any };
-  // Whether the texture archive provides a spherical skybox texture
+  // Whether the texture archive provides a spherical skybox texture (with `bundledTextures`: the track serializer
+  // writes it next to the chunks)
   hasSkybox: boolean;
   // Wrapping/orientation of terrain textures. Defaults to repeat in both directions
   setupTerrainTexture?(texture: Texture): void;
@@ -282,6 +283,30 @@ export const NFSU_TRACK_ADAPTER: TrackMapAdapter = {
   minimapPointsOnly: true,
 };
 
+// NFS Hot Pursuit 2 PS2 track bundle (TRACKS/TRACKB<track>.LZC): one chunk per scenery, textures come with the chunks,
+// the sky dome on `spherical.png` next to them. The serializer writes the chunk positions to `terrain_chunks.json` and
+// the race route (with heights from the world) to `track_route.json`
+export const NFS6_PS2_TRACK_ADAPTER: TrackMapAdapter = {
+  ...NFSU_TRACK_ADAPTER,
+  loadLayout: async (serializedPaths: string[]) => {
+    const load = async (name: string) => {
+      const path = serializedPaths.find(x => x.endsWith(name));
+      return path ? await (await fetch(path)).json() : null;
+    };
+    const chunks: Point3[] = (await load('terrain_chunks.json')) || [];
+    const route = (await load('track_route.json')) || { points: [], closed: false };
+    return {
+      chunkPositions: chunks,
+      splinePoints: route.points.length
+        ? route.points
+        : chunks.map((position: Point3) => ({ position, orientation: 0 })),
+      isClosed: route.closed,
+    };
+  },
+  minimapPointsOnly: false,
+  hasSkybox: true,
+};
+
 // NFS5 CRP track ("karT"): the backend splits the meshes into chunks, one per road piece, and writes their
 // positions and road headings to `track_layout.json`. Textures come from the FSH file, referenced by the CRP
 export const NFS5_TRACK_ADAPTER: TrackMapAdapter = {
@@ -311,6 +336,7 @@ export const TRACK_MAP_ADAPTERS: { [blockClass: string]: TrackMapAdapter } = {
   Nfs6AiPaths: NFS6_TRACK_ADAPTER,
   CrpGeometry: NFS5_TRACK_ADAPTER,
   NfsuTrackBundle: NFSU_TRACK_ADAPTER,
+  Nfs6Ps2TrackBundle: NFS6_PS2_TRACK_ADAPTER,
 };
 
 export function findTrackMapAdapter(blockClassMro: string | undefined): TrackMapAdapter | null {

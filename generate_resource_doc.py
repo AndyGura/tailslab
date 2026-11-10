@@ -18,6 +18,10 @@ from resources.eac import psx as eac_psx, psx_bitmaps as eac_psx_bitmaps
 from resources.eac import horizons as eac_horizons
 from resources.blackbox.bitmaps import nfsu as blackbox_bitmaps_nfsu
 from resources.blackbox.maps import nfsu as blackbox_maps_nfsu
+from resources.blackbox.maps import nfs6_ps2 as blackbox_maps_nfs6_ps2
+from resources.blackbox.bitmaps import nfs6_ps2 as blackbox_bitmaps_nfs6_ps2
+from resources.blackbox.geometries import nfs6_ps2 as blackbox_geometries_nfs6_ps2
+from resources.blackbox import archives as blackbox_archives
 
 
 def render_value_doc_str(value: str) -> str:
@@ -813,6 +817,60 @@ EXPORT_RESOURCES = {
             ],
             # 'Misc': [
             # ]
+        },
+    },
+    'nfs6_ps2': {
+        'file_name': 'NFS6_PS2.md',
+        'title': 'NFS Hot Pursuit 2 (PlayStation 2) file specs',
+        'file_list': f"""The disc keeps every file in **NFSHP2/ZZDATA.BIN**, listed by **NFSHP2/ZDIR.BIN**: 12-byte entries (Black Box hash of the file path, 2048-byte sector, size). The paths are not stored: the executable SLUS_203.62 has them (e.g. "TRACKS\\TRACKB%d.LZC").
+
+**TRACKS/TRACKB\\<track\\>.LZC** track bundle (track = location * 10 + variant, locations 1, 2, 3, 4 and 6): sceneries, meshes, track paths and race data. Opened in the track viewer with its textures and sky. COMP-compressed: {render_type(blackbox_archives.Nfs6Ps2CompressedBlock())}
+
+**CARS/\\<car\\>/GEOMETRY.LZC** car model (COMP-compressed; GEOMETRY.BIN uncompressed): its meshes. Textures are in **CARS/TEXTURES.BIN** and **GLOBAL/GLOBALB.LZC**, which has the car types table (wheels). {render_type(blackbox_maps_nfs6_ps2.Nfs6Ps2CarGeometry())}
+
+**TRACKS/TEX\\<track\\>LOCATION.BIN**, **TRACKS/TEX\\<track\\>TRACK.BIN**, **GLOBAL/\\*.BIN** texture packs and other chunk bundles. {render_type(blackbox_maps_nfs6_ps2.Nfs6Ps2ChunkBundle())}""",
+        'blocks': {
+            'Maps': [
+                blackbox_maps_nfs6_ps2.Nfs6Ps2TrackBundle(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2ChunkBundle(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2Scenery(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2SceneryHeader(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2SceneryInfos(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2SceneryInfo(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2SceneryInstances(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2SceneryInstance(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2TrackPath(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2TrackPathHeader(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2TrackPathRecord(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2TrackPathPoints(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2TrackPathPoint(),
+            ],
+            'Cars': [
+                blackbox_maps_nfs6_ps2.Nfs6Ps2CarGeometry(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2CarTypeInfos(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2CarTypeInfo(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2CarWheel(),
+            ],
+            'Images': [
+                blackbox_bitmaps_nfs6_ps2.Nfs6Ps2TexturePack(),
+                blackbox_bitmaps_nfs6_ps2.Nfs6Ps2TexturePackHeader(),
+                blackbox_bitmaps_nfs6_ps2.Nfs6Ps2TextureInfos(),
+                blackbox_bitmaps_nfs6_ps2.Nfs6Ps2TextureInfo(),
+                blackbox_bitmaps_nfs6_ps2.Nfs6Ps2MipLevel(),
+                blackbox_bitmaps_nfs6_ps2.Nfs6Ps2TextureData(),
+            ],
+            'Geometries': [
+                blackbox_geometries_nfs6_ps2.Nfs6Ps2SolidPack(),
+                blackbox_geometries_nfs6_ps2.Nfs6Ps2SolidPackHeader(),
+                blackbox_geometries_nfs6_ps2.Nfs6Ps2Mesh(),
+                blackbox_geometries_nfs6_ps2.Nfs6Ps2MeshHeader(),
+                blackbox_geometries_nfs6_ps2.Nfs6Ps2MeshTextures(),
+                blackbox_geometries_nfs6_ps2.Nfs6Ps2MeshDrawGroups(),
+                blackbox_geometries_nfs6_ps2.Nfs6Ps2MeshDrawGroup(),
+                blackbox_geometries_nfs6_ps2.Nfs6Ps2MeshVifData(),
+                blackbox.geometries.ZeroChunk(),
+                blackbox.geometries.UnknownChunk(),
+            ],
         },
     },
     'nfsu': {

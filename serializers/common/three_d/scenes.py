@@ -251,7 +251,7 @@ $extra_script
                     obj, fii = sub_model.to_obj(face_index_increment, normal_index_increment=normal_index_increment)
                     f.write(obj)
                     face_index_increment += fii
-                    if sub_model.vertices and len(sub_model.vertex_normals) == len(sub_model.vertices):
+                    if len(sub_model.vertices) and len(sub_model.vertex_normals) == len(sub_model.vertices):
                         normal_index_increment += len(sub_model.vertex_normals)
             exported_files.append(file_path)
         if scene.dummies or scene.curves or scene.object_properties or scene.extras:
