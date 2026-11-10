@@ -1064,9 +1064,14 @@ class CrpSimTPart(DeclarativeCompoundBlock):
             'block_description': 'Common part "TmiS" (`SimT`, tracks only): the sections of the road spline, an int32 '
             'slice count per section, the sections following each other over the slices of "DmiS" (Alps: 1795 + '
             '272 + 22 + 16 = 2105 slices). Without it (or with less than 2) the spline is one section. Porsche.exe '
-            '0x480080 reads it, then splits sections where another one ends mid-way and builds junctions at the '
-            'section ends (0x480900 / 0x480b40), whose branch weights come from `<track>.jnc` '
-            '([Nfs5Junctions](#nfs5junctions))',
+            '0x480080 reads it, then splits sections where another one ends within 16 m of it, more than 5 slices '
+            'from its ends (0x480900), and joins section ends within 16 m of each other into junctions (0x480b40), '
+            'whose branch weights come from `<track>.jnc` ([Nfs5Junctions](#nfs5junctions)). A section is driven '
+            'from its first slice to its last. The race goes from junction 0 (slice 0) along the longest walk '
+            'through the sections (0x481910 / 0x4819e0: the race length and progress, 0x416290) to the junction at '
+            'its end, or back to junction 0 on a circuit; the other sections are alternative roads, shortcuts and '
+            'branches. The HUD map (0x432230 / 0x433690) draws every section alike, each end linked to its '
+            'junction centre (the average of its end slices)',
         }
 
     class Fields(DeclarativeCompoundBlock.Fields):

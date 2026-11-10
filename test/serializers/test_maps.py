@@ -121,6 +121,84 @@ class TestEacTrackSerializers(unittest.TestCase):
             self.assertEqual(len(col_dummies), 2)
             self.assertTrue(all(d['properties']['is_unknown'] for d in col_dummies))
 
+    def test_frd_route_should_be_the_col_slices(self):
+        import json
+        import math
+        import os
+        import tempfile
+
+        from library import require_file
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, 'tr00')
+            files = self._serialize(
+                'test/golden_corpus/TR00.FRD', out, maps__save_as_chunked=True, maps__add_props_to_obj=False
+            )
+            self.assertIn(os.path.join(out, 'track_route.json'), files)
+            with open(os.path.join(out, 'track_route.json')) as f:
+                route = json.load(f)
+        (_, _, frd) = require_file('test/golden_corpus/TR00.FRD')
+        # chunk files are placed at the block positions
+        self.assertEqual(route['chunks'], [b['position'] for b in frd['blocks']])
+        # the golden corpus TR00.COL is NFS2's, its slices don't fit the track: the block positions
+        self.assertEqual([p['position'] for p in route['points']], route['chunks'])
+
+        from serializers.maps import nfs3_track_route
+
+        (_, _, col) = require_file('test/samples/NFS3_TR00.COL')
+        route = nfs3_track_route(frd, col)
+        slices = [r for x in col['extrablocks'] if x['type'] == 'collision_data' for r in x['data_records']['data']]
+        self.assertTrue(route['closed'])
+        self.assertEqual(len(route['points']), sum(len(b['positions']) for b in frd['blocks']))
+        self.assertEqual([p['position'] for p in route['points']], [s['position'] for s in slices])
+        # the heading points to the next slice
+        a, b = slices[100]['position'], slices[101]['position']
+        heading = math.atan2(b['x'] - a['x'], b['z'] - a['z'])
+        self.assertAlmostEqual(route['points'][100]['orientation'], heading, delta=0.1)
+        # Hometown has no shortcuts
+        self.assertEqual(route['roads'], [])
+
+    def test_nfs3_shortcuts_should_join_the_middle_slices_of_a_run(self):
+        from serializers.maps import nfs3_track_route
+
+        def position(alt_1=-1, alt_2=-1):
+            return {'alt_slice_1': alt_1, 'alt_slice_2': alt_2}
+
+        # 16 slices; slices 2..4 and 12..10 name each other (one shortcut), slice 7 and 14 another one
+        alts = {2: (12, -1), 3: (11, -1), 4: (10, -1), 10: (4, -1), 11: (3, -1), 12: (2, -1), 7: (-1, 14), 14: (-1, 7)}
+        positions = [position(*alts.get(i, (-1, -1))) for i in range(16)]
+        frd = {
+            'blocks': [
+                {'position': {'x': 0, 'y': 0, 'z': 0}, 'positions': positions[:8]},
+                {'position': {'x': 0, 'y': 0, 'z': 48}, 'positions': positions[8:]},
+            ]
+        }
+        col = {
+            'extrablocks': [
+                {
+                    'type': 'collision_data',
+                    'data_records': {
+                        'data': [
+                            {'position': {'x': i, 'y': 1, 'z': 6 * i}, 'forward': {'x': 0, 'y': 0, 'z': 1}}
+                            for i in range(16)
+                        ]
+                    },
+                }
+            ]
+        }
+        route = nfs3_track_route(frd, col)
+        self.assertEqual(len(route['points']), 16)
+        self.assertEqual(route['points'][0]['orientation'], 0)
+        self.assertEqual(
+            [[p['x'] for p in road['points']] for road in route['roads']],
+            [[3, 11], [7, 14]],
+        )
+        self.assertFalse(any(road['closed'] for road in route['roads']))
+        # without COL slices: the block positions
+        route = nfs3_track_route(frd, None)
+        self.assertEqual([p['position'] for p in route['points']], route['chunks'])
+        self.assertEqual(route['roads'], [])
+
     def test_trk_props_should_be_baked_into_map(self):
         import json
         import os

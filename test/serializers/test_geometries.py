@@ -799,10 +799,73 @@ class TestNfs6CarSerializer(unittest.TestCase):
             obj = f.read()
         self.assertEqual(re.findall(r'^o (.*)$', obj, re.MULTILINE), ['hp_0_ALPHA_OPAQUE_HOODShape'])
         # game (x, y, z) -> (x, -z, y): Y up, front at -Z becomes Z up, front at +Y
-        self.assertIn('v 1.0 -1.0 5.0', obj)
+        self.assertIn('v 1.0 -1.0 5.0\n', obj)
+        # the game normals, turned the same way
+        self.assertEqual(len(re.findall(r'^vn 0\.0 -0\.8\d* 0\.6\d*$', obj, re.MULTILINE)), 4)
         # rotation keeps handedness, so faces keep facing outwards: winding of every triangle is reversed back
-        faces = re.findall(r'^f (\d+)/\d+ (\d+)/\d+ (\d+)/\d+$', obj, re.MULTILINE)
+        faces = re.findall(r'^f (\d+)/\d+/\d+ (\d+)/\d+/\d+ (\d+)/\d+/\d+$', obj, re.MULTILINE)
         self.assertEqual(faces, [('3', '1', '2'), ('4', '3', '2')])
+        with open(os.path.join(out_path, 'geometry_extra.json')) as f:
+            objects = json.load(f)['objects']
+        self.assertEqual(objects, {'hp_0_ALPHA_OPAQUE_HOODShape': {'eaglShader': 'paint', 'eaglBlend': 'opaque'}})
+        with open(os.path.join(out_path, 'lighting.json')) as f:
+            lighting = json.load(f)
+        self.assertEqual(lighting['locations'], [])
+        self.assertIsNone(lighting['environment_map'])
+
+    def test_car_lighting_from_game_folders(self):
+        from library.loader import clear_file_cache, path_to_name
+        from test.resources.eac.test_geometries import build_eagl_model
+
+        car_dir = os.path.join(self.tmp_dir, 'Cars', 'test')
+        os.makedirs(car_dir)
+        path = os.path.join(car_dir, 'car.o')
+        with open(path, 'wb') as f:
+            f.write(build_eagl_model(car=True))
+        with open(os.path.join(car_dir, 'vehicle.ini'), 'w') as f:
+            f.write("'comment\n[effects]\nspecular_hotspot_exponent=55.0\n[vehicletype]\ntype=primary\n")
+        for level in ['level01', 'level00']:
+            os.makedirs(os.path.join(self.tmp_dir, 'tracks', 'Alpine', level))
+        with open(os.path.join(self.tmp_dir, 'tracks', 'Alpine', 'level00', 'lighting.ini'), 'w') as f:
+            f.write(
+                '[ambientsky]\nred=196\ngreen=170\nblue=162\n[ambientground]\nred=48\ngreen=41\nblue=40\n'
+                '[sun]\nred=254\ngreen=226\nblue=207\nposition_x=-691.71f\nposition_y=589.632f\nposition_z=2726.86f\n'
+            )
+        clear_file_cache(path)
+        out_path, paths = self._serialize(path_to_name(path))
+        with open(os.path.join(out_path, 'lighting.json')) as f:
+            lighting = json.load(f)
+        self.assertEqual(lighting['vehicle_type'], 'primary')
+        self.assertEqual(lighting['specular_hotspot_exponent'], 55.0)
+        self.assertEqual(
+            lighting['locations'],
+            [
+                {
+                    'name': 'Alpine',
+                    'ambient_sky': [196, 170, 162],
+                    'ambient_ground': [48, 41, 40],
+                    'sun': [254, 226, 207],
+                    'sun_position': [-691.71, 589.632, 2726.86],
+                    'environment_map': None,
+                }
+            ],
+        )
+
+    def test_skin_specular(self):
+        from configparser import ConfigParser
+        from serializers.geometries import nfs6_skin_specular
+
+        ini = ConfigParser()
+        ini.read_string(
+            '[skin00]\nspecular_red=217\nspecular_paint_exponent=5.0\n[skin01]\ncolor_id=red\n'
+            '[skin02]\nspecular_red=1\n[SKINHP]\nspecular_red=7\nspecular_sun_intensity=20\n'
+        )
+        self.assertEqual(nfs6_skin_specular(ini, 'skin00'), {'specular_red': 217, 'specular_paint_exponent': 5.0})
+        # the game reads [skinNN] up to the first one without specular_red
+        self.assertIsNone(nfs6_skin_specular(ini, 'skin01'))
+        self.assertIsNone(nfs6_skin_specular(ini, 'skin02'))
+        self.assertEqual(nfs6_skin_specular(ini, 'skinhp'), {'specular_red': 7, 'specular_sun_intensity': 20})
+        self.assertIsNone(nfs6_skin_specular(ini, 'skincop'))
 
     @unittest.skipUnless(os.path.exists(NFS6_CAR_SAMPLE_DIR), f'needs NFS6 car sample {NFS6_CAR_SAMPLE_DIR}')
     def test_car_from_car_viv(self):
@@ -817,12 +880,14 @@ class TestNfs6CarSerializer(unittest.TestCase):
             mtl = f.read()
         self.assertIn('map_Kd textures/skin.png', mtl)
         self.assertIn('map_Kd textures/wl00.png', mtl)
+        # the texture alpha is the reflection mask, the materials ignore it
+        self.assertIn('map_Kd textures/skin.png\nalpha_mode opaque', mtl)
+        with open(os.path.join(out_path, 'geometry_extra.json')) as f:
+            objects = json.load(f)['objects']
         # glass: black with vertex alpha 0x85
-        self.assertIn('newmtl skin-00000085\n', mtl)
-        with Image.open(os.path.join(out_path, 'textures/skin-00000085.png')) as png:
-            self.assertEqual(png.getextrema()[3][1], 0x85)
-        with Image.open(os.path.join(out_path, 'textures/skin.png')) as png:
-            self.assertEqual(png.getextrema()[3], (255, 255))
+        glass = [x for x in objects.values() if x['eaglShader'] == 'glass']
+        self.assertTrue(glass)
+        self.assertIn(0x85 / 255, [x.get('eaglVertexAlpha') for x in glass])
         with open(os.path.join(out_path, 'skins.json')) as f:
             skins = json.load(f)
         self.assertEqual(

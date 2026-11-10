@@ -57,6 +57,7 @@ import { TrackProp } from './track-props-controller';
 import { SpatialEditController, SpatialEditHost, SpatialMove } from '../../common/spatial-edit/spatial-edit.controller';
 import { SpatialEditKind, SpatialHandle, spatialEditKinds } from '../../common/spatial-edit/spatial-edit.types';
 import { SelectionOrbit } from '../../common/spatial-edit/selection-orbit';
+import { MinimapRoad } from '../../common/minimap/minimap.component';
 
 // Focus brings the camera this close to the selection
 const FOCUS_DISTANCE = 15;
@@ -119,6 +120,9 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
   chunkPositions: Point3[] | null = null;
   splinePoints: TrackSplinePoint[] = [];
   minimapSpline: Point3[] = [];
+  minimapRoads: MinimapRoad[] = [];
+  // the minimap shows the spline points as dots: they are not a road
+  minimapPointsOnly: boolean = false;
   isClosed: boolean = true;
   ambientLight: AmbientLight = new AmbientLight(0xffffff, 2);
   viewModeController?: ViewModeController;
@@ -313,6 +317,7 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
                       orientation: 0,
                     })),
                 isClosed: !adapter.isClosed || adapter.isClosed(data),
+                roads: adapter.roads ? adapter.roads(data) : [],
               }
             : null,
         );
@@ -330,6 +335,9 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
           await this.findTextureArchives(adapter.textureArchivePatterns(this.resourceId));
           await this.onTextureArchiveSelected(this.textureArchiveOptions$.value[0] || null, true);
         } else {
+          if (adapter?.bundledTextures && adapter.hasSkybox) {
+            await this.loadBundledSky();
+          }
           await this.loadPreview();
         }
         this.previewLoading$.next(false);
@@ -341,7 +349,9 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
     this.chunkPositions = layout?.chunkPositions ? layout.chunkPositions.map(toViewer) : null;
     this.splinePoints = layout ? layout.splinePoints : [];
     this.minimapSpline = this.splinePoints.map(p => toViewer(p.position));
+    this.minimapRoads = (layout?.roads || []).map(road => ({ points: road.points.map(toViewer), closed: road.closed }));
     this.isClosed = !layout || layout.isClosed;
+    this.minimapPointsOnly = !!this.adapter?.minimapPointsOnly || !!layout?.pointsOnly;
     this.cdr.markForCheck();
   }
 
@@ -388,6 +398,24 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
     material.needsUpdate = true;
     // without the track's sky the viewer's background sky shows
     mesh.visible = !!texture;
+  }
+
+  // The sky of a track whose serializer writes `spherical.png` next to the chunks
+  private async loadBundledSky() {
+    const skyPath = this.serializedFiles.find(x => x.endsWith('spherical.png'));
+    if (!skyPath) {
+      this.setSkyTexture(null);
+      return;
+    }
+    try {
+      const tex = await new TextureLoader().loadAsync(skyPath);
+      tex.colorSpace = 'srgb';
+      tex.mapping = CubeReflectionMapping;
+      this.setSkyTexture(tex);
+    } catch (err) {
+      console.warn('Could not load the sky texture', err);
+      this.setSkyTexture(null);
+    }
   }
 
   async onTextureArchiveSelected(path: string | null, force: boolean = false) {
@@ -465,6 +493,7 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
         if (!this.adapter.splinePoints && this.chunkPositions) {
           this.splinePoints = this.chunkPositions.map(position => ({ position: toViewer(position), orientation: 0 }));
           this.minimapSpline = this.chunkPositions;
+          this.minimapPointsOnly = true;
         }
       }
     } else {
@@ -644,6 +673,7 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
       chunkPositions: adapter.chunkPositions(data),
       splinePoints: adapter.splinePoints ? adapter.splinePoints(data) : [],
       isClosed: !adapter.isClosed || adapter.isClosed(data),
+      roads: adapter.roads ? adapter.roads(data) : [],
     });
     this.updateSplineDetails();
     const selection = this.spatialEdit?.selection$.value || [];

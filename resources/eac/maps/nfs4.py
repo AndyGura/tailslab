@@ -122,9 +122,24 @@ class Nfs4VRoadBlock(DeclarativeCompoundBlock):
                 '(0x41cce0)'
             },
         )
-        unk0 = (
-            IntegerBlock(length=4, is_signed=False),
-            {'description': '0xFFFFFFFF in nearly all records of the NFS4 tracks', 'is_unknown': True},
+        left_link = (
+            IntegerBlock(length=2, is_signed=True),
+            {
+                'description': 'The slice across the open left side of this one, -1 for none: where a shortcut or '
+                'cut-through leaves the road on the left, the slice where it joins the road again (the records of '
+                'both ends link each other, a run of consecutive slices to a run of consecutive ones), or the other '
+                'part of a hairpin running side by side without a wall. Only tracks NFS4 shares with NFS3 have links '
+                '(8 of the 9, not Hometown; Empire 32 / 33 <-> 75 / 76, Redrock 608..614 <-> 634..640...). No reader '
+                'found in nfs4.exe; the track viewer draws them as roads on the minimap'
+            },
+        )
+        right_link = (
+            IntegerBlock(length=2, is_signed=True),
+            {
+                'description': 'The slice across the open right side of this one, -1 for none, as `left_link` '
+                '(Atlantic 854..856 <-> 964..966: the road joining blocks 106 / 107 and 120). The open side often has '
+                'side type 0 there'
+            },
         )
         left_lanes = (
             IntegerBlock(length=4, is_signed=True),
@@ -279,8 +294,9 @@ class Nfs4TrkBlockHeader(DeclarativeCompoundBlock):
         position = (
             Point3D(child=DecimalBlock(length=4)),
             {
-                'description': 'Position of the block in the world: a point on the road at the block start. '
-                'Positions of all blocks form the track path'
+                'description': 'Position of the block in the world: near the middle of its slices (closest to slice '
+                '3 or 4, a few meters, up to 30, off the road centre line). The track viewer places the chunks here; '
+                'its road spline is the `vroad` slice centres'
             },
         )
         bounds = (

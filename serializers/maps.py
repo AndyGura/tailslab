@@ -4,7 +4,7 @@ import os
 import traceback
 from copy import deepcopy
 from types import SimpleNamespace
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, NamedTuple, Optional, Tuple
 
 import config
 from library.utils import path_join
@@ -1196,6 +1196,54 @@ class TrkMapSerializer(EacTrackSerializer):
 FRD_LOD_POLYGON_CHUNKS = [[4, 5], [2, 3], [0, 1]]
 
 
+def nfs3_track_route(data: dict, col_data: Optional[dict]) -> dict:
+    """The layout of a NFS3 track for the GUI's track viewer ("track_route.json", game coordinates, Y up): `chunks` the
+    block positions (the pivots of the chunk files); `points` the slices, the road centre line nfs3.exe walks (centres
+    of the COL collision_data records, road heading from their forward vector); `roads` the shortcuts. A shortcut has
+    no slices of its own: the FRD position records of the slices at its two ends name each other (`alt_slice_1` /
+    `alt_slice_2`, a run of neighbouring slice pairs per shortcut), nfs3.exe looks for a car that left the road there
+    at the other end (0x41f330). Each run gives one straight road between the centres of its middle slice pair.
+    Without COL slices (or with another number of them than the FRD position records: another game's COL), `points`
+    are the block positions and there are no roads"""
+    blocks = data['blocks']
+    chunks = [{'x': b['position']['x'], 'y': b['position']['y'], 'z': b['position']['z']} for b in blocks]
+    slices = []
+    if col_data:
+        slices = [
+            r for x in col_data['extrablocks'] if x['type'] == 'collision_data' for r in x['data_records']['data']
+        ]
+    if not slices or len(slices) != sum(len(b['positions']) for b in blocks):
+        return {
+            'closed': True,
+            'chunks': chunks,
+            'points': [{'position': p, 'orientation': 0} for p in chunks],
+            'roads': [],
+        }
+    centres = [{'x': r['position']['x'], 'y': r['position']['y'], 'z': r['position']['z']} for r in slices]
+    points = [
+        {'position': c, 'orientation': math.atan2(r['forward']['x'], r['forward']['z'])}
+        for c, r in zip(centres, slices)
+    ]
+    links = []
+    slice_i = 0
+    for block in blocks:
+        for position in block['positions']:
+            links += [(slice_i, a) for a in (position['alt_slice_1'], position['alt_slice_2']) if slice_i < a]
+            slice_i += 1
+    runs = []
+    for s, a in sorted(links):
+        if runs and s - runs[-1][-1][0] <= 2 and abs(a - runs[-1][-1][1]) <= 2:
+            runs[-1].append((s, a))
+        else:
+            runs.append([(s, a)])
+    roads = []
+    for run in runs:
+        s, a = run[len(run) // 2]
+        if a < len(centres):
+            roads.append({'closed': False, 'points': [centres[s], centres[a]]})
+    return {'closed': True, 'chunks': chunks, 'points': points, 'roads': roads}
+
+
 class FrdMapSerializer(EacTrackSerializer):
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
         super().serialize(data, path, id, block, **kwargs)
@@ -1292,6 +1340,7 @@ class FrdMapSerializer(EacTrackSerializer):
                     )
 
         # track-wide objects from the COL file
+        col_data = None
         try:
             (_, _, col_data), _ = _require_track_sibling(id, f'{track_name}.COL')
             texture_map = col_data['extrablocks'][0]['data_records']['data']
@@ -1311,7 +1360,11 @@ class FrdMapSerializer(EacTrackSerializer):
         except Exception:
             traceback.print_exc()
 
-        return self._export_track(path, map_scene, chunks, props, prop_models, texture_archive)
+        files = self._export_track(path, map_scene, chunks, props, prop_models, texture_archive)
+        route_path = path_join(path, 'track_route.json')
+        with open(route_path, 'w') as f:
+            json.dump(nfs3_track_route(data, col_data), f)
+        return files + [route_path]
 
 
 # NFS4 tracks are 1 / 1.3 of their real size in the files (the nine tracks NFS4 shares with NFS3 are exactly the NFS3
@@ -1718,12 +1771,25 @@ def nfsu_section_ranges(sections: List[dict]) -> List[dict]:
 
 class NfsuWorld:
     """Meshes (by mesh id), textures (by name hash: texture info, format, data chunk bytes) and sceneries
-    (section number, scenery data) collected from NFS Underground chunk bundles"""
+    (section number, scenery data) collected from NFS Underground chunk bundles; the path of the bundle they were
+    loaded for (`bundle_path`, None if not known) and its floor triangles (`floor_grid`, made on first use)"""
+
+    # shadow and reflection meshes are not part of the world geometry
+    skipped_mesh_prefixes = ('SHD_', 'RFL_', 'SHADOW')
+    # meshes the ground heights are taken from: terrain and roads (TRN_*), not the trees, lamps and roofs over the roads
+    # or the panorama (PAN_*: distant hills and sea, under and over the city in NFSU2). None: every mesh
+    floor_mesh_prefixes = ('TRN_',)
+    # their triangles face up (counter-clockwise from above): the ones facing down are ceilings (tunnels, bridge decks)
+    floor_faces_up = True
+    # road meshes (TRN_CN_RoadA_CHOP_...), taken over the terrain under the same point
+    road_mesh_marker = '_ROAD'
 
     def __init__(self):
         self.meshes = {}
         self.textures = {}
         self.sceneries = []
+        self.bundle_path = None
+        self.floor_grid = None
 
     def collect(self, bundle_data: dict):
         import numpy as np
@@ -1756,9 +1822,16 @@ class NfsuWorld:
                 instances = next((x['instances'] for x in sub_chunks if x.get('chunk_id') == 0x00034103), [])
                 self.sceneries.append((header['section_number'] if header else 0, infos, instances))
 
-    def scenery_parts(self, infos: list, instances: list) -> Dict[Optional[int], Tuple[list, list, list]]:
-        """World geometry of scenery: texture id -> (vertices, uvs, triangles). Shadow and reflection meshes are
-        skipped"""
+    def scenery_parts(
+        self,
+        infos: list,
+        instances: list,
+        more_skipped_prefixes: Tuple[str, ...] = (),
+        kept_prefixes: Optional[Tuple[str, ...]] = None,
+    ) -> Dict[Optional[int], Tuple[list, list, list]]:
+        """World geometry of scenery: texture id -> (vertices, uvs, triangles). Meshes named with
+        `skipped_mesh_prefixes` (or `more_skipped_prefixes`) are skipped, so are all but those named with
+        `kept_prefixes` if given"""
         import numpy as np
 
         parts = {}
@@ -1766,7 +1839,10 @@ class NfsuWorld:
             if instance['info_index'] >= len(infos):
                 continue
             mesh = self.meshes.get(infos[instance['info_index']]['mesh_ids'][0])
-            if mesh is None or not len(mesh.vertices) or mesh.name.upper().startswith(('SHD_', 'RFL_', 'SHADOW')):
+            skipped = self.skipped_mesh_prefixes + more_skipped_prefixes
+            if mesh is None or not len(mesh.vertices) or mesh.name.upper().startswith(skipped):
+                continue
+            if kept_prefixes is not None and not mesh.name.upper().startswith(kept_prefixes):
                 continue
             rotation = np.array(instance['rotation'], dtype=np.float64).reshape(3, 3)
             position = np.array([instance['position'][k] for k in 'xyz'], dtype=np.float64)
@@ -1790,24 +1866,282 @@ class NfsuWorld:
         }
 
 
+class BlackBoxRoad(NamedTuple):
+    """A road of a Black Box track for "track_route.json": points (x, y, z) in game coordinates (Z up), z None where
+    the data has no height (taken from the world, `blackbox_road_heights`), and whether it is a loop"""
+
+    points: List[Tuple[float, float, Optional[float]]]
+    closed: bool
+
+
+def blackbox_track_paths(data: dict) -> Tuple[list, list]:
+    """Path records and points of the track paths chunk (0x80034147: NFS Hot Pursuit 2 (PS2) track bundles, NFSU race
+    bundles)"""
+    for chunk in nfs6_ps2_bundle_chunks(data):
+        chunk_data = chunk['data']
+        if not isinstance(chunk_data, dict) or chunk_data.get('chunk_id') != 0x80034147:
+            continue
+        sub_chunks = {x['data'].get('chunk_id'): x['data'] for x in chunk_data.get('sub_chunks', [])}
+        header, points = sub_chunks.get(0x00034148), sub_chunks.get(0x00034149)
+        if header is not None and points is not None and 'paths' in header and 'points' in points:
+            return header['paths'], points['points']
+    return [], []
+
+
+def blackbox_route(data: dict) -> Tuple[List[Tuple[float, float]], bool]:
+    """Points (x, y) of the race route of a bundle with track paths (path 0, the closing point of a loop left out)
+    and whether it is a loop"""
+    paths, points = blackbox_track_paths(data)
+    route = next((x for x in paths if x['path_index'] == 0), None)
+    if route is None:
+        return [], False
+    selected = points[route['first_point'] : route['end_point']]
+    return [(p['x'], p['y']) for p in selected], bool(route['is_closed'])
+
+
+def nfsmw_track_paths(data: dict) -> Optional[List[BlackBoxRoad]]:
+    """Roads of an NFS Most Wanted location bundle TRACKS/L2RA.BUN: every road of its road network (chunk 0x3b800,
+    `NfsmwRoadNetwork`; `nfsmw_roads`), with the heights of the road surface. None without one. Races keep no route of
+    their own (the game routes them over the network between their checkpoints of GLOBAL/gameplay.bin)"""
+    from serializers.misc.nfsmw_road_network import nfsmw_road_network, nfsmw_roads
+
+    network = nfsmw_road_network(data)
+    if network is None:
+        return None
+    return [BlackBoxRoad(points, closed) for points, closed in nfsmw_roads(network)]
+
+
+def nfsu_roads(data: dict) -> List[BlackBoxRoad]:
+    """Roads of an NFSU race bundle (roads chunk 0x34121), with the heights of their nodes. Open polylines: a road
+    ending on another one ends at one of its nodes or within a few meters of it"""
+    for chunk in nfs6_ps2_bundle_chunks(data):
+        chunk_data = chunk['data']
+        if isinstance(chunk_data, dict) and chunk_data.get('chunk_id') == 0x00034121 and 'roads' in chunk_data:
+            return [
+                BlackBoxRoad(
+                    [(n['position']['x'], n['position']['y'], n['position']['z']) for n in road['nodes']], False
+                )
+                for road in chunk_data['roads']
+                if len(road['nodes']) > 1
+            ]
+    return []
+
+
+def nfsu2_track_paths(bundle_path: str) -> Optional[List[BlackBoxRoad]]:
+    """Roads of an NFS Underground 2 location bundle TRACKS/LxRy.BUN: every road of TRACKS/ROUTESLxRy/RoutesAll.bin
+    (roads chunk 0x34121, `Nfsu2Roads`), on the ground plane: heights from the world. None if there is no such file
+    (not an NFSU2 location). A location hosts many races, each with paths of its own (ROUTESLxRy/Paths<race>.bin): no
+    race route"""
+    from library.utils.file_utils import find_files_case_insensitive
+    from resources.blackbox.maps.nfsu import NfsuChunkBundle
+
+    stem = os.path.splitext(os.path.basename(bundle_path))[0]
+    found = find_files_case_insensitive([path_join(os.path.dirname(bundle_path), f'ROUTES{stem}', 'RoutesAll.bin')])
+    if not found:
+        return None
+    with open(found[0], 'rb') as f:
+        bundle = NfsuChunkBundle().unpack_from_bytes(f.read())
+    return [
+        BlackBoxRoad([(n['position']['x'], n['position']['y'], None) for n in road['nodes']], False)
+        for chunk in bundle['chunks']
+        if isinstance(chunk['data'], dict) and chunk['data'].get('chunk_id') == 0x00034121
+        for road in chunk['data'].get('roads', [])
+        if len(road['nodes']) > 1
+    ]
+
+
+def nfsu_heights_from_roads(points: List[Tuple[float, float]], roads: List[BlackBoxRoad]) -> List[Optional[float]]:
+    """Height of every point (x, y) of a route on the nearest road segment (projected on the ground plane): of the
+    segments, the one with the least sum of distance and height difference to the previous point (bridges over the
+    route), the nearest one for the first point. None for all points without roads"""
+    import numpy as np
+
+    segments = [
+        (a, b)
+        for road in roads
+        for a, b in zip(road.points, road.points[1:] + road.points[:1] if road.closed else road.points[1:])
+    ]
+    if not segments:
+        return [None] * len(points)
+    starts = np.array([a for a, _ in segments], dtype=np.float64)
+    ends = np.array([b for _, b in segments], dtype=np.float64)
+    directions = ends[:, :2] - starts[:, :2]
+    lengths = np.maximum((directions**2).sum(axis=1), 1e-12)
+    heights = []
+    previous = None
+    for x, y in points:
+        t = np.clip(((np.array([x, y]) - starts[:, :2]) * directions).sum(axis=1) / lengths, 0, 1)
+        nearest = starts[:, :2] + directions * t[:, None]
+        distances = np.sqrt(((nearest - np.array([x, y])) ** 2).sum(axis=1))
+        z = starts[:, 2] + (ends[:, 2] - starts[:, 2]) * t
+        cost = distances if previous is None else distances + np.abs(z - previous)
+        previous = float(z[np.argmin(cost)])
+        heights.append(previous)
+    return heights
+
+
+def blackbox_road_heights(
+    world: NfsuWorld, points: List[Tuple[float, float, Optional[float]]]
+) -> List[Tuple[float, float, float]]:
+    """Points with the heights they lack taken from the world (`nfsu_ground_heights`)"""
+    if all(z is not None for _, _, z in points):
+        return points
+    ground = nfsu_ground_heights(world, [(x, y) for x, y, _ in points])
+    return [(x, y, g if z is None else z) for (x, y, z), g in zip(points, ground)]
+
+
+class NfsuFloorGrid:
+    """Floor triangles of a world (normal within 45 degrees of vertical, up only with the world's `floor_faces_up`;
+    walls left out; the sky dome SKYDOME too; only the meshes named with the world's `floor_mesh_prefixes`, unless it
+    has none) in a grid of square cells on the ground plane, for `nfsu_ground_heights`. `is_road`: the triangle is of
+    a road mesh (name with the world's `road_mesh_marker` after a floor mesh prefix)"""
+
+    cell_size = 32.0
+
+    def __init__(self, world: NfsuWorld):
+        import numpy as np
+
+        road_prefixes = ()
+        if world.floor_mesh_prefixes and world.road_mesh_marker:
+            names = {m.name.upper() for m in world.meshes.values()}
+            road_prefixes = tuple(
+                sorted(
+                    {
+                        name[: name.index(world.road_mesh_marker) + len(world.road_mesh_marker)]
+                        for name in names
+                        if name.startswith(world.floor_mesh_prefixes) and world.road_mesh_marker in name
+                    }
+                )
+            )
+        corners, is_road = [], []
+        for kept_prefixes, skipped, road in (
+            (road_prefixes, (), True),
+            (world.floor_mesh_prefixes, road_prefixes, False),
+            (None, (), False),
+        ):
+            if kept_prefixes is not None and not kept_prefixes:
+                continue
+            if kept_prefixes is None and corners:
+                break
+            for _, infos, instances in world.sceneries:
+                for vertices, _, polygons in world.scenery_parts(
+                    infos, instances, ('SKYDOME',) + skipped, kept_prefixes
+                ).values():
+                    corners.append(vertices[polygons])
+                    is_road.append(np.full(len(polygons), road))
+        triangles = np.concatenate(corners) if corners else np.zeros((0, 3, 3))
+        is_road = np.concatenate(is_road) if is_road else np.zeros(0, dtype=bool)
+        normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+        lengths = np.linalg.norm(normals, axis=1)
+        up = normals[:, 2] if world.floor_faces_up else np.abs(normals[:, 2])
+        floor = (lengths > 1e-9) & (up > 0.7 * np.maximum(lengths, 1e-9))
+        self.triangles = triangles[floor]
+        self.is_road = is_road[floor]
+        self.low = self.triangles[:, :, :2].min(axis=1)
+        self.high = self.triangles[:, :, :2].max(axis=1)
+        if not len(self.triangles):
+            return
+        # every triangle is listed in each cell its bounding box touches, sorted by cell key, then triangle index
+        self.origin = self.low.min(axis=0)
+        first = np.floor((self.low - self.origin) / self.cell_size).astype(np.int64)
+        last = np.floor((self.high - self.origin) / self.cell_size).astype(np.int64)
+        self.rows = int(last[:, 1].max()) + 1
+        widths = last[:, 0] - first[:, 0] + 1
+        counts = widths * (last[:, 1] - first[:, 1] + 1)
+        indices = np.repeat(np.arange(len(counts)), counts)
+        k = np.arange(len(indices)) - np.repeat(np.cumsum(counts) - counts, counts)
+        keys = (first[indices, 0] + k % widths[indices]) * self.rows + first[indices, 1] + k // widths[indices]
+        order = np.argsort(keys, kind='stable')
+        self.keys = keys[order]
+        self.indices = indices[order]
+
+    def near(self, x: float, y: float):
+        """Indices (ascending) of the triangles whose bounding box holds the point"""
+        import numpy as np
+
+        cx, cy = np.floor((np.array([x, y]) - self.origin) / self.cell_size).astype(np.int64)
+        if cx < 0 or cy < 0 or cy >= self.rows:
+            return np.zeros(0, dtype=np.int64)
+        key = cx * self.rows + cy
+        found = self.indices[np.searchsorted(self.keys, key) : np.searchsorted(self.keys, key, side='right')]
+        low, high = self.low[found], self.high[found]
+        return found[(low[:, 0] <= x) & (x <= high[:, 0]) & (low[:, 1] <= y) & (y <= high[:, 1])]
+
+    def heights(self, x: float, y: float):
+        """Heights of the triangles under the point: of the road ones if there are any"""
+        import numpy as np
+
+        near = self.near(x, y)
+        a, b, c = (self.triangles[near, k] for k in range(3))
+        det = (b[:, 1] - c[:, 1]) * (a[:, 0] - c[:, 0]) + (c[:, 0] - b[:, 0]) * (a[:, 1] - c[:, 1])
+        valid = np.abs(det) >= 1e-12
+        near, a, b, c, det = near[valid], a[valid], b[valid], c[valid], det[valid]
+        l1 = ((b[:, 1] - c[:, 1]) * (x - c[:, 0]) + (c[:, 0] - b[:, 0]) * (y - c[:, 1])) / det
+        l2 = ((c[:, 1] - a[:, 1]) * (x - c[:, 0]) + (a[:, 0] - c[:, 0]) * (y - c[:, 1])) / det
+        l3 = 1 - l1 - l2
+        inside = np.minimum(np.minimum(l1, l2), l3) >= -1e-6
+        z = l1 * a[:, 2] + l2 * b[:, 2] + l3 * c[:, 2]
+        road = inside & self.is_road[near]
+        return z[road] if road.any() else z[inside]
+
+
+def nfsu_ground_heights(world: NfsuWorld, points: List[Tuple[float, float]], max_grade: float = 0.15) -> List[float]:
+    """Height (Z) of the world under every point (x, y) of a route or road (`NfsuFloorGrid.heights`): where several
+    floors lie under a point (bridges, tunnels, roofs), the heights giving the least total climb along the points (the
+    climb beyond a slope of `max_grade` counted 11 times); the previous height where no triangle is under the point"""
+    import numpy as np
+
+    if world.floor_grid is None:
+        # made once per world: a city has millions of triangles and hundreds of roads asking for heights
+        world.floor_grid = NfsuFloorGrid(world)
+    grid = world.floor_grid
+    if not len(grid.triangles):
+        return [0.0] * len(points)
+    # least cost choice of one height per point (Viterbi): costs of the heights of the last point with any, back links
+    candidates = [grid.heights(x, y) for x, y in points]
+    links = [None] * len(points)
+    last, costs = None, None
+    for k, heights in enumerate(candidates):
+        if not len(heights):
+            continue
+        if last is not None:
+            run = math.dist(points[k], points[last])
+            climb = np.abs(heights[:, None] - candidates[last][None, :])
+            total = costs[None, :] + climb + 10 * np.maximum(climb - max_grade * run, 0)
+            links[k] = (last, total.argmin(axis=1))
+            costs = total.min(axis=1)
+        else:
+            costs = np.zeros(len(heights))
+        last = k
+    res = [None] * len(points)
+    if last is not None:
+        k, i = last, int(costs.argmin())
+        while True:
+            res[k] = float(candidates[k][i])
+            if links[k] is None:
+                break
+            k, i = links[k][0], int(links[k][1][i])
+    previous = next((z for z in res if z is not None), 0.0)
+    for k, z in enumerate(res):
+        res[k] = previous = previous if z is None else z
+    return res
+
+
 class NfsuTrackBundleSerializer(BaseFileSerializer):
     """NFS Underground race world: scenery of every streamed section (from the STREAM*.BUN file next to the race
     bundle) is a terrain chunk; textures are saved to "textures/<texture id>.png". Chunk positions (centers of
-    bounding boxes, Y up) are saved to "terrain_chunks.json". Game coordinates are Z up, chunk OBJs keep them"""
+    bounding boxes, Y up) are saved to "terrain_chunks.json", the race route and the other roads (`track_paths`) to
+    "track_route.json". Game coordinates are Z up, chunk OBJs keep them"""
 
     def __init__(self):
         super().__init__(is_dir=True)
 
-    def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
-        import os
-        import numpy as np
+    def load_world(self, data: dict, id: str) -> NfsuWorld:
         from library.loader import id_to_path
         from resources.blackbox.maps.nfsu import NfsuChunkBundle
-        from serializers.bitmaps import ImageSerializer, nfsu_texture_to_image
-        from serializers.geometries import texture_alpha_mode
 
-        super().serialize(data, path, id, block, **kwargs)
         world = NfsuWorld()
+        world.bundle_path = id_to_path(id)
         world.collect(data)
         sections = nfsu_streaming_sections(data)
         stream_path = find_nfsu_stream_file(id_to_path(id), sections)
@@ -1821,6 +2155,22 @@ class NfsuTrackBundleSerializer(BaseFileSerializer):
                     world.collect(bundle_block.unpack_from_bytes(f.read(section['size'])))
                 except Exception:
                     traceback.print_exc()
+        return world
+
+    def texture_image(self, texture):
+        """Image of a texture of `NfsuWorld.textures`, indexed when its pixels are"""
+        from serializers.bitmaps import nfsu_texture_to_image
+
+        return nfsu_texture_to_image(*texture, indexed=True)
+
+    def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
+        import os
+        import numpy as np
+        from serializers.bitmaps import ImageSerializer
+        from serializers.geometries import texture_alpha_mode
+
+        super().serialize(data, path, id, block, **kwargs)
+        world = self.load_world(data, id)
 
         # textures
         os.makedirs(path_join(path, 'textures'), exist_ok=True)
@@ -1832,7 +2182,7 @@ class NfsuTrackBundleSerializer(BaseFileSerializer):
                 texture_names[texture_id] = 'untextured'
                 if texture_id in world.textures:
                     try:
-                        image = nfsu_texture_to_image(*world.textures[texture_id], indexed=True)
+                        image = self.texture_image(world.textures[texture_id])
                         name = f'{texture_id:08x}'
                         ImageSerializer.save_png(image, path_join(path, f'textures/{name}.png'))
                         texture_names[texture_id] = name
@@ -1889,4 +2239,230 @@ class NfsuTrackBundleSerializer(BaseFileSerializer):
             with open(chunks_file, 'w') as f:
                 json.dump([{k: float(v) for k, v in p.items()} for p in chunk_positions], f)
             exported.append(chunks_file)
-        return exported
+        return exported + self.serialize_extras(data, world, path)
+
+    def serialize_extras(self, data: dict, world: NfsuWorld, path: str) -> List[str]:
+        """More files of the world, written after the chunks"""
+        return self._serialize_route(data, world, path)
+
+    def track_paths(
+        self, data: dict, bundle_path: Optional[str] = None
+    ) -> Tuple[Optional[BlackBoxRoad], List[BlackBoxRoad]]:
+        """The race route of the bundle (None if it has none) and its other roads, for "track_route.json". NFSU race
+        bundles: path 0 of the track paths (`blackbox_route`) and the roads chunk (`nfsu_roads`), the route's heights
+        from the roads. NFSU2 location bundles: no route, the roads of the location from the files next to the bundle
+        (`nfsu2_track_paths`). NFSMW location bundles: no route, the roads of the road network (`nfsmw_track_paths`)"""
+        if bundle_path:
+            nfsu2_roads = nfsu2_track_paths(bundle_path)
+            if nfsu2_roads is not None:
+                return None, nfsu2_roads
+        nfsmw_roads = nfsmw_track_paths(data)
+        if nfsmw_roads is not None:
+            return None, nfsmw_roads
+        roads = nfsu_roads(data)
+        points, closed = blackbox_route(data)
+        if not points:
+            return None, roads
+        heights = nfsu_heights_from_roads(points, roads)
+        return BlackBoxRoad([(x, y, z) for (x, y), z in zip(points, heights)], closed), roads
+
+    def _serialize_route(self, data: dict, world: NfsuWorld, path: str) -> List[str]:
+        """ "track_route.json": the race route (`track_paths`) in game coordinates with Y up and the road heading at
+        every point; `roads`: the other roads, positions only. Heights the data lacks come from the world
+        (`nfsu_ground_heights`)"""
+        route, roads = self.track_paths(data, world.bundle_path)
+        if route is None and not roads:
+            return []
+        route_points = blackbox_road_heights(world, route.points) if route else []
+        points = []
+        for k, (x, y, z) in enumerate(route_points):
+            a, b = (route_points[k - 1], route_points[k]) if k == len(route_points) - 1 else route_points[k : k + 2]
+            points.append(
+                {
+                    'position': {'x': float(x), 'y': float(z), 'z': float(y)},
+                    'orientation': math.atan2(b[0] - a[0], b[1] - a[1]),
+                }
+            )
+        roads_json = [
+            {
+                'closed': road.closed,
+                'points': [
+                    {'x': float(x), 'y': float(z), 'z': float(y)}
+                    for x, y, z in blackbox_road_heights(world, road.points)
+                ],
+            }
+            for road in roads
+        ]
+        route_path = path_join(path, 'track_route.json')
+        with open(route_path, 'w') as f:
+            json.dump({'closed': bool(route and route.closed), 'points': points, 'roads': roads_json}, f)
+        return [route_path]
+
+
+def nfs6_ps2_bundle_chunks(data: dict) -> list:
+    """Chunks of an NFS Hot Pursuit 2 (PS2) chunk bundle, also of a COMP-compressed one"""
+    if 'chunks' not in data and isinstance(data.get('data'), dict):
+        data = data['data']
+    return data.get('chunks', [])
+
+
+def nfs6_ps2_texture_pack_paths(bundle_path: str) -> List[str]:
+    """Texture packs of an NFS Hot Pursuit 2 (PS2) track bundle TRACKS/TRACKB<track>.LZC (or .BUN), most preferred
+    first: TRACKS/TEX<track>TRACK.BIN (sky, map), TRACKS/TEX<track>LOCATION.BIN (the world), then the global packs
+    GLOBAL/INGAMEB and GLOBAL/DRIVTEX.BIN (signs and props several locations share)"""
+    import re
+
+    from library.utils.file_utils import find_files_case_insensitive
+
+    match = re.search(r'TRACKB(\d+)\.[^.]+$', os.path.basename(bundle_path), re.IGNORECASE)
+    if not match:
+        return []
+    track_dir = os.path.dirname(bundle_path)
+    global_dir = path_join(os.path.dirname(track_dir), 'GLOBAL')
+    patterns = [
+        path_join(track_dir, f'TEX{match.group(1)}TRACK.BIN'),
+        path_join(track_dir, f'TEX{match.group(1)}LOCATION.BIN'),
+        path_join(global_dir, 'INGAMEB.BUN'),
+        path_join(global_dir, 'INGAMEB.LZC'),
+        path_join(global_dir, 'DRIVTEX.BIN'),
+    ]
+    paths = []
+    for pattern in patterns:
+        paths += [x for x in find_files_case_insensitive([pattern]) if x not in paths]
+    return paths
+
+
+def nfs6_ps2_roads(data: dict) -> List[BlackBoxRoad]:
+    """Points (x, y) and loop flag of every other path of an NFS Hot Pursuit 2 (PS2) track bundle (branches of the race
+    route). An open path's ends are joined to the nearest of their `near_points` on another path, where it branches off
+    and joins again"""
+    paths, points = blackbox_track_paths(data)
+    roads = []
+    for path in paths:
+        if path['path_index'] == 0:
+            continue
+        indices = list(range(path['first_point'], path['end_point']))
+        if not indices:
+            continue
+        if not path['is_closed']:
+            own = set(indices)
+
+            def junction(end: int) -> List[int]:
+                near = [i for i in points[end]['near_points'] if 0 <= i < len(points) and i not in own]
+                distance = lambda i: (points[i]['x'] - points[end]['x']) ** 2 + (points[i]['y'] - points[end]['y']) ** 2
+                return [min(near, key=distance)] if near else []
+
+            indices = junction(indices[0]) + indices + junction(indices[-1])
+        roads.append(BlackBoxRoad([(points[i]['x'], points[i]['y'], None) for i in indices], bool(path['is_closed'])))
+    return roads
+
+
+class Nfs6Ps2World(NfsuWorld):
+    """Meshes, textures (by name hash: texture info, data chunk bytes) and sceneries of an NFS Hot Pursuit 2 (PS2)
+    track. The sky domes are not part of the world geometry: `sky_instances` (mesh, instance) of SKYDOME"""
+
+    skipped_mesh_prefixes = NfsuWorld.skipped_mesh_prefixes + ('SKYDOME',)
+    floor_mesh_prefixes = None
+    floor_faces_up = False
+    road_mesh_marker = None
+
+    def collect(self, bundle_data: dict):
+        import numpy as np
+        from serializers.bitmaps import nfs6_ps2_texture_pack_textures
+        from serializers.geometries import nfs6_ps2_solid_pack_meshes
+
+        for chunk in nfs6_ps2_bundle_chunks(bundle_data):
+            chunk_data = chunk['data']
+            if not isinstance(chunk_data, dict):
+                continue
+            if chunk_data.get('chunk_id') == 0x80034000:
+                for mesh in nfs6_ps2_solid_pack_meshes(chunk_data):
+                    if mesh.mesh_id in self.meshes:
+                        continue
+                    mesh.vertices = np.array(mesh.vertices, dtype=np.float64).reshape(-1, 3)
+                    mesh.uvs = np.array(mesh.uvs, dtype=np.float64).reshape(-1, 2)
+                    mesh.parts = [
+                        (texture_id, np.array(triangles, dtype=np.int64).reshape(-1, 3))
+                        for texture_id, triangles in mesh.parts
+                    ]
+                    self.meshes[mesh.mesh_id] = mesh
+            elif chunk_data.get('chunk_id') == 0xB0300001:
+                for info, data in nfs6_ps2_texture_pack_textures(chunk_data):
+                    self.textures.setdefault(info['name_hash'], (info, data))
+            elif chunk_data.get('chunk_id') == 0x80034100:
+                super().collect({'chunks': [chunk]})
+
+    def sky_instances(self, mesh_name: str = 'SKYDOME') -> list:
+        """(mesh, instance) of every scenery instance of the mesh"""
+        res = []
+        for _, infos, instances in self.sceneries:
+            for instance in instances:
+                if instance['info_index'] < len(infos):
+                    mesh = self.meshes.get(infos[instance['info_index']]['mesh_ids'][0])
+                    if mesh is not None and mesh.name.upper() == mesh_name:
+                        res.append((mesh, instance))
+        return res
+
+
+class Nfs6Ps2TrackBundleSerializer(NfsuTrackBundleSerializer):
+    """NFS Hot Pursuit 2 (PS2) track world: one terrain chunk per scenery of TRACKS/TRACKB<track>.LZC (game coordinates,
+    Z up), textures from the texture packs of the track (`nfs6_ps2_texture_pack_paths`) saved to
+    "textures/<texture id>.png", chunk positions (centers of bounding boxes, Y up) to "terrain_chunks.json". With
+    `maps__save_spherical_skybox_texture`, the sky dome SKYDOME on "spherical.png" (`nfs6_ps2_sky_to_spherical.py`)"""
+
+    def load_world(self, data: dict, id: str) -> NfsuWorld:
+        from library import require_resource
+        from library.loader import id_to_path, path_to_name
+
+        world = Nfs6Ps2World()
+        world.collect(data)
+        for texture_pack_path in nfs6_ps2_texture_pack_paths(id_to_path(id)) if id else []:
+            try:
+                (_, _, pack_data), _ = require_resource(path_to_name(texture_pack_path))
+                world.collect(pack_data)
+            except Exception:
+                traceback.print_exc()
+        return world
+
+    def texture_image(self, texture):
+        from serializers.bitmaps import nfs6_ps2_texture_to_image
+
+        return nfs6_ps2_texture_to_image(*texture, indexed=True)
+
+    def serialize_extras(self, data: dict, world: NfsuWorld, path: str) -> List[str]:
+        return super().serialize_extras(data, world, path) + self._serialize_sky(world, path)
+
+    def track_paths(
+        self, data: dict, bundle_path: Optional[str] = None
+    ) -> Tuple[Optional[BlackBoxRoad], List[BlackBoxRoad]]:
+        """Path 0 of the track paths (the race route) and the other paths (`nfs6_ps2_roads`), 2D: heights from the
+        world"""
+        points, closed = blackbox_route(data)
+        route = BlackBoxRoad([(x, y, None) for x, y in points], closed) if points else None
+        return route, nfs6_ps2_roads(data)
+
+    def _serialize_sky(self, world: NfsuWorld, path: str) -> List[str]:
+        if not self.settings.maps__save_spherical_skybox_texture:
+            return []
+        import numpy as np
+        from serializers.bitmaps import nfs6_ps2_texture_to_image
+        from library.utils.nfs6_ps2_sky_to_spherical import nfs6_ps2_sky_to_spherical
+
+        instances = world.sky_instances()
+        if not instances:
+            return []
+        mesh, instance = instances[0]
+        # the eye at the centre of the dome: its rotation only
+        vertices = np.asarray(mesh.vertices) @ np.array(instance['rotation'], dtype=np.float64).reshape(3, 3)
+        meshes = []
+        colors = [(r << 24) | (g << 16) | (b << 8) | a for r, g, b, a in mesh.colors]
+        for texture_id, triangles in mesh.parts:
+            if texture_id not in world.textures:
+                continue
+            image = nfs6_ps2_texture_to_image(*world.textures[texture_id]).convert('RGBA')
+            meshes.append((vertices, triangles, mesh.uvs, colors, np.asarray(image, dtype=np.float64)))
+        if not meshes:
+            return []
+        out_path = path_join(path, 'spherical.png')
+        nfs6_ps2_sky_to_spherical(meshes, out_file_name=out_path)
+        return [out_path]

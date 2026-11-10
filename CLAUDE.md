@@ -49,10 +49,10 @@ docs and a working GUI editor for free.
 | `library/changes_service.py` | Tracks unsaved GUI edits against the loaded data tree. |
 | `library/spatial_edit.py` | Spatial edits: blocks declaring `spatial_edit` kinds in their schema (`SpatialEditable`) take "moved handle X to position / rotation" events from a 3D viewer, return the native values to change, and the handle is read back as stored (one undoable change). Skill `read-block-framework`. |
 | `library/utils/asm_runner.py` | 32-bit x86 snippet interpreter (IDA syntax) used to execute and progressively port disassembled game routines; production code never uses it, the ASM-driven decompressor twins in `test/resources/eac/archives/test_compressed_block.py` do. |
-| `resources/eac/` | EA Canada format definitions built from `read_blocks` primitives (bitmaps, archives, fonts, audio, geometries, maps, car specs, TNFS replays). Shared across many NFS titles. `compressions/` holds the pure-Python decompressors and compressors (RefPack, QFS2, QFS3, NFSU's JDLZ, NFSU2's HUFF = QFS3 behind a 16-byte header) behind `EacCompressedBlock`, which writes a resource back with the algorithm it was read with (`compression_flags` in its data, new data gets RefPack). Formats, game addresses and compressor notes: `resources/eac_compressions.md`. Compressor output is checked with the games' ASM decoders in `test_compressed_block.py`. |
+| `resources/eac/` | EA Canada format definitions built from `read_blocks` primitives (bitmaps, archives, fonts, audio, geometries, maps, car specs, TNFS replays). Shared across many NFS titles. `compressions/` holds the pure-Python decompressors and compressors (RefPack, QFS2, QFS3, NFSU's JDLZ, NFSU2's HUFF = QFS3 behind a 16-byte header, NFS HP2 PS2's COMP) behind `EacCompressedBlock`, which writes a resource back with the algorithm it was read with (`compression_flags` in its data, new data gets RefPack). Formats, game addresses and compressor notes: `resources/eac_compressions.md`. Compressor output is checked with the games' ASM decoders in `test_compressed_block.py`. |
 | `resources/eac/maps/`, `resources/eac/geometries/` | Per-game specializations (`tnfs.py`, `nfs2.py`, `nfs3.py`, `nfs5.py`, ...). |
 | `resources/common/` | Vendor-neutral formats reused as fallbacks (e.g. Targa image). |
-| `resources/blackbox/` | Blackbox-studio (later NFS titles) formats, NFS Underground 1, 2 and Most Wanted: `chunks.py` (generic id+length chunk dispatch helpers), `geometries/` (car and world geometry packs), `bitmaps/` (texture packs, TPK), `maps/` (chunk bundles, scenery, streaming sections; `NfsuTrackBundle` is a race's `TRACKBnnnn.lzc` or an NFSU2/NFSMW location bundle `LxRA.BUN`), `archives.py` (JDLZ-compressed files). |
+| `resources/blackbox/` | Blackbox-studio (later NFS titles) formats, NFS Underground 1, 2 and Most Wanted, NFS Hot Pursuit 2 PS2 (`nfs6_ps2.py` modules, see its section below): `chunks.py` (generic id+length chunk dispatch helpers), `geometries/` (car and world geometry packs), `bitmaps/` (texture packs, TPK), `maps/` (chunk bundles, scenery, streaming sections; `NfsuTrackBundle` is a race's `TRACKBnnnn.lzc` or an NFSU2/NFSMW location bundle `LxRA.BUN`), `archives.py` (JDLZ-compressed files). |
 | `resources/eac/fields/` | Small reusable domain blocks: `Point2D`/`Point3D`/`RGBBlock`, angle/time fields. |
 | `resources/*.md` | **Auto-generated** per-game docs (`generate_resource_doc.py`). Never hand-edit — edit the block definitions/descriptions and regenerate. |
 | `serializers/` | Turn parsed block data into common output formats and back. One serializer class per resource kind, returned by a block's `serializer_class()`. |
@@ -128,7 +128,8 @@ When you do:
   other and `three`, `@gg-web-engine/core`, `rxjs`, nothing else of the frontend (a part they need is brought into it),
   and hold no specs (they are tested next to the GUI components using them). It has `TnfsCarMeshController`,
   `Nfs2CarMeshController`, `FceCarMeshController` (NFS3 / NFS4 paint in the fragment shader, by the paint mask's
-  alpha; NFS3 chrome) and `setupNfs1Texture`; the other car mesh controllers (`*-car-mesh-controller.ts`) and the track props controllers
+  alpha; NFS3 chrome), `Nfs6Ps2CarMeshController` (NFS HP2 PS2 cars), `Nfs6CarMeshController` (NFS HP2 PC
+  cars) and `setupNfs1Texture`; the other car mesh controllers (`*-car-mesh-controller.ts`) and the track props controllers
   (`*track-props-controller.ts`) in `frontend/.../editor/eac/` are copied into nfs-web too, with their import paths
   changed: keep them free of GUI services, depending on three.js, gg-web-engine and rxjs only. Meshes of the GUI's OBJ
   models share a material per MTL material, nfs-web's GLB ones don't: code changing a material's shader must change
@@ -154,6 +155,12 @@ When you do:
   loaded chunks whose data fingerprint changed are written and reloaded.
   Viewer overlays (the gizmo, markers) are marked `userData.viewModeIgnore` (`VIEW_MODE_IGNORE`): the shading modes
   (`ViewModeController`) leave them alone; an edge line on a gizmo picking mesh would take the gizmo's hits.
+- Track viewer minimap (`common/minimap`): the adapter's road spline (the race route: "Spline item" fly-to, track
+  length) and its other roads (`TrackLayout.roads` / `TrackMapAdapter.roads`: alternative routes, shortcuts, branches,
+  roads of junctions; `TrackRoad`, game coordinates, Y up), drawn thinner; Shift drags the pointer along any of them.
+  Serializer-written layouts carry them as `roads` (`[{closed, points: [{x, y, z}]}]`, e.g. `track_route.json`).
+  NFS6 (`aipaths.dat`, `nfs6-route.ts`): the race route is chained from road paths, every road path it leaves out
+  (any `path_type` = shortcut difficulty) is an other road; helicopter paths are not drawn.
 - Track levels of detail (NFS2 TRK, NFS3 / NFS4 FRD, NFS5 CRP tracks): only the highest one is exported, all of them
   with the setting `maps__save_all_lods`, the mesh names then carrying `_lod<n>_` (`block_<i>_lod<n>__<texture>`,
   NFS5 `terrain_chunk_<i>_<j>_lod<n>_<texture>`; meshes drawn at every level have none). The GUI's track viewer
@@ -297,6 +304,145 @@ When you do:
   texel row of each strip is transparent padding. Below the horizon one flat colour (mean of the band's lowest drawn
   row). `hzcl`, `hor0`.., region B, wind and warp are not used.
 
+## NFS Underground race paths (`TRACKS/TRACKBnnnn.lzc`, `resources/blackbox/maps/nfsu.py`)
+
+- Race ids: 10xx circuits, 11xx sprints, 12xx drag, 13xx drift; 1099 is a test track (`STREAML1RX`, no roads).
+  Every race bundle has the track paths chunk 0x80034147 (`NfsuTrackPath`: NFS HP2 PS2's 0x34148 records / 0x34149
+  points, one path, the race route, 2D; 0x3414a not decoded) and the roads chunk 0x34121 (`NfsuRoads`: roads of
+  0x27c-byte headers and 136-byte nodes with heights, `road_id` >= 100 = side streets; 0x34122 / 0x34124 not
+  decoded). `matches_chunk` (record sizes) leaves other layouts of the two ids raw. All 31 race bundles write back byte-exact.
+- `NfsuTrackBundleSerializer.track_paths` (the hook for other Black Box games: route + `BlackBoxRoad`s, a height None
+  = from the world, `blackbox_road_heights`) gives path 0 (`blackbox_route`) with heights of the nearest road segment
+  (`nfsu_heights_from_roads`, the least distance + height difference to the previous point: bridges) and every road
+  (`nfsu_roads`); `_serialize_route` writes them to `track_route.json`, read by `NFSU_TRACK_ADAPTER`
+  (`loadTrackRouteLayout`, no route: chunk centres as dots). NFSU2 and NFSMW: their own sections below.
+- Heights the data lacks (`nfsu_ground_heights`): floor triangles of the world in a grid (`NfsuFloorGrid`, made once
+  per world). `NfsuWorld` takes them from the terrain and road meshes `TRN_*` only, facing up (down = tunnel and bridge
+  ceilings), road meshes (`*_ROAD*`) over the terrain under the same point; trees, lamps, roofs and the panorama
+  `PAN_*` (NFSU2's distant hills and sea, under and over the city) never. Where several floors lie under the points
+  (bridges, tunnels), the heights with the least total climb (Viterbi; climb beyond a 15 % slope counted 11 times).
+  `Nfs6Ps2World` keeps every mesh, both facings.
+
+## NFS Underground 2 roads (`TRACKS/ROUTESLxRx/`, `resources/blackbox/maps/nfsu2.py`)
+
+- A location bundle `LxRy.BUN` hosts many races; its folder `ROUTESLxRy/` holds `RoutesAll.bin` (every road of the
+  location, L4RA: 971), `RoutesFreeRoam.bin`, `Routes<race>F.bin` / `B.bin` (the roads of a race, forward /
+  backward), `Paths<race>.bin` (0x80034147 with sub-chunks 0x34148 = 24-byte points of up to 40 path pieces with
+  distances, 0x34149 variable records with race ids and names, 0x3414a / 0x3414c / 0x3414d; not decoded, a graph, not one path),
+  `TrackPosMarkers*.bin` (0x34146). The road files are chunks 0x34121 / 0x34122 / 0x34123; 0x34121 is
+  `Nfsu2Roads` (140-byte headers, 56-byte nodes: x, y, route distance of the race file, direction x 32767; no
+  heights; a name with leftover bytes after its null, `name_padding`), the other two stay raw. All 226 `Routes*.bin`
+  write back byte-exact.
+- `nfsu2_track_paths` (branch of `NfsuTrackBundleSerializer.track_paths`, which gets the bundle path from
+  `NfsuWorld.bundle_path`): no route (chunk centres as dots), every road of `ROUTES<bundle>/RoutesAll.bin` as `roads`,
+  heights from the world (`nfsu_ground_heights`, about 2 s for L4RA).
+
+## NFS Most Wanted road network (`TRACKS/L2RA.BUN` chunk 0x3b800, `resources/blackbox/maps/nfsmw.py`)
+
+- `NfsmwRoadNetwork`: a "CARP" pack (table of 16-byte entries: tag stored last character first, kind, size, count,
+  offset from the entry; then the data blocks, 0xAA-padded to 16 bytes): grid cells `CGcn` (raw), grid `CGrd`, header
+  `RNhd`, 4385 nodes `RNnd` (32 bytes: position, profile, up to 7 segments), 710 lane profiles `RNpf`, 1308 roads
+  `RNrd` (not decoded), 6538 segments `RNsg` (22 bytes: cubic Bezier between two nodes, length in m * 65.536, handle
+  lengths in m * 131.072, directions as signed bytes * 127; units fitted to the stored lengths, 0.03 % median error).
+  Positions are simulation axes (Y up): world / scenery axes are (z, -x, y) (checked against the ground under the
+  nodes). `matches_chunk` wants this exact 12-tag table; L2RA.BUN writes back byte-exact. Other CARP packs (0x3b811,
+  NIS bundles) stay raw.
+- `track_paths` of an NFSMW location (`nfsmw_track_paths`, `serializers/misc/nfsmw_road_network.py`): no route (chunk
+  centres as dots), every road as `roads`: segments chained through nodes with two segments, sampled every 10 m / 15
+  degrees of turn, heights from the nodes, rounded to 1 cm (`track_route.json` about 1.8 MB, 4772 roads). Races keep
+  no route: `GLOBAL/gameplay.bin` lists their checkpoints and `BARRIER_SPLINE_*` barriers, the game routes them over
+  the network.
+
+## NFS Hot Pursuit 2 PC cars (`Cars/<car>/car.viv`: `car.o`, EAGL models, `resources/eac/geometries/nfs6.py`)
+
+- Car render methods use the microcodes `EASVehiclePaint` (default), `EASVehicleRubber`, `EASVehicleGlass`,
+  `EASVehicleGeneric` (the `~<microcode>` suffix of the geometry name). They live in `EAGL/eaglrm.o` as ETT objects
+  (`EaglEtt_ReadObject` 0x5688f0: vertex declaration, techniques of 3 slots = the vehicle computation index of the
+  graphics detail, `Options_ApplyGraphicsDetail` 0x431280; per slot the first valid technique) with D3D8 vs.1.1 /
+  ps.1.1 bytecode. A render method's (count, pointer) parameters bind the named constants (`__COORD4:::gAmbientSky`...)
+  to the shader registers in order. The game draws technique 0 of slot 0 (graphics detail 2..4, ps.1.1).
+- What that technique does (constants from `VehicleRender_SetLightConstants` 0x412f00 / `SetFrameConstants`
+  0x4134c0 / `UpdateHotSpecular` 0x413670, `Vehicle_SetSkinLighting` 0x431d30): no sun diffuse light; per vertex the
+  hemisphere ambient (lighting.ini [ambientground] to [ambientsky] by the world normal's height; glass: the vertex
+  color instead), Blinn specular with the camera and the lighting.ini sun position (paint: vehicle.ini skin specular
+  color + sun intensity x sun color, ^ specular_paint_exponent, plus the hot spot color ^ [effects]
+  specular_hotspot_exponent; generic the first only; rubber / glass white ^ their exponent), sphere map coordinates
+  of normalize(normal + 0.4 x model position) in view space, 1 - (n.xy x 0.425 + 0.5). Per pixel: (vertex color x
+  texture + texture alpha x (environment + specular)) x max(road light level, 0.4); texture alpha = reflection mask.
+  Environment map: Cars/common.fsh `refl` (frontend), replaced in a race by the location's `staticenvmap.fsh`
+  (first image). Paint, rubber and generic draw opaque; glass blends by the geometry name (`ALPHA_TRANS` alpha,
+  `ALPHA_ADD` added, no depth writes, after the opaque ones; `VehicleRender_DrawPasses` 0x413890).
+- `EaglModelSerializer` car export (`nfs6_car_scene`): mesh names `<lod>_<index>_<geometry>`, game normals (OBJ `vn`,
+  GLB `_GAME_NORMAL`), glass vertex colors (OBJ rgb, GLB COLOR_0 RGBA as stored), textures with their alpha
+  (`alpha_mode opaque`), mesh properties `eaglShader`, `eaglBlend`, `eaglVertexAlpha` (glass; an OBJ has no vertex
+  alpha) in `geometry_extra.json` `objects` / GLB node extras; `skins.json` (`specular`: the skin's vehicle.ini keys,
+  `nfs6_skin_specular`); `lighting.json` (`nfs6_car_lighting`: vehicle type, hot spot exponent, the common.fsh
+  environment map, per `tracks/<location>` its lighting.ini values and environment map, textures in
+  `textures/environment/`).
+- `Nfs6CarMeshController` (`nfs-three-lib`) replaces the materials' lighting with these shaders (helpers
+  `nfs6Lit`, `nfs6PixelColor`... tested in `eagl-model.block-ui/nfs6-car-mesh-controller.spec.ts`, also by rendering),
+  world up = +z, sun position in the track export's axes (`nfs6TrackToWorld`). The GUI lights the car with
+  Parkland's lighting.ini by default (location radio, track / showroom environment map, road light level 1). Not
+  ported: damage texture, fog, technique sampler states, draw order within a pass, addon visibility. A model whose
+  meshes have no `eaglShader` property (an older export) keeps its materials (`hasGameShading` false). `baseUrl`
+  gives the skins' folder for a GLB (embedded textures); `speed` can be set every frame, negative in reverse. nfs-web
+  (`Nfs6CarModel`) uses it with the location `lighting.json` picks and its environment map, and reads the mesh names,
+  properties and JSON files: keep them stable.
+
+## NFS Hot Pursuit 2 PlayStation 2 (`games/nfs6_ps2`, SLUS-20362, doc `resources/NFS6_PS2.md`)
+
+- The disc keeps its files in `NFSHP2/ZZDATA.BIN`, listed by `NFSHP2/ZDIR.BIN` (12-byte entries: `bin_hash` of the path
+  as the executable writes it, e.g. `TRACKS\TRACKB11.LZC`, 2048-byte sector, size). `games/nfs6_ps2/ZZDATA/` has them
+  unpacked under the paths found in the executable's strings and the car types table (136 entries without a known path:
+  `UNKNOWN/<hash>.BIN`).
+  The converter does not read `ZZDATA.BIN` itself. Track = location * 10 + variant (locations 1, 2, 3, 4, 6).
+- `*.LZC` = `COMP` (`resources/eac/compressions/comp.py`, `Nfs6Ps2CompressedBlock`): byte-exact port of the game's
+  `lzcompress.cpp` (SLUS_203.62 0x1b3dd0 / 0x1b41c8); all 81 `COMP` files of the disc compress back to the same bytes.
+- Files are Black Box chunk bundles with NFSU's chunk ids but other layouts (`resources/blackbox/{geometries,bitmaps,maps}/
+  nfs6_ps2.py`): the loader picks `Nfs6Ps2ChunkBundle` for a bundle with a mesh pack 0x80034000 or a texture pack
+  0xB0300001 (`is_nfs6_ps2_bundle`; NFSU's are 0x80134000 / 0xB3300000), `Nfs6Ps2TrackBundle` with sceneries too. Every
+  track and global bundle writes back byte-exact.
+- Meshes (`nfs6_ps2_mesh`): VIF packets for the game's VU1 microprogram (layout in its docstring, strips:
+  `nfs6_ps2_strip_skips`, the R register LFSR of the VU). Vertices are local: a scenery instance places them
+  (`v @ rotation + position`, rotation 2.14 fixed point); the mesh header's matrix is the modelling one, not used.
+- Textures (`nfs6_ps2_texture_to_image`, `library/utils/ps2.py`): 4 / 8-bit indexes, GS-swizzled when the level's
+  `swizzled` flag is set (whole GS pages), 256-colour palettes in CSM1 order, alpha 0x80 = opaque (doubled).
+- `Nfs6Ps2TrackBundleSerializer` (an `NfsuTrackBundleSerializer`): one chunk per scenery (game axes, Z up), textures of
+  `TEX<track>TRACK.BIN`, `TEX<track>LOCATION.BIN`, `GLOBAL/INGAMEB`, `GLOBAL/DRIVTEX.BIN` (`nfs6_ps2_texture_pack_paths`).
+  The sky dome `SKYDOME` (placed by its scenery instance, 0x11c5f8) is not in the chunks: `spherical.png`
+  (`library/utils/nfs6_ps2_sky_to_spherical.py`). `track_route.json`: path 0 of the track paths chunk 0x80034147 (the
+  race route, 2D) with heights from the world's floor triangles (`nfsu_ground_heights`), and the other paths as
+  `roads` (`nfs6_ps2_roads`: branches, their open ends joined to the nearest of their `near_points` on another path);
+  `Nfs6Ps2TrackBundleSerializer.track_paths`, written by NFSU's `_serialize_route`. GUI:
+  `NFS6_PS2_TRACK_ADAPTER` (NFSU's `loadTrackRouteLayout`; a bundled-textures adapter with `hasSkybox` takes `spherical.png` from the
+  chunk export, `loadBundledSky`).
+- Cars: `CARS/<car>/GEOMETRY.LZC` (`Nfs6Ps2CarGeometry`, a bundle starting with chunk 0x34013:
+  `is_nfs6_ps2_car_bundle`; 44 models, folder names from the car types table) holds the meshes only. The car types
+  table is chunk 0x34600 of `GLOBAL/GLOBALB.LZC` (`Nfs6Ps2CarTypeInfos`, 0x560 bytes per car type, wheels at +0x120:
+  X forward, Y left, Z up), the textures are in `CARS/TEXTURES.BIN` (`<car>_SKIN<n>`, lights...) and GLOBALB (windows,
+  tyres, brakes, license plates). `Nfs6Ps2CarSerializer`: parts by mesh id (`bin_hash` of the game's part names,
+  `nfs6_ps2_car_parts`; stored names are cut to 23 characters), tyres / brakes / blur discs drawn at each wheel (left
+  ones turned around), texture slots of the game (`nfs6_ps2_car_texture_slots`: materials `skin`, `skin_b`, `window`,
+  `headlight`, `brakelight`), `skins.json` (labels `nfs6_ps2_paint_label`; the game's paint name and lighting material
+  of the car skins chunk 0x34601 of GLOBALB, `Nfs6Ps2CarSkins`) and `car.json` (wheels, light textures, GS settings of
+  the textures, lighting of every object, lighting materials). Textures are written as stored (half brightness), with
+  the vertex colours (OBJ `v` colours, GLB COLOR_0, / 0xFF) and the game normals (/ 127: OBJ `vn`, GLB `_GAME_NORMAL`).
+  An object is one part, texture slot, lighting material and VU1 flag set (`__2`, `__3`.. for more on one texture).
+- Car shading (VU1 microprogram, `.vutext`, `vu_flags` of the draw groups; `Nfs6Ps2MeshDrawGroup` has the bits): the
+  vertex colours are kept for flag-less groups; 0x80 lights the vertex (0x333: ambient + 3 directional lights, diffuse
+  and a specular by the float bit pattern power, times the vertex colours) with the material of the draw group
+  (`material_index` in the mesh chunk 0x3401D, materials chunk 0x3401E of GLOBALB: `Nfs6Ps2LightingMaterials`, front end
+  and race sets, `nfs6_ps2_lighting_vectors` = SLUS_203.62 0x116828; "CARSKIN" = the paint's); 0x100 draws an
+  environment map pass (0x42b: sphere map of the reflection, alpha from the material by the reflection's angle, added,
+  GS ALPHA 0x48; paints, texture `vertex_lit_env`: tinted by the lit colour, in a race added by the destination
+  alpha the lighting wrote). GS: texture * colour >> 7 (TFX modulate), alpha test 0x30 but for blended textures and
+  paints, ALPHA from the texture info (`alpha_blend`). Front end lights: 0x1157c0 (camera space, PS2 camera axes
+  assumed x right, y down, z forward). GUI: `Nfs6Ps2CarBlockUiComponent` with `Nfs6Ps2CarMeshController`
+  (`nfs-three-lib`: this shading in the shaders of the materials, one per object, from car.json; the scene's sky as
+  the environment map; paint, lights, wheels). nfs-web reads these names and files: keep them stable.
+- Ghidra: nfs-web `decomp/nfs6_ps2/SLUS_203.62.gzf` (R5900 language of the extension `ghidra-emotionengine-reloaded`),
+  VU1 microcode: nfs-web `decomp/vu1dis.py`. Not read yet: sound, NIS, the 136 unnamed files.
+
 ## NFS5 data files (`resources/eac/car_specs.py`, `resources/eac/maps/nfs5.py`, `resources/eac/geometries/nfs5.py`)
 
 - Field meanings from Porsche.exe (nfs-web `decomp/nfs5/Porsche.exe.gzf`, addresses in the descriptions): `.sim`
@@ -312,6 +458,14 @@ When you do:
   triangles: lists as they are, strips with every second triangle reversed (Direct3D order, agrees with the shared
   edges of the neighbouring lists), quads 0 1 2 + 0 2 3 (as the collision splits them); triangles repeating a vertex
   are dropped. A track's animated articles have a `vt` part per frame (`ai<n>`): its export keeps `ai0` only.
+- Road network (`serializers/misc/nfs5_road_network.py`, port of Porsche.exe 0x480140..0x481910): `DmiS` slices cut
+  into sections by the `TmiS` counts, split where another section ends within 16 m, section ends within 16 m joined
+  into junctions (as many as the `.jnc` records on every track); the race route is the longest walk from junction 0
+  (the game's race length / progress), a circuit when it comes back to junction 0 (Monaco, skidpad). The track
+  viewer's chunked export (`_serialize_track_chunks`) writes it to `track_layout.json`: `route` (the route's slices,
+  heading of `forward`: the minimap spline and "Spline item"), `closed`, `roads` (every other section between its
+  junction centres, as the game's HUD map 0x432230 links them); the chunks (`chunks`, RD road pieces of one article
+  section, an open chain) stay the terrain streaming.
 
 ## TNFS PlayStation (`games/tnfs_psx`, SLUS-00204, doc `resources/TNFS_PSX.md`)
 
@@ -631,6 +785,16 @@ When you do:
 - `Nfs3SimHeights` (`SIMHTS.DAT`, a float per COL collision_data record = slice) and `Nfs3SpeedsFile` (`SPEEDSF.BIN` /
   `SPEEDSR.BIN`: n // 2 + 1 speed bytes, then n lane bytes; n = (2 x size - 1) // 3, `is_nfs3_speeds_file_size`;
   nfs3.exe 0x40e000 finds the lanes at (n + 1) // 2, one byte early for an even n) are picked by name, exported as JSON.
+- One road per track: the COL collision_data slices (6 m apart, 8 per FRD block, one closed line; the AI only steps
+  through them in order). Shortcuts (connecting roads, corner cuts) have no slices: the FRD position records of the
+  slices at their two ends name each other (`alt_slice_1` / `alt_slice_2`, a run of neighbouring pairs), used only by
+  the polygon search (`BWorld_FindPolygonForks` 0x41f330). Byte 3 of a position record is the slice's music event
+  (`SND_PathEvent`). FRD block `position`s are mean terrain vertices, off the centre line.
+- `FrdMapSerializer` writes `track_route.json` (`nfs3_track_route`, game axes, Y up): `chunks` the block positions
+  (chunk pivots), `points` the slice centres with headings, `roads` one straight line per shortcut (middle pair of
+  its run); the block positions without a fitting COL (golden corpus `TR00.COL` is NFS2's: NFS3's is
+  `test/samples/NFS3_TR00.COL`). `NFS3_TRACK_ADAPTER.loadLayout` reads it. The map's `road_path` curve stays the
+  block positions.
 
 ## NFS4 tracks (`Data/Tracks/<track>/`, nfs4.exe)
 
@@ -652,6 +816,14 @@ When you do:
 - `Nfs4HeightsSim` (`heights.sim`, a float per slice) and `Nfs4SpeedFile` (`spdFA.bin` / `spdRA.bin`, any case:
   ceil(n / 2) speed bytes, n lane bytes, n float AI line offsets; `is_nfs4_speed_file_size`) are picked under a
   `/Data/Tracks/` path, exported as JSON. NFS4 `.CAN` files are `Nfs3CanAnimation` (the same layout).
+- Shortcuts: drivable chunk-4 polygons of the blocks at their ends (no road data of their own: a car on one gets the
+  nearest slice of the polygon's block, 0x439fe0 / 0x439d60), those blocks listed in each other's 8 `neighbors`
+  (`BWorld_BlocksNear` 0x4390d0). vroad `left_link` / `right_link` (s16 at +0x40 / +0x42, -1 none; no reader found in
+  nfs4.exe) give the slice across an open side: runs of consecutive slices linking each other, at the ends of a
+  shortcut or cut-through, or along the two parts of a hairpin side by side (8 of the 9 tracks shared with NFS3;
+  none in the NFS4-only tracks and Hometown). GUI (`NFS4_TRACK_ADAPTER`, `nfs4-track.ts`): the road spline is the
+  vroad slice centres (headed by `forward`; chunks stay at the block positions, near the middle of their slices), the
+  other roads one straight line per linked run, from its middle slice to its link (mirrored runs once).
 
 ## TNFS sound banks (SIMDATA/SOUNDBNK/*.BNK)
 

@@ -1,6 +1,7 @@
 import os
 import unittest
 from io import BytesIO
+from types import SimpleNamespace
 
 from library import require_file
 from resources.blackbox.archives import NfsuJdlzCompressedBlock
@@ -8,7 +9,17 @@ from resources.blackbox.maps.nfsu import NfsuChunkBundle, NfsuTrackBundle
 from resources.eac.compressions.jdlz import JdlzCompression
 from serializers.bitmaps import nfsu_texture_pack_textures, nfsu_texture_to_image
 from serializers.geometries import nfsu_geometry_meshes
-from serializers.maps import NfsuWorld, find_nfsu_stream_file, nfsu_section_ranges, nfsu_streaming_sections
+from serializers.maps import (
+    BlackBoxRoad,
+    NfsuTrackBundleSerializer,
+    NfsuWorld,
+    find_nfsu_stream_file,
+    nfsu2_track_paths,
+    nfsu_ground_heights,
+    nfsu_heights_from_roads,
+    nfsu_section_ranges,
+    nfsu_streaming_sections,
+)
 
 SECTION = 'test/samples/NFSU_B36.BUN'
 
@@ -64,6 +75,113 @@ class TestNfsuChunkBundle(unittest.TestCase):
         self.assertEqual(image.size, (128, 128))
         # a building facade: not a flat color
         self.assertGreater(len(set(image.getdata())), 100)
+
+
+# the track paths and roads chunks of TRACKB1301.lzc (a drift race)
+PATHS = 'test/samples/NFSU_TRACKB1301_PATHS.BUN'
+
+
+class TestNfsuRacePaths(unittest.TestCase):
+    def test_paths_and_roads_should_be_read_and_remain_the_same(self):
+        (name, block, data) = require_file(PATHS, lazy=False)
+        with open(PATHS, 'rb') as f:
+            self.assertEqual(f.read(), block.pack(data, name=name))
+        roads = _chunk(data, 'chunk_id', 0x00034121)['roads']
+        self.assertEqual([(x['road_id'], len(x['nodes'])) for x in roads], [(1, 36), (2, 27)])
+        for road in roads:
+            for node in road['nodes']:
+                self.assertEqual(node['road_id'], road['road_id'])
+                self.assertAlmostEqual(abs(complex(node['forward']['x'], node['forward']['y'])), 1, places=3)
+
+    def test_route_should_get_heights_of_roads(self):
+        (_, _, data) = require_file(PATHS)
+        route, roads = NfsuTrackBundleSerializer().track_paths(data)
+        self.assertEqual((len(route.points), route.closed), (11, True))
+        self.assertEqual([len(x.points) for x in roads], [36, 27])
+        # a flat parking lot
+        self.assertTrue(all(z is not None and abs(z - 0.07) < 0.01 for _, _, z in route.points))
+
+    def test_heights_should_follow_the_road_nearest_in_height(self):
+        lower = BlackBoxRoad([(0, 0, 0), (100, 0, 0)], False)
+        bridge = BlackBoxRoad([(50, -50, 10), (50, 50, 10)], False)
+        self.assertEqual(nfsu_heights_from_roads([(10, 1), (50, 0), (90, 0)], [lower, bridge]), [0, 0, 0])
+        self.assertEqual(nfsu_heights_from_roads([(50, -40), (50, 0)], [lower, bridge]), [10, 10])
+        self.assertEqual(nfsu_heights_from_roads([(0, 0)], []), [None])
+
+
+# TRACKS/ROUTESL4RB/Routes4201F.bin of NFSU2: roads of a race, one with leftover bytes after its name
+NFSU2_ROUTES = 'test/samples/NFSU2_ROUTES4201F.BIN'
+
+
+def _quad_mesh(name: str, x0: float, y0: float, x1: float, y1: float, z: float, facing_down: bool = False):
+    import numpy as np
+
+    triangles = [(0, 2, 1), (0, 3, 2)] if facing_down else [(0, 1, 2), (0, 2, 3)]
+    return SimpleNamespace(
+        name=name,
+        vertices=np.array([(x0, y0, z), (x1, y0, z), (x1, y1, z), (x0, y1, z)], dtype=np.float64),
+        uvs=np.zeros((4, 2)),
+        parts=[(None, np.array(triangles))],
+    )
+
+
+def _world(meshes) -> NfsuWorld:
+    world = NfsuWorld()
+    world.meshes = dict(enumerate(meshes))
+    infos = [{'mesh_ids': [i]} for i in range(len(meshes))]
+    identity = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+    instances = [
+        {'info_index': i, 'rotation': identity, 'position': {'x': 0, 'y': 0, 'z': 0}} for i in range(len(meshes))
+    ]
+    world.sceneries = [(0, infos, instances)]
+    return world
+
+
+class TestNfsu2Roads(unittest.TestCase):
+    def test_roads_should_be_read_and_remain_the_same(self):
+        (name, block, data) = require_file(NFSU2_ROUTES, lazy=False)
+        with open(NFSU2_ROUTES, 'rb') as f:
+            self.assertEqual(f.read(), block.pack(data, name=name))
+        roads = _chunk(data, 'chunk_id', 0x00034121)['roads']
+        self.assertEqual([x['road_id'] for x in roads], [1, 2, 3, 4, 100, 101, 102, 103])
+        self.assertEqual({x['name'] for x in roads}, {f'TrackRoutesA1{i}' for i in range(5)})
+        self.assertEqual(roads[4]['name_padding'][:2], b'\x03\x00')
+        for road in roads:
+            points = [(n['position']['x'], n['position']['y']) for n in road['nodes']]
+            length = sum(abs(complex(*b) - complex(*a)) for a, b in zip(points, points[1:]))
+            self.assertAlmostEqual(road['length'], length, delta=0.1)
+            for node in road['nodes']:
+                self.assertAlmostEqual(abs(complex(node['direction']['x'], node['direction']['y'])), 32767, delta=4)
+
+    def test_location_roads_should_be_found_next_to_bundle(self):
+        import shutil
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            os.makedirs(os.path.join(directory, 'ROUTESL4RB'))
+            shutil.copy(NFSU2_ROUTES, os.path.join(directory, 'ROUTESL4RB', 'RoutesAll.bin'))
+            route, roads = NfsuTrackBundleSerializer().track_paths({'chunks': []}, os.path.join(directory, 'L4RB.BUN'))
+            self.assertIsNone(route)
+            self.assertEqual([len(x.points) for x in roads], [28, 22, 22, 8, 30, 25, 25, 10])
+            self.assertTrue(all(z is None for road in roads for _, _, z in road.points))
+            self.assertIsNone(nfsu2_track_paths(os.path.join(directory, 'L4RC.BUN')))
+
+    def test_ground_heights_should_follow_the_roads(self):
+        world = _world(
+            [
+                _quad_mesh('TRN_CN_ROADA_CHOP_A1', 0, -5, 200, 5, 0),
+                _quad_mesh('TRN_CN_ROADA_CHOP_A2', 95, -100, 105, 100, 10),
+                _quad_mesh('TRN_CN_TERRAINA_CHOP_A1', -50, -150, 250, 150, -5),
+                _quad_mesh('XT_TREE_1A', 40, -10, 60, 10, 20),
+                _quad_mesh('TRN_CN_CEILINGSA_CHOP_A1', 150, -10, 170, 10, 8, facing_down=True),
+            ]
+        )
+        # the lower road under the bridge, the tree and the tunnel ceiling
+        self.assertEqual(nfsu_ground_heights(world, [(x, 0) for x in range(0, 201, 25)]), [0] * 9)
+        # the bridge over the lower road
+        self.assertEqual(nfsu_ground_heights(world, [(100, y) for y in range(-100, 101, 25)]), [10] * 9)
+        # the terrain off the roads
+        self.assertEqual(nfsu_ground_heights(world, [(30, 100), (30, 2)]), [-5, 0])
 
 
 class TestJdlz(unittest.TestCase):

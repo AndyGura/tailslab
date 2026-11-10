@@ -1,7 +1,7 @@
 # EA Games Compression Algorithms
 
 This document describes the compression algorithms used by EA games (NFS 1 - 5, plus JDLZ and HUFF of NFS Underground
-1, 2 and Most Wanted). The implementations referenced here live in [resources/eac/compressions](eac/compressions):
+1, 2 and Most Wanted, and COMP of NFS Hot Pursuit 2 PS2). The implementations referenced here live in [resources/eac/compressions](eac/compressions):
 each of them both uncompresses and compresses.
 
 ## How a compressed file is detected
@@ -134,6 +134,18 @@ the per-algorithm choice from the first byte is made in
 - **Description**: a QFS3 stream (`0x30FB`, no delta coding) behind the header. Used by some textures of compressed
   texture packs. The compressor writes plain `0x30` streams only.
 - **Implementation**: [resources/eac/compressions/huff.py](eac/compressions/huff.py).
+
+## COMP (NFS Hot Pursuit 2, PlayStation 2)
+- **Header**: 16 bytes: `COMP`, `0x01`, `0x10`, u16 stored flag (1: the data follows uncompressed, when compressing
+  doesn't make it smaller), uncompressed size (u32 LE), compressed size including the header (u32 LE).
+- **Description**: LZ77, groups of 16 tokens after a 16-bit LE flag word (LSB first): 0 = literal byte, 1 = 2-byte match
+  with the distance (1..4095) high 4 bits in the high nibble of byte 0, length - 3 (3..18) in its low nibble, the
+  distance low 8 bits in byte 1. The game's `lzcompress.cpp` (SLUS_203.62 0x1b3dd0, decompressor 0x1b41c8) keeps one
+  position per hash of the next 3 bytes (`(b0 << 8 ^ b1 << 4 ^ b2) * 0x9E5F >> 4 & 0x7FFF`), writes the last 18 bytes as
+  literals and the bits after the last token of the last flag word as ones. Used by the `*.LZC` files of the PS2 game.
+  Not an `*FB` algorithm: `Nfs6Ps2CompressedBlock` always uses it.
+- **Implementation**: [resources/eac/compressions/comp.py](eac/compressions/comp.py), the game's compressor exactly:
+  every `COMP` file of the disc compresses back to the same bytes.
 
 ## 4th algorithm (not implemented)
 - **Description**: A fourth `*FB` compression branch was found in the decompiled TNFS (DOS) executable. No resource in

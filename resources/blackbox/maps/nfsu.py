@@ -1,5 +1,5 @@
 from io import SEEK_CUR
-from typing import Dict
+from typing import Dict, Optional
 
 from library.read_blocks import (
     ArrayBlock,
@@ -29,7 +29,10 @@ from resources.blackbox.geometries.nfsu import (
     determine_chunks_amount,
     elevens_length,
 )
-from resources.eac.fields.misc import Point3D
+from resources.blackbox.maps.nfs6_ps2 import Nfs6Ps2TrackPathHeader, Nfs6Ps2TrackPathPoints
+from resources.blackbox.maps.nfsu2 import Nfsu2Roads
+from resources.blackbox.maps.nfsmw import NfsmwRoadNetwork
+from resources.eac.fields.misc import Point2D, Point3D
 
 
 class NfsuScenerySectionHeader(DeclarativeCompoundBlock):
@@ -611,6 +614,205 @@ class NfsmwStreamingSections(DeclarativeCompoundBlock):
         return _section_names_ok(ctx, 92) and not _section_names_ok(ctx, 80)
 
 
+# NFS Underground race paths (TRACKS/TRACKBnnnn.lzc): the race route is path 0 of the track paths chunk 0x80034147,
+# laid out as NFS Hot Pursuit 2 (PS2)'s; the roads of the race (with heights and lanes) are chunk 0x34121
+
+
+def _chunk_sub_chunk_lengths(payload: bytes) -> Dict[int, int]:
+    """Sub-chunk id -> payload length of a container chunk payload, empty if it is not a whole number of chunks"""
+    res = {}
+    pos = 0
+    while pos + 8 <= len(payload):
+        chunk_id = int.from_bytes(payload[pos : pos + 4], 'little')
+        length = int.from_bytes(payload[pos + 4 : pos + 8], 'little')
+        res[chunk_id] = length
+        pos += 8 + length
+    return res if pos == len(payload) else {}
+
+
+class NfsuTrackPath(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'Track paths of a race: the race route (path 0) on the ground plane, a point every '
+            '20..300 m, in the layout of NFS Hot Pursuit 2 (PS2). Sub-chunk 0x3414a (180-byte records with '
+            'positions, directions and quads, one per race checkpoint or zone?) is not decoded',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x80034147)), {'description': _CHUNK_ID_DESCR})
+        chunk_length = container_chunk_length()
+        sub_chunks = nfsu_sub_chunks_field(
+            [Nfs6Ps2TrackPathHeader(), Nfs6Ps2TrackPathPoints()], 'Header, points and chunk 0x3414a (unknown)'
+        )
+
+    def matches_chunk(self, ctx) -> bool:
+        # NFSMW keeps other sub-chunks in it: fine as long as the path records and points have their sizes
+        lengths = _chunk_sub_chunk_lengths(peek_chunk_payload(ctx, peek_chunk_length(ctx)))
+        return bool(lengths) and lengths.get(0x00034148, 0) % 40 == 0 and lengths.get(0x00034149, 0) % 20 == 0
+
+
+class NfsuRoadLane(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {**super().schema, 'block_description': 'Lane record of a road (meaning unknown)'}
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        unk0 = (IntegerBlock(length=4), {'is_unknown': True})
+        flags = (BytesBlock(length=4), {'is_unknown': True})
+        value = (DecimalBlock(length=4), {'is_unknown': True, 'description': '999 in unused records'})
+        name = (
+            UTF8Block(length=40),
+            {'is_unknown': True, 'description': 'Text padded with spaces ("GUHLER2KW207023"), empty in unused records'},
+        )
+
+
+class NfsuRoadNode(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {**super().schema, 'block_description': 'Node of a road: a point of its centre line, 4..25 m apart'}
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        position = (Point3D(child=DecimalBlock(length=4)), {'description': 'Position in world coordinates (Z up)'})
+        forward = (
+            Point2D(child=DecimalBlock(length=4)),
+            {'description': 'Unit direction to the next node on the ground plane'},
+        )
+        backward = (
+            Point2D(child=DecimalBlock(length=4)),
+            {'description': 'Unit direction to the previous node on the ground plane'},
+        )
+        next_length = (DecimalBlock(length=4), {'description': 'Distance to the next node, 4 at the last node'})
+        previous_length = (
+            DecimalBlock(length=4),
+            {'description': 'Distance from the previous node, 4 at the first node'},
+        )
+        widths = (
+            ArrayBlock(child=DecimalBlock(length=4), length=2),
+            {'is_unknown': True, 'description': 'Probably the road width to the left and to the right'},
+        )
+        unk0 = (ArrayBlock(child=DecimalBlock(length=4), length=3), {'is_unknown': True})
+        route_distance = (
+            DecimalBlock(length=4),
+            {
+                'description': 'Distance along the race route (from 0 again after the finish line of a circuit, '
+                'negative before the start)'
+            },
+        )
+        unk1 = (ArrayBlock(child=IntegerBlock(length=2, is_signed=True), length=11), {'is_unknown': True})
+        unk2 = (
+            ArrayBlock(child=IntegerBlock(length=2, is_signed=True), length=12),
+            {'is_unknown': True, 'description': 'Two groups of 6 values, -1 for none: probably lane offsets'},
+        )
+        unk3 = (BytesBlock(length=23), {'is_unknown': True})
+        unk4 = (BytesBlock(length=2), {'is_unknown': True})
+        road_id = (IntegerBlock(length=1), {'description': 'Low byte of the road id'})
+        flags = (BytesBlock(length=4), {'is_unknown': True})
+
+
+NFSU_ROAD_HEADER_SIZE = 0x27C
+NFSU_ROAD_NODE_SIZE = 136
+
+
+class NfsuRoad(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'Road of a race: a polyline of nodes with heights. The roads of the race route '
+            'follow it (several roads one after another, an end of a road lies on another road), with its shortcuts '
+            'and parallel lanes (drag races); roads with id 100 and above are side streets reaching or crossing them',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        unk0 = (ArrayBlock(child=IntegerBlock(length=4), length=2), {'is_unknown': True, 'description': 'Always 11'})
+        unk1 = (IntegerBlock(length=2), {'is_unknown': True, 'description': 'Always 1'})
+        road_id = (IntegerBlock(length=2), {'description': 'Id of the road in the race (not in the city)'})
+        is_side_road = (
+            IntegerBlock(length=4),
+            {
+                'description': '1 on roads with id 100 and above: side streets reaching or crossing the roads of the race'
+            },
+        )
+        num_nodes = (
+            IntegerBlock(length=2, programmatic_value=lambda ctx: len(ctx.data('nodes'))),
+            {'usage': 'io,doc', 'description': 'Amount of nodes'},
+        )
+        unk2 = (IntegerBlock(length=2), {'is_unknown': True, 'description': 'Always `num_nodes`'})
+        unk3 = (IntegerBlock(length=4), {'is_unknown': True, 'description': 'Always 1'})
+        unk4 = (BytesBlock(length=8), {'is_unknown': True})
+        bounding_box_min = (
+            Point2D(child=DecimalBlock(length=4)),
+            {'description': 'Minimum x, y of the node positions'},
+        )
+        bounding_box_max = (
+            Point2D(child=DecimalBlock(length=4)),
+            {'description': 'Maximum x, y of the node positions'},
+        )
+        lanes = (
+            ArrayBlock(child=NfsuRoadLane(), length=11),
+            {'is_unknown': True, 'description': 'Lane records: 4, a separator, 4, a separator, an end'},
+        )
+        unk5 = (BytesBlock(length=16), {'is_unknown': True})
+        nodes = (ArrayBlock(child=NfsuRoadNode(), length=lambda ctx: ctx.data('num_nodes')), {'description': 'Nodes'})
+
+
+def _peek_bytes(ctx, length: int) -> bytes:
+    """`length` bytes at the buffer position. Buffer position is not changed"""
+    pos = ctx.buffer.tell()
+    try:
+        return ctx.buffer.read(length)
+    finally:
+        ctx.buffer.seek(pos)
+
+
+def _nfsu_roads_amount(payload: bytes) -> Optional[int]:
+    """Amount of roads in a roads chunk payload, None if it is not a whole number of NFSU roads"""
+    pos = count = 0
+    while pos + NFSU_ROAD_HEADER_SIZE <= len(payload):
+        if payload[pos : pos + 8] != b'\x0b\0\0\0\x0b\0\0\0':
+            return None
+        pos += NFSU_ROAD_HEADER_SIZE + NFSU_ROAD_NODE_SIZE * int.from_bytes(payload[pos + 16 : pos + 18], 'little')
+        count += 1
+    return count if pos == len(payload) else None
+
+
+class NfsuRoads(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'Roads of a race (AI and traffic roads?): the race route and its shortcuts, side '
+            'streets',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034121)), {'description': _CHUNK_ID_DESCR})
+        chunk_length = (
+            IntegerBlock(
+                length=4,
+                programmatic_value=lambda ctx: sum(
+                    NFSU_ROAD_HEADER_SIZE + NFSU_ROAD_NODE_SIZE * len(x['nodes']) for x in ctx.data('roads')
+                ),
+            ),
+            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
+        )
+        roads = (
+            ArrayBlock(
+                child=NfsuRoad(),
+                length=(
+                    lambda ctx: _nfsu_roads_amount(_peek_bytes(ctx, ctx.data('chunk_length'))),
+                    'until the end of chunk',
+                ),
+            ),
+            {'description': 'Roads'},
+        )
+
+    def matches_chunk(self, ctx) -> bool:
+        return _nfsu_roads_amount(peek_chunk_payload(ctx, peek_chunk_length(ctx))) is not None
+
+
 NFSU_BUNDLE_CHUNK_BLOCKS = [
     ZeroChunk(),
     NfsuBinGeometry(whole_file=False),
@@ -621,6 +823,10 @@ NFSU_BUNDLE_CHUNK_BLOCKS = [
     NfsuStreamingSections(),
     NfsmwStreamingSections(),
     Nfsu2StreamingSections(),
+    NfsuTrackPath(),
+    NfsuRoads(),
+    Nfsu2Roads(),
+    NfsmwRoadNetwork(),
 ]
 
 
@@ -635,8 +841,9 @@ class NfsuChunkBundle(DeclarativeCompoundBlock):
             **super().schema,
             'block_description': 'Chunk bundle (*.BUN, *.BIN, uncompressed *.lzc): a sequence of chunks, each '
             'having 32-bit id, 32-bit payload length and payload; chunks with the highest bit '
-            'of id set are containers of other chunks. Geometry packs, texture packs, scenery '
-            'and streaming sections table are decoded, other chunks are kept as raw bytes',
+            'of id set are containers of other chunks. Geometry packs, texture packs, scenery, '
+            'streaming sections table, track paths and roads (NFSU races), roads (NFSU2 Routes*.bin), the road '
+            'network (NFSMW L2RA.BUN) are decoded, other chunks are kept as raw bytes',
         }
 
     class Fields(DeclarativeCompoundBlock.Fields):

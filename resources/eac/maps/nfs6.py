@@ -57,9 +57,10 @@ class Nfs6AiPath(DeclarativeCompoundBlock):
         path_type = (
             IntegerBlock(length=4),
             {
-                'is_unknown': True,
-                'description': 'Path kind. Main road is 1, alternative roads and shortcuts have other values (2, 3, '
-                '5, 8, 11)',
+                'description': 'Shortcut difficulty: main road is 1, alternative roads and shortcuts 2..11. At a '
+                'node, an AI racer takes the path of the highest difficulty up to its limit (NFSHP2.exe 0x4c4fc0, '
+                'limit from Racer.MinPathDifficulty / Racer.MaxPathDifficulty of AI/racetune.ini and the racer), '
+                'never one above 10',
             },
         )
         points = (

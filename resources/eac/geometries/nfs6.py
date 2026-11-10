@@ -37,7 +37,8 @@ from library.read_blocks.misc.value_validators import Eq
 #  - "__Skeleton:::<name>", "__Bone:::<name>.<bone>" - car skeleton ("skeleton.o", `read_eagl_skeleton`)
 # Vertex positions are in world (model) space, Y is up. Cars: X right, front at -Z (right-handed, a mirrored export
 # shows the license plate text mirrored). Vertex format is D3D FVF: position, blend weight (cars, always 0), normal
-# (cars), diffuse color (BGRA) and 1..4 UV sets. UV set i belongs to texture n-1-i of the render method (n textures)
+# (cars, unit vectors in model space), diffuse color (BGRA) and 1..4 UV sets. UV set i belongs to texture n-1-i of the
+# render method (n textures)
 
 FVF_POSITION_MASK = 0xE
 FVF_XYZ = 0x2
@@ -145,6 +146,8 @@ class EaglMesh:
     colors: List[int]
     uv_sets: List[List[Tuple[float, float]]]
     triangles: List[Tuple[int, int, int]] = field(default_factory=list)
+    # normals (x, y, z) per vertex, empty if vertex format has none (cars have them)
+    normals: List[Tuple[float, float, float]] = field(default_factory=list)
     # name of the model geometry, drawn by this render method ("ALPHA_OPAQUE_HOODShape", ...), if model has names
     geometry_name: Optional[str] = None
 
@@ -237,12 +240,13 @@ def _decode_vertices(elf: _EaglElf, stride: int, fvf: int, pointer: int, count: 
     texture_sets = (fvf >> 8) & 0xF
     # D3DFVF_XYZB1 (0x6)..D3DFVF_XYZB5 (0xE): position followed by 1..5 blend weights (car models: one, always 0)
     blend_weights = max(0, ((fvf & FVF_POSITION_MASK) - FVF_XYZB1) // 2 + 1)
-    vertices, colors, uv_sets = [], [], [[] for _ in range(texture_sets)]
+    vertices, normals, colors, uv_sets = [], [], [], [[] for _ in range(texture_sets)]
     for i in range(count):
         o = pointer + i * stride
         vertices.append(struct.unpack_from('<3f', elf.data, o))
         o += 12 + 4 * blend_weights
         if fvf & FVF_NORMAL:
+            normals.append(struct.unpack_from('<3f', elf.data, o))
             o += 12
         if fvf & FVF_DIFFUSE:
             b, g, r, a = elf.data[o : o + 4]
@@ -253,7 +257,7 @@ def _decode_vertices(elf: _EaglElf, stride: int, fvf: int, pointer: int, count: 
         for uvs in uv_sets:
             uvs.append(struct.unpack_from('<2f', elf.data, o))
             o += 8
-    return vertices, colors, uv_sets
+    return vertices, normals, colors, uv_sets
 
 
 def _strip_to_triangles(indices: List[int], vertex_count: int) -> List[Tuple[int, int, int]]:
@@ -323,7 +327,7 @@ def read_eagl_meshes(data: dict) -> List[EaglMesh]:
         for opcode, args in elf.commands(commands_start):
             if opcode in (0x04, 0x4B) and len(args) >= 7:
                 stride, fvf, pointer, count = args[1], args[2], args[5], args[6]
-                vertices, colors, uv_sets = _decode_vertices(elf, stride, fvf, pointer, count)
+                vertices, normals, colors, uv_sets = _decode_vertices(elf, stride, fvf, pointer, count)
                 mesh = EaglMesh(
                     name=name.split(':::')[-1],
                     shader=shader,
@@ -331,6 +335,7 @@ def read_eagl_meshes(data: dict) -> List[EaglMesh]:
                     vertices=vertices,
                     colors=colors,
                     uv_sets=uv_sets,
+                    normals=normals,
                     geometry_name=geometry_names.get(name.split('__GPRenderMethod_')[-1]),
                 )
                 meshes.append(mesh)
