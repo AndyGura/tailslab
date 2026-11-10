@@ -2,16 +2,19 @@ import {
   AdditiveBlending,
   Group,
   Material,
+  Matrix3,
   Mesh,
   MeshBasicMaterial,
   NormalBlending,
   Object3D,
+  Scene,
   SphereGeometry,
   SRGBColorSpace,
   Texture,
   TextureLoader,
   Vector3,
 } from 'three';
+import { SCENE_SKY_MEAN_GLSL, SceneSun, sceneSkyCube } from './scene-sky';
 
 export type Nfs6CarDummy = { name: string; position: [number, number, number] };
 
@@ -238,6 +241,11 @@ class Nfs6CarUniforms {
   readonly exponents = { paint: 0, hot: 0, glass: 0, rubber: 0 };
   readonly brightness = { value: 1 };
   readonly envMap: { value: Texture | null } = { value: null };
+  // the scene's sky (sceneSkyCube) and what it stands for: the hemisphere ambient, the environment map
+  readonly sceneCube: { value: Texture | null } = { value: null };
+  readonly sceneCubeMatrix = { value: new Matrix3() };
+  readonly sceneLight = { value: 0 };
+  readonly sceneEnv = { value: 0 };
 }
 
 type ShaderOptions = {
@@ -256,7 +264,9 @@ type ShaderOptions = {
  * gHotSpecularColour ^ specular_hotspot_exponent, generic only the first, rubber / glass white ^ their exponent), the
  * hemisphere ambient (nfs6HemisphereAmbient; glass: the vertex color instead). Per pixel nfs6PixelColor, in the
  * game's color values (textures and vertex colors as stored, no sRGB decoding), written as the output's sRGB.
- * SKIPPED: vertex fog (the scene's fog applies), the paint's damage texture, the sampler states of the technique
+ * Lit by the scene (Nfs6CarMeshController.sceneLighting): the sky and ground colors are the means of the scene's sky
+ * (sceneSkyMean). Reflecting the scene (sceneReflection): t1 is the scene's sky in the direction the bent normal
+ * reflects the camera ray to, instead of the sphere map. SKIPPED: vertex fog (the scene's fog applies), the paint's damage texture, the sampler states of the technique
  * (the texture's own filtering)
  */
 function vehicleShaderInMaterial(material: Material, uniforms: Nfs6CarUniforms, options: ShaderOptions) {
@@ -287,11 +297,15 @@ function vehicleShaderInMaterial(material: Material, uniforms: Nfs6CarUniforms, 
     program.uniforms['eaglBrightness'] = uniforms.brightness;
     program.uniforms['eaglVertexAlpha'] = { value: options.vertexAlpha };
     program.uniforms['eaglEnvMap'] = uniforms.envMap;
-    program.uniforms['eaglEnvEnabled'] = {
+    // 0 none, 1 the sphere map, 2 the scene's sky
+    program.uniforms['eaglEnvMode'] = {
       get value() {
-        return uniforms.envMap.value ? 1 : 0;
+        return uniforms.sceneEnv.value ? 2 : uniforms.envMap.value ? 1 : 0;
       },
     };
+    program.uniforms['eaglSceneCube'] = uniforms.sceneCube;
+    program.uniforms['eaglSceneCubeMatrix'] = uniforms.sceneCubeMatrix;
+    program.uniforms['eaglSceneLight'] = uniforms.sceneLight;
     program.uniforms['eaglEnvFlipY'] = {
       get value() {
         return uniforms.envMap.value?.flipY ? 1 : 0;
@@ -331,9 +345,14 @@ function vehicleShaderInMaterial(material: Material, uniforms: Nfs6CarUniforms, 
         uniform float eaglHotExponent;
         uniform float eaglBrightness;
         uniform float eaglVertexAlpha;
+        uniform samplerCube eaglSceneCube;
+        uniform mat3 eaglSceneCubeMatrix;
+        uniform float eaglSceneLight;
         varying vec4 vEaglD0;
         varying vec4 vEaglD1;
         varying vec2 vEaglEnvUv;
+        varying vec3 vEaglSceneReflect;
+        ${glass ? '' : SCENE_SKY_MEAN_GLSL}
         // nfs6Lit
         float eaglLit( float nh, float power ) {
           return nh > 0.0 ? pow( nh, clamp( power, -127.9961, 127.9961 ) ) : 0.0;
@@ -357,6 +376,8 @@ function vehicleShaderInMaterial(material: Material, uniforms: Nfs6CarUniforms, 
           vec3 eaglBent = normalize( eaglWorldNormal + ${NFS6_NORMAL_BEND} * ( eaglWorld.xyz - eaglRootPosition ) );
           vec3 eaglViewBent = mat3( viewMatrix ) * eaglBent;
           vEaglEnvUv = 1.0 - ( eaglViewBent.xy * ${NFS6_SPHERE_MAP_SCALE} * 0.5 + 0.5 );
+          // the scene's sky instead of the sphere map: the camera ray reflected by the bent normal
+          vEaglSceneReflect = reflect( eaglWorld.xyz - cameraPosition, eaglBent );
           // specular: half vector of the camera and the sun position
           vec3 eaglEye = normalize( cameraPosition - eaglWorld.xyz );
           vec3 eaglSun = normalize( eaglSunPosition - eaglWorld.xyz );
@@ -368,7 +389,13 @@ function vehicleShaderInMaterial(material: Material, uniforms: Nfs6CarUniforms, 
             glass
               ? `vEaglD0 = clamp( ${color}, 0.0, 1.0 );`
               : `float eaglSky = eaglWorldNormal.${WORLD_UP_GLSL} * 0.5 + 0.5;
-          vEaglD0 = vec4( min( eaglSky * eaglAmbientSky + ( 1.0 - eaglSky ) * eaglAmbientGround, vec3( 1.0 ) ), 1.0 );`
+          vec3 eaglSkyColor = eaglAmbientSky;
+          vec3 eaglGroundColor = eaglAmbientGround;
+          if ( eaglSceneLight > 0.5 ) {
+            eaglSkyColor = sceneSkyMean( eaglSceneCube, eaglSceneCubeMatrix, 1.0 );
+            eaglGroundColor = sceneSkyMean( eaglSceneCube, eaglSceneCubeMatrix, -1.0 );
+          }
+          vEaglD0 = vec4( min( eaglSky * eaglSkyColor + ( 1.0 - eaglSky ) * eaglGroundColor, vec3( 1.0 ) ), 1.0 );`
           }
         }`,
       );
@@ -377,7 +404,10 @@ function vehicleShaderInMaterial(material: Material, uniforms: Nfs6CarUniforms, 
         '#include <fog_pars_fragment>',
         `#include <fog_pars_fragment>
         uniform sampler2D eaglEnvMap;
-        uniform float eaglEnvEnabled;
+        uniform float eaglEnvMode;
+        uniform samplerCube eaglSceneCube;
+        uniform mat3 eaglSceneCubeMatrix;
+        varying vec3 vEaglSceneReflect;
         uniform float eaglEnvFlipY;
         uniform float eaglEnvSrgb;
         uniform float eaglMapSrgb;
@@ -398,7 +428,10 @@ function vehicleShaderInMaterial(material: Material, uniforms: Nfs6CarUniforms, 
           vec4 eaglT0 = vec4( 1.0 );
           #endif
           vec3 eaglT1 = vec3( 0.0 );
-          if ( eaglEnvEnabled > 0.5 ) {
+          if ( eaglEnvMode > 1.5 ) {
+            vec4 env = textureCube( eaglSceneCube, eaglSceneCubeMatrix * normalize( vEaglSceneReflect ) );
+            eaglT1 = clamp( sRGBTransferOETF( vec4( env.rgb, 1.0 ) ).rgb, 0.0, 1.0 );
+          } else if ( eaglEnvMode > 0.5 ) {
             // D3D: v = 0 is the top row
             vec4 env = texture2D( eaglEnvMap, vec2( vEaglEnvUv.x, eaglEnvFlipY > 0.5 ? 1.0 - vEaglEnvUv.y : vEaglEnvUv.y ) );
             eaglT1 = eaglEnvSrgb > 0.5 ? sRGBTransferOETF( env ).rgb : env.rgb;
@@ -421,7 +454,8 @@ function vehicleShaderInMaterial(material: Material, uniforms: Nfs6CarUniforms, 
 /**
  * Animates NFS6 car model (car.o) in preview: steers and spins wheels (brake calipers steer only), switches skins,
  * shows light bones, and draws every mesh as NFSHP2.exe does (vehicleShaderInMaterial, by its "eaglShader" /
- * "eaglBlend" properties), lit by a track location's lighting.ini and environment map. Expects meshes, exported by
+ * "eaglBlend" properties), lit by a track location's lighting.ini and environment map, or by the scene's sky
+ * (sceneLighting, sceneReflection). Expects meshes, exported by
  * EaglModelSerializer for a car: "<lod>_<index>_<geometry name>", X right, Y forward, Z up, game normals (`normal` of
  * an OBJ, `_game_normal` of a GLB), glass vertex colors (`color`). The paint is the texture "textures/skin.png", every
  * skin has its own texture. Materials are cloned per microcode and blend (an OBJ's are shared per texture). Depends
@@ -498,6 +532,23 @@ export class Nfs6CarMeshController {
   set environmentMap(value: Texture | null) {
     this.uniforms.envMap.value = value;
   }
+
+  private _sceneLighting: SceneSun | null = null;
+  /**
+   * Lit by the scene drawing the car instead of the location: the hemisphere ambient from the means of its sky
+   * (`scene.background` when it is a cube texture, sceneSkyMean) and this sun (specular). Null: the location
+   */
+  get sceneLighting(): SceneSun | null {
+    return this._sceneLighting;
+  }
+
+  set sceneLighting(value: SceneSun | null) {
+    this._sceneLighting = value;
+    this.updateLighting();
+  }
+
+  /** The environment map is the sky of the scene drawing the car (when it is a cube texture), not environmentMap */
+  sceneReflection = false;
 
   private _lightLevel = 1;
   /** The light level of the road under the car, 0..1 (tunnels are darker): nfs6Brightness, nfs6HotSpecular */
@@ -701,13 +752,17 @@ export class Nfs6CarMeshController {
       };
       o.material = o.material instanceof Array ? o.material.map(copy) : copy(o.material);
       o.renderOrder = blend === 'add' ? 2 : blend === 'trans' ? 1 : 0;
-      // the car's position, for the environment map normal (model space)
+      // the car's position, for the environment map normal (model space), and the scene's sky
       const previous = o.onBeforeRender;
-      o.onBeforeRender = (...args) => {
-        previous.apply(o, args);
+      o.onBeforeRender = (renderer, scene, ...rest) => {
+        previous.call(o, renderer, scene, ...rest);
         if (!this.disposed) {
+          const u = this.uniforms;
           this.root.updateWorldMatrix(true, false);
-          this.uniforms.rootPosition.value.setFromMatrixPosition(this.root.matrixWorld);
+          u.rootPosition.value.setFromMatrixPosition(this.root.matrixWorld);
+          u.sceneCube.value = sceneSkyCube(scene, u.sceneCubeMatrix.value);
+          u.sceneLight.value = this._sceneLighting && u.sceneCube.value ? 1 : 0;
+          u.sceneEnv.value = this.sceneReflection && u.sceneCube.value ? 1 : 0;
         }
       };
     });
@@ -728,7 +783,7 @@ export class Nfs6CarMeshController {
     });
   }
 
-  /** The shader constants of the skin and the location (0x412f00, 0x4134c0) */
+  /** The shader constants of the skin and the location or the scene's sun (0x412f00, 0x4134c0) */
   private updateLighting() {
     const u = this.uniforms;
     const location = this._location;
@@ -736,8 +791,17 @@ export class Nfs6CarMeshController {
     const specular = skin?.specular;
     u.ambientSky.value.set(...(location.ambient_sky.map(c => c / 255) as [number, number, number]));
     u.ambientGround.value.set(...(location.ambient_ground.map(c => c / 255) as [number, number, number]));
-    u.sunPosition.value.set(...nfs6TrackToWorld(location.sun_position));
-    const paint = nfs6PaintSpecular(specular, location.sun);
+    const sun = this._sceneLighting;
+    if (sun) {
+      // far away in the sun's direction
+      u.sunPosition.value.set(...sun.direction).multiplyScalar(1e6);
+    } else {
+      u.sunPosition.value.set(...nfs6TrackToWorld(location.sun_position));
+    }
+    const paint = nfs6PaintSpecular(
+      specular,
+      sun ? (sun.color.map(c => c * 255) as [number, number, number]) : location.sun,
+    );
     u.paintSpecular.value.set(...paint);
     u.hotSpecular.value.set(...nfs6HotSpecular(paint, this._lightLevel, this.lighting?.vehicle_type === 'traffic'));
     u.exponents.paint = specular?.specular_paint_exponent ?? 0;

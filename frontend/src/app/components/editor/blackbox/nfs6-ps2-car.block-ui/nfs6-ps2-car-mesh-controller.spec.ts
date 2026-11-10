@@ -302,6 +302,26 @@ describe('Nfs6Ps2CarMeshController shading', () => {
     pixel.slice(0, 3).forEach((v, c) => expect(Math.abs(v - expected[c])).toBeLessThanOrEqual(1));
   });
 
+  it("lights by the scene's sky and sun", () => {
+    const color = [60, 120, 240];
+    const sky = new CubeTexture(new Array(6).fill(0).map(() => pixelCanvas(color)));
+    sky.colorSpace = SRGBColorSpace;
+    sky.generateMipmaps = false;
+    sky.needsUpdate = true;
+    // texel 128: the lit colour as it is
+    const pixel = render([128, 128, 128, 255], info(0x4080), (controller, scene) => {
+      scene.background = sky;
+      controller.sceneLighting = { direction: [0, 0, 1], color: [0.5, 0.5, 0.5] };
+    });
+    if (!pixel) {
+      pending('no WebGL');
+      return;
+    }
+    // ambient: the sky (the normal is up), 128 = 1; the sun as light 0 (colour 64) straight on; vertex colour 200
+    const lit = [1, 0.5, 0.25].map((d, c) => Math.trunc(((color[c] / 255) * 128 + 64 * d) * (1 + (200 - 255) / 255)));
+    pixel.slice(0, 3).forEach((v, c) => expect(Math.abs(v - lit[c])).toBeLessThanOrEqual(1));
+  });
+
   it('adds the environment pass by its vertex alpha', () => {
     const sky = new CubeTexture(new Array(6).fill(0).map(() => pixelCanvas([60, 120, 240])));
     sky.colorSpace = SRGBColorSpace;

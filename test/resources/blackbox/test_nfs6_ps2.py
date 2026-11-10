@@ -19,6 +19,7 @@ from serializers.geometries import (
     nfs6_ps2_mesh,
     nfs6_ps2_solid_pack_meshes,
     nfs6_ps2_strip_skips,
+    nfs6_ps2_texture_by_name,
 )
 from serializers.maps import BlackBoxRoad, Nfs6Ps2TrackBundleSerializer, Nfs6Ps2World, blackbox_route, nfs6_ps2_roads
 
@@ -283,6 +284,15 @@ class TestNfs6Ps2Car(unittest.TestCase):
         for i in lit:
             self.assertAlmostEqual(sum(c * c for c in body.normals[i]) ** 0.5, 127, delta=2)
         self.assertIn(bin_hash('CARSKIN'), {g['material_hash'] for g in body.draw_groups})
+
+    def test_texture_by_name_should_find_textures_with_cut_names(self):
+        on = ({'name': 'MURCIELAGO_BRAKELIGHT_O'}, b'on')
+        off = ({'name': 'MURCIELAGO_BRAKELIGHT'}, b'off')
+        textures = {bin_hash('MURCIELAGO_BRAKELIGHT_ON'): on, 1: off}
+        self.assertIs(nfs6_ps2_texture_by_name(textures, 'MURCIELAGO_BRAKELIGHT_ON'), on)
+        # by the stored name when the hash is not the name's
+        self.assertIs(nfs6_ps2_texture_by_name(textures, 'MURCIELAGO_BRAKELIGHT'), off)
+        self.assertIsNone(nfs6_ps2_texture_by_name(textures, 'MURCIELAGO_BRAKELIGHT_DAMAGE0'))
 
     def test_serializer_should_export_parts_skins_and_wheels(self):
         (name, block, data) = self._car()

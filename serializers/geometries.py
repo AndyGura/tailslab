@@ -2495,6 +2495,16 @@ def nfs6_ps2_car_files(geometry_path: str) -> Tuple[List[str], List[str]]:
     return globalb, find_files_case_insensitive([path_join(cars_dir, 'TEXTURES.BIN')]) + globalb
 
 
+def nfs6_ps2_texture_by_name(textures: Dict[int, tuple], name: str):
+    """The (texture info, image data) of NFS Hot Pursuit 2 (PS2) texture `name` from `textures` (by name hash), or
+    None. The game finds textures by `bin_hash` of the full name: the stored names are cut to 23 characters
+    ("MURCIELAGO_BRAKELIGHT_O" of MURCIELAGO_BRAKELIGHT_ON)"""
+    texture = textures.get(bin_hash(name))
+    if texture is None:
+        texture = next((x for x in textures.values() if x[0]['name'].upper() == name), None)
+    return texture
+
+
 def nfs6_ps2_car_texture_slots(model_name: str) -> Dict[int, str]:
     """Texture slots of NFS Hot Pursuit 2 (PS2) car meshes, filled by the game (SLUS_203.62 0x11e860, names of
     0x188790): name hash -> material name. "skin" / "skin_b" are the paint (<car>_SKIN<n>, <car>_SKIN<n>B of the
@@ -2704,7 +2714,9 @@ class Nfs6Ps2CarSerializer(BaseFileSerializer):
         texture_dir = path_join(path, 'textures')
         os.makedirs(path_join(texture_dir, 'skins'), exist_ok=True)
         os.makedirs(path_join(texture_dir, 'lights'), exist_ok=True)
-        by_name = {info['name'].upper(): (info, image_data) for info, image_data in textures.values()}
+
+        def named(name: str):
+            return nfs6_ps2_texture_by_name(textures, name)
 
         def save(texture, file_name: str) -> Image.Image:
             # as stored: the GS draws texture * colour / 0x80 (Nfs6Ps2CarMeshController), many texels are above 0x7f
@@ -2732,7 +2744,7 @@ class Nfs6Ps2CarSerializer(BaseFileSerializer):
             if texture_id not in materials:
                 materials[texture_id] = 'untextured'
                 slot = slots.get(texture_id)
-                texture = by_name.get(slot_textures[slot]) if slot else textures.get(texture_id)
+                texture = named(slot_textures[slot]) if slot else textures.get(texture_id)
                 if texture is not None:
                     name = slot or re.sub(r'[^0-9A-Za-z_-]', '_', texture[0]['name'])
                     try:
@@ -2803,7 +2815,7 @@ class Nfs6Ps2CarSerializer(BaseFileSerializer):
 
         skins = []
         for n in range(1, 10):
-            skin = by_name.get(f'{model_name}_SKIN{n}')
+            skin = named(f'{model_name}_SKIN{n}')
             if skin is None:
                 continue
             image = save(skin, f'skins/{model_name}_SKIN{n}')
@@ -2823,7 +2835,7 @@ class Nfs6Ps2CarSerializer(BaseFileSerializer):
             if light:
                 entry['lighting_material'] = light['name']
                 used_lighting[light['name']] = light
-            skin_b = by_name.get(f'{model_name}_SKIN{n}B')
+            skin_b = named(f'{model_name}_SKIN{n}B')
             if skin_b is not None:
                 save(skin_b, f'skins/{model_name}_SKIN{n}B')
                 entry['texture_b'] = f'textures/skins/{model_name}_SKIN{n}B.png'
@@ -2832,7 +2844,7 @@ class Nfs6Ps2CarSerializer(BaseFileSerializer):
         for light in ['HEADLIGHT', 'BRAKELIGHT', 'REVERSELIGHT']:
             states = {}
             for state, suffix in [('off', ''), ('on', '_ON'), ('damaged', '_DAMAGE0')]:
-                texture = by_name.get(f'{model_name}_{light}{suffix}')
+                texture = named(f'{model_name}_{light}{suffix}')
                 if texture is not None:
                     save(texture, f'lights/{model_name}_{light}{suffix}')
                     states[state] = f'textures/lights/{model_name}_{light}{suffix}.png'

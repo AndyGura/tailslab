@@ -129,7 +129,8 @@ When you do:
   and hold no specs (they are tested next to the GUI components using them). It has `TnfsCarMeshController`,
   `Nfs2CarMeshController`, `FceCarMeshController` (NFS3 / NFS4 paint in the fragment shader, by the paint mask's
   alpha; NFS3 chrome), `Nfs6Ps2CarMeshController` (NFS HP2 PS2 cars), `Nfs6CarMeshController` (NFS HP2 PC
-  cars) and `setupNfs1Texture`; the other car mesh controllers (`*-car-mesh-controller.ts`) and the track props controllers
+  cars), `scene-sky.ts` (a scene's sky cube and the sun of a gg-web-engine procedural sky, for car shaders lit by the
+  scene) and `setupNfs1Texture`; the other car mesh controllers (`*-car-mesh-controller.ts`) and the track props controllers
   (`*track-props-controller.ts`) in `frontend/.../editor/eac/` are copied into nfs-web too, with their import paths
   changed: keep them free of GUI services, depending on three.js, gg-web-engine and rxjs only. Meshes of the GUI's OBJ
   models share a material per MTL material, nfs-web's GLB ones don't: code changing a material's shader must change
@@ -381,8 +382,11 @@ When you do:
   `textures/environment/`).
 - `Nfs6CarMeshController` (`nfs-three-lib`) replaces the materials' lighting with these shaders (helpers
   `nfs6Lit`, `nfs6PixelColor`... tested in `eagl-model.block-ui/nfs6-car-mesh-controller.spec.ts`, also by rendering),
-  world up = +z, sun position in the track export's axes (`nfs6TrackToWorld`). The GUI lights the car with
-  Parkland's lighting.ini by default (location radio, track / showroom environment map, road light level 1). Not
+  world up = +z, sun position in the track export's axes (`nfs6TrackToWorld`). `sceneLighting` (a `SceneSun`) lights
+  it by the scene instead: the sky / ground colors are means of `scene.background` (`SCENE_SKY_MEAN_GLSL`), the sun
+  that one; `sceneReflection` reflects `scene.background` instead of the sphere map. The GUI lights the car with
+  Parkland's lighting.ini by default (lighting radio: the locations or the viewer's sky; reflection: track / showroom
+  environment map or the viewer's sky; road light level 1). Not
   ported: damage texture, fog, technique sampler states, draw order within a pass, addon visibility. A model whose
   meshes have no `eaglShader` property (an older export) keeps its materials (`hasGameShading` false). `baseUrl`
   gives the skins' folder for a GLB (embedded textures); `speed` can be set every frame, negative in reverse. nfs-web
@@ -439,7 +443,9 @@ When you do:
   paints, ALPHA from the texture info (`alpha_blend`). Front end lights: 0x1157c0 (camera space, PS2 camera axes
   assumed x right, y down, z forward). GUI: `Nfs6Ps2CarBlockUiComponent` with `Nfs6Ps2CarMeshController`
   (`nfs-three-lib`: this shading in the shaders of the materials, one per object, from car.json; the scene's sky as
-  the environment map; paint, lights, wheels). nfs-web reads these names and files: keep them stable.
+  the environment map; `sceneLighting`: the scene's sky as the ambient, its sun as light 0, a GUI radio; paint,
+  lights, wheels). Textures are looked up by `bin_hash` of the full name (`nfs6_ps2_texture_by_name`): stored names
+  are cut to 23 characters (`MURCIELAGO_BRAKELIGHT_O`). nfs-web reads these names and files: keep them stable.
 - Ghidra: nfs-web `decomp/nfs6_ps2/SLUS_203.62.gzf` (R5900 language of the extension `ghidra-emotionengine-reloaded`),
   VU1 microcode: nfs-web `decomp/vu1dis.py`. Not read yet: sound, NIS, the 136 unnamed files.
 

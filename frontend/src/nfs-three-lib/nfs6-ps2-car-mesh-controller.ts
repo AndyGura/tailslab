@@ -3,7 +3,6 @@ import {
   BufferGeometry,
   Material,
   Matrix3,
-  Matrix4,
   Mesh,
   MeshBasicMaterial,
   NormalBlending,
@@ -17,6 +16,7 @@ import {
   Vector3,
   Vector4,
 } from 'three';
+import { SCENE_SKY_MEAN_GLSL, SceneSun, sceneSkyCube } from './scene-sky';
 
 /** A paint of the car: "skins.json" of the TailsLab export */
 export type Nfs6Ps2CarSkin = {
@@ -197,10 +197,9 @@ class LightingUniforms {
   readonly cubeMatrix = { value: new Matrix3() };
   // 0 no environment pass, 1 front end (vertex alpha), 2 race (paints by the destination alpha)
   readonly envMode = { value: 1 };
+  // 1: the ambient is the scene's sky (sceneSkyMean), light 0 its sun
+  readonly sceneLight = { value: 0 };
 }
-
-// three.js WebGLBackground: a cube texture of images (not a render target) is mirrored in x
-const CUBE_FLIP = new Matrix3().set(-1, 0, 0, 0, 1, 0, 0, 0, 1);
 
 /** Per material uniforms of the car shading */
 class MaterialUniforms {
@@ -224,6 +223,8 @@ class MaterialUniforms {
  *   stored, alpha doubled) times the vertex colour (nfs6Ps2Modulate), the alpha test, the environment pass added
  *   (environment texel * its vertex colour / 128 * alpha / 128; race paints by the main pass alpha), the result in the
  *   output colour space.
+ * Lit by the scene (Nfs6Ps2CarMeshController.sceneLighting): the ambient is the scene's sky above and below the
+ * horizon by the normal's height (sceneSkyMean, like the PC game's hemisphere ambient), light 0 the scene's sun.
  * SKIPPED: the GS interpolates vertex colours in screen space (no perspective), mipmaps, the environment map is the
  * scene's sky in the reflected direction instead of the game's run time sphere map of the surroundings (rendered
  * views of the car's position, SLUS_203.62 0x1175c8, alpha assumed 0x80), the environment pass over texels the alpha
@@ -248,6 +249,7 @@ function ps2ShadingInShader(
       ps2Cube: lighting.cube,
       ps2CubeMatrix: lighting.cubeMatrix,
       ps2EnvMode: lighting.envMode,
+      ps2SceneLight: lighting.sceneLight,
       ps2Vectors: uniforms.vectors,
       ps2Lit: uniforms.lit,
       ps2Env: uniforms.env,
@@ -275,9 +277,13 @@ function ps2ShadingInShader(
         uniform float ps2Paint;
         uniform float ps2EnvMode;
         uniform float ps2Env;
+        uniform float ps2SceneLight;
+        uniform samplerCube ps2Cube;
+        uniform mat3 ps2CubeMatrix;
         varying vec4 vPs2Color;
         varying vec4 vPs2EnvColor;
         varying vec3 vPs2Reflect;
+        ${SCENE_SKY_MEAN_GLSL}
         // nfs6Ps2Pow
         float ps2Pow( float x, vec2 q ) {
           return intBitsToFloat( int( float( floatBitsToInt( x ) ) * q.x + q.y ) );
@@ -314,6 +320,12 @@ function ps2ShadingInShader(
             // nfs6Ps2VertexLight
             vec2 q = ps2Paint > 0.5 ? q3.xy : q0.xy;
             vec3 rgb = ps2Ambient.rgb;
+            if ( ps2SceneLight > 0.5 ) {
+              // the hemisphere ambient of the scene's sky, 128 = 1
+              float up = length( ps2N ) > 0.0 ? normalize( ps2N ).z * 0.5 + 0.5 : 0.5;
+              rgb = mix( sceneSkyMean( ps2Cube, ps2CubeMatrix, -1.0 ), sceneSkyMean( ps2Cube, ps2CubeMatrix, 1.0 ), up )
+                * 128.0;
+            }
             float alpha = ps2Paint > 0.5 ? q3.z : ps2Ambient.w;
             float s0 = 0.0;
             for ( int i = 0; i < 3; i++ ) {
@@ -486,11 +498,21 @@ export class Nfs6Ps2CarMeshController {
 
   set lighting(value: Nfs6Ps2Lighting) {
     this._lighting = value;
-    const u = this.lightingUniforms;
-    value.directions.forEach((d, i) => u.directions.value[i].set(...d));
-    value.colors.forEach((c, i) => u.colors.value[i].set(...c));
-    u.ambient.value.set(...value.ambient, 128);
-    u.cameraSpace.value = value.space === 'camera' ? 1 : 0;
+    this.updateLights();
+  }
+
+  private _sceneLighting: SceneSun | null = null;
+  /**
+   * Lit by the scene drawing the car instead of `lighting`: the ambient from its sky (`scene.background` when it is a
+   * cube texture, sceneSkyMean) and this sun as light 0, the other lights off. Null: `lighting`
+   */
+  get sceneLighting(): SceneSun | null {
+    return this._sceneLighting;
+  }
+
+  set sceneLighting(value: SceneSun | null) {
+    this._sceneLighting = value;
+    this.updateLights();
   }
 
   /** Whether the export has the game's lighting (car.json "meshes") */
@@ -648,6 +670,24 @@ export class Nfs6Ps2CarMeshController {
     };
   }
 
+  /** The VU1 lights of `lighting`, or the scene's sun (colours 0..255, 128 = 1) */
+  private updateLights() {
+    const u = this.lightingUniforms;
+    const sun = this._sceneLighting;
+    const value: Nfs6Ps2Lighting = sun
+      ? {
+          space: 'world',
+          directions: [sun.direction, [0, 0, 1], [0, 0, 1]],
+          colors: [sun.color.map(c => c * 128) as [number, number, number], [0, 0, 0], [0, 0, 0]],
+          ambient: this._lighting.ambient,
+        }
+      : this._lighting;
+    value.directions.forEach((d, i) => u.directions.value[i].set(...d));
+    value.colors.forEach((c, i) => u.colors.value[i].set(...c));
+    u.ambient.value.set(...value.ambient, 128);
+    u.cameraSpace.value = value.space === 'camera' ? 1 : 0;
+  }
+
   /** The lighting material vectors of every shaded object, the paint's for "CARSKIN" */
   private updateMaterials() {
     const paint = this.skins.find(x => x.name === this._skin)?.lighting_material || null;
@@ -659,20 +699,13 @@ export class Nfs6Ps2CarMeshController {
     }
   }
 
-  /** The environment pass source and mode, before an object is drawn in `scene` */
+  /** The environment pass source and mode and the scene's lighting, before an object is drawn in `scene` */
   private updateEnvironment(scene: Scene) {
     const u = this.lightingUniforms;
-    const background = scene?.background as Texture | null | undefined;
-    const sky = background && (background as any).isCubeTexture ? background : null;
+    const sky = sceneSkyCube(scene, u.cubeMatrix.value);
     u.cube.value = sky;
     u.envMode.value = this.envEnabled && sky ? (this._raceMaterials ? 2 : 1) : 0;
-    if (sky) {
-      // as three.js turns a background cube texture (WebGLBackground)
-      u.cubeMatrix.value.setFromMatrix4(new Matrix4().makeRotationFromEuler(scene.backgroundRotation)).transpose();
-      if (!(sky as any).isRenderTargetTexture) {
-        u.cubeMatrix.value.premultiply(CUBE_FLIP);
-      }
-    }
+    u.sceneLight.value = this._sceneLighting && sky ? 1 : 0;
   }
 
   private texture(url: string): Promise<Texture> {

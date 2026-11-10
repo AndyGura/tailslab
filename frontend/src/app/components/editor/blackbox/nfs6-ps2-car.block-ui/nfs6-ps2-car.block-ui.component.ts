@@ -18,9 +18,15 @@ import {
   Nfs6Ps2CarMeshController,
   Nfs6Ps2CarSkin,
 } from '../../../../../nfs-three-lib/nfs6-ps2-car-mesh-controller';
+import { proceduralSkySun } from '../../../../../nfs-three-lib/scene-sky';
+import { VIEWER_SKY } from '../../common/obj-viewer/viewer-sky';
+
+// lighting of the front end's car showroom (NFS6_PS2_FRONTEND_LIGHTING) or of the viewer's sky
+const LIGHTING_SHOWROOM = 'Showroom';
+const LIGHTING_SCENE = 'Scene';
 
 // NFS Hot Pursuit 2 PS2 car model (CARS/<car>/GEOMETRY.LZC): 3D preview of the serialized OBJ with LOD filter, paint
-// switcher, lights and wheel controls (`Nfs6Ps2CarMeshController`)
+// switcher, lights and wheel controls (`Nfs6Ps2CarMeshController`), lit as in the front end or by the viewer's sky
 @Component({
   selector: 'app-nfs6-ps2-car-block-ui',
   templateUrl: './nfs6-ps2-car.block-ui.component.html',
@@ -109,6 +115,14 @@ export class Nfs6Ps2CarBlockUiComponent extends GuiComponent implements AfterVie
       if (meshController.hasGameShading) {
         controls.push(
           {
+            label: 'Lighting',
+            type: 'radio',
+            options: [LIGHTING_SHOWROOM, LIGHTING_SCENE],
+            value: LIGHTING_SHOWROOM,
+            change: v => (meshController.sceneLighting = v === LIGHTING_SCENE ? proceduralSkySun(VIEWER_SKY) : null),
+          },
+          {
+            // the viewer's sky: the game reflects a run time render of the surroundings
             label: 'Reflections',
             type: 'checkbox',
             value: meshController.envEnabled,

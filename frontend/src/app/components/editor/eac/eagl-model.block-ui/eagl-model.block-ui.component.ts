@@ -20,14 +20,19 @@ import {
   Nfs6CarMeshProperties,
   Nfs6CarSkin,
 } from '../../../../../nfs-three-lib/nfs6-car-mesh-controller';
+import { proceduralSkySun } from '../../../../../nfs-three-lib/scene-sky';
+import { VIEWER_SKY } from '../../common/obj-viewer/viewer-sky';
 
 // the environment map of the car: the location's staticenvmap.fsh (a race), Cars/common.fsh "refl" (the frontend)
 const ENVIRONMENT_TRACK = 'Track';
 const ENVIRONMENT_SHOWROOM = 'Showroom';
+// lighting / environment map of the viewer's sky
+const ENVIRONMENT_SCENE = 'Scene';
 
 // NFS6 EAGL model (".o" file): 3D preview of the serialized OBJ, textured from the FSH file the model uses. Car
 // models (car.o in car.viv) are exported with "skins.json" and "lighting.json": they get LOD filter, skin switcher,
-// wheel controls and the game's shading (Nfs6CarMeshController), lit by a track location (Parkland by default)
+// wheel controls and the game's shading (Nfs6CarMeshController), lit by a track location (Parkland by default) or the
+// viewer's sky
 @Component({
   selector: 'app-eagl-model-block-ui',
   templateUrl: './eagl-model.block-ui.component.html',
@@ -119,45 +124,46 @@ export class EaglModelBlockUiComponent extends GuiComponent implements AfterView
       const updateEnvironmentMap = () => {
         const path =
           environment === ENVIRONMENT_SHOWROOM ? lighting?.environment_map : meshController.location.environment_map;
+        meshController.sceneReflection = environment === ENVIRONMENT_SCENE;
         meshController.environmentMap = path ? this.environmentMap(lightingDir + path) : null;
       };
       updateEnvironmentMap();
       const controls: ObjViewerCustomControl['controls'] = [];
       const locations = lighting?.locations || [];
-      if (locations.length > 1) {
+      if (meshController.hasGameShading) {
         controls.push({
-          label: 'Location lighting',
+          label: 'Lighting',
           type: 'radio',
-          options: locations.map(x => x.name),
+          // a car without lighting.json: NFS6_DEFAULT_LOCATION
+          options: [...(locations.length ? locations : [meshController.location]).map(x => x.name), ENVIRONMENT_SCENE],
           value: meshController.location.name,
           change: v => {
+            meshController.sceneLighting = v === ENVIRONMENT_SCENE ? proceduralSkySun(VIEWER_SKY) : null;
             meshController.location = locations.find(x => x.name === v) || meshController.location;
             updateEnvironmentMap();
           },
         });
-      }
-      if (lighting?.environment_map) {
         controls.push({
           label: 'Reflection',
           type: 'radio',
-          options: [ENVIRONMENT_TRACK, ENVIRONMENT_SHOWROOM],
+          options: [ENVIRONMENT_TRACK, ...(lighting?.environment_map ? [ENVIRONMENT_SHOWROOM] : []), ENVIRONMENT_SCENE],
           value: environment,
           change: v => {
             environment = v;
             updateEnvironmentMap();
           },
         });
+        controls.push({
+          label: 'Road light level',
+          type: 'slider',
+          value: meshController.lightLevel,
+          minValue: 0,
+          maxValue: 1,
+          valueStep: 0.05,
+          format: v => v.toFixed(2),
+          change: v => (meshController.lightLevel = v),
+        });
       }
-      controls.push({
-        label: 'Road light level',
-        type: 'slider',
-        value: meshController.lightLevel,
-        minValue: 0,
-        maxValue: 1,
-        valueStep: 0.05,
-        format: v => v.toFixed(2),
-        change: v => (meshController.lightLevel = v),
-      });
       if (meshController.skin && skins.length > 1) {
         const label = (skin: Nfs6CarSkin) => `${skin.label} (${skin.name})`;
         controls.push({

@@ -2,6 +2,7 @@ import {
   AdditiveBlending,
   BoxGeometry,
   BufferAttribute,
+  CubeTexture,
   DataTexture,
   Group,
   Mesh,
@@ -11,6 +12,7 @@ import {
   OrthographicCamera,
   PlaneGeometry,
   Scene,
+  SRGBColorSpace,
   Texture,
   Vector3,
   WebGLRenderer,
@@ -324,6 +326,66 @@ describe('Nfs6CarMeshController', () => {
     renderer.dispose();
   });
 
+  it("lights and reflects the scene's sky", () => {
+    const canvas = document.createElement('canvas');
+    let renderer: WebGLRenderer;
+    try {
+      renderer = new WebGLRenderer({ canvas, preserveDrawingBuffer: true });
+    } catch {
+      pending('no WebGL');
+      return;
+    }
+    renderer.setPixelRatio(1);
+    renderer.setSize(1, 1, false);
+    const t0: [number, number, number, number] = [200, 60, 20, 128];
+    const texture = new DataTexture(new Uint8Array(t0), 1, 1);
+    texture.needsUpdate = true;
+    const skin = new MeshBasicMaterial({ map: texture });
+    skin.name = 'skin';
+    // facing up: the ambient is the sky's
+    const plane = new Mesh(new PlaneGeometry(0.001, 0.001), skin);
+    plane.name = 'hp_1_ALPHA_OPAQUE_HOODShape';
+    plane.userData = { eaglShader: 'paint', eaglBlend: 'opaque' };
+    const scene = new Scene().add(plane);
+    const color = [60, 120, 240];
+    const sky = new CubeTexture(new Array(6).fill(0).map(() => pixelCanvas(color)));
+    sky.colorSpace = SRGBColorSpace;
+    sky.generateMipmaps = false;
+    sky.needsUpdate = true;
+    scene.background = sky;
+    // the sun's color is the paint's specular color (specular_sun_intensity 255), traffic: no hot spot
+    const specular = { specular_sun_intensity: 255, specular_paint_exponent: 1 };
+    const controller = new Nfs6CarMeshController(
+      plane,
+      [],
+      [{ name: 'skin00', label: 'red', texture: 'textures/skins/skin00-skin.png', specular }],
+      { vehicle_type: 'traffic' },
+    );
+    const sun = new Vector3(0.6, 0, 0.8);
+    controller.sceneLighting = { direction: [sun.x, sun.y, sun.z], color: [0.5, 0.5, 0.5] };
+    controller.sceneReflection = true;
+    const view = new OrthographicCamera(-0.0001, 0.0001, 0.0001, -0.0001, -100, 100);
+    view.position.set(0, 0, 5);
+    view.lookAt(0, 0, 0);
+    renderer.render(scene, view);
+    const pixel = new Uint8Array(4);
+    const gl = renderer.getContext();
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+    const nh = new Vector3(0, 0, 1).dot(new Vector3(0, 0, 1).add(sun).normalize());
+    const s = 0.5 * nfs6Lit(nh, 1);
+    const sky01 = color.map(c => c / 255) as [number, number, number];
+    const expected = nfs6PixelColor(
+      t0.map(c => c / 255) as [number, number, number, number],
+      sky01,
+      [...sky01, 1],
+      [s, s, s, 1],
+      false,
+    );
+    Array.from(pixel.slice(0, 3)).forEach((c, i) => expect(Math.abs(c - expected[i] * 255)).toBeLessThanOrEqual(3));
+    controller.dispose();
+    renderer.dispose();
+  });
+
   it('draws the glass with its vertex colors', () => {
     const canvas = document.createElement('canvas');
     let renderer: WebGLRenderer;
@@ -375,3 +437,12 @@ describe('Nfs6CarMeshController', () => {
     renderer.dispose();
   });
 });
+
+function pixelCanvas([r, g, b]: number[]): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 1;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+  ctx.fillRect(0, 0, 1, 1);
+  return canvas;
+}
