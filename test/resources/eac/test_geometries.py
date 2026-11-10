@@ -5,7 +5,7 @@ from os.path import getsize
 
 from library.read_blocks import DataBlock
 from resources.eac.compressions.ref_pack import RefPackCompression
-from resources.eac.geometries.nfs5 import CrpGeometry
+from resources.eac.geometries.nfs5 import CrpGeometry, determine_triangle_info_row_type
 
 
 class TestCrpGeometry(unittest.TestCase):
@@ -25,6 +25,57 @@ class TestCrpGeometry(unittest.TestCase):
         self.assertEqual(len(uncompressed), len(output))
         for i, x in enumerate(uncompressed):
             self.assertEqual(x, output[i], f'Wrong value at index {i}')
+
+
+class TestCrpTriangleInfoRows(unittest.TestCase):
+    def _choice(self, row_type: bytes):
+        from types import SimpleNamespace
+
+        # 4 bytes before the row; the row: unk0, offset, length_used (10 bytes), row type, level, index stream
+        buffer = BytesIO(b'\x00' * 4 + bytes(range(1, 11)) + row_type + b'\x00' * 4)
+        buffer.seek(4)
+        choice = determine_triangle_info_row_type(SimpleNamespace(buffer=buffer))
+        # the buffer stays at the row
+        self.assertEqual(buffer.tell(), 4)
+        return choice
+
+    def test_row_block_is_picked_by_row_type(self):
+        # CullingInfoRow, NormalInfoRow, UVInfoRow, VertexInfoRow, VertexColorInfoRow, TriangleInfoRowBase
+        self.assertEqual(self._choice(b'n$'), 0)
+        self.assertEqual(self._choice(struct.pack('<H', 0)), 3)
+        self.assertEqual(self._choice(struct.pack('<H', 1)), 1)
+        self.assertEqual(self._choice(struct.pack('<H', 2)), 2)
+        self.assertEqual(self._choice(struct.pack('<H', 3)), 4)
+        self.assertEqual(self._choice(struct.pack('<H', 5)), 5)
+
+    def test_car_sample_rows_match_their_types(self):
+        from library import require_resource
+        from library.utils.id import join_id
+
+        (_, block, data), _ = require_resource(join_id('test/samples/356b.crp', 'data'))
+        parts_choice = block.field_blocks_map['parts'].child
+        triangle_choice = parts_choice.get_choice_index_by_class_name('TrianglePart')
+        rows_choice = (
+            parts_choice.possible_blocks[triangle_choice].field_blocks_map['data'].field_blocks_map['info_rows']
+        )
+        names = {'n$': 'CullingInfoRow', 0: 'VertexInfoRow', 1: 'NormalInfoRow', 2: 'UVInfoRow'}
+        checked = 0
+        for part in data['parts']:
+            if part['choice_index'] != triangle_choice:
+                continue
+            part_data = part['data']['data']
+            for row in part_data['info_rows']:
+                row_type = row['data'].get('row_type', row['data'].get('identifier'))
+                self.assertEqual(
+                    rows_choice.child.possible_blocks[row['choice_index']].__class__.__name__, names[row_type]
+                )
+                checked += 1
+            # one index table per index row
+            self.assertEqual(len(part_data['index_table']), part['data']['num_data'] if part_data['index_rows'] else 0)
+            self.assertEqual(
+                len(part_data['uv_index_table']), part['data']['num_data'] if len(part_data['index_rows']) > 1 else 0
+            )
+        self.assertGreater(checked, 0)
 
 
 def build_fce3_data():

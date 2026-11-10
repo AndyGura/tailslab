@@ -865,6 +865,36 @@ def _find_sibling_file(file_path: str, file_name: str) -> Optional[str]:
         return None
 
 
+def crp_primitive_triangles(primitive_type: int, count: int) -> List[Tuple[int, int, int]]:
+    """Triangles (as positions of the part) of the primitives of a CRP `pr` part with `count` positions
+    (`TrianglePartData.primitive_type`): a triangle list as it is, a strip with every second triangle reversed (as
+    Direct3D draws strips; checked against the triangle lists sharing their edges), quads as the triangles 0 1 2 and
+    0 2 3 (as Porsche.exe's collision splits them, 0x4750b0). Lines (and unknown types) give none"""
+    if primitive_type == 3:
+        return [(i, i + 1, i + 2) for i in range(0, count - 2, 3)]
+    if primitive_type == 1:
+        return [(k + 1, k, k + 2) if k % 2 else (k, k + 1, k + 2) for k in range(count - 2)]
+    if primitive_type == 4:
+        return [t for i in range(0, count - 3, 4) for t in ((i, i + 1, i + 2), (i, i + 2, i + 3))]
+    return []
+
+
+def crp_stream_indices(part_data: dict, count: int, row: dict, stride: int) -> Optional[List[int]]:
+    """Index into the stream of the info row `row` (vertices: stride 16, UVs: 8, ...) of each of the `count`
+    positions of a CRP `pr` part (Porsche.exe 0x5a0bc0): the byte of the index table of the row's `index_stream`
+    (0xffff: the position itself) + the row's offset / stride. None if the part lacks that index table"""
+    base = row['offset'] // stride
+    if row['index_stream'] == 0xFFFF:
+        return [base + i for i in range(count)]
+    if row['index_stream'] >= len(part_data['index_rows']):
+        return None
+    tables = part_data['index_table'] + part_data['uv_index_table']
+    start = part_data['index_rows'][row['index_stream']]['offset']
+    if start + count > len(tables):
+        return None
+    return [x + base for x in tables[start : start + count]]
+
+
 def _crp_texture_tag(value: int) -> str:
     return value.to_bytes(4, 'little').decode('latin-1')
 
@@ -1073,6 +1103,10 @@ class CrpGeometrySerializer(BaseFileSerializer):
             # a track's lower levels of detail only with maps__save_all_lods (mesh names have "_LOD<level>_")
             if is_track and part_info['lod'] != 0 and not self.settings.maps__save_all_lods:
                 continue
+            # a track's animated articles (people, signs...) have a vertex part per frame: the first one only, as in
+            # the track viewer's chunks
+            if is_track and part_info['animation_index'] != 0:
+                continue
             sub_mesh.change_axes(new_y='z', new_z='y')
             scene.sub_meshes.append(sub_mesh)
 
@@ -1098,27 +1132,27 @@ class CrpGeometrySerializer(BaseFileSerializer):
         def extract_vertices(part):
             return [[v['position']['x'], v['position']['y'], v['position']['z']] for v in part['data']]
 
-        def extract_triangle_corners(part):
-            """Returns list of (vertex index, uv index) for every triangle corner of the triangle part"""
-            index_rows = part['data']['index_rows']
-            if not index_rows:
+        def extract_triangles(part):
+            """Returns the triangles of the triangle part, as 3 corners (vertex index, uv index or None) each"""
+            part_data = part['data']
+            # info row blocks are picked by row type: vertex rows are the `vt` ones
+            info_rows = {x['choice_index']: x['data'] for x in part_data['info_rows']}
+            if vertex_info_row_choice_index not in info_rows:
                 return []
-            # parts without a vertex index row use the offset of their first row
-            start = next((x['offset'] for x in index_rows if x['identifier'] in ('vI', 'Iv')), index_rows[0]['offset'])
-            info_rows = {x['choice_index']: x['data'] for x in part['data']['info_rows']}
-            vertex_offset = (
-                info_rows[vertex_info_row_choice_index]['offset'] // 16
-                if vertex_info_row_choice_index in info_rows
-                else 0
-            )
-            uv_offset = (
-                info_rows[uv_info_row_choice_index]['offset'] // 8 if uv_info_row_choice_index in info_rows else 0
-            )
-            num_data = part['num_data']
-            indices = part['data']['index_table'][start : start + num_data]
-            uv_indices = part['data']['uv_index_table'][start : start + num_data]
-            corners = [(vi + vertex_offset, uvi + uv_offset) for vi, uvi in zip(indices, uv_indices)]
-            return corners[: len(corners) - len(corners) % 3]
+            count = part['num_data']
+            vertex_indices = crp_stream_indices(part_data, count, info_rows[vertex_info_row_choice_index], 16)
+            if vertex_indices is None:
+                return []
+            uv_indices = None
+            if uv_info_row_choice_index in info_rows:
+                uv_indices = crp_stream_indices(part_data, count, info_rows[uv_info_row_choice_index], 8)
+            corners = list(zip(vertex_indices, uv_indices or [None] * count))
+            return [
+                [corners[j] for j in triangle]
+                for triangle in crp_primitive_triangles(part_data['primitive_type'], count)
+                # no triangles repeating a vertex (the joints of strips)
+                if len({vertex_indices[j] for j in triangle}) == 3
+            ]
 
         for i, article in enumerate(data['articles']):
             names = [x['data'] for x in article['parts'] if x['choice_index'] == name_choice_index]
@@ -1168,9 +1202,7 @@ class CrpGeometrySerializer(BaseFileSerializer):
                     # explicit material for untextured polygons, otherwise OBJ readers keep using the previous
                     # mesh's material
                     texture_id = material_texture(trix['data']['material_index']) or 'untextured'
-                    corners = extract_triangle_corners(trix)
-                    for j in range(0, len(corners), 3):
-                        triangle = corners[j : j + 3]
+                    for triangle in extract_triangles(trix):
                         if any(vi >= len(vertices) for vi, _ in triangle):
                             continue
                         for corner in triangle:
@@ -1178,7 +1210,7 @@ class CrpGeometrySerializer(BaseFileSerializer):
                                 vi, uvi = corner
                                 corner_map[corner] = len(mesh.vertices)
                                 mesh.vertices.append(list(vertices[vi]))
-                                mesh.vertex_uvs.append(uvs[uvi] if uvi < len(uvs) else [0, 0])
+                                mesh.vertex_uvs.append(uvs[uvi] if uvi is not None and uvi < len(uvs) else [0, 0])
                         mesh.polygons.append([corner_map[corner] for corner in triangle])
                         mesh.texture_ids.append(texture_id)
                 if not mesh.polygons:

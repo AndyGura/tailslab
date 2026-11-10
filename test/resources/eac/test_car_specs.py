@@ -178,3 +178,47 @@ class TestNfs2Personalities(unittest.TestCase):
         self.assertEqual(pers['car_c']['lane_slack'][1], 26214 / 0x10000)
         self.assertEqual(pers['car_g']['psycho_time'], 250)
         self.assertEqual(pers_block.pack(pers), _viv_item_bytes(alias, 3012))
+
+
+class TestNfs5CarFiles(unittest.TestCase):
+    def test_sim_should_read_physics_fields_and_write_back(self):
+        import struct
+        from io import BytesIO
+        from library.loader import probe_block_class
+
+        raw = bytearray(328)
+        raw[:24] = b'1950 356 coupe 1.1L \x001950)'[:24]
+        struct.pack_into('<ff', raw, 0x40, 830.0, 2100.0)
+        struct.pack_into('<ii', raw, 0x50, 4, 8)
+        struct.pack_into('<8f', raw, 0x60, -3.6, 0, 3.09, 1.765, 1.227, 0.96, 0, 0)
+        struct.pack_into('<f', raw, 0x94, 5500.0)
+        raw = bytes(raw)
+        block_class = probe_block_class(BytesIO(raw), 'GameData/Simulation/CarData/356coupe11.sim', len(raw))
+        self.assertEqual(block_class.__name__, 'Nfs5CarPhysics')
+        block = block_class()
+        data = block.unpack_from_bytes(raw)
+        self.assertEqual(data['mass'], 830.0)
+        self.assertEqual(data['forward_gears'], 4)
+        self.assertEqual(data['shift_time'], 8)
+        self.assertEqual(data['redline'], 5500.0)
+        self.assertAlmostEqual(data['gear_ratios'][2], 3.09, places=5)
+        self.assertEqual(block.pack(data), raw)
+
+    def test_car_record_should_read_latin1_names(self):
+        import struct
+        from resources.eac.car_specs import Nfs5Cars
+
+        raw = bytearray(0x670)
+        struct.pack_into('<h', raw, 0, 77)
+        raw[2 : 2 + 11] = "'50 Coupé A".encode('latin-1')
+        raw[0xB1 : 0xB1 + 10] = b'356coupe11'
+        struct.pack_into('<hhh', raw, 0x3BC, 2, 629, 42)
+        raw = bytes(raw)
+        block = Nfs5Cars()
+        data = block.unpack_from_bytes(raw)
+        car = data['cars'][0]
+        self.assertEqual(car['id'], 77)
+        self.assertEqual(car['display_name'], "'50 Coupé A")
+        self.assertEqual(car['spec'], '356coupe11')
+        self.assertEqual(car['stock_parts'][: car['num_stock_parts']], [629, 42])
+        self.assertEqual(block.pack(data), raw)

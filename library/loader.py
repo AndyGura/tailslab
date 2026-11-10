@@ -47,6 +47,12 @@ def _is_nfs4_car_physics_path(file_path: str) -> bool:
     )
 
 
+def _is_nfs3_speeds_file_size(length: int) -> bool:
+    from resources.eac.maps.nfs3 import is_nfs3_speeds_file_size
+
+    return is_nfs3_speeds_file_size(length)
+
+
 def _is_nfs4_speed_file_size(length: int) -> bool:
     from resources.eac.maps.nfs4 import is_nfs4_speed_file_size
 
@@ -156,6 +162,42 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.maps.nfs5_sky import Nfs5SkyBin
 
             return Nfs5SkyBin
+        elif (
+            length == 328
+            and file_path.lower().endswith('.sim')
+            and '/SIMULATION/CARDATA/' in file_path.replace('\\', '/').upper()
+        ):
+            # NFS5 car physics GameData/Simulation/CarData/<spec>.sim
+            from resources.eac.car_specs import Nfs5CarPhysics
+
+            return Nfs5CarPhysics
+        elif length == 304 and file_path.lower().endswith('.ais'):
+            # NFS5 car AI GameData/Simulation/AICarData/<ai>.ais
+            from resources.eac.car_specs import Nfs5CarAi
+
+            return Nfs5CarAi
+        elif length and length % 0x168 == 0 and _file_or_archive_item_name(file_path).lower() == 'nfs5.prt':
+            # NFS5 car parts FEData/Data/nfs5.prt
+            from resources.eac.car_specs import Nfs5CarParts
+
+            return Nfs5CarParts
+        elif length and length % 0x670 == 0 and _file_or_archive_item_name(file_path).lower() == 'nfs5.car':
+            # NFS5 car database FEData/Data/nfs5.car
+            from resources.eac.car_specs import Nfs5Cars
+
+            return Nfs5Cars
+        elif length is not None and file_path.lower().endswith('.jnc'):
+            # NFS5 track junction weights GameData/Track/<track>.jnc
+            from resources.eac.maps.nfs5 import Nfs5Junctions, is_nfs5_junctions_size
+
+            if is_nfs5_junctions_size(length):
+                return Nfs5Junctions
+        elif length is not None and file_path.lower().endswith('.edg'):
+            # NFS5 track wall edges GameData/Track/<track>.edg
+            from resources.eac.maps.nfs5 import Nfs5WallEdges, is_nfs5_wall_edges_size
+
+            if is_nfs5_wall_edges_size(length):
+                return Nfs5WallEdges
         elif file_path.upper().endswith('.RPL'):
             from resources.eac.replays import TnfsReplay
 
@@ -183,6 +225,15 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.maps.nfs3 import Nfs3SimHeights
 
             return Nfs3SimHeights
+        elif (
+            length is not None
+            and _file_or_archive_item_name(file_path).upper() in ('SPEEDSF.BIN', 'SPEEDSR.BIN')
+            and _is_nfs3_speeds_file_size(length)
+        ):
+            # NFS3 AI speeds and lanes GameData/Tracks/TRK<nnn>/SPEEDSF.BIN (SPEEDSR.BIN reversed)
+            from resources.eac.maps.nfs3 import Nfs3SpeedsFile
+
+            return Nfs3SpeedsFile
         elif (
             length is not None
             and length % 4 == 0

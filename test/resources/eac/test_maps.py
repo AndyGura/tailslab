@@ -490,6 +490,24 @@ class TestNfs3TrackSmallFiles(unittest.TestCase):
         self.assertEqual(data['heights'], [5.25, 16.75, 10.0])
         self.assertEqual(block.pack(data), raw)
 
+    def test_speeds_file_should_hold_speeds_and_lanes(self):
+        from library.loader import probe_block_class
+
+        # odd n = 3: n // 2 + 1 = 2 speed bytes, 3 lane bytes; even n = 4: 3 speed bytes (the last one 0), 4 lane bytes
+        for raw, n in ((bytes([60, 72, 0x70, 0x60, 0x80]), 3), (bytes([60, 72, 0, 0x70, 0x60, 0x80, 0x50]), 4)):
+            self.assertEqual(len(raw), n // 2 + 1 + n)
+            for name in ('SPEEDSF.BIN', 'SPEEDSR.BIN'):
+                block_class = probe_block_class(BytesIO(raw), f'GameData/Tracks/TRK005/{name}', len(raw))
+                self.assertEqual(block_class.__name__, 'Nfs3SpeedsFile')
+            block = block_class()
+            data = block.unpack_from_bytes(raw)
+            self.assertEqual(data['speeds'], list(raw[: n // 2 + 1]))
+            self.assertEqual([x['lane'] for x in data['lanes']], [b >> 4 for b in raw[n // 2 + 1 :]])
+            self.assertEqual(block.pack(data), raw)
+        # 6 bytes is no slice count's size (3k bytes)
+        with self.assertRaises(NotImplementedError):
+            probe_block_class(BytesIO(bytes(6)), 'GameData/Tracks/TRK005/SPEEDSF.BIN', 6)
+
     def test_can_should_read_keyframes(self):
         import struct
         from library.loader import probe_block_class
@@ -543,4 +561,36 @@ class TestNfs4TrackSmallFiles(unittest.TestCase):
         self.assertEqual(data['speeds'], [60, 72])
         self.assertEqual([x['lane'] for x in data['lanes']], [7, 6, 8])
         self.assertEqual(data['line_offsets'], [0.5, -2.0, 3.25])
+        self.assertEqual(block.pack(data), raw)
+
+
+class TestNfs5TrackSmallFiles(unittest.TestCase):
+    def test_junctions_should_hold_end_weights(self):
+        import struct
+        from library.loader import probe_block_class
+
+        raw = struct.pack('<I8f', 0, 1.0, *[0.0] * 7) + struct.pack('<I8f', 1, 1.0, 0.25, 0.75, *[0.0] * 5)
+        block_class = probe_block_class(BytesIO(raw), 'GameData/Track/alps.jnc', len(raw))
+        self.assertEqual(block_class.__name__, 'Nfs5Junctions')
+        with self.assertRaises(NotImplementedError):
+            probe_block_class(BytesIO(raw[:-1]), 'GameData/Track/alps.jnc', len(raw) - 1)
+        block = block_class()
+        data = block.unpack_from_bytes(raw)
+        self.assertEqual([x['index'] for x in data['junctions']], [0, 1])
+        self.assertEqual(data['junctions'][1]['end_weights'][:3], [1.0, 0.25, 0.75])
+        self.assertEqual(block.pack(data), raw)
+
+    def test_wall_edges_should_hold_flags_and_ends(self):
+        import struct
+        from library.loader import probe_block_class
+
+        raw = struct.pack('<I', 29087) + bytes([0x60, 0xDF, 0x2E, 0x01]) + struct.pack('<6f', 1, 2, 3, 4, 5, 6)
+        block_class = probe_block_class(BytesIO(raw), 'GameData/Track/alps.edg', len(raw))
+        self.assertEqual(block_class.__name__, 'Nfs5WallEdges')
+        block = block_class()
+        data = block.unpack_from_bytes(raw)
+        edge = data['edges'][0]
+        self.assertEqual(edge['flags'], 0x60)
+        self.assertEqual(edge['p0'], {'x': 1.0, 'y': 2.0, 'z': 3.0})
+        self.assertEqual(edge['p1'], {'x': 4.0, 'y': 5.0, 'z': 6.0})
         self.assertEqual(block.pack(data), raw)

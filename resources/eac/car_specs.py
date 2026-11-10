@@ -5,6 +5,7 @@ from copy import deepcopy
 from typing import Dict
 
 from library.read_blocks import (
+    BytesBlock,
     DataBlock,
     DeclarativeCompoundBlock,
     IntegerBlock,
@@ -3222,3 +3223,536 @@ class Nfs4CarPhysics(Nfs3CarPhysics):
                 a, b = items[k]
                 out = out[:a] + _carp_format_item(new_values[k], reader, text[a:b]) + out[b:]
         return out.encode('latin-1')
+
+
+# NFS5 (Porsche Unleashed): Porsche.exe (nfs-web `decomp/nfs5/Porsche.exe.gzf`), addresses cited in the descriptions.
+# Ranges in brackets are those of the game files.
+
+
+class Latin1Block(UTF8Block):
+    """A fixed-length text of 8-bit characters (Windows-1252 / Latin-1: `Coupé`), trailing zeros cut off; bytes after
+    the first zero are kept as characters, so a field with leftovers there writes back byte-exact"""
+
+    @property
+    def schema(self) -> Dict:
+        return {**super().schema, 'block_description': 'Latin-1 string'}
+
+    def read(self, ctx, name: str = '', read_bytes_amount=None, resolved_length=None):
+        self_len = self.resolve_length(ctx) if resolved_length is None else resolved_length
+        raw = ctx.buffer.read(self_len)
+        if len(raw) < self_len:
+            from library.exceptions import EndOfBufferException
+
+            raise EndOfBufferException(ctx=ctx)
+        return raw.decode('latin-1').rstrip('\x00')
+
+    def estimate_packed_size(self, data, ctx=None):
+        return max(len(data), self._get_static_length())
+
+    def write(self, data, ctx=None, name: str = '') -> bytes:
+        raw = data.encode('latin-1')
+        static_length = self._get_static_length()
+        if len(raw) > static_length:
+            from library.exceptions import DataIntegrityException
+
+            raise DataIntegrityException(f'"{data}" is {len(raw)} bytes, {name or "the field"} holds {static_length}')
+        return raw + b'\x00' * (static_length - len(raw))
+
+
+def _f32(**kwargs):
+    return DecimalBlock(length=4, **kwargs)
+
+
+def _sim(text: str, scale: str = None):
+    return {'description': text + (f'. Scaled by {scale} at load (Porsche.exe 0x49c6c0)' if scale else '')}
+
+
+class Nfs5CarPhysics(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'NFS5 car physics, `GameData/Simulation/CarData/<spec>.sim` (328 bytes, 86 files). '
+            'Porsche.exe 0x49c6c0 loads `%s%s.sim` with the spec name of the car record (`spec` of '
+            '[Nfs5CarRecord](#nfs5carrecord); `default.sim` when missing): it clears the 0x1c4-byte car specs and '
+            'copies the file to their start, scales fields (cited per field), adds the car setup and the installed '
+            'parts ([Nfs5CarPart](#nfs5carpart)), and 0x49cb50 computes specs +0x148..+0x1c0 (+0x148 tyre '
+            'circumference, +0x14c 1 / redline, +0x168 speed per rpm of each gear slot, +0x190 torque factor per '
+            'gear, +0x1b0 air drag (x forward speed^3), +0x1b4 / +0x1b8 yaw lever and arm, +0x1bc longitudinal force '
+            'scale, +0x1c0 tyre type: 0 road, 1 rain, 2 race). The physics reads the specs from 0x49fd30 on, the '
+            "rigid body update ('newton') from 0x499a70",
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        name = (
+            UTF8Block(length=64),
+            {
+                'description': 'Display name ("1950 356 coupe 1.1L"), not read by the physics. Bytes after the end '
+                'are leftovers of other names'
+            },
+        )
+        mass = (_f32(), _sim('Mass, kg [550, 1690]; plus the `mass` of each installed part'))
+        wheelbase = (
+            _f32(),
+            _sim(
+                'Wheelbase, mm [2100, 2500]; x 0.8 more with the tiny car cheat (car record +0x518). Specs +0x1b4 = '
+                'wheelbase x 0.5 x 0.025 x 256',
+                '0.001 (to m)',
+            ),
+        )
+        unk0 = (
+            IntegerBlock(length=4, is_signed=True),
+            {
+                'is_unknown': True,
+                'description': '[0, 2], not read by 0x49c6c0 / 0x49cb50 (another module: the drive layout?)',
+            },
+        )
+        aspiration = (
+            IntegerBlock(length=4, is_signed=True),
+            {
+                'description': 'Aspiration [0, 1]: 1 turbo (930 Turbo, 935, GT1). Engine parts set 1 ("Turbo") or 2 '
+                '("Supercharged": never matches the parts file\'s "Supercharger"). The boost (Porsche.exe 0x49e440): '
+                'type 1 builds from 1/4 to 1/2 of the redline following the throttle, type 2 from 1/6 to 2/3'
+            },
+        )
+        forward_gears = (
+            IntegerBlock(length=4, is_signed=True, value_validator=Lte(6)),
+            {
+                'description': 'Number of forward gears [4, 6]. The loader adds 2 (reverse, neutral: the gear slots); '
+                'a "Gear Box" part replaces it with its `forward_gears` + 2. Read by the controls (Porsche.exe '
+                '0x413890: the upshift limit)'
+            },
+        )
+        shift_time = (
+            IntegerBlock(length=4, is_signed=True),
+            {
+                'description': 'Gear shift time in physics steps, the clutch out [4, 8] (physics); car+0xed8 '
+                '(Porsche.exe 0x406ef0). A "Gear Box" part replaces it with its `shift_time`, other gearbox parts '
+                'add theirs'
+            },
+        )
+        gear_acceleration_factor = (
+            _f32(),
+            _sim("[65, 100]: factor of every gear's acceleration term (specs +0x190, 0x49cb50)", '0.01'),
+        )
+        front_drive_share = (
+            _f32(),
+            _sim(
+                'Front share of the drive torque [0, 40] (0 rear drive; 35 / 40 in the Carrera 4 files): below 0.01 '
+                'the front wheels roll free, above 0.99 the rear ones (Porsche.exe 0x4a2790)',
+                '0.01',
+            ),
+        )
+        gear_ratios = (
+            ArrayBlock(child=_f32(), length=8),
+            {
+                'description': 'Gear ratios by gear slot: reverse (negative), neutral (0), 1st..6th (0 for missing '
+                "gears); plus the setup's gear offsets. The slot is the gear byte car+0xd82 (Porsche.exe 0x4a2790 "
+                'turns the engine speed into wheel rotation with it). 0x49cb50 turns them into engine rpm per m/s: '
+                'final drive x ratio x 60 / tyre circumference'
+            },
+        )
+        final_drive = (_f32(), {'description': 'Final drive ratio [2.2, 4.429]; plus the setup offset'})
+        tyre_width = (_f32(), {'description': 'Tyre width, mm [130, 305]'})
+        tyre_aspect_ratio = (_f32(), {'description': 'Tyre aspect ratio, % [30, 70]'})
+        rim_diameter = (
+            _f32(),
+            {
+                'description': 'Rim diameter, inch [15, 18]. Tyre circumference (specs +0x148, m) = (aspect x 0.02 x '
+                'width + rim x 25.4) x 0.0031416'
+            },
+        )
+        top_speed = (
+            _f32(),
+            _sim(
+                'Top speed, mph [87.5, 220]: the automatic gearbox never shifts into the top gear while that '
+                "gear's speed at the redline exceeds it (physics). Divided by the parts' `top_speed_divisor`, "
+                'scaled by the torque change and the downforce setup; the air drag (specs +0x1b0) uses its cube',
+                '0.446428567 (to m/s)',
+            ),
+        )
+        redline = (
+            _f32(),
+            {
+                'description': 'Redline, rpm [5500, 8000]: the rev limiter works from it to +250, at most 1.25 x it; '
+                'the controls refuse a downshift while the rpm (car+0xdb4) is above it (Porsche.exe 0x4991e0); '
+                'specs +0x14c = 1 / it'
+            },
+        )
+        engine_braking = (_f32(), _sim('Engine braking [10, 35]', '0.01'))
+        torque_curve = (
+            ArrayBlock(child=_f32(), length=21),
+            {
+                'description': 'Torque at 0, 500 ... 10000 rpm (0 past the redline), interpolated linearly. '
+                '"Engine" parts replace it, other engine parts add 0.67 x theirs'
+            },
+        )
+        front_weight_share = (
+            _f32(),
+            _sim(
+                'Front weight share [44, 48.5] (the 959: forced to 0.4675); tyre parts and tyre pressures move it',
+                '0.01',
+            ),
+        )
+        grip = (
+            _f32(),
+            {
+                'description': 'Tyre grip, g [1.1, 2.75]: x 9.8 = car+0x1084 (m/s^2); x 1.25 with the tiny car '
+                'cheat (car record +0x518); scaled by parts, setup, drivers and the track (Porsche.exe 0x4a2950 via '
+                '`grip_factor`). Wheel loads = grip x 9.8 x share, the drive force x grip'
+            },
+        )
+        load_transfer_lever = (
+            _f32(),
+            _sim('Load transfer lever [20, 32.5] (physics; the centre of gravity height in m?)', '0.01'),
+        )
+        steering_lock = (
+            _f32(),
+            {
+                'description': 'Steering lock [11.5, 17]: front wheel angle = lock x steering / 17 / 256 turns '
+                '(steering 127 = full lock)'
+            },
+        )
+        toe = (
+            _f32(),
+            {
+                'description': 'Toe, 0 in every file; plus the setup STEERINGTOE. Added to the left and subtracted '
+                "from the right wheel's steering"
+            },
+        )
+        brake_force = (
+            _f32(),
+            {
+                'description': 'Brake force at full pedal [6.2, 14] (capped at 32 per m/s); brake parts multiply it '
+                'by (their value + 3) / 4'
+            },
+        )
+        front_brake_share = (
+            _f32(),
+            _sim('Front brake share [50, 70]; plus (setup / 100 - 0.5) / 2', '0.01'),
+        )
+        front_downforce = (
+            _f32(),
+            _sim(
+                'Front downforce per m/s of forward speed (above 5 m/s) [1, 2]; x the setup factor and aero parts',
+                '0.001',
+            ),
+        )
+        rear_downforce = (_f32(), _sim('Rear downforce [1, 2.5], like `front_downforce`', '0.001'))
+        damping_1 = (
+            _f32(),
+            _sim(
+                '[70, 85]; x 0.833 more with the tiny car cheat. The rigid body update (Porsche.exe 0x499a70) damps '
+                'the pitch rate with it each update (d64 = this x d64 x 0.925 + ...); the cars analysis calls it the '
+                'front damping',
+                '0.01',
+            ),
+        )
+        damping_2 = (
+            _f32(),
+            _sim(
+                '[70, 85]. The rigid body update (Porsche.exe 0x499a70) damps the roll rate with it (d6c = d6c x '
+                'this + ...); the cars analysis calls it the rear damping',
+                '0.01',
+            ),
+        )
+        spring_load_transfer = (
+            _f32(),
+            {
+                'description': '[0.6, 1.5]: the physics divides the longitudinal and lateral load transfer by it '
+                '(physics analysis); the cars analysis calls it the spring'
+            },
+        )
+        ride_height = (
+            _f32(),
+            _sim(
+                'Ride height, 0 in every file; the setup RIDEHEIGHT replaces it. The wheel probe offset along the '
+                "car's up and the zero of the travel (compression limit (travel - this) x 0.9 / 0.75, Porsche.exe "
+                '0x499a70)',
+                '0.001 (to m)',
+            ),
+        )
+        suspension_travel = (
+            _f32(),
+            _sim('Suspension travel, mm [50, 140]: the compression limits (Porsche.exe 0x49aec0, 0x499a70)', '0.001'),
+        )
+        pitch_gain = (_f32(), _sim('[1, 5]: pitch gain of car+0xd54 (Porsche.exe 0x499a70)', '0.001'))
+        roll_gain = (_f32(), _sim('[0.25, 3.5]: roll gain of car+0xd4c (Porsche.exe 0x499a70)', '0.001'))
+        lateral_load_transfer_divisor = (
+            _f32(),
+            {
+                'description': '1.0 in every file: divides the lateral load transfer of the side that gains it '
+                '(physics); spring parts scale it'
+            },
+        )
+        pitch_rate_limit = (
+            _f32(),
+            {'description': '1.0 in every file: pitch rate limit per update (Porsche.exe 0x499a70)'},
+        )
+        roll_rate_limit = (
+            _f32(),
+            {'description': '1.0 in every file: roll rate limit per update (Porsche.exe 0x499a70)'},
+        )
+        unk1 = (_f32(), {'is_unknown': True, 'description': '1.0 in every file'})
+        grip_factor = (
+            _f32(),
+            {
+                'is_unknown': True,
+                'description': '[0.8, 1.15]: x the track grip factor (Porsche.exe 0x4a2950), divided by ((grip '
+                'after / before the setup + 2) / 3)',
+            },
+        )
+        unk2 = (_f32(), {'is_unknown': True, 'description': '[1, 1.075]'})
+
+    def serializer_class(self):
+        from serializers import JsonSerializer
+
+        return JsonSerializer
+
+
+class Nfs5CarAi(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'NFS5 car AI data, `GameData/Simulation/AICarData/<ai>.ais` (304 bytes, 22 files). '
+            'Porsche.exe 0x49ca30 loads `%s%s.ais` with the AI spec name of the car record (`ai_spec` of '
+            '[Nfs5CarRecord](#nfs5carrecord); `default.ais` when missing) into the AI specs at car+0x764. Mostly '
+            'not verified',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        name = (UTF8Block(length=32), {'description': 'Name ("Porsche 356 Family")'})
+        unk0 = (
+            ArrayBlock(child=_f32(), length=24),
+            {
+                'is_unknown': True,
+                'description': 'Read by the AI controls (Porsche.exe 0x40b650), indexed by a speed slot: 8 .. 30, '
+                'increasing',
+            },
+        )
+        speeds = (
+            ArrayBlock(child=_f32(), length=40),
+            {
+                'description': 'AI speeds, decreasing (about 60..100 down to 10..14), rescaled at load: with m their '
+                'minimum, x -> ((x - m) x car+0x10d8 + m) x the AI track factor (Porsche.exe 0x4a2dc0); read by the '
+                'AI controls (0x40b650)'
+            },
+        )
+        unk1 = (ArrayBlock(child=_f32(), length=4), {'is_unknown': True, 'description': 'Zeros'})
+
+    def serializer_class(self):
+        from serializers import JsonSerializer
+
+        return JsonSerializer
+
+
+class Nfs5PartGeometryEntry(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {**super().schema, 'block_description': 'A body part switch of a car part, 6 bytes'}
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        a = (IntegerBlock(length=2, is_signed=True), {'description': 'Row of the car record GEOMCONFIG table'})
+        b = (IntegerBlock(length=2, is_signed=True), {'description': 'Column of the car record GEOMCONFIG table'})
+        value = (
+            IntegerBlock(length=2, is_signed=True),
+            {
+                'description': 'Value: the car record GEOMCONFIG (record +0x32c) [b + a x 60] = it (which body parts '
+                'the model shows)'
+            },
+        )
+
+
+class Nfs5CarPart(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'A car part, 360 bytes. Installed into the car part slots by Porsche.exe 0x49c4c0 '
+            '(which clears bytes 0x48..0x50 before the copy), applied to the specs by 0x49cb50 (only when the AI spec '
+            'name is not 959 / 928 / GT2 / GT3)',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        id = (IntegerBlock(length=2, is_signed=True), {'description': 'Part id, found by Porsche.exe 0x49c470'})
+        unk0 = (IntegerBlock(length=2), {'is_unknown': True, 'description': '0'})
+        unk1 = (IntegerBlock(length=2), {'is_unknown': True, 'description': '0x1390..0x14b6'})
+        unk2 = (IntegerBlock(length=2), {'is_unknown': True, 'description': '0'})
+        family = (Latin1Block(length=30), {'description': 'Car family ("356", "911 (993)", "Boxster"), not verified'})
+        type = (
+            IntegerBlock(length=2, is_signed=True),
+            {
+                'description': 'Part type: 1 engine parts (Air Intake, Engine, Engine (Standard), Exhaust, Turbo, '
+                'Supercharger, Chip...), 2 brakes, 3 gear box / shifter, 4 springs, 5 shocks, 6 front dam / spoiler, '
+                '7 body panels, 8 sway bars, 9 tyres (no name), 10 body / rims'
+            },
+        )
+        name = (
+            Latin1Block(length=30),
+            {
+                'description': 'Name. Porsche.exe compares it with "Engine" (type 1: replaces the torque curve), '
+                '"Turbo" (aspiration 1), "Supercharged" (aspiration 2: the file says "Supercharger", never equal), '
+                '"Gear Box" (type 3: replaces the gears)'
+            },
+        )
+        year = (IntegerBlock(length=2, is_signed=True), {'description': 'A year (1950..2000), not verified'})
+        flags = (
+            ArrayBlock(child=IntegerBlock(length=1), length=12),
+            {'is_unknown': True, 'description': '0 / 1 bytes; the first 9 are cleared by 0x49c4c0 before the copy'},
+        )
+        mass = (_f32(), {'description': 'Mass added to the car (`mass` of [Nfs5CarPhysics](#nfs5carphysics))'})
+        top_speed_divisor = (
+            _f32(),
+            {'description': 'The specs `top_speed` is divided by (1 + this x 0.01)'},
+        )
+        sort_key = (
+            IntegerBlock(length=4, is_signed=True),
+            {'description': 'Front end sort key (after the type, before the id: Porsche.exe 0x49c350)'},
+        )
+        unk3 = (_f32(), {'is_unknown': True, 'description': '100, 95, 90, 80...'})
+        unk4 = (BytesBlock(length=0x28), {'is_unknown': True, 'description': 'Zeros'})
+        num_geometry_entries = (
+            IntegerBlock(length=2, is_signed=True, value_validator=Lte(8)),
+            {'description': 'Number of `geometry_entries` used (0..4)'},
+        )
+        geometry_entries = (
+            ArrayBlock(child=Nfs5PartGeometryEntry(), length=8),
+            {'description': 'Body part switches, the first `num_geometry_entries` are used'},
+        )
+        unk5 = (BytesBlock(length=2), {'is_unknown': True, 'description': 'Zeros'})
+        value_a = (
+            _f32(),
+            {
+                'description': 'Gear box: the final drive; brakes, springs, shocks, sway bars, front aero, tyres '
+                '(front): a factor. Engine parts have 5500.. here (a redline?), not verified'
+            },
+        )
+        value_b = (_f32(), {'description': 'Springs: ride height, mm; aero: the rear factor; tyres: the rear factor'})
+        drive_type = (
+            IntegerBlock(length=4, is_signed=True),
+            {'description': 'Tyres: the drive type (0, 1, 2) -> specs +0x1c0, the tyre type'},
+        )
+        unk6 = (BytesBlock(length=0x1E), {'is_unknown': True, 'description': 'Zeros'})
+        forward_gears = (IntegerBlock(length=2, is_signed=True), {'description': 'Gear box: forward gears'})
+        shift_time = (
+            IntegerBlock(length=2, is_signed=True),
+            {
+                'description': 'Gear box: specs `shift_time` (+0x54): replaced by a "Gear Box", added by the other '
+                'gearbox parts'
+            },
+        )
+        unk7 = (BytesBlock(length=2), {'is_unknown': True, 'description': 'Zeros'})
+        gear_ratios = (
+            ArrayBlock(child=_f32(), length=8),
+            {'description': 'Gear box: the ratios of reverse, neutral, 1st..6th'},
+        )
+        torque_curve = (
+            ArrayBlock(child=_f32(), length=21),
+            {'description': 'Engine: the torque curve (0..10000 rpm)'},
+        )
+        damage = (
+            IntegerBlock(length=4, is_signed=True),
+            {'description': 'Damage (the front end sends it as PARTDAMAGE), 0 in every part'},
+        )
+
+
+class Nfs5CarParts(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'NFS5 car parts, `FEData/Data/nfs5.prt`: 683 [Nfs5CarPart](#nfs5carpart) records '
+            '(read whole by Porsche.exe 0x49c3a0)',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        parts = (
+            ArrayBlock(child=Nfs5CarPart(), length=(lambda ctx: ctx.read_bytes_remaining // 0x168, 'file size / 360')),
+            {'description': 'The parts'},
+        )
+
+    def serializer_class(self):
+        from serializers import JsonSerializer
+
+        return JsonSerializer
+
+
+class Nfs5CarRecord(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'A car of the NFS5 car database, 0x670 bytes, read by the front end (its car object '
+            'holds the record at +6). Porsche.exe 0x4eeda0 sends the fields the race uses as car record options. '
+            'Most of the record is not decoded',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        id = (IntegerBlock(length=2, is_signed=True), {'description': 'Car id (76..223, increasing)'})
+        display_name = (Latin1Block(length=0x32), {'description': 'Display name ("\'50 356 1100 Cabriolet")'})
+        short_name = (Latin1Block(length=0x19), {'description': 'Short / multiplayer name ("911 Turbo")'})
+        locale_id = (Latin1Block(length=0x32), {'description': 'Locale id ("1950356Cabrio11")'})
+        model = (Latin1Block(length=0x32), {'description': 'Model: `GameData/CarModel/<model>.crp`'})
+        spec = (
+            Latin1Block(length=0x32),
+            {'description': 'Spec: the `.sim` file name ([Nfs5CarPhysics](#nfs5carphysics))'},
+        )
+        unk0 = (Latin1Block(length=0x32), {'is_unknown': True, 'description': '"356-14"...'})
+        ai_spec = (
+            Latin1Block(length=0x32),
+            {
+                'description': 'AI spec: the `.ais` file name ([Nfs5CarAi](#nfs5carai)), also compared with "GT1", '
+                '"959"...'
+            },
+        )
+        logos = (Latin1Block(length=0x32), {'description': 'Logos ("finallogos2")'})
+        sound = (Latin1Block(length=0x32), {'description': 'Sound ("sd1b")'})
+        unk1 = (BytesBlock(length=1), {'is_unknown': True})
+        unk2 = (
+            ArrayBlock(child=IntegerBlock(length=4, is_signed=True), length=2),
+            {'is_unknown': True, 'description': '(501, 521), (502, 523)...'},
+        )
+        body_text = (Latin1Block(length=0xC), {'description': 'Body text ("Cabrio")'})
+        body_style = (IntegerBlock(length=2, is_signed=True), {'description': 'Body style (0..12)'})
+        unk3 = (BytesBlock(length=0x12E), {'is_unknown': True})
+        gauges = (
+            ArrayBlock(child=_f32(), length=4),
+            {'description': 'Tachometer / speedometer values ((-0.07, 0.13, -0.03, 0.11)...)'},
+        )
+        unk4 = (BytesBlock(length=0xBC), {'is_unknown': True})
+        num_stock_parts = (
+            IntegerBlock(length=2, is_signed=True, value_validator=Lte(20)),
+            {'description': 'Number of `stock_parts` (0..17)'},
+        )
+        stock_parts = (
+            ArrayBlock(child=IntegerBlock(length=2, is_signed=True), length=20),
+            {
+                'description': 'Ids of the stock parts ([Nfs5CarPart](#nfs5carpart)), the first `num_stock_parts`: '
+                'all installed for a quick race, ordered by Porsche.exe 0x4ee9a0 / 0x49c350'
+            },
+        )
+        unk5 = (BytesBlock(length=0x28A), {'is_unknown': True})
+
+
+class Nfs5Cars(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'NFS5 car database, `FEData/Data/nfs5.car`: 109 [Nfs5CarRecord](#nfs5carrecord) '
+            'records of 0x670 bytes',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        cars = (
+            ArrayBlock(
+                child=Nfs5CarRecord(), length=(lambda ctx: ctx.read_bytes_remaining // 0x670, 'file size / 1648')
+            ),
+            {'description': 'The cars'},
+        )
+
+    def serializer_class(self):
+        from serializers import JsonSerializer
+
+        return JsonSerializer

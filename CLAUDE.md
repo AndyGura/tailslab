@@ -289,13 +289,29 @@ When you do:
 
 - `serialize_sky` writes `Sky/<Track>.fsh/spherical.png` with `library/utils/nfs5_sky_to_spherical.py` (the track
   picks the files by its name, any case: `alps.crp` -> `Alps.*`, `monaco1.crp` -> `Monaco1.*`; `Monaco.*` and
-  `default.*` belong to no track). Unverified (Porsche.exe is SafeDisc encrypted): `.txt` layers (HIGH level, weather
+  `default.*` belong to no track). Unverified (the retail Porsche.exe is SafeDisc encrypted; an unprotected one is in nfs-web's `decomp/nfs5/`, the sky renderer not checked there yet): `.txt` layers (HIGH level, weather
   region A; one layer per texture, `flat` = untextured, coloured by its sky map) on a hemisphere, the 16x16 sky map
   spanning the dome once by orthographic projection (centre at the zenith, edge on the horizon), the texture
   repeated by the scale factors; the `horz` strips on a cylinder whose radius, heights, segments and strip table come
   from the `.bin` header (`Nfs5SkyBin`, `resources/eac/maps/nfs5_sky.py`, exported as `<name>.bin.json`). The last
   texel row of each strip is transparent padding. Below the horizon one flat colour (mean of the band's lowest drawn
   row). `hzcl`, `hor0`.., region B, wind and warp are not used.
+
+## NFS5 data files (`resources/eac/car_specs.py`, `resources/eac/maps/nfs5.py`, `resources/eac/geometries/nfs5.py`)
+
+- Field meanings from Porsche.exe (nfs-web `decomp/nfs5/Porsche.exe.gzf`, addresses in the descriptions): `.sim`
+  `Nfs5CarPhysics` (328 bytes, picked by size under `/Simulation/CarData/`), `.ais` `Nfs5CarAi` (304 bytes),
+  `nfs5.prt` `Nfs5CarParts` (360-byte records), `nfs5.car` `Nfs5Cars` (0x670-byte records starting with the car id;
+  texts are Latin-1: `Latin1Block`), `<track>.jnc` `Nfs5Junctions`, `<track>.edg` `Nfs5WallEdges`; all write back
+  byte-exact, exported as JSON. In the CRP, the track parts `DmiS` / `TmiS` (road spline slices and sections), `esaB`
+  (`CrpBasePart`: flags, bounds, object tag, levels of detail) and `fd` (vertex colours) are parsed.
+- CRP `pr` parts (`TrianglePartData`): the info row blocks are picked by `row_type` (`vt`, `nm`, `uv`, `fd`, `n$`),
+  not by position; one index table per index row (`index_table`, `uv_index_table`), and a row's `index_stream` picks
+  the table its indices come from, 0xffff = consecutive (`crp_stream_indices` in `serializers/geometries.py`, as
+  Porsche.exe 0x5a0bc0; 1233 parts have no index rows). `crp_primitive_triangles` turns the primitives into
+  triangles: lists as they are, strips with every second triangle reversed (Direct3D order, agrees with the shared
+  edges of the neighbouring lists), quads 0 1 2 + 0 2 3 (as the collision splits them); triangles repeating a vertex
+  are dropped. A track's animated articles have a `vt` part per frame (`ai<n>`): its export keeps `ai0` only.
 
 ## TNFS PlayStation (`games/tnfs_psx`, SLUS-00204, doc `resources/TNFS_PSX.md`)
 
@@ -609,6 +625,12 @@ When you do:
   (`test/samples/nfs4_carp/`, `test/resources/eac/test_nfs4_car_physics.py`). Picked by `carp.txt` / `carp<n>.txt`
   under a `/Data/Cars/` path (`_is_nfs4_car_physics_path`; `Data/Plac.viv`'s `carp.txt` is a placeholder text and
   stays raw). Exported like NFS3's (`carp.txt.json` + `carp.txt.bin`).
+
+## NFS3 track data files (`GameData/Tracks/TRK<nnn>/`, nfs3.exe, `resources/eac/maps/nfs3.py`)
+
+- `Nfs3SimHeights` (`SIMHTS.DAT`, a float per COL collision_data record = slice) and `Nfs3SpeedsFile` (`SPEEDSF.BIN` /
+  `SPEEDSR.BIN`: n // 2 + 1 speed bytes, then n lane bytes; n = (2 x size - 1) // 3, `is_nfs3_speeds_file_size`;
+  nfs3.exe 0x40e000 finds the lanes at (n + 1) // 2, one byte early for an even n) are picked by name, exported as JSON.
 
 ## NFS4 tracks (`Data/Tracks/<track>/`, nfs4.exe)
 

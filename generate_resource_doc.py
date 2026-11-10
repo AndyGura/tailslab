@@ -468,6 +468,8 @@ EXPORT_RESOURCES = {
 
 **GameData/Tracks/TRK\\<nnn\\>/SIMHTS.DAT** ceiling heights of the track slices. {render_type(eac.maps.Nfs3SimHeights())}
 
+**GameData/Tracks/TRK\\<nnn\\>/SPEEDSF.BIN**, **SPEEDSR.BIN** AI speeds and lanes of the track slices, forward / reversed. {render_type(eac.maps.Nfs3SpeedsFile())}
+
 **\\*.VIV** archive with some data. {render_type(eac.archives.BigfBlock())}""",
         'blocks': {
             'Archives': [
@@ -518,6 +520,7 @@ EXPORT_RESOURCES = {
                 eac.maps.RoadVectorsExtraDataRecord(),
                 eac.maps.Nfs3CollisionExtraDataRecord(),
                 eac.maps.Nfs3SimHeights(),
+                eac.maps.Nfs3SpeedsFile(),
                 eac.maps.Nfs3CanAnimation(),
                 eac.maps.Nfs3CanKeyframe(),
                 eac.maps.ColPolygon(),
@@ -644,6 +647,20 @@ EXPORT_RESOURCES = {
 **GameData/Music/zzzymus.viv** songs, archive of {render_type(eac.audios.EaAudioStreams())} items. {render_type(eac.archives.BigfBlock())}
 
 **\\*.crp** geometry file. {render_type(eac.geometries.CrpGeometry())}, [compressed](eac_compressions.md)
+
+**GameData/Track/\\<track\\>.jnc** junction weights of the road spline. {render_type(eac.maps.Nfs5Junctions())}
+
+**GameData/Track/\\<track\\>.edg** wall edges of the track collision. {render_type(eac.maps.Nfs5WallEdges())}
+
+**GameData/Track/animdefs.txt** track object definitions, read by Porsche.exe 0x47eba0: lowercased, keeping only letters, digits and `; {{ }} = :` (so `radius=0.5` reads `05` = 5), `//` comments to the line end dropped. Sections `section:anim{{...}}` (definitions, 0x47dcf0), `section:audio{{...}}` (0x47d6b0), anything else skipped by brace matching. Keys, prefix matched in this order: `section:piece`, `tag` (the first 4 characters, upper case, as the `tag` of [CrpBasePartData](#crpbasepartdata)), `speed`, `collidetype` (`ksmackable` 3, `kcylinder` 1, `kbox` 2, anything else (e.g. `0`) leaves 0), `audiotype` (`kaudsign` 0 .. `kaudrock` 12), `mass`, `velocityfactor` (x 0.01), `frametickoffset`, `ticksperverframe` (default 8), `radius` (default 0.5), `triggerable`, `drivethru`, `drivethrough`, `dynamiclight`. A tag without a definition gets the first definition (`ENDW`, kBox): castle's two `SGN1` articles become boxes. Collidable objects of the static bundles: alps 263 cylinders (BUSH, STRE), castle 430 cylinders + 93 boxes, industrial 32 cylinders + 64 boxes, skidpad 19 boxes, monaco1..5 30..41 PILR cylinders + 3..10 SBOX boxes (castle 32 and industrial 10 more boxes in instance bundles).
+
+**GameData/Simulation/CarData/\\<spec\\>.sim** car physics. {render_type(eac.car_specs.Nfs5CarPhysics())}
+
+**GameData/Simulation/AICarData/\\<ai\\>.ais** car AI data. {render_type(eac.car_specs.Nfs5CarAi())}
+
+**FEData/Data/nfs5.prt** car parts. {render_type(eac.car_specs.Nfs5CarParts())}
+
+**FEData/Data/nfs5.car** car database. {render_type(eac.car_specs.Nfs5Cars())}
         
 **\\*.FFN** bitmap font. {render_type(eac.fonts.FfnFont())}
 
@@ -663,6 +680,19 @@ EXPORT_RESOURCES = {
             ],
             'Maps': [
                 eac.maps.Nfs5SkyBin(),
+                eac.maps.Nfs5Junctions(),
+                eac.maps.Nfs5Junction(),
+                eac.maps.Nfs5WallEdges(),
+                eac.maps.Nfs5WallEdge(),
+            ],
+            'Physics': [
+                eac.car_specs.Nfs5CarPhysics(),
+                eac.car_specs.Nfs5CarAi(),
+                eac.car_specs.Nfs5CarParts(),
+                eac.car_specs.Nfs5CarPart(),
+                eac.car_specs.Nfs5PartGeometryEntry(),
+                eac.car_specs.Nfs5Cars(),
+                eac.car_specs.Nfs5CarRecord(),
             ],
             'Geometries': [
                 eac.geometries.nfs5.CrpGeometry(),
@@ -678,6 +708,13 @@ EXPORT_RESOURCES = {
                 eac.geometries.nfs5.TransformationPart(),
                 eac.geometries.nfs5.UVPart(),
                 eac.geometries.nfs5.VertexPart(),
+                eac.geometries.nfs5.CrpSimDPart(),
+                eac.geometries.nfs5.CrpSplineSlice(),
+                eac.geometries.nfs5.CrpSimTPart(),
+                eac.geometries.nfs5.CrpBasePart(),
+                eac.geometries.nfs5.CrpBasePartData(),
+                eac.geometries.nfs5.CrpBaseLodRecord(),
+                eac.geometries.nfs5.CrpVertexColorPart(),
                 eac.geometries.nfs5.UnkPart2(),
                 eac.geometries.nfs5.UnkPart4(),
                 eac.geometries.nfs5.MaterialPartData(),
@@ -693,11 +730,8 @@ EXPORT_RESOURCES = {
                 eac.geometries.nfs5.UVInfoRow(),
                 eac.geometries.nfs5.VertexData(),
                 eac.geometries.nfs5.VertexInfoRow(),
+                eac.geometries.nfs5.VertexColorInfoRow(),
             ],
-            # 'Maps': [
-            # ],
-            # 'Physics': [
-            # ],
             'Images': [
                 eac.bitmaps.EacImage(),
                 eac.bitmaps.EacPalette(),

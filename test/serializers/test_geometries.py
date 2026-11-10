@@ -16,6 +16,8 @@ from serializers.geometries import (
     crp_car_is_image_used,
     crp_car_texture_page_sources,
     crp_image_atlas_position,
+    crp_primitive_triangles,
+    crp_stream_indices,
     geo_sub_mesh_properties,
     orip_fx_dummies,
     orip_morph_deltas,
@@ -411,6 +413,40 @@ frontend=0
         self.assertTrue(crp_car_is_image_used(self.tpg, 1, 'top', {}))
 
 
+class TestCrpPrimitives(unittest.TestCase):
+    def test_triangle_list(self):
+        self.assertEqual(crp_primitive_triangles(3, 7), [(0, 1, 2), (3, 4, 5)])
+
+    def test_strip_reverses_every_second_triangle(self):
+        self.assertEqual(crp_primitive_triangles(1, 5), [(0, 1, 2), (2, 1, 3), (2, 3, 4)])
+        self.assertEqual(crp_primitive_triangles(1, 2), [])
+
+    def test_quads_split_along_first_diagonal(self):
+        self.assertEqual(crp_primitive_triangles(4, 8), [(0, 1, 2), (0, 2, 3), (4, 5, 6), (4, 6, 7)])
+
+    def test_lines_give_no_triangles(self):
+        self.assertEqual(crp_primitive_triangles(2, 4), [])
+
+    def test_stream_indices(self):
+        part_data = {
+            'index_rows': [{'identifier': 'vI', 'offset': 0}, {'identifier': 'uI', 'offset': 3}],
+            'index_table': [5, 1, 2],
+            'uv_index_table': [0, 4, 3],
+        }
+        # index table of the row's stream + row offset / stride
+        self.assertEqual(crp_stream_indices(part_data, 3, {'offset': 32, 'index_stream': 0}, 16), [7, 3, 4])
+        self.assertEqual(crp_stream_indices(part_data, 3, {'offset': 8, 'index_stream': 1}, 8), [1, 5, 4])
+        # consecutive indices
+        self.assertEqual(crp_stream_indices(part_data, 3, {'offset': 48, 'index_stream': 0xFFFF}, 16), [3, 4, 5])
+        # no such index row
+        self.assertIsNone(crp_stream_indices(part_data, 3, {'offset': 0, 'index_stream': 2}, 16))
+
+    def test_stream_indices_of_single_uv_index_row(self):
+        # the only index row is the UV one: its table is the first
+        part_data = {'index_rows': [{'identifier': 'uI', 'offset': 0}], 'index_table': [2, 0, 1], 'uv_index_table': []}
+        self.assertEqual(crp_stream_indices(part_data, 3, {'offset': 0, 'index_stream': 0}, 8), [2, 0, 1])
+
+
 class TestCrpGeometrySerializer(unittest.TestCase):
     def _serialize(self, file_path, out):
         from library import require_file
@@ -446,8 +482,11 @@ class TestCrpGeometrySerializer(unittest.TestCase):
             self.assertIn('Body_LOD1_ai0_page_0', body_meshes)
             self.assertIn('Body_LOD1_ai0_page_0_damaged', body_meshes)
             self.assertIn('usemtl page_0', obj)
-            # triangle part without vertex index row
+            # triangle part without vertex index row (UV index row only)
             self.assertIn('\no DecalDoorL_LOD6_ai0_page_0\n', obj)
+            # triangle parts without index rows
+            self.assertIn('\no Needle1_LOD1_ai0_', obj)
+            self.assertIn('\no InteriorDoorInGlass_LOD1_ai0_', obj)
 
     def test_malformed_tpg_falls_back_to_default_layout(self):
         with tempfile.TemporaryDirectory() as tmp:

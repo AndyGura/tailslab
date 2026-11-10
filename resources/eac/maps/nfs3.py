@@ -783,6 +783,72 @@ class Nfs3SimHeights(DeclarativeCompoundBlock):
         return JsonSerializer
 
 
+def _speeds_num_slices(size: int) -> int:
+    """Slices of a SPEEDSF.BIN / SPEEDSR.BIN of `size` bytes: size = n // 2 + 1 + n (3k + 1 bytes for n = 2k slices,
+    3k + 2 for n = 2k + 1)"""
+    return (2 * size - 1) // 3
+
+
+def is_nfs3_speeds_file_size(size: int) -> bool:
+    n = _speeds_num_slices(size)
+    return n > 0 and n // 2 + 1 + n == size
+
+
+class Nfs3SpeedsFile(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'AI speeds and lanes of the track slices (GameData/Tracks/TRK<nnn>/SPEEDSF.BIN '
+            'forward, SPEEDSR.BIN reversed track), loaded whole by nfs3.exe 0x40e000: two arrays over the n track '
+            'slices (COL collision_data records, [Nfs3CollisionExtraDataRecord](#nfs3collisionextradatarecord)), the '
+            'file is n / 2 + 1 + n bytes (integer division) in every NFS3 track; n is not in the file, it is '
+            '(2 x file size - 1) / 3. Without the file the game uses 64 m/s and lane 7 for every slice (flag '
+            '0x56f22c). The game finds the lanes at (n + 1) / 2, not at n / 2 + 1 where the file has them: the same '
+            'place for an odd n, one byte earlier for an even n (TRK005, TRK006, TRK008), see `lanes`',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        speeds = (
+            ArrayBlock(
+                child=IntegerBlock(length=1, is_signed=False),
+                length=(
+                    lambda ctx: _speeds_num_slices(ctx.read_bytes_remaining) // 2 + 1,
+                    'n / 2 + 1, n = (2 x file size - 1) / 3',
+                ),
+            ),
+            {
+                'description': 'AI target speed in m/s, one byte per two slices: slice s reads byte s / 2 (nfs3.exe '
+                '0x40e080, as a float). An even n has one byte more than the slices read, 0 in the NFS3 tracks, which '
+                'the game reads as the lane of slice 0. 17..88 in the NFS3 tracks'
+            },
+        )
+        lanes = (
+            ArrayBlock(
+                child=SubByteCompoundBlock(
+                    length=1,
+                    schema=[
+                        (4, 'lane', 'number', [], 'AI lane of the slice (nfs3.exe 0x40e0c0)'),
+                        (4, 'unk', 'number', [], '0 in every NFS3 file; never read (0x40e0c0 shifts it out)'),
+                    ],
+                ),
+                length=(lambda ctx: ctx.read_bytes_remaining, 'n'),
+            ),
+            {
+                'description': 'A byte per slice: the high 4 bits are the recommended lane of the slice for the AI '
+                '(nfs3.exe 0x40e0c0 returns byte >> 4, 7 without the file; 3..11 in the NFS3 tracks), the low 4 bits '
+                'are 0 and never read. The game reads the lane of slice s at byte (n + 1) / 2 + s of the file: this '
+                'array for an odd n; for an even n the byte before it, so slice 0 gets the last `speeds` byte (0), '
+                "slice s this array's byte s - 1, and the last byte is never read"
+            },
+        )
+
+    def serializer_class(self):
+        from serializers import JsonSerializer
+
+        return JsonSerializer
+
+
 class Nfs3CanKeyframe(DeclarativeCompoundBlock):
     @property
     def schema(self) -> Dict:
