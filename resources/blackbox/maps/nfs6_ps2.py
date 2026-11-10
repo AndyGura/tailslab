@@ -12,7 +12,7 @@ from library.read_blocks.misc.value_validators import Eq
 from library.read_blocks.strings import UTF8Block
 from resources.blackbox.bitmaps.nfs6_ps2 import Nfs6Ps2TexturePack
 from resources.blackbox.chunks import chunk_delegate, container_chunk_length, nfsu_sub_chunks_field
-from resources.blackbox.geometries.nfs6_ps2 import Nfs6Ps2SolidPack
+from resources.blackbox.geometries.nfs6_ps2 import Nfs6Ps2LightingMaterials, Nfs6Ps2SolidPack
 from resources.blackbox.geometries.nfsu import (
     _CHUNK_ID_DESCR,
     _CHUNK_LENGTH_DESCR,
@@ -332,6 +332,48 @@ class Nfs6Ps2CarTypeInfos(DeclarativeCompoundBlock):
         )
 
 
+class Nfs6Ps2CarSkin(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'A paint of a car type (SLUS_203.62 0x188180 finds it by car type and paint number; '
+            'CarModel_Init 0x11e860 takes its lighting material for the meshes\' material "CARSKIN")',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        car_type_index = (IntegerBlock(length=4), {'description': 'Index of the car type in the car types table'})
+        skin_number = (IntegerBlock(length=4), {'description': 'Paint number n of the textures <model>_SKIN<n>'})
+        name = (UTF8Block(length=32), {'description': 'Paint name, e.g. "Guards Red"'})
+        color_bit = (IntegerBlock(length=4), {'description': 'A single bit: the colour group', 'is_unknown': True})
+        lighting_material_hash = (
+            IntegerBlock(length=4),
+            {'description': 'Name hash of the lighting material of the paint (`Nfs6Ps2LightingMaterial`)'},
+        )
+        swatch_hash = (
+            IntegerBlock(length=4),
+            {'description': 'Name hash of the colour swatch texture shown in the menus, e.g. "COLORSWATCH_SILVER"'},
+        )
+        unk = (BytesBlock(length=12), {'is_unknown': True})
+
+
+class Nfs6Ps2CarSkins(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {**super().schema, 'block_description': 'Paints of the car types (GLOBAL/GLOBALB.LZC, 0x187f98)'}
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034601)), {'description': _CHUNK_ID_DESCR})
+        chunk_length = (
+            IntegerBlock(length=4, programmatic_value=lambda ctx: 0x40 * len(ctx.data('skins'))),
+            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
+        )
+        skins = (
+            ArrayBlock(child=Nfs6Ps2CarSkin(), length=lambda ctx: ctx.data('chunk_length') // 0x40),
+            {'description': 'Paints'},
+        )
+
+
 NFS6_PS2_BUNDLE_CHUNK_BLOCKS = [
     ZeroChunk(),
     Nfs6Ps2SolidPack(),
@@ -339,6 +381,8 @@ NFS6_PS2_BUNDLE_CHUNK_BLOCKS = [
     Nfs6Ps2Scenery(),
     Nfs6Ps2TrackPath(),
     Nfs6Ps2CarTypeInfos(),
+    Nfs6Ps2LightingMaterials(),
+    Nfs6Ps2CarSkins(),
 ]
 
 

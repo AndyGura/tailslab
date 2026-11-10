@@ -1919,7 +1919,10 @@ class EaglModelSerializer(BaseFileSerializer):
         skins_path = path_join(path, 'skins.json')
         with open(skins_path, 'w') as f:
             json.dump(skins, f, indent=2)
-        return paths + [skins_path]
+        lighting_path = path_join(path, 'lighting.json')
+        with open(lighting_path, 'w') as f:
+            json.dump(nfs6_car_lighting(id, path), f, indent=2)
+        return paths + [skins_path, lighting_path]
 
 
 def _eagl_model_location(id: str) -> Tuple[Optional[str], Optional[str], str]:
@@ -1954,10 +1957,69 @@ def nfs6_car_part_lod_prefix(geometry_name: str) -> str:
     return 'hp'
 
 
-def find_nfs6_car_skins(id: str) -> List[Tuple[str, str, Tuple[str, ShpiBlock, dict]]]:
+def _read_nfs6_ini(file_path: Optional[str]) -> Optional[ConfigParser]:
+    """NFS6 ini file (vehicle.ini, lighting.ini) or None. Comments start with "'" or "//" """
+    if not file_path:
+        return None
+    ini = ConfigParser(strict=False, interpolation=None, comment_prefixes=("'", '//', ';', '#'))
+    try:
+        with open(file_path, encoding='latin-1') as f:
+            ini.read_string(f.read())
+    except OSError, ConfigParserError:
+        traceback.print_exc()
+        return None
+    return ini
+
+
+def _nfs6_ini_number(ini: Optional[ConfigParser], section: str, option: str, integer: bool = False):
+    """Value of an ini option as NFSHP2.exe's ini readers parse it (0x527560 int, 0x527650 float: the number at the
+    start, "-691.71f" is -691.71), None if the section (any case) or the option is missing"""
+    section = next((x for x in (ini.sections() if ini else []) if x.lower() == section.lower()), None)
+    if section is None or not ini.has_option(section, option):
+        return None
+    match = re.match(
+        r'\s*[-+]?\d+' if integer else r'\s*[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?', ini.get(section, option)
+    )
+    if not match:
+        return None
+    return int(match.group(0)) if integer else float(match.group(0))
+
+
+# vehicle.ini [skin*] keys of the specular lighting, read by NFSHP2.exe 0x42f240 into the car's skin record
+NFS6_SKIN_SPECULAR_KEYS = [
+    ('specular_red', True),
+    ('specular_green', True),
+    ('specular_blue', True),
+    ('specular_paint_exponent', False),
+    ('specular_glass_exponent', False),
+    ('specular_rubber_exponent', False),
+    ('specular_sun_intensity', True),
+]
+
+
+def nfs6_skin_specular(ini: Optional[ConfigParser], skin_name: str) -> Optional[Dict[str, float]]:
+    """Specular lighting of a skin: the keys NFS6_SKIN_SPECULAR_KEYS of its vehicle.ini section ([skin00]..[skin19],
+    [skinhp], [skincop]), None when the game has none for it: NFSHP2.exe 0x42f240 reads a section only when it has
+    "specular_red", and stops at the first [skinNN] without it (the later ones are not read). A missing key is
+    left out (the game keeps what the record had)"""
+    match = re.fullmatch(r'skin(\d\d)', skin_name.lower())
+    if match:
+        if int(match.group(1)) >= 20:
+            return None
+        names = [f'skin{i:02d}' for i in range(int(match.group(1)) + 1)]
+    else:
+        names = [skin_name]
+    if any(_nfs6_ini_number(ini, name, 'specular_red', integer=True) is None for name in names):
+        return None
+    values = {key: _nfs6_ini_number(ini, skin_name, key, integer=integer) for key, integer in NFS6_SKIN_SPECULAR_KEYS}
+    return {key: value for key, value in values.items() if value is not None}
+
+
+def find_nfs6_car_skins(id: str) -> List[Tuple[str, str, Optional[dict], Tuple[str, ShpiBlock, dict]]]:
     """Skins of NFS6 car: FSH files of "skin.viv" next to car's "car.viv" ("skin00.fsh", ..., "skinhp.fsh" for the
-    hot pursuit version), each has a "skin" image. Returns list of (skin name, label, (FSH id, block, data)), label is
-    "color_id" of [skinNN] section of "vehicle.ini" next to car.viv ("red", "silver", ...) or skin name"""
+    hot pursuit version, "skincop.fsh"), each has a "skin" image. Returns list of (skin name, label, specular
+    lighting (`nfs6_skin_specular`), (FSH id, block, data)), label is "color_id" of [skinNN] section of
+    "vehicle.ini" next to car.viv ("red", "silver", ...) or skin name"""
     from library import require_resource
     from library.loader import path_to_name
 
@@ -1965,16 +2027,10 @@ def find_nfs6_car_skins(id: str) -> List[Tuple[str, str, Tuple[str, ShpiBlock, d
     skin_viv = _find_sibling_file(file_path, 'skin.viv')
     if not skin_viv:
         return []
+    ini = _read_nfs6_ini(_find_sibling_file(file_path, 'vehicle.ini'))
     labels = {}
-    vehicle_ini = _find_sibling_file(file_path, 'vehicle.ini')
-    if vehicle_ini:
-        ini = ConfigParser(strict=False, interpolation=None, comment_prefixes=("'", '//', ';', '#'))
-        try:
-            with open(vehicle_ini, encoding='latin-1') as f:
-                ini.read_string(f.read())
-            labels = {x.lower(): ini.get(x, 'color_id') for x in ini.sections() if ini.has_option(x, 'color_id')}
-        except ConfigParserError:
-            traceback.print_exc()
+    if ini:
+        labels = {x.lower(): ini.get(x, 'color_id') for x in ini.sections() if ini.has_option(x, 'color_id')}
     skins = []
     try:
         (archive_id, _, archive_data), _ = require_resource(path_to_name(skin_viv))
@@ -1987,7 +2043,9 @@ def find_nfs6_car_skins(id: str) -> List[Tuple[str, str, Tuple[str, ShpiBlock, d
                 (fsh_id, fsh_block, fsh_data), _ = require_resource(join_id(fsh_id, 'data'))
             if isinstance(fsh_block, ShpiBlock):
                 name = alias[:-4]
-                skins.append((name, labels.get(name.lower(), name), (fsh_id, fsh_block, fsh_data)))
+                skins.append(
+                    (name, labels.get(name.lower(), name), nfs6_skin_specular(ini, name), (fsh_id, fsh_block, fsh_data))
+                )
     except Exception:
         traceback.print_exc()
     return skins
@@ -2014,36 +2072,144 @@ def _find_nfs6_car_skeleton(id: str):
         return []
 
 
-def _save_opaque(file_path: str):
-    with Image.open(file_path) as image:
-        image.load()
-    if image.mode == 'P':
-        # an indexed image stays indexed: its palette without tRNS
-        image.info.pop('transparency', None)
-        image.save(file_path, compress_level=9)
-        return
-    image = image.convert('RGBA')
-    image.putalpha(255)
-    image.save(file_path)
+def _nfs6_fsh_file(file_path: Optional[str]) -> Optional[Tuple[str, ShpiBlock, dict]]:
+    """(id, block, data) of an FSH file on disk, None if it is not one"""
+    from library import require_resource
+    from library.loader import path_to_name
+
+    if not file_path:
+        return None
+    try:
+        (fsh_id, block, data), _ = require_resource(path_to_name(file_path))
+        while not isinstance(block, ShpiBlock) and isinstance(data, dict) and 'choice_index' in data:
+            (fsh_id, block, data), _ = require_resource(join_id(fsh_id, 'data'))
+        return (fsh_id, block, data) if isinstance(block, ShpiBlock) else None
+    except Exception:
+        traceback.print_exc()
+        return None
 
 
-def _tinted_texture(image: Image.Image, color: int) -> Image.Image:
-    """Texture multiplied by vertex diffuse color 0xRRGGBBAA, as Direct3D modulates them"""
-    from PIL import ImageChops
+def _find_child_ignore_case(directory: Optional[str], name: str) -> Optional[str]:
+    try:
+        return next(path_join(directory, x) for x in sorted(os.listdir(directory)) if x.lower() == name.lower())
+    except StopIteration, FileNotFoundError, NotADirectoryError, TypeError:
+        return None
 
-    tint = Image.new(
-        'RGBA', image.size, ((color >> 24) & 0xFF, (color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF)
-    )
-    return ImageChops.multiply(image.convert('RGBA'), tint)
+
+# environment map textures of the car export, "textures/environment/<name>.png"
+NFS6_ENVIRONMENT_MAP_DIR = 'environment'
+
+
+def nfs6_car_lighting(id: str, path: str) -> dict:
+    """What NFSHP2.exe lights a car with (vertex shaders of the EASVehicle* microcodes in EAGL/eaglrm.o, constants
+    set by 0x412f00 / 0x4134c0 and 0x431d30), written as "lighting.json" next to "skins.json":
+    - "vehicle_type": [vehicletype] "type" of the car's vehicle.ini ("primary", "traffic")
+    - "specular_hotspot_exponent": [effects] of vehicle.ini (racers and cops only; null if missing)
+    - "environment_map": Cars/common.fsh "refl", the sphere map the car's materials are bound to (gTextureEnviro,
+      0x4127b0), which the frontend draws
+    - "locations": per tracks/<location> folder: [ambientsky], [ambientground], [sun] (color, "position_x/y/z" in the
+      track's axes) of its lighting.ini (levelNN folders, the lowest one: all levels have the same) as 0..255 ints,
+      and "environment_map": the first image of its staticenvmap.fsh, which replaces gTextureEnviro in a race at
+      graphics detail 1..3 (0x412bc0, 0x431280)
+    Environment maps are saved to "<path>/textures/environment/", paths relative to `path`"""
+    _, _, file_path = _eagl_model_location(id)
+    car_dir = os.path.dirname(file_path)
+    cars_dir = os.path.dirname(car_dir)
+    ini = _read_nfs6_ini(_find_sibling_file(file_path, 'vehicle.ini'))
+    vehicle_type = None
+    if ini:
+        section = next((x for x in ini.sections() if x.lower() == 'vehicletype'), None)
+        if section and ini.has_option(section, 'type'):
+            vehicle_type = ini.get(section, 'type').strip().lower()
+    os.makedirs(path_join(path, 'textures', NFS6_ENVIRONMENT_MAP_DIR), exist_ok=True)
+
+    def export_first_image(archive, name, alias=None) -> Optional[str]:
+        if archive is None:
+            return None
+        aliases = [c['alias'] for c in archive[2]['children']]
+        alias = alias if alias in aliases else (aliases[0] if aliases and alias is None else None)
+        if alias is None:
+            return None
+        names, _ = export_fsh_textures(archive, [alias], path, name_prefix=f'{NFS6_ENVIRONMENT_MAP_DIR}/{name}-')
+        return f'textures/{names[alias]}.png' if alias in names else None
+
+    lighting = {
+        'vehicle_type': vehicle_type,
+        'specular_hotspot_exponent': _nfs6_ini_number(ini, 'effects', 'specular_hotspot_exponent'),
+        'environment_map': export_first_image(
+            _nfs6_fsh_file(_find_child_ignore_case(cars_dir, 'common.fsh')), 'common', 'refl'
+        ),
+        'locations': [],
+    }
+    tracks_dir = _find_child_ignore_case(os.path.dirname(cars_dir), 'tracks')
+    for location in sorted(os.listdir(tracks_dir)) if tracks_dir else []:
+        location_dir = path_join(tracks_dir, location)
+        if not os.path.isdir(location_dir):
+            continue
+        levels = sorted(x for x in os.listdir(location_dir) if re.fullmatch(r'level\d+', x.lower()))
+        lighting_ini = next(
+            (p for p in (_find_child_ignore_case(path_join(location_dir, x), 'lighting.ini') for x in levels) if p),
+            None,
+        )
+        if not lighting_ini:
+            continue
+        location_ini = _read_nfs6_ini(lighting_ini)
+
+        def color(section):
+            return [_nfs6_ini_number(location_ini, section, key, integer=True) or 0 for key in ('red', 'green', 'blue')]
+
+        file_name = re.sub(r'[^0-9A-Za-z-]', '-', location)
+        lighting['locations'].append(
+            {
+                'name': location,
+                'ambient_sky': color('ambientsky'),
+                'ambient_ground': color('ambientground'),
+                'sun': color('sun'),
+                'sun_position': [
+                    _nfs6_ini_number(location_ini, 'sun', f'position_{axis}') or 0.0 for axis in ('x', 'y', 'z')
+                ],
+                'environment_map': export_first_image(
+                    _nfs6_fsh_file(_find_child_ignore_case(location_dir, 'staticenvmap.fsh')), file_name
+                ),
+            }
+        )
+    return lighting
+
+
+# NFS6 car microcodes (`EaglMesh.shader`) -> "eaglShader" property of the exported meshes
+NFS6_CAR_SHADERS = {
+    'EASVehiclePaint': 'paint',
+    'EASVehicleRubber': 'rubber',
+    'EASVehicleGlass': 'glass',
+    'EASVehicleGeneric': 'generic',
+}
+
+
+def nfs6_car_blend(geometry_name: str) -> str:
+    """How NFSHP2.exe blends a car geometry, by its name (0x42e880, the same substrings): "trans" for "ALPHA_TRANS"
+    (source alpha / inverse source alpha), "add" for "ALPHA_ADD" (source alpha / one), both drawn after the opaque
+    ones without writing depth (0x413890), else "opaque". The EASVehiclePaint, Rubber and Generic microcodes draw
+    opaque whatever the name (blend one / zero)"""
+    name = geometry_name or ''
+    if 'ALPHA_ADD' in name:
+        return 'add'
+    if 'ALPHA_TRANS' in name:
+        return 'trans'
+    return 'opaque'
 
 
 def nfs6_car_scene(data: dict, meshes, path: str, id: str) -> Tuple[Scene, List[dict]]:
     """Scene of NFS6 car model with its textures in "<path>/textures": car.fsh images by alias, "skin.png" is the
-    first skin, every skin is also saved as "skins/<skin name>-skin.png". Car textures are saved opaque: their alpha is
-    a reflection mask. Glass is drawn black with vertex alpha, so meshes with one vertex color other than white get a
-    tinted copy of their texture "<texture>-<RRGGBBAA>", which is translucent. Mesh names are
-    "<lod>_<geometry index>_<geometry name>", dummies are the bones of car's skeleton.o. Returns the scene (game
-    axes) and the skins: list of {"name", "label", "texture"}"""
+    first skin, every skin is also saved as "skins/<skin name>-skin.png". Texture alpha is the reflection mask of the
+    EASVehicle* microcodes (environment and specular, see Nfs6CarMeshController), so the textures keep it and their
+    materials are "opaque" (MTL alpha_mode). Mesh names are "<lod>_<geometry index>_<geometry name>", with game
+    normals; properties (`Scene.object_properties`): "eaglShader" (`NFS6_CAR_SHADERS`), "eaglBlend"
+    (`nfs6_car_blend`) and for glass, which takes its color from the vertices, "eaglVertexAlpha" (the most common
+    vertex alpha, 0..1: an OBJ has no vertex alpha) and the vertex colors (RGBA). Dummies are the bones of car's
+    skeleton.o. Returns the scene (game axes) and the skins: list of {"name", "label", "texture", "specular"
+    (`nfs6_skin_specular`, null if none)}"""
+    from collections import Counter
+
     texture_path = path_join(path, 'textures')
     os.makedirs(path_join(texture_path, 'skins'), exist_ok=True)
     texture_names, _ = export_fsh_textures(
@@ -2051,58 +2217,54 @@ def nfs6_car_scene(data: dict, meshes, path: str, id: str) -> Tuple[Scene, List[
         {m.main_texture for m in meshes if m.main_texture and m.main_texture != 'skin'},
         path,
     )
-    for texture_name in texture_names.values():
-        _save_opaque(path_join(texture_path, f'{texture_name}.png'))
     skins = []
-    for name, label, archive in find_nfs6_car_skins(id):
+    for name, label, specular, archive in find_nfs6_car_skins(id):
         file_name = re.sub(r'[^0-9A-Za-z-]', '-', name)
         names, _ = export_fsh_textures(archive, ['skin'], path, name_prefix=f'skins/{file_name}-')
         if 'skin' not in names:
             continue
-        _save_opaque(path_join(texture_path, f'{names["skin"]}.png'))
-        skins.append({'name': name, 'label': label, 'texture': f'textures/{names["skin"]}.png'})
+        skins.append({'name': name, 'label': label, 'texture': f'textures/{names["skin"]}.png', 'specular': specular})
         if 'skin' not in texture_names:
             Image.open(path_join(path, skins[-1]['texture'])).save(path_join(texture_path, 'skin.png'))
             texture_names['skin'] = 'skin'
-    alpha_modes = {name: 'cutout' for name in texture_names.values()}
-    images = {}
     sub_meshes = []
+    object_properties = {}
     for i, m in enumerate(meshes):
         if not m.triangles:
             continue
         sm = SubMesh()
         sm.texture_id = texture_names.get(m.main_texture) or 'untextured'
-        colors = set(m.colors)
-        if sm.texture_id != 'untextured' and len(colors) == 1 and next(iter(colors)) != 0xFFFFFFFF:
-            color = next(iter(colors))
-            tinted_id = f'{sm.texture_id}-{color:08x}'
-            if tinted_id not in alpha_modes:
-                if sm.texture_id not in images:
-                    images[sm.texture_id] = Image.open(path_join(texture_path, f'{sm.texture_id}.png'))
-                _tinted_texture(images[sm.texture_id], color).save(path_join(texture_path, f'{tinted_id}.png'))
-                alpha_modes[tinted_id] = 'blend'
-            sm.texture_id = tinted_id
         geometry = re.sub(r'[^0-9A-Za-z]+', '_', (m.geometry_name or '').split('~')[0]).strip('_') or 'mesh'
         sm.name = f'{nfs6_car_part_lod_prefix(m.geometry_name)}_{i}_{geometry}'
         sm.vertices = [list(v) for v in m.vertices]
+        if len(m.normals) == len(m.vertices):
+            sm.vertex_normals = [list(n) for n in m.normals]
         uvs = m.main_uvs
         sm.vertex_uvs = [[u, v] for (u, v) in uvs] if uvs else [[0, 0]] * len(m.vertices)
         sm.polygons = [list(t) for t in m.triangles]
+        shader = NFS6_CAR_SHADERS.get(m.shader, 'paint')
+        properties = {'eaglShader': shader, 'eaglBlend': nfs6_car_blend(m.geometry_name)}
+        if shader == 'glass' and len(m.colors) == len(m.vertices) and m.colors:
+            sm.vertex_colors = [[(c >> s & 0xFF) / 255 for s in (24, 16, 8, 0)] for c in m.colors]
+            properties['eaglVertexAlpha'] = Counter(c & 0xFF for c in m.colors).most_common(1)[0][0] / 255
+        object_properties[sm.name] = properties
         sub_meshes.append(sm)
     dummies = [
         {'name': bone.name, 'position': list(bone.position)}
         for bone in _find_nfs6_car_skeleton(id)
         if not re.match(r'(Root|false_?root\d*|joint\d+|DAMAGE\d+)$', bone.name, re.IGNORECASE)
     ]
+    texture_ids = sorted({m.texture_id for m in sub_meshes if m.texture_id != 'untextured'})
     scene = Scene(
         name='body',
         obj_name='geometry',
         mtl_name='material',
         sub_meshes=sub_meshes,
-        mtl_texture_names=sorted({m.texture_id for m in sub_meshes if m.texture_id != 'untextured'}),
+        mtl_texture_names=texture_ids,
         mtl_texture_path_func=lambda name: f'textures/{name}.png',
-        mtl_texture_alpha_modes=alpha_modes,
+        mtl_texture_alpha_modes={name: 'opaque' for name in texture_ids},
         dummies=dummies,
+        object_properties=object_properties,
     )
     return scene, skins
 
@@ -2195,13 +2357,18 @@ def nfs6_ps2_strip_skips(num_vertices: int, mask: List[int]) -> List[bool]:
 
 def nfs6_ps2_mesh(mesh_data: dict) -> Optional[NfsuMesh]:
     """Mesh of NFS Hot Pursuit 2 (PS2) mesh chunk (`Nfs6Ps2Mesh` data), in its local coordinates, with RGBA vertex
-    colours (`colors`, 0x80 = 1.0: the GS multiplies the texture by colour / 0x80).
+    colours (`colors`, 0x80 = 1.0: the GS multiplies the texture by colour / 0x80), vertex normals (`normals`, signed
+    bytes, 127 = 1.0: the VU1 divides them by 127; None in draw groups without `vu_flags` 0x4000) and the draw group of
+    every vertex (`vertex_groups`: index in `draw_groups`, dicts of "texture_id", "vu_flags", "material_hash" (name
+    hash of the lighting material of `Nfs6Ps2MeshLightingMaterials`, None: "Default"); vertices are never shared by
+    draw groups).
 
     Every draw group is a run of VIF packets, each one VU1 memory image (VU1 microprogram SLUS_203.62 .vutext):
     addr 0 V4-8 header (vertex count, groups of 4 - 1, 3 x count), addr 1 the strip mask (`nfs6_ps2_strip_skips`),
     from addr 2 positions in groups of 4 vertices: x of the 4, y of the 4, z of the 4 (the last group with fewer
     fields), from 0x20 UVs (two vertices per qword: u, v of the first, v, u of the second), from 0x34 RGBA 5551
-    colours (one per qword), from 0x5c normals as signed bytes in groups like the positions (`vu_flags` 0x4100 only)"""
+    colours (one per qword), from 0x5c normals as signed bytes in groups like the positions (`vu_flags` 0x4000 only,
+    read by .vutext 0x2c4)"""
     from library.utils.ps2 import as_float, vif_packets
 
     sub_chunks = mesh_data['sub_chunks']
@@ -2209,15 +2376,29 @@ def nfs6_ps2_mesh(mesh_data: dict) -> Optional[NfsuMesh]:
     draw_groups = _nfsu_sub_chunk_data(sub_chunks, 0x00034004)
     vif = _nfsu_sub_chunk_data(sub_chunks, 0x00034005)
     textures = _nfsu_sub_chunk_data(sub_chunks, 0x00034006)
+    materials = _nfsu_sub_chunk_data(sub_chunks, 0x0003401D)
     if header is None or draw_groups is None or vif is None:
         return None
     texture_ids = [x[0] for x in textures['textures']] if textures else []
+    material_hashes = [x[0] for x in materials['materials']] if isinstance(materials, dict) else []
     mesh = NfsuMesh(header['mesh_id'], header['name'])
     mesh.colors = []
+    mesh.normals = []
+    mesh.vertex_groups = []
+    mesh.draw_groups = []
     parts = {}
     for group in draw_groups['draw_groups']:
         index = group['texture_index']
         texture_id = texture_ids[index] if index < len(texture_ids) else None
+        material = group['material_index']
+        mesh.draw_groups.append(
+            {
+                'texture_id': texture_id,
+                'vu_flags': group['vu_flags'],
+                'material_hash': material_hashes[material] if material < len(material_hashes) else None,
+            }
+        )
+        has_normals = bool(group['vu_flags'] & 0x4000)
         triangles = parts.setdefault(texture_id, [])
         offset = group['data_offset']
         for memory in vif_packets(vif['data'][offset : offset + group['num_qwords'] * 16]):
@@ -2234,6 +2415,12 @@ def nfs6_ps2_mesh(mesh_data: dict) -> Optional[NfsuMesh]:
                     (as_float(uv[0]), as_float(uv[1])) if k % 2 == 0 else (as_float(uv[3]), as_float(uv[2]))
                 )
                 mesh.colors.append(tuple(memory.get(0x34 + k, [0x80, 0x80, 0x80, 0x80])))
+                mesh.normals.append(
+                    tuple(memory.get(0x5C + 3 * group_index + c, [0, 0, 0, 0])[lane] for c in range(3))
+                    if has_normals
+                    else None
+                )
+                mesh.vertex_groups.append(len(mesh.draw_groups) - 1)
             strip_start = 0
             for k in range(num_vertices):
                 if skips[k] and (k == 0 or not skips[k - 1]):
@@ -2394,15 +2581,70 @@ def nfs6_ps2_car_parts(model_name: str, meshes: List['NfsuMesh'], wheels: List[d
     return parts
 
 
+def _nfs6_ps2_f32(value: float) -> float:
+    import struct
+
+    return struct.unpack('<f', struct.pack('<f', value))[0]
+
+
+def nfs6_ps2_lighting_vectors(parameters: dict) -> List[float]:
+    """The 4 VU1 vectors (16 floats, VU addresses 0x354..0x357 of the draw, 0x350..0x353 after the copy of .vutext
+    0x4f) of NFS Hot Pursuit 2 (PS2) lighting parameters (`Nfs6Ps2LightingParameters` data), float32 math of
+    SLUS_203.62 0x116828: (exponent, power bias, 0.1 (least R.L), vertex_colors / 255), (diffuse RGB, environment
+    alpha at R'z = 0), (specular RGB, environment alpha per R'z), (paint exponent, paint power bias, paint_alpha,
+    paint_alpha_specular - paint_alpha). A power bias is float(bits(scale)) - exponent * float(bits(1.0)): the VU1
+    raises to the power with the float bit pattern, bits(S) = int(float(bits(d)) * exponent + bias)"""
+
+    import struct
+
+    def power(exponent: float, exponent_factor: float, scale: float, scale_factor: float) -> Tuple[float, float]:
+        s = _nfs6_ps2_f32(scale * scale_factor)
+        if s == 0:
+            return 0.0, 0.0
+        n = _nfs6_ps2_f32(exponent * exponent_factor)
+        bits = struct.unpack('<i', struct.pack('<f', s))[0]
+        return n, _nfs6_ps2_f32(_nfs6_ps2_f32(float(bits)) - _nfs6_ps2_f32(n * 1065353216.0))
+
+    p = parameters
+    half = _nfs6_ps2_f32(_nfs6_ps2_f32(p['env_grazing'] - p['env_facing']) * 0.5)
+    return [
+        *power(p['specular_exponent'], p['specular_exponent_factor'], p['specular_scale'], p['specular_scale_factor']),
+        _nfs6_ps2_f32(0.1),
+        _nfs6_ps2_f32(p['vertex_colors'] * _nfs6_ps2_f32(1 / 255)),
+        *p['diffuse_color'],
+        _nfs6_ps2_f32(_nfs6_ps2_f32(p['env_facing'] + half) * 128),
+        *p['specular_color'],
+        _nfs6_ps2_f32(half * -128),
+        *power(
+            p['paint_specular_exponent'],
+            p['paint_specular_exponent_factor'],
+            p['paint_specular_scale'],
+            p['paint_specular_scale_factor'],
+        ),
+        p['paint_alpha'],
+        _nfs6_ps2_f32(p['paint_alpha_specular'] - p['paint_alpha']),
+    ]
+
+
 class Nfs6Ps2CarSerializer(BaseFileSerializer):
     """NFS Hot Pursuit 2 (PS2) car model (CARS/<car>/GEOMETRY.LZC): every part (`nfs6_ps2_car_parts`) as objects
     "<lod>_<part>__<material>" (lod hp, mp, lp, vlp; parts body, tire_fl.., brake_fl.., wheel_blur_fl..,
-    side_mirror_left..), X right, Y forward, Z up, the vertex colors in the GLB (COLOR_0: the
-    GS colour / 0xFF, textures saved at double brightness, so that texture * COLOR_0 is the game's shading). Materials are texture names, but the texture slots of the game
+    side_mirror_left..; a part drawn with several lighting materials or VU1 flags on one texture gets
+    "<lod>_<part>__<material>__<n>", n = 2, 3.. for the second, third.. of them in draw order), X right, Y forward,
+    Z up, with the game's vertex normals (/ 127, not normalized: OBJ "vn", GLB `_GAME_NORMAL`) and vertex colours (the
+    GS colour / 0xFF: OBJ "v" colours, GLB COLOR_0 with alpha / 0x80). Textures are saved as stored (half brightness:
+    the GS draws texture * colour / 0x80, alpha doubled as by `nfs6_ps2_texture_to_image`), the game's shading is
+    `Nfs6Ps2CarMeshController`'s. Materials are texture names, but the texture slots of the game
     (`nfs6_ps2_car_texture_slots`): "skin" (the first paint), "skin_b", "window", "headlight", "brakelight".
-    "skins.json" lists the paints ({"name", "label", "texture", "texture_b"}, textures in "textures/skins/"),
-    "car.json" the wheels ({"name", "position", "radius"}) and the light textures ("textures/lights/"). Wheels are
-    also dummies "wheel_<fl|fr|rr|rl>"."""
+    "skins.json" lists the paints ({"name", "label", "texture", "texture_b", "paint_name", "lighting_material"}:
+    textures in "textures/skins/", the game's paint name and lighting material of `Nfs6Ps2CarSkin`), "car.json" the
+    wheels ({"name", "position", "radius"}), the light textures ("textures/lights/"), the GS settings of every
+    material's texture ("textures": {material: {"alpha_blend", "vertex_lit_env", "alpha_test", "repeat": [u, v]}},
+    `Nfs6Ps2TextureInfo`), the
+    lighting of every object ("meshes": {object: {"lighting_material", "vu_flags"}}; "CARSKIN": the paint's) and the
+    lighting materials they name ("lighting_materials": {name: {"frontend", "race": `nfs6_ps2_lighting_vectors`}},
+    from GLOBAL/GLOBALB).
+    Wheels are also dummies "wheel_<fl|fr|rr|rl>"."""
 
     def __init__(self):
         super().__init__(is_dir=True)
@@ -2429,6 +2671,9 @@ class Nfs6Ps2CarSerializer(BaseFileSerializer):
         globalb, texture_packs = nfs6_ps2_car_files(geometry_path) if geometry_path else ([], [])
         textures = {}
         car_type = None
+        car_type_index = None
+        lighting = {}
+        car_skins = []
         for pack_path in texture_packs:
             try:
                 (_, _, pack_data), _ = require_resource(path_to_name(pack_path))
@@ -2443,8 +2688,18 @@ class Nfs6Ps2CarSerializer(BaseFileSerializer):
                     for info, image_data in nfs6_ps2_texture_pack_textures(chunk_data):
                         textures.setdefault(info['name_hash'], (info, image_data))
                 elif chunk_data.get('chunk_id') == 0x00034600 and car_type is None:
-                    car_type = next((x for x in chunk_data['car_types'] if x['model_name'] == model_name), None)
+                    car_type_index, car_type = next(
+                        ((i, x) for i, x in enumerate(chunk_data['car_types']) if x['model_name'] == model_name),
+                        (None, None),
+                    )
+                elif chunk_data.get('chunk_id') == 0x00034601:
+                    car_skins += chunk_data['skins']
+                elif chunk_data.get('chunk_id') == 0x0003401E:
+                    for x in chunk_data['materials']:
+                        lighting.setdefault(x['name_hash'], x)
         wheels = car_type['wheels'] if car_type else []
+        # the game takes "Default" for an unknown name hash (SLUS_203.62 0x116a30)
+        default_lighting = next((x for x in lighting.values() if x['name'] == 'Default'), None)
 
         texture_dir = path_join(path, 'textures')
         os.makedirs(path_join(texture_dir, 'skins'), exist_ok=True)
@@ -2452,13 +2707,14 @@ class Nfs6Ps2CarSerializer(BaseFileSerializer):
         by_name = {info['name'].upper(): (info, image_data) for info, image_data in textures.values()}
 
         def save(texture, file_name: str) -> Image.Image:
-            # the GS draws texture * vertex colour / 0x80, car vertex colours are up to 0xF8: the textures are stored
-            # at half brightness. Saved doubled, the vertex colours / 0xFF (COLOR_0) give the game's shading
+            # as stored: the GS draws texture * colour / 0x80 (Nfs6Ps2CarMeshController), many texels are above 0x7f
             image = nfs6_ps2_texture_to_image(*texture).convert('RGBA')
-            r, g, b, a = image.split()
-            image = Image.merge('RGBA', [x.point(lambda v: min(255, v * 2)) for x in (r, g, b)] + [a])
             ImageSerializer.save_png(image, path_join(texture_dir, f'{file_name}.png'))
             return image
+
+        def doubled(image: Image.Image) -> Image.Image:
+            r, g, b, a = image.split()
+            return Image.merge('RGBA', [x.point(lambda v: min(255, v * 2)) for x in (r, g, b)] + [a])
 
         slot_textures = {
             'skin': f'{model_name}_SKIN1',
@@ -2470,6 +2726,7 @@ class Nfs6Ps2CarSerializer(BaseFileSerializer):
         slots = nfs6_ps2_car_texture_slots(model_name)
         materials = {}
         alpha_modes = {}
+        texture_settings = {}
 
         def material(texture_id) -> str:
             if texture_id not in materials:
@@ -2481,22 +2738,46 @@ class Nfs6Ps2CarSerializer(BaseFileSerializer):
                     try:
                         alpha_modes[name] = texture_alpha_mode(save(texture, name))
                         materials[texture_id] = name
+                        info = texture[0]
+                        texture_settings[name] = {
+                            'alpha_blend': info['alpha_blend'],
+                            'vertex_lit_env': bool(info['vertex_lit_env']),
+                            'alpha_test': not info['vertex_lit_env'] and not info['no_alpha_test'],
+                            'repeat': [bool(info['repeat'] & 1), bool(info['repeat'] & 2)],
+                        }
                     except Exception:
                         traceback.print_exc()
             return materials[texture_id]
 
         sub_meshes = []
+        mesh_lighting = {}
+        used_lighting = {}
         for part_name, mesh, (turned, position) in nfs6_ps2_car_parts(model_name, meshes, wheels):
-            # several texture slots take one material (the windows): one object per material
-            by_material = {}
+            # several texture slots take one material (the windows): one object per material, lighting material and
+            # VU1 flags (vertices belong to one draw group)
+            by_key = {}
             for texture_id, triangles in mesh.parts:
-                by_material.setdefault(material(texture_id), []).extend(triangles)
-            for material_name, triangles in by_material.items():
+                for t in triangles:
+                    group = mesh.draw_groups[mesh.vertex_groups[t[0]]]
+                    if group['material_hash'] == bin_hash('CARSKIN'):
+                        # the paint's lighting material (car.json "lighting_material" of the skin)
+                        light_name = 'CARSKIN'
+                    else:
+                        light = lighting.get(group['material_hash'], default_lighting)
+                        light_name = light['name'] if light else None
+                        if light:
+                            used_lighting[light['name']] = light
+                    by_key.setdefault((material(texture_id), light_name, group['vu_flags']), []).append(t)
+            counts = {}
+            for (material_name, light_name, vu_flags), triangles in by_key.items():
+                counts[material_name] = counts.get(material_name, 0) + 1
                 used = sorted({i for t in triangles for i in t})
                 remap = {old: new for new, old in enumerate(used)}
                 sm = SubMesh()
                 sm.texture_id = material_name
                 sm.name = f'{part_name}__{material_name}'
+                if counts[material_name] > 1:
+                    sm.name += f'__{counts[material_name]}'
                 vertices = []
                 for x, y, z in (mesh.vertices[i] for i in used):
                     if turned:
@@ -2505,12 +2786,20 @@ class Nfs6Ps2CarSerializer(BaseFileSerializer):
                     # car X forward, Y left -> X right, Y forward
                     vertices.append([-y, x, z])
                 sm.vertices = vertices
+                if all(mesh.normals[i] is not None for i in used):
+                    normals = []
+                    for x, y, z in (mesh.normals[i] for i in used):
+                        if turned:
+                            x, y = -x, -y
+                        normals.append([-y / 127, x / 127, z / 127])
+                    sm.vertex_normals = normals
                 sm.vertex_uvs = [list(mesh.uvs[i]) for i in used]
                 sm.vertex_colors = [
                     [r / 255, g / 255, b / 255, min(1.0, a / 128)] for r, g, b, a in (mesh.colors[i] for i in used)
                 ]
                 sm.polygons = [[remap[i] for i in t] for t in triangles]
                 sub_meshes.append(sm)
+                mesh_lighting[sm.name] = {'lighting_material': light_name, 'vu_flags': vu_flags}
 
         skins = []
         for n in range(1, 10):
@@ -2520,9 +2809,20 @@ class Nfs6Ps2CarSerializer(BaseFileSerializer):
             image = save(skin, f'skins/{model_name}_SKIN{n}')
             entry = {
                 'name': f'SKIN{n}',
-                'label': nfs6_ps2_paint_label(image),
+                'label': nfs6_ps2_paint_label(doubled(image)),
                 'texture': f'textures/skins/{model_name}_SKIN{n}.png',
             }
+            # the game takes the first paint of the table for a car type without this one (SLUS_203.62 0x188180)
+            paint = next(
+                (x for x in car_skins if x['car_type_index'] == car_type_index and x['skin_number'] == n),
+                car_skins[0] if car_skins else None,
+            )
+            light = lighting.get(paint['lighting_material_hash'], default_lighting) if paint else None
+            if paint:
+                entry['paint_name'] = paint['name']
+            if light:
+                entry['lighting_material'] = light['name']
+                used_lighting[light['name']] = light
             skin_b = by_name.get(f'{model_name}_SKIN{n}B')
             if skin_b is not None:
                 save(skin_b, f'skins/{model_name}_SKIN{n}B')
@@ -2569,6 +2869,18 @@ class Nfs6Ps2CarSerializer(BaseFileSerializer):
                     'car_type': car_type['name'] if car_type else None,
                     'wheels': car_wheels,
                     'lights': lights,
+                    'textures': texture_settings,
+                    'meshes': mesh_lighting,
+                    'lighting_materials': {
+                        # "Default" for any other (Nfs6Ps2CarMeshController, as the game)
+                        name: {
+                            'frontend': nfs6_ps2_lighting_vectors(x['frontend']),
+                            'race': nfs6_ps2_lighting_vectors(x['race']),
+                        }
+                        for name, x in sorted(
+                            {**({'Default': default_lighting} if default_lighting else {}), **used_lighting}.items()
+                        )
+                    },
                 },
                 f,
                 indent=2,

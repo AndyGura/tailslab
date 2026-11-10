@@ -44,8 +44,8 @@ class Scene:
         self.bake_textures = bake_textures
         self.mtl_texture_names = mtl_texture_names or []
         self.mtl_texture_path_func = mtl_texture_path_func
-        # texture name -> "blend" (translucent) or "cutout" (alpha is a mask), written to MTL as non-standard
-        # "alpha_mode" statement, which is used by GUI preview
+        # texture name -> "blend" (translucent), "cutout" (alpha is a mask) or "opaque" (alpha is data for a shader),
+        # written to MTL as non-standard "alpha_mode" statement, which is used by GUI preview
         self.mtl_texture_alpha_modes = mtl_texture_alpha_modes or {}
         # material name -> (r, g, b) 0..255 of a material without texture, written to MTL as "Kd" only
         self.mtl_flat_colors = mtl_flat_colors or {}

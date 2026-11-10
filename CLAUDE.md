@@ -128,7 +128,8 @@ When you do:
   other and `three`, `@gg-web-engine/core`, `rxjs`, nothing else of the frontend (a part they need is brought into it),
   and hold no specs (they are tested next to the GUI components using them). It has `TnfsCarMeshController`,
   `Nfs2CarMeshController`, `FceCarMeshController` (NFS3 / NFS4 paint in the fragment shader, by the paint mask's
-  alpha; NFS3 chrome), `Nfs6Ps2CarMeshController` (NFS HP2 PS2 cars) and `setupNfs1Texture`; the other car mesh controllers (`*-car-mesh-controller.ts`) and the track props controllers
+  alpha; NFS3 chrome), `Nfs6Ps2CarMeshController` (NFS HP2 PS2 cars), `Nfs6CarMeshController` (NFS HP2 PC
+  cars) and `setupNfs1Texture`; the other car mesh controllers (`*-car-mesh-controller.ts`) and the track props controllers
   (`*track-props-controller.ts`) in `frontend/.../editor/eac/` are copied into nfs-web too, with their import paths
   changed: keep them free of GUI services, depending on three.js, gg-web-engine and rxjs only. Meshes of the GUI's OBJ
   models share a material per MTL material, nfs-web's GLB ones don't: code changing a material's shader must change
@@ -352,6 +353,39 @@ When you do:
   no route: `GLOBAL/gameplay.bin` lists their checkpoints and `BARRIER_SPLINE_*` barriers, the game routes them over
   the network.
 
+## NFS Hot Pursuit 2 PC cars (`Cars/<car>/car.viv`: `car.o`, EAGL models, `resources/eac/geometries/nfs6.py`)
+
+- Car render methods use the microcodes `EASVehiclePaint` (default), `EASVehicleRubber`, `EASVehicleGlass`,
+  `EASVehicleGeneric` (the `~<microcode>` suffix of the geometry name). They live in `EAGL/eaglrm.o` as ETT objects
+  (`EaglEtt_ReadObject` 0x5688f0: vertex declaration, techniques of 3 slots = the vehicle computation index of the
+  graphics detail, `Options_ApplyGraphicsDetail` 0x431280; per slot the first valid technique) with D3D8 vs.1.1 /
+  ps.1.1 bytecode. A render method's (count, pointer) parameters bind the named constants (`__COORD4:::gAmbientSky`...)
+  to the shader registers in order. The game draws technique 0 of slot 0 (graphics detail 2..4, ps.1.1).
+- What that technique does (constants from `VehicleRender_SetLightConstants` 0x412f00 / `SetFrameConstants`
+  0x4134c0 / `UpdateHotSpecular` 0x413670, `Vehicle_SetSkinLighting` 0x431d30): no sun diffuse light; per vertex the
+  hemisphere ambient (lighting.ini [ambientground] to [ambientsky] by the world normal's height; glass: the vertex
+  color instead), Blinn specular with the camera and the lighting.ini sun position (paint: vehicle.ini skin specular
+  color + sun intensity x sun color, ^ specular_paint_exponent, plus the hot spot color ^ [effects]
+  specular_hotspot_exponent; generic the first only; rubber / glass white ^ their exponent), sphere map coordinates
+  of normalize(normal + 0.4 x model position) in view space, 1 - (n.xy x 0.425 + 0.5). Per pixel: (vertex color x
+  texture + texture alpha x (environment + specular)) x max(road light level, 0.4); texture alpha = reflection mask.
+  Environment map: Cars/common.fsh `refl` (frontend), replaced in a race by the location's `staticenvmap.fsh`
+  (first image). Paint, rubber and generic draw opaque; glass blends by the geometry name (`ALPHA_TRANS` alpha,
+  `ALPHA_ADD` added, no depth writes, after the opaque ones; `VehicleRender_DrawPasses` 0x413890).
+- `EaglModelSerializer` car export (`nfs6_car_scene`): mesh names `<lod>_<index>_<geometry>`, game normals (OBJ `vn`,
+  GLB `_GAME_NORMAL`), glass vertex colors (OBJ rgb, GLB COLOR_0 RGBA as stored), textures with their alpha
+  (`alpha_mode opaque`), mesh properties `eaglShader`, `eaglBlend`, `eaglVertexAlpha` (glass; an OBJ has no vertex
+  alpha) in `geometry_extra.json` `objects` / GLB node extras; `skins.json` (`specular`: the skin's vehicle.ini keys,
+  `nfs6_skin_specular`); `lighting.json` (`nfs6_car_lighting`: vehicle type, hot spot exponent, the common.fsh
+  environment map, per `tracks/<location>` its lighting.ini values and environment map, textures in
+  `textures/environment/`).
+- `Nfs6CarMeshController` (`nfs-three-lib`) replaces the materials' lighting with these shaders (helpers
+  `nfs6Lit`, `nfs6PixelColor`... tested in `eagl-model.block-ui/nfs6-car-mesh-controller.spec.ts`, also by rendering),
+  world up = +z, sun position in the track export's axes (`nfs6TrackToWorld`). The GUI lights the car with
+  Parkland's lighting.ini by default (location radio, track / showroom environment map, road light level 1). Not
+  ported: damage texture, fog, technique sampler states, draw order within a pass, addon visibility. nfs-web reads
+  the mesh names, properties and JSON files: keep them stable.
+
 ## NFS Hot Pursuit 2 PlayStation 2 (`games/nfs6_ps2`, SLUS-20362, doc `resources/NFS6_PS2.md`)
 
 - The disc keeps its files in `NFSHP2/ZZDATA.BIN`, listed by `NFSHP2/ZDIR.BIN` (12-byte entries: `bin_hash` of the path
@@ -386,11 +420,23 @@ When you do:
   tyres, brakes, license plates). `Nfs6Ps2CarSerializer`: parts by mesh id (`bin_hash` of the game's part names,
   `nfs6_ps2_car_parts`; stored names are cut to 23 characters), tyres / brakes / blur discs drawn at each wheel (left
   ones turned around), texture slots of the game (`nfs6_ps2_car_texture_slots`: materials `skin`, `skin_b`, `window`,
-  `headlight`, `brakelight`), `skins.json` (labels `nfs6_ps2_paint_label`) and `car.json` (wheels, light textures).
-  Car textures are written at double brightness and the vertex colours (the baked shading, 0x80 = 1.0) go to the GLB
-  as COLOR_0 / 0xFF (`SubMesh.vertex_colors`, `add_glb_vertex_attributes`). GUI: `Nfs6Ps2CarBlockUiComponent` with
-  `Nfs6Ps2CarMeshController` (`nfs-three-lib`: paint, lights, wheels, vertex colours of a GLB). nfs-web reads these
-  names and files: keep them stable.
+  `headlight`, `brakelight`), `skins.json` (labels `nfs6_ps2_paint_label`; the game's paint name and lighting material
+  of the car skins chunk 0x34601 of GLOBALB, `Nfs6Ps2CarSkins`) and `car.json` (wheels, light textures, GS settings of
+  the textures, lighting of every object, lighting materials). Textures are written as stored (half brightness), with
+  the vertex colours (OBJ `v` colours, GLB COLOR_0, / 0xFF) and the game normals (/ 127: OBJ `vn`, GLB `_GAME_NORMAL`).
+  An object is one part, texture slot, lighting material and VU1 flag set (`__2`, `__3`.. for more on one texture).
+- Car shading (VU1 microprogram, `.vutext`, `vu_flags` of the draw groups; `Nfs6Ps2MeshDrawGroup` has the bits): the
+  vertex colours are kept for flag-less groups; 0x80 lights the vertex (0x333: ambient + 3 directional lights, diffuse
+  and a specular by the float bit pattern power, times the vertex colours) with the material of the draw group
+  (`material_index` in the mesh chunk 0x3401D, materials chunk 0x3401E of GLOBALB: `Nfs6Ps2LightingMaterials`, front end
+  and race sets, `nfs6_ps2_lighting_vectors` = SLUS_203.62 0x116828; "CARSKIN" = the paint's); 0x100 draws an
+  environment map pass (0x42b: sphere map of the reflection, alpha from the material by the reflection's angle, added,
+  GS ALPHA 0x48; paints, texture `vertex_lit_env`: tinted by the lit colour, in a race added by the destination
+  alpha the lighting wrote). GS: texture * colour >> 7 (TFX modulate), alpha test 0x30 but for blended textures and
+  paints, ALPHA from the texture info (`alpha_blend`). Front end lights: 0x1157c0 (camera space, PS2 camera axes
+  assumed x right, y down, z forward). GUI: `Nfs6Ps2CarBlockUiComponent` with `Nfs6Ps2CarMeshController`
+  (`nfs-three-lib`: this shading in the shaders of the materials, one per object, from car.json; the scene's sky as
+  the environment map; paint, lights, wheels). nfs-web reads these names and files: keep them stable.
 - Ghidra: nfs-web `decomp/nfs6_ps2/SLUS_203.62.gzf` (R5900 language of the extension `ghidra-emotionengine-reloaded`),
   VU1 microcode: nfs-web `decomp/vu1dis.py`. Not read yet: sound, NIS, the 136 unnamed files.
 

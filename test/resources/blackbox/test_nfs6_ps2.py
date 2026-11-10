@@ -4,6 +4,8 @@ import tempfile
 import unittest
 from io import BytesIO
 
+from PIL import Image
+
 from library import require_file
 from resources.blackbox.archives import Nfs6Ps2CompressedBlock
 from resources.blackbox.maps.nfs6_ps2 import Nfs6Ps2CarGeometry, Nfs6Ps2ChunkBundle, Nfs6Ps2TrackBundle
@@ -13,6 +15,7 @@ from serializers.geometries import (
     Nfs6Ps2CarSerializer,
     bin_hash,
     nfs6_ps2_car_parts,
+    nfs6_ps2_lighting_vectors,
     nfs6_ps2_mesh,
     nfs6_ps2_solid_pack_meshes,
     nfs6_ps2_strip_skips,
@@ -24,7 +27,7 @@ BUNDLE = 'test/samples/NFS6PS2_TRACKB99.BUN'
 # GLOBAL/PRERACEANIM.LZC of the game
 COMPRESSED = 'test/samples/NFS6PS2_PRERACEANIM.LZC'
 # the game's folders with CARS/COUPE/GEOMETRY.LZC, the COUPE textures of CARS/TEXTURES.BIN and GLOBAL/GLOBALB.BUN with the
-# car type COUPE and the shared textures of the model
+# lighting materials, the car type COUPE (index 0 here), the shared textures of the model and the paints of COUPE
 CAR = 'test/samples/nfs6_ps2_cars/CARS/COUPE/GEOMETRY.LZC'
 GLOBALB = 'test/samples/nfs6_ps2_cars/GLOBAL/GLOBALB.BUN'
 
@@ -235,6 +238,52 @@ class TestNfs6Ps2Car(unittest.TestCase):
             [f'hp_tire_{w}' for w in ('fl', 'fr', 'rl', 'rr')],
         )
 
+    def test_lighting_materials_should_turn_into_vu_vectors(self):
+        (_, _, data) = require_file(GLOBALB)
+        materials = {x['name']: x for x in _chunk(data, 0x0003401E)['materials']}
+        self.assertEqual(len(materials), 49)
+        red = materials['RegPaintRed']['frontend']
+        self.assertAlmostEqual(red['env_facing'], 0.26, places=6)
+        # float32 math of SLUS_203.62 0x116828; the bias: float(bits(2.07)) - 3.32 * float(bits(1.0))
+        self.assertEqual(
+            nfs6_ps2_lighting_vectors(red),
+            [
+                3.319999933242798,
+                -2462937088.0,
+                0.10000000149011612,
+                0.003921568859368563,
+                1.0299999713897705,
+                1.0299999713897705,
+                1.0199999809265137,
+                71.04000091552734,
+                0.9900000095367432,
+                1.0099999904632568,
+                1.0199999809265137,
+                -37.76000213623047,
+                10.0,
+                -9573079040.0,
+                20.0,
+                108.0,
+            ],
+        )
+        # no specular scale: no specular
+        self.assertEqual(nfs6_ps2_lighting_vectors(materials['Driver']['frontend'])[:2], [0.0, 0.0])
+        skins = _chunk(data, 0x00034601)['skins']
+        self.assertEqual([(x['car_type_index'], x['skin_number']) for x in skins[:2]], [(0, 1), (0, 2)])
+        self.assertIn(skins[0]['lighting_material_hash'], {x['name_hash'] for x in materials.values()})
+
+    def test_mesh_should_have_normals_and_lighting_materials(self):
+        (_, _, data) = self._car()
+        meshes = nfs6_ps2_solid_pack_meshes(_chunk(data, 0x80034000))
+        body = next(m for m in meshes if m.name == 'COUPE_A')
+        self.assertEqual(len(body.normals), len(body.vertices))
+        self.assertEqual(len(body.vertex_groups), len(body.vertices))
+        lit = [i for i, g in enumerate(body.vertex_groups) if body.draw_groups[g]['vu_flags'] & 0x4000]
+        self.assertTrue(lit)
+        for i in lit:
+            self.assertAlmostEqual(sum(c * c for c in body.normals[i]) ** 0.5, 127, delta=2)
+        self.assertIn(bin_hash('CARSKIN'), {g['material_hash'] for g in body.draw_groups})
+
     def test_serializer_should_export_parts_skins_and_wheels(self):
         (name, block, data) = self._car()
         serializer = Nfs6Ps2CarSerializer()
@@ -263,6 +312,29 @@ class TestNfs6Ps2Car(unittest.TestCase):
             self.assertLess(wheels['fl'][0], 0)
             self.assertGreater(wheels['fl'][1], 0)
             self.assertGreater(wheels['fr'][0], 0)
+            # lighting of every object, the paint's for "CARSKIN"
+            self.assertEqual(set(car['meshes']), set(objects))
+            body = [v for k, v in car['meshes'].items() if k.startswith('hp_body__skin')]
+            self.assertIn('CARSKIN', [x['lighting_material'] for x in body])
+            self.assertTrue(all(x['paint_name'] == 'Metal' for x in skins))
+            self.assertIn(skins[0]['lighting_material'], car['lighting_materials'])
+            names = {x['lighting_material'] for x in car['meshes'].values()} - {'CARSKIN'}
+            self.assertTrue(names <= set(car['lighting_materials']))
+            self.assertEqual(len(car['lighting_materials']['Default']['frontend']), 16)
+            self.assertEqual(car['textures']['skin']['alpha_blend'], 0x0A)
+            self.assertTrue(car['textures']['skin']['vertex_lit_env'])
+            self.assertEqual(car['textures']['WINDOW_TRAFFIC']['alpha_blend'], 0x44)
+            with open(os.path.join(path, 'geometry.obj')) as f:
+                self.assertIn('\nvn ', f.read())
+            # textures as stored: the GS draws texture * vertex colour / 0x80
+            (_, _, textures) = require_file('test/samples/nfs6_ps2_cars/CARS/TEXTURES.BIN')
+            pack = _chunk(textures, 0xB0300001)
+            info, raw = next(x for x in nfs6_ps2_texture_pack_textures(pack) if x[0]['name'] == 'COUPE_SKIN1')
+            with Image.open(os.path.join(path, skins[0]['texture'])) as image:
+                self.assertEqual(
+                    image.convert('RGBA').tobytes(),
+                    nfs6_ps2_texture_to_image(info, raw).convert('RGBA').tobytes(),
+                )
 
 
 if __name__ == '__main__':

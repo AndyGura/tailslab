@@ -138,12 +138,15 @@ export type ObjViewerCustomControl = {
 /**
  * Alpha mode comes from "alpha_mode" statement of the material in MTL file. "blend" materials are translucent: they
  * go to three.js transparent pass, without writing depth. "cutout" ones stay opaque and use alpha test, so they are
- * depth-sorted correctly and don't disappear behind glass. Without the statement, textured materials are blended with
- * alpha test and untextured ones stay as loaded (opaque, unless MTL sets opacity)
+ * depth-sorted correctly and don't disappear behind glass. "opaque" ones ignore the alpha (data for a shader, e.g. a
+ * reflection mask). Without the statement, textured materials are blended with alpha test and untextured ones stay as
+ * loaded (opaque, unless MTL sets opacity)
  */
 const setupMaterialAlphaMode = (m: Material, alphaMode: string | undefined) => {
-  m.alphaTest = 0.5;
-  if (alphaMode === 'blend') {
+  m.alphaTest = alphaMode === 'opaque' ? 0 : 0.5;
+  if (alphaMode === 'opaque') {
+    m.transparent = false;
+  } else if (alphaMode === 'blend') {
     m.transparent = true;
     m.depthWrite = false;
   } else if (alphaMode === 'cutout') {

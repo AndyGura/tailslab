@@ -20,8 +20,9 @@ class BaseMesh(ABC):
         # `_GAME_NORMAL` (`add_glb_vertex_attributes`; three.js geometry attribute `_game_normal`): the game's own
         # normals, which Blender's may differ from. Only `change_axes` keeps them in sync with the vertices
         self.vertex_normals = []
-        # [r, g, b, a] (0..1) per vertex (parallel to `vertices`) or empty: written by the gg-web-engine export to the
-        # GLB as the vertex attribute COLOR_0 (`add_glb_vertex_attributes`). Not in the OBJ
+        # [r, g, b, a] (0..1) per vertex (parallel to `vertices`) or empty: written to the OBJ as `v x y z r g b` (the
+        # alpha left out; three.js OBJLoader reads them as the geometry attribute `color`) and by the gg-web-engine
+        # export to the GLB as the vertex attribute COLOR_0 (`add_glb_vertex_attributes`)
         self.vertex_colors = []
 
     def rotate_z(self, angle):
@@ -167,10 +168,13 @@ class SubMesh(BaseMesh):
         res = f'\n\no {self.name}'
         if mtllib is not None:
             res += f'\nmtllib {mtllib}'
+        has_colors = len(self.vertex_colors) == len(self.vertices) and len(self.vertices) > 0
         res += '\n' + '\n'.join(
             [
-                'v ' + ' '.join([str(coordinates[i] - pivot_offset[i]) for i in range(3)])
-                for coordinates in self.vertices
+                'v '
+                + ' '.join([str(coordinates[i] - pivot_offset[i]) for i in range(3)])
+                + (' ' + ' '.join(str(c) for c in self.vertex_colors[n][:3]) if has_colors else '')
+                for n, coordinates in enumerate(self.vertices)
             ]
         )
         res += '\n' + '\n'.join([f'vt {uv[0]} {1 - uv[1]}' for uv in self.vertex_uvs])

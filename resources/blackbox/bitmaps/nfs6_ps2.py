@@ -78,14 +78,62 @@ class Nfs6Ps2TextureInfo(DeclarativeCompoundBlock):
             IntegerBlock(length=1),
             {'description': 'GS pixel storage mode of the texture: 0x13 PSMT8, 0x14 PSMT4'},
         )
-        unk4 = (BytesBlock(length=9), {'is_unknown': True})
+        palette_storage_mode = (IntegerBlock(length=1), {'description': 'GS TEX0 CPSM of the palette'})
+        repeat = (
+            IntegerBlock(length=1),
+            {'description': 'Bit 0: repeated in u, bit 1: repeated in v, else clamped (GS CLAMP, 0x108cc0)'},
+        )
+        drawn_late = (
+            IntegerBlock(length=1),
+            {'description': '1: drawn after the other textures, sorted (0x10dd58), as windows', 'is_unknown': True},
+        )
+        texture_function = (IntegerBlock(length=1), {'description': 'GS TEX0 TFX: 0 modulate'})
+        no_alpha_test = (
+            IntegerBlock(length=1),
+            {
+                'description': 'Like `vertex_lit_env`: the draw has no alpha test (else texels with texture alpha * '
+                'vertex alpha / 0x80 below 0x30 are not drawn, alpha test GEQUAL assumed, 0x105ac0)'
+            },
+        )
+        unk4 = (BytesBlock(length=4), {'is_unknown': True})
         levels = (
             ArrayBlock(child=Nfs6Ps2MipLevel(), length=6),
             {'description': 'GS upload settings of the full-size image and its mipmaps'},
         )
         unk5 = (IntegerBlock(length=2), {'is_unknown': True})
         num_mipmaps = (IntegerBlock(length=1), {'description': 'Amount of mipmaps'})
-        unk6 = (BytesBlock(length=53), {'is_unknown': True})
+        mag_filter = (
+            IntegerBlock(length=1),
+            {'description': 'GS TEX1 MMAG: 1 bilinear (SLUS_203.62 0x108cc0 writes the GS settings of the texture)'},
+        )
+        min_filter = (IntegerBlock(length=1), {'description': 'GS TEX1 MMIN'})
+        mipmap_l = (IntegerBlock(length=1), {'description': 'GS TEX1 L'})
+        mipmap_k = (IntegerBlock(length=2), {'description': 'GS TEX1 K'})
+        vertex_lit_env = (
+            IntegerBlock(length=1),
+            {
+                'description': '1 in car paints: adds 4 to the VU1 flags of the draw groups (`vu_flags`), the lit '
+                'vertex colours shade the environment map pass, which in a race is added by the destination alpha: '
+                'the lighting writes an alpha from the specular of the first light (`Nfs6Ps2LightingParameters`), '
+                'alpha test always passing (SLUS_203.62 0x10dd58, 0x10b838, 0x105ac0)'
+            },
+        )
+        view_matrices = (
+            IntegerBlock(length=1),
+            {
+                'description': 'Which of the 3 view matrix sets of the view the texture is drawn with',
+                'is_unknown': True,
+            },
+        )
+        alpha_blend = (
+            IntegerBlock(length=1),
+            {
+                'description': 'GS ALPHA A, B, C, D of the texture: 0x0a opaque (Cs), 0x44 alpha blended '
+                '((Cs - Cd) * As + Cd), 0x48 added by alpha (Cs * As + Cd)'
+            },
+        )
+        alpha_fix = (IntegerBlock(length=1), {'description': 'GS ALPHA FIX'})
+        unk6 = (BytesBlock(length=44), {'is_unknown': True})
 
 
 class Nfs6Ps2TextureInfos(DeclarativeCompoundBlock):

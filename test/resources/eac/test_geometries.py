@@ -232,8 +232,8 @@ def build_eagl_model(index_padding=0xFFFF, car=False):
     """Minimal NFS6 EAGL model (MIPS ELF relocatable object): one render method with "ShadowTexture" shader (shadow
     map "0007", base texture "0042"), a quad of 4 vertices (FVF XYZ | DIFFUSE | TEX2) drawn as a triangle strip of 5
     indices, padded to 6 in the draw command. With `car`, it is a car model like car.o: "EASVehiclePaint" shader with
-    texture "skin", vertex buffer declared by command 0x4B with FVF XYZB1 | DIFFUSE | TEX1, and model "car" with
-    geometry names table"""
+    texture "skin", vertex buffer declared by command 0x4B with FVF XYZB1 | NORMAL | DIFFUSE | TEX1, and model "car"
+    with geometry names table"""
     import struct
 
     data = bytearray()
@@ -248,7 +248,12 @@ def build_eagl_model(index_padding=0xFFFF, car=False):
     vb = len(data)
     for x, z, u, v in [(0, 0, 0, 0), (1, 0, 2, 0), (0, 1, 0, 2), (1, 1, 2, 2)]:
         if car:
-            data += struct.pack('<4f', x, 5.0, z, 0) + bytes([0x30, 0x20, 0x10, 0xFF]) + struct.pack('<2f', u, v)
+            data += (
+                struct.pack('<4f', x, 5.0, z, 0)
+                + struct.pack('<3f', 0, 0.6, 0.8)
+                + bytes([0x30, 0x20, 0x10, 0xFF])
+                + struct.pack('<2f', u, v)
+            )
         else:
             data += struct.pack('<3f', x, 5.0, z) + bytes([0x30, 0x20, 0x10, 0xFF]) + struct.pack('<4f', u, v, 0.5, 0.5)
     ib = len(data)
@@ -268,7 +273,7 @@ def build_eagl_model(index_padding=0xFFFF, car=False):
     commands = len(data)
     if car:
         data += struct.pack('<I', 0x4B << 16 | 12) + struct.pack(
-            '<11I', 0, 28, 0x146, 0xFFFFFFFF, 0xFFFFFFFF, vb, 4, 0xFFFFFFFC, 0, 0, 0
+            '<11I', 0, 40, 0x156, 0xFFFFFFFF, 0xFFFFFFFF, vb, 4, 0xFFFFFFFC, 0, 0, 0
         )
     else:
         data += struct.pack('<I', 0x04 << 16 | 12) + struct.pack(
@@ -368,6 +373,7 @@ class TestEaglModel(unittest.TestCase):
         self.assertListEqual(mesh.main_uvs, [(0, 0), (2, 0), (0, 2), (2, 2)])
         self.assertListEqual(mesh.vertices, [(0, 5, 0), (1, 5, 0), (0, 5, 1), (1, 5, 1)])
         self.assertListEqual(mesh.colors, [0x102030FF] * 4)
+        self.assertListEqual(mesh.normals, [])
         # strip 0 0 1 2 3: degenerate triangle skipped, odd triangles flipped; padding index not drawn even if valid
         self.assertListEqual(mesh.triangles, [(1, 0, 2), (1, 2, 3)])
         self.assertListEqual(
@@ -390,6 +396,9 @@ class TestEaglModel(unittest.TestCase):
         self.assertEqual(mesh.main_texture, 'skin')
         # blend weight after position is skipped
         self.assertListEqual(mesh.vertices, [(0, 5, 0), (1, 5, 0), (0, 5, 1), (1, 5, 1)])
+        self.assertEqual(len(mesh.normals), 4)
+        for normal in mesh.normals:
+            self.assertListEqual([round(c, 6) for c in normal], [0, 0.6, 0.8])
         self.assertListEqual(mesh.colors, [0x102030FF] * 4)
         self.assertListEqual(mesh.main_uvs, [(0, 0), (2, 0), (0, 2), (2, 2)])
         self.assertListEqual(mesh.triangles, [(1, 0, 2), (1, 2, 3)])

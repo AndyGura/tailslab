@@ -10,13 +10,24 @@ import {
 } from '@angular/core';
 import { GuiComponent } from '../../gui.component';
 import { BehaviorSubject, debounceTime, filter, Subject, takeUntil } from 'rxjs';
-import { Object3D } from 'three';
+import { Object3D, Texture, TextureLoader } from 'three';
 import { ObjViewerCustomControl, ViewFilterOpts } from '../../common/obj-viewer/obj-viewer.component';
 import { steeringControl, wheelSpeedControl } from '../../common/obj-viewer/car-preview-controls';
-import { Nfs6CarDummy, Nfs6CarMeshController, Nfs6CarSkin } from './nfs6-car-mesh-controller';
+import {
+  Nfs6CarDummy,
+  Nfs6CarLighting,
+  Nfs6CarMeshController,
+  Nfs6CarMeshProperties,
+  Nfs6CarSkin,
+} from '../../../../../nfs-three-lib/nfs6-car-mesh-controller';
+
+// the environment map of the car: the location's staticenvmap.fsh (a race), Cars/common.fsh "refl" (the frontend)
+const ENVIRONMENT_TRACK = 'Track';
+const ENVIRONMENT_SHOWROOM = 'Showroom';
 
 // NFS6 EAGL model (".o" file): 3D preview of the serialized OBJ, textured from the FSH file the model uses. Car
-// models (car.o in car.viv) are exported with "skins.json": they get LOD filter, skin switcher and wheel controls
+// models (car.o in car.viv) are exported with "skins.json" and "lighting.json": they get LOD filter, skin switcher,
+// wheel controls and the game's shading (Nfs6CarMeshController), lit by a track location (Parkland by default)
 @Component({
   selector: 'app-eagl-model-block-ui',
   templateUrl: './eagl-model.block-ui.component.html',
@@ -33,7 +44,10 @@ export class EaglModelBlockUiComponent extends GuiComponent implements AfterView
 
   private extraPath: string | null = null;
   private skinsPath: string | null = null;
+  private lightingPath: string | null = null;
   private meshController: Nfs6CarMeshController | null = null;
+  // environment maps by URL, owned by the component
+  private readonly environmentMaps = new Map<string, Texture>();
 
   private readonly destroyed$: Subject<void> = new Subject<void>();
 
@@ -65,6 +79,7 @@ export class EaglModelBlockUiComponent extends GuiComponent implements AfterView
       });
       this.extraPath = paths.find(x => x.endsWith('_extra.json')) || null;
       this.skinsPath = paths.find(x => x.endsWith('/skins.json')) || null;
+      this.lightingPath = paths.find(x => x.endsWith('/lighting.json')) || null;
       const viewFilters = this.skinsPath ? [this.lodViewFilter] : [];
       if (viewFilters.length !== this.previewViewFilters.length) {
         this.previewViewFilters = viewFilters;
@@ -91,11 +106,58 @@ export class EaglModelBlockUiComponent extends GuiComponent implements AfterView
           return null;
         }
       };
-      const dummies: Nfs6CarDummy[] = (await loadJson(this.extraPath))?.dummies || [];
+      const extra = await loadJson(this.extraPath);
+      const dummies: Nfs6CarDummy[] = extra?.dummies || [];
+      const objects: { [name: string]: Nfs6CarMeshProperties } | null = extra?.objects || null;
       const skins: Nfs6CarSkin[] = (await loadJson(this.skinsPath)) || [];
-      const meshController = new Nfs6CarMeshController(obj, dummies, skins);
+      const lighting: Nfs6CarLighting | null = await loadJson(this.lightingPath);
+      const meshController = new Nfs6CarMeshController(obj, dummies, skins, lighting, objects);
       this.meshController = meshController;
+      // relative to lighting.json
+      const lightingDir = (this.lightingPath || '').replace(/[^/]*$/, '');
+      let environment = ENVIRONMENT_TRACK;
+      const updateEnvironmentMap = () => {
+        const path =
+          environment === ENVIRONMENT_SHOWROOM ? lighting?.environment_map : meshController.location.environment_map;
+        meshController.environmentMap = path ? this.environmentMap(lightingDir + path) : null;
+      };
+      updateEnvironmentMap();
       const controls: ObjViewerCustomControl['controls'] = [];
+      const locations = lighting?.locations || [];
+      if (locations.length > 1) {
+        controls.push({
+          label: 'Location lighting',
+          type: 'radio',
+          options: locations.map(x => x.name),
+          value: meshController.location.name,
+          change: v => {
+            meshController.location = locations.find(x => x.name === v) || meshController.location;
+            updateEnvironmentMap();
+          },
+        });
+      }
+      if (lighting?.environment_map) {
+        controls.push({
+          label: 'Reflection',
+          type: 'radio',
+          options: [ENVIRONMENT_TRACK, ENVIRONMENT_SHOWROOM],
+          value: environment,
+          change: v => {
+            environment = v;
+            updateEnvironmentMap();
+          },
+        });
+      }
+      controls.push({
+        label: 'Road light level',
+        type: 'slider',
+        value: meshController.lightLevel,
+        minValue: 0,
+        maxValue: 1,
+        valueStep: 0.05,
+        format: v => v.toFixed(2),
+        change: v => (meshController.lightLevel = v),
+      });
       if (meshController.skin && skins.length > 1) {
         const label = (skin: Nfs6CarSkin) => `${skin.label} (${skin.name})`;
         controls.push({
@@ -138,8 +200,22 @@ export class EaglModelBlockUiComponent extends GuiComponent implements AfterView
     },
   };
 
+  private environmentMap(url: string): Texture {
+    let texture = this.environmentMaps.get(url);
+    if (!texture) {
+      // texels as stored: the shader reads them as the game does
+      texture = new TextureLoader().load(url);
+      this.environmentMaps.set(url, texture);
+    }
+    return texture;
+  }
+
   ngOnDestroy(): void {
     this.meshController?.dispose();
+    for (const texture of this.environmentMaps.values()) {
+      texture.dispose();
+    }
+    this.environmentMaps.clear();
     this.destroyed$.next();
     this.destroyed$.complete();
   }

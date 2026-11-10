@@ -92,7 +92,8 @@ export class Nfs6Ps2CarBlockUiComponent extends GuiComponent implements AfterVie
       const info: Nfs6Ps2CarInfo = await loadJson(this.carPath);
       const skins: Nfs6Ps2CarSkin[] = (await loadJson(this.skinsPath)) || [];
       const baseUrl = this.carPath.substring(0, this.carPath.lastIndexOf('/') + 1);
-      const meshController = new Nfs6Ps2CarMeshController(obj, info, skins, baseUrl);
+      // OBJLoader reads the vertex colours as sRGB
+      const meshController = new Nfs6Ps2CarMeshController(obj, info, skins, baseUrl, { srgbVertexColors: true });
       this.meshController = meshController;
       const controls: ObjViewerCustomControl['controls'] = [];
       if (meshController.skin && skins.length > 1) {
@@ -104,6 +105,22 @@ export class Nfs6Ps2CarBlockUiComponent extends GuiComponent implements AfterVie
           value: label(skins[0]),
           change: v => (meshController.skin = skins.find(x => label(x) === v)?.name || null),
         });
+      }
+      if (meshController.hasGameShading) {
+        controls.push(
+          {
+            label: 'Reflections',
+            type: 'checkbox',
+            value: meshController.envEnabled,
+            change: v => (meshController.envEnabled = v),
+          },
+          {
+            label: 'Race materials',
+            type: 'checkbox',
+            value: meshController.raceMaterials,
+            change: v => (meshController.raceMaterials = v),
+          },
+        );
       }
       if (meshController.hasLights) {
         controls.push(
