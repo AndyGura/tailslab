@@ -69,9 +69,10 @@
     </mat-form-field>
     <app-minimap
       [roadSpline]="minimapSpline"
+      [roads]="minimapRoads"
       [pointer]="pointer$ | async"
       [splineClosed]="isClosed"
-      [pointsOnly]="!!adapter?.minimapPointsOnly"
+      [pointsOnly]="minimapPointsOnly"
       [projection]="'nz'"
       (pointerChange)="onPointerChange($event)"></app-minimap>
   </div>

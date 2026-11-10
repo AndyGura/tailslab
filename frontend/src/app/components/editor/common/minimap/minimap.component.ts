@@ -14,6 +14,12 @@ import { Pnt2, Pnt3, Point2, Point3 } from '@gg-web-engine/core';
 
 type Projection = 'x' | 'nx' | 'y' | 'ny' | 'z' | 'nz';
 
+// A road drawn besides the main spline: alternative routes, branches, roads of junctions
+export interface MinimapRoad {
+  points: Point3[];
+  closed: boolean;
+}
+
 @Component({
   selector: 'app-minimap',
   templateUrl: './minimap.component.html',
@@ -23,14 +29,22 @@ type Projection = 'x' | 'nx' | 'y' | 'ny' | 'z' | 'nz';
 })
 export class MinimapComponent implements AfterViewInit, OnDestroy {
   _roadSpline$: BehaviorSubject<Point3[]> = new BehaviorSubject<Point3[]>([]);
+  _roads$: BehaviorSubject<MinimapRoad[]> = new BehaviorSubject<MinimapRoad[]>([]);
   _pointer$: BehaviorSubject<Point3 | null> = new BehaviorSubject<Point3 | null>(null);
   _projection$: BehaviorSubject<Projection> = new BehaviorSubject<Projection>('nz');
 
   _roadSplineProjected$: BehaviorSubject<Point2[]> = new BehaviorSubject<Point2[]>([]);
+  // the polylines of the main spline (closing point included) and of the other roads, projected; with the 3D points
+  private lines: { points: Point3[]; projected: Point2[] }[] = [];
   _pointerProjected$: BehaviorSubject<Point2> = new BehaviorSubject<Point2>(Pnt2.O);
 
   @Input('roadSpline') set roadSpline(value: Point3[]) {
     this._roadSpline$.next(value);
+  }
+
+  // Other roads of the track, drawn thinner under the main spline. The pointer snaps (Shift) to them too
+  @Input('roads') set roads(value: MinimapRoad[] | null) {
+    this._roads$.next(value || []);
   }
 
   @Input('pointer') set pointer(value: Point3 | null) {
@@ -47,7 +61,15 @@ export class MinimapComponent implements AfterViewInit, OnDestroy {
     this._splineClosed$.next(value);
   }
   // Draw spline points as dots, without connecting them (e.g. chunk centers of a city instead of a road)
-  @Input() pointsOnly: boolean = false;
+  _pointsOnly$: BehaviorSubject<boolean> = new BehaviorSubject<boolean>(false);
+
+  @Input() set pointsOnly(value: boolean) {
+    this._pointsOnly$.next(value);
+  }
+
+  get pointsOnly(): boolean {
+    return this._pointsOnly$.value;
+  }
   @Output() pointerChange = new EventEmitter<Point3>();
 
   svgSize$: BehaviorSubject<Point2> = new BehaviorSubject({ x: 100, y: 100 });
@@ -58,6 +80,7 @@ export class MinimapComponent implements AfterViewInit, OnDestroy {
     height: number;
   }>({ x: 0, y: 0, width: 100, height: 100 });
   mapPolyline$: BehaviorSubject<string> = new BehaviorSubject<string>('');
+  mapRoadPolylines$: BehaviorSubject<string[]> = new BehaviorSubject<string[]>([]);
   mapPoints$: BehaviorSubject<Point2[]> = new BehaviorSubject<Point2[]>([]);
   mapPointer$: BehaviorSubject<Point2 | null> = new BehaviorSubject<Point2 | null>(null);
 
@@ -131,9 +154,15 @@ export class MinimapComponent implements AfterViewInit, OnDestroy {
           this.isShiftPressed = false;
         }
       });
-    combineLatest([this._roadSpline$, this._projection$])
+    combineLatest([this._roadSpline$, this._roads$, this._splineClosed$, this._pointsOnly$, this._projection$])
       .pipe(takeUntil(this.destroyed$))
-      .subscribe(([roadSpline, _]) => {
+      .subscribe(([roadSpline, roads, splineClosed, pointsOnly, _]) => {
+        const closedPoints = (points: Point3[], closed: boolean) =>
+          closed && points.length > 1 ? [...points, points[0]] : points;
+        this.lines = [
+          ...(pointsOnly ? [] : [closedPoints(roadSpline, splineClosed)]),
+          ...roads.map(road => closedPoints(road.points, road.closed)),
+        ].map(points => ({ points, projected: points.map(p => this.project(p)) }));
         this._roadSplineProjected$.next(roadSpline.map(p => this.project(p)));
       });
     combineLatest([this._pointer$, this._projection$])
@@ -144,7 +173,8 @@ export class MinimapComponent implements AfterViewInit, OnDestroy {
     this._roadSplineProjected$
       .pipe(
         takeUntil(this.destroyed$),
-        map((points: Point2[]) => {
+        map((spline: Point2[]) => {
+          const points = [...spline, ...this.lines.flatMap(line => line.projected)];
           let minPoint: Point2 = { x: Number.MAX_SAFE_INTEGER, y: Number.MAX_SAFE_INTEGER };
           let maxPoint: Point2 = { x: Number.MIN_SAFE_INTEGER, y: Number.MIN_SAFE_INTEGER };
           points.forEach(p => {
@@ -167,18 +197,23 @@ export class MinimapComponent implements AfterViewInit, OnDestroy {
       .pipe(
         takeUntil(this.destroyed$),
         map(([points, scalingSquare, svgSize, splineClosed]) => {
-          const polygonToDraw: Point2[] = points.map(p => ({
+          const toSvg = (p: Point2): Point2 => ({
             x: ((p.x - scalingSquare.x) * svgSize.x) / scalingSquare.width,
             y: ((scalingSquare.y - p.y) * svgSize.y) / scalingSquare.height + svgSize.y,
-          }));
+          });
+          const polyline = (line: Point2[]) => line.map(v => Math.round(v.x) + ',' + Math.round(v.y)).join(' ');
+          const polygonToDraw: Point2[] = points.map(toSvg);
           this.mapPoints$.next(this.pointsOnly ? polygonToDraw : []);
+          this.mapRoadPolylines$.next(
+            this.lines.slice(this.pointsOnly ? 0 : 1).map(line => polyline(line.projected.map(toSvg))),
+          );
           if (this.pointsOnly) {
             return '';
           }
           if (splineClosed && polygonToDraw.length) {
             polygonToDraw.push(polygonToDraw[0]);
           }
-          return polygonToDraw.map(v => Math.round(v.x) + ',' + Math.round(v.y)).join(' ');
+          return polyline(polygonToDraw);
         }),
       )
       .subscribe(this.mapPolyline$);
@@ -225,42 +260,42 @@ export class MinimapComponent implements AfterViewInit, OnDestroy {
     this.isDragging = false;
   }
 
-  private getClosestProjectedLineIndex(pos: Point2): [number, number] {
-    const roadSplineProjected = this._roadSplineProjected$.getValue();
-    let closestLineIndex = -1;
+  // The nearest point of the drawn lines: line, segment index in it and position along the segment; line -1 for none
+  private getClosestProjectedLineIndex(pos: Point2): [number, number, number] {
+    let closest: [number, number, number] = [-1, -1, 0];
     let minDistance = Number.MAX_SAFE_INTEGER;
-    for (let i = 1; i < roadSplineProjected.length; i++) {
-      const p = roadSplineProjected[i - 1];
-      const d = Pnt2.sub(roadSplineProjected[i], roadSplineProjected[i - 1]);
-      const t = Math.max(0, Math.min(1, ((pos.x - p.x) * d.x + (pos.y - p.y) * d.y) / Pnt2.lenSq(d)));
-      const projX = p.x + t * d.x;
-      const projY = p.y + t * d.y;
-      const distance = Math.hypot(pos.x - projX, pos.y - projY);
-      if (distance < minDistance) {
-        minDistance = distance;
-        closestLineIndex = i - 1;
+    this.lines.forEach(({ projected }, line) => {
+      for (let i = 1; i < projected.length; i++) {
+        const p = projected[i - 1];
+        const d = Pnt2.sub(projected[i], p);
+        const lenSq = Pnt2.lenSq(d);
+        const t = lenSq ? Math.max(0, Math.min(1, ((pos.x - p.x) * d.x + (pos.y - p.y) * d.y) / lenSq)) : 0;
+        const distance = Math.hypot(pos.x - (p.x + t * d.x), pos.y - (p.y + t * d.y));
+        if (distance < minDistance) {
+          minDistance = distance;
+          closest = [line, i - 1, t];
+        }
       }
+    });
+    return closest;
+  }
+
+  private closestProjectedPoint(pos: Point2): Point2 | null {
+    const [line, i, t] = this.getClosestProjectedLineIndex(pos);
+    if (line == -1) {
+      return null;
     }
-    if (closestLineIndex == -1) {
-      return [-1, 0];
-    }
-    const p1 = roadSplineProjected[closestLineIndex];
-    const p2 = roadSplineProjected[closestLineIndex + 1];
-    const d = Pnt2.sub(p2, p1);
-    const t = Math.max(0, Math.min(1, ((pos.x - p1.x) * d.x + (pos.y - p1.y) * d.y) / Pnt2.lenSq(d)));
-    return [closestLineIndex, t];
+    const projected = this.lines[line].projected;
+    return Pnt2.lerp(projected[i], projected[i + 1], t);
   }
 
   private getRoadSplineProjectionZ(pos: Point2): number {
-    const [closestLineIndex, t] = this.getClosestProjectedLineIndex(pos);
-    if (closestLineIndex == -1) {
+    const [line, i, t] = this.getClosestProjectedLineIndex(pos);
+    if (line == -1) {
       return 0;
     }
-    const roadSpline = this._roadSpline$.getValue();
-    return (
-      this.projectionZ(roadSpline[closestLineIndex]) +
-      t * (this.projectionZ(roadSpline[closestLineIndex + 1]) - this.projectionZ(roadSpline[closestLineIndex]))
-    );
+    const points = this.lines[line].points;
+    return this.projectionZ(points[i]) + t * (this.projectionZ(points[i + 1]) - this.projectionZ(points[i]));
   }
 
   private updatePointer(event: MouseEvent) {
@@ -280,18 +315,10 @@ export class MinimapComponent implements AfterViewInit, OnDestroy {
       };
 
       if (this.isShiftPressed) {
-        const roadSplineProjected = this._roadSplineProjected$.getValue();
-        const [oldClosestLineIndex, oldT] = this.getClosestProjectedLineIndex(oldPtr);
-        const [newClosestLineIndex, newT] = this.getClosestProjectedLineIndex(newPtr);
-        if (oldClosestLineIndex !== -1 && newClosestLineIndex !== -1) {
-          const oldOffsetVector = Pnt2.sub(
-            oldPtr,
-            Pnt2.lerp(roadSplineProjected[oldClosestLineIndex], roadSplineProjected[oldClosestLineIndex + 1], oldT),
-          );
-          newPtr = Pnt2.add(
-            oldOffsetVector,
-            Pnt2.lerp(roadSplineProjected[newClosestLineIndex], roadSplineProjected[newClosestLineIndex + 1], newT),
-          );
+        const oldClosest = this.closestProjectedPoint(oldPtr);
+        const newClosest = this.closestProjectedPoint(newPtr);
+        if (oldClosest && newClosest) {
+          newPtr = Pnt2.add(Pnt2.sub(oldPtr, oldClosest), newClosest);
         }
       }
       const elevation = this.projectionZ(this._pointer$.getValue() || Pnt3.O) - this.getRoadSplineProjectionZ(oldPtr);

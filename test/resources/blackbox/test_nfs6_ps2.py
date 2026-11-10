@@ -17,7 +17,7 @@ from serializers.geometries import (
     nfs6_ps2_solid_pack_meshes,
     nfs6_ps2_strip_skips,
 )
-from serializers.maps import Nfs6Ps2TrackBundleSerializer, Nfs6Ps2World, nfs6_ps2_route
+from serializers.maps import BlackBoxRoad, Nfs6Ps2TrackBundleSerializer, Nfs6Ps2World, blackbox_route, nfs6_ps2_roads
 
 # one mesh of TRACKB11.LZC, its textures and TRACK11_MAP, a scenery with two instances of the mesh, 6 route points
 BUNDLE = 'test/samples/NFS6PS2_TRACKB99.BUN'
@@ -132,7 +132,7 @@ class TestNfs6Ps2TrackBundle(unittest.TestCase):
         self.assertEqual((section_number, len(instances)), (7, 2))
         parts = world.scenery_parts(infos, instances)
         self.assertEqual(set(parts), {x[0] for x in world.meshes[infos[0]['mesh_ids'][0]].parts})
-        points, closed = nfs6_ps2_route(data)
+        points, closed = blackbox_route(data)
         self.assertEqual((len(points), closed), (6, False))
 
     def test_serializer_should_export_chunks_with_textures_and_route(self):
@@ -163,6 +163,37 @@ class TestNfs6Ps2TrackBundle(unittest.TestCase):
                 route = json.load(f)
             self.assertEqual(len(route['points']), 6)
             self.assertFalse(route['closed'])
+            self.assertEqual(route['roads'], [])
+
+    def test_roads_should_join_branches_to_near_points(self):
+        def point(x, y, near=(-1, -1, -1)):
+            return {'x': x, 'y': y, 'near_points': list(near)}
+
+        paths = [
+            {'path_index': 0, 'is_closed': 1, 'first_point': 0, 'end_point': 4},
+            {'path_index': 1, 'is_closed': 0, 'first_point': 5, 'end_point': 7},
+        ]
+        # route 0..3 (4 = its closing point), the branch 5..6 from near point 1 to near point 3
+        points = [point(0, 0), point(10, 0), point(10, 10), point(0, 10), point(0, 0)]
+        points += [point(12, 2, (0, 1, 6)), point(12, 8, (2, 3, 5))]
+        data = {
+            'chunks': [
+                {
+                    'data': {
+                        'chunk_id': 0x80034147,
+                        'sub_chunks': [
+                            {'data': {'chunk_id': 0x34148, 'paths': paths}},
+                            {'data': {'chunk_id': 0x34149, 'points': points}},
+                        ],
+                    }
+                }
+            ]
+        }
+        self.assertEqual(blackbox_route(data), ([(0, 0), (10, 0), (10, 10), (0, 10)], True))
+        self.assertEqual(
+            nfs6_ps2_roads(data),
+            [BlackBoxRoad([(10, 0, None), (12, 2, None), (12, 8, None), (10, 10, None)], False)],
+        )
 
 
 class TestNfs6Ps2Car(unittest.TestCase):

@@ -15,6 +15,7 @@ from resources.eac.archives import ShpiBlock, ShppBlock
 from resources.eac.bitmaps import EacImage
 from serializers import BaseFileSerializer
 from serializers.common.three_d import SubMesh, Mesh, export_scenes, Scene
+from serializers.misc.nfs5_road_network import nfs5_track_roads
 from serializers.misc.path_utils import escape_chars
 
 
@@ -1238,8 +1239,9 @@ class CrpGeometrySerializer(BaseFileSerializer):
 
     def _serialize_track_chunks(self, data, path, block, material_texture) -> List[str]:
         """Track viewer output: one `terrain_chunk_<i>.obj` per road piece of the main road section, pivoted at the
-        road piece center, plus `track_layout.json` with chunk positions (in CRP coordinates, Y up), road headings and
-        whether the road is a loop. Only not animated, not damaged meshes of LOD 0 (every LOD with the setting
+        road piece center, plus `track_layout.json` with chunk positions (in CRP coordinates, Y up) and road headings,
+        the race route (`route`, slices of the road spline), whether it is a circuit (`closed`) and the other roads
+        (`roads`), see `nfs5_track_roads`. Only not animated, not damaged meshes of LOD 0 (every LOD with the setting
         maps__save_all_lods, mesh names "terrain_chunk_<i>_<j>_lod<level>_<texture>") are exported. Articles of the main
         section go to the chunk of their road piece number, all other articles to the chunk with the nearest center"""
         import bisect
@@ -1322,15 +1324,24 @@ class CrpGeometrySerializer(BaseFileSerializer):
                 )
             )
         exported = export_scenes(scenes, path, self.settings)
+        # the race route and the other roads, from the road spline
+        spline_parts = {
+            x['data']['identifier']: x['data']['data']
+            for x in data['common_parts']
+            if isinstance(x['data'], dict) and x['data'].get('identifier') in ('DmiS', 'TmiS')
+        }
+        roads = nfs5_track_roads(spline_parts.get('DmiS') or [], spline_parts.get('TmiS') or [])
         layout_path = path_join(path, 'track_layout.json')
         with open(layout_path, 'w') as f:
             json.dump(
                 {
-                    'closed': is_closed,
+                    'closed': roads['closed'] if roads['route'] else is_closed,
                     'chunks': [
                         {'position': {'x': p[0], 'y': p[1], 'z': p[2]}, 'orientation': heading(k)}
                         for k, p in enumerate(chunk_positions)
                     ],
+                    'route': roads['route'],
+                    'roads': roads['roads'],
                 },
                 f,
             )

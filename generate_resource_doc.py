@@ -18,7 +18,9 @@ from resources.eac import psx as eac_psx, psx_bitmaps as eac_psx_bitmaps
 from resources.eac import horizons as eac_horizons
 from resources.blackbox.bitmaps import nfsu as blackbox_bitmaps_nfsu
 from resources.blackbox.maps import nfsu as blackbox_maps_nfsu
+from resources.blackbox.maps import nfsu2 as blackbox_maps_nfsu2
 from resources.blackbox.maps import nfs6_ps2 as blackbox_maps_nfs6_ps2
+from resources.blackbox.maps import nfsmw as blackbox_maps_nfsmw
 from resources.blackbox.bitmaps import nfs6_ps2 as blackbox_bitmaps_nfs6_ps2
 from resources.blackbox.geometries import nfs6_ps2 as blackbox_geometries_nfs6_ps2
 from resources.blackbox import archives as blackbox_archives
@@ -895,6 +897,15 @@ EXPORT_RESOURCES = {
                 blackbox_maps_nfsu.NfsuSceneryInfo(),
                 blackbox_maps_nfsu.NfsuSceneryInstances(),
                 blackbox_maps_nfsu.NfsuSceneryInstance(),
+                blackbox_maps_nfsu.NfsuTrackPath(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2TrackPathHeader(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2TrackPathRecord(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2TrackPathPoints(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2TrackPathPoint(),
+                blackbox_maps_nfsu.NfsuRoads(),
+                blackbox_maps_nfsu.NfsuRoad(),
+                blackbox_maps_nfsu.NfsuRoadLane(),
+                blackbox_maps_nfsu.NfsuRoadNode(),
             ],
             'Images': [
                 blackbox_bitmaps_nfsu.NfsuTexturePack(),
@@ -955,6 +966,8 @@ EXPORT_RESOURCES = {
 
 **TRACKS/STREAMLnRA.BUN** streamed city sections (scenery, geometry, textures), each 0x800-aligned. {render_type(blackbox_maps_nfsu.NfsuChunkBundle())}
 
+**TRACKS/ROUTESLnRx/Routes\\*.bin** roads of the location (RoutesAll.bin: every road, shown on the track viewer's minimap of **TRACKS/LnRx.BUN**), of free roam and of each race (forward / backward). {render_type(blackbox_maps_nfsu.NfsuChunkBundle())}
+
 **GLOBAL/GLOBALB.LZC** global textures (chrome, grilles, ...) and other data. {render_type(blackbox_maps_nfsu.NfsuChunkBundle())}, [compressed](eac_compressions.md)
 
 **GLOBAL/\\*.BUN**, **GLOBAL/\\*.BIN** texture packs and other chunk bundles. {render_type(blackbox_maps_nfsu.NfsuChunkBundle())}""",
@@ -970,6 +983,9 @@ EXPORT_RESOURCES = {
                 blackbox_maps_nfsu.Nfsu2SceneryInfo(),
                 blackbox_maps_nfsu.Nfsu2SceneryInstances(),
                 blackbox_maps_nfsu.Nfsu2SceneryInstance(),
+                blackbox_maps_nfsu2.Nfsu2Roads(),
+                blackbox_maps_nfsu2.Nfsu2Road(),
+                blackbox_maps_nfsu2.Nfsu2RoadNode(),
             ],
             'Images': [
                 blackbox_bitmaps_nfsu.NfsuTexturePack(),
@@ -1020,7 +1036,7 @@ EXPORT_RESOURCES = {
 
 **CARS/\\*/TEXTURES.BIN**, **CARS/TEXTURES.BIN** car texture packs, every texture compressed separately (JDLZ or HUFF). {render_type(blackbox_maps_nfsu.NfsuChunkBundle())}
 
-**TRACKS/L2RA.BUN** location bundle (Rockport): streaming sections table and textures shared by the city. Opened in the track viewer together with the city sections from **TRACKS/STREAML2RA.BUN** next to it. {render_type(blackbox_maps_nfsu.NfsuTrackBundle())}
+**TRACKS/L2RA.BUN** location bundle (Rockport): streaming sections table, textures shared by the city and its road network. Opened in the track viewer together with the city sections from **TRACKS/STREAML2RA.BUN** next to it. {render_type(blackbox_maps_nfsu.NfsuTrackBundle())}
 
 **TRACKS/STREAML2RA.BUN** streamed city sections (scenery, geometry, textures), each 0x800-aligned. {render_type(blackbox_maps_nfsu.NfsuChunkBundle())}
 
@@ -1039,6 +1055,14 @@ EXPORT_RESOURCES = {
                 blackbox_maps_nfsu.NfsmwSceneryInfo(),
                 blackbox_maps_nfsu.NfsmwSceneryInstances(),
                 blackbox_maps_nfsu.NfsmwSceneryInstance(),
+                blackbox_maps_nfsmw.NfsmwRoadNetwork(),
+                blackbox_maps_nfsmw.NfsmwCarpEntry(),
+                blackbox_maps_nfsmw.NfsmwRoadGrid(),
+                blackbox_maps_nfsmw.NfsmwRoadNetworkHeader(),
+                blackbox_maps_nfsmw.NfsmwRoadNode(),
+                blackbox_maps_nfsmw.NfsmwRoadProfile(),
+                blackbox_maps_nfsmw.NfsmwRoad(),
+                blackbox_maps_nfsmw.NfsmwRoadSegment(),
             ],
             'Images': [
                 blackbox_bitmaps_nfsu.NfsuTexturePack(),

@@ -154,6 +154,12 @@ When you do:
   loaded chunks whose data fingerprint changed are written and reloaded.
   Viewer overlays (the gizmo, markers) are marked `userData.viewModeIgnore` (`VIEW_MODE_IGNORE`): the shading modes
   (`ViewModeController`) leave them alone; an edge line on a gizmo picking mesh would take the gizmo's hits.
+- Track viewer minimap (`common/minimap`): the adapter's road spline (the race route: "Spline item" fly-to, track
+  length) and its other roads (`TrackLayout.roads` / `TrackMapAdapter.roads`: alternative routes, shortcuts, branches,
+  roads of junctions; `TrackRoad`, game coordinates, Y up), drawn thinner; Shift drags the pointer along any of them.
+  Serializer-written layouts carry them as `roads` (`[{closed, points: [{x, y, z}]}]`, e.g. `track_route.json`).
+  NFS6 (`aipaths.dat`, `nfs6-route.ts`): the race route is chained from road paths, every road path it leaves out
+  (any `path_type` = shortcut difficulty) is an other road; helicopter paths are not drawn.
 - Track levels of detail (NFS2 TRK, NFS3 / NFS4 FRD, NFS5 CRP tracks): only the highest one is exported, all of them
   with the setting `maps__save_all_lods`, the mesh names then carrying `_lod<n>_` (`block_<i>_lod<n>__<texture>`,
   NFS5 `terrain_chunk_<i>_<j>_lod<n>_<texture>`; meshes drawn at every level have none). The GUI's track viewer
@@ -297,6 +303,55 @@ When you do:
   texel row of each strip is transparent padding. Below the horizon one flat colour (mean of the band's lowest drawn
   row). `hzcl`, `hor0`.., region B, wind and warp are not used.
 
+## NFS Underground race paths (`TRACKS/TRACKBnnnn.lzc`, `resources/blackbox/maps/nfsu.py`)
+
+- Race ids: 10xx circuits, 11xx sprints, 12xx drag, 13xx drift; 1099 is a test track (`STREAML1RX`, no roads).
+  Every race bundle has the track paths chunk 0x80034147 (`NfsuTrackPath`: NFS HP2 PS2's 0x34148 records / 0x34149
+  points, one path, the race route, 2D; 0x3414a not decoded) and the roads chunk 0x34121 (`NfsuRoads`: roads of
+  0x27c-byte headers and 136-byte nodes with heights, `road_id` >= 100 = side streets; 0x34122 / 0x34124 not
+  decoded). `matches_chunk` (record sizes) leaves other layouts of the two ids raw. All 31 race bundles write back byte-exact.
+- `NfsuTrackBundleSerializer.track_paths` (the hook for other Black Box games: route + `BlackBoxRoad`s, a height None
+  = from the world, `blackbox_road_heights`) gives path 0 (`blackbox_route`) with heights of the nearest road segment
+  (`nfsu_heights_from_roads`, the least distance + height difference to the previous point: bridges) and every road
+  (`nfsu_roads`); `_serialize_route` writes them to `track_route.json`, read by `NFSU_TRACK_ADAPTER`
+  (`loadTrackRouteLayout`, no route: chunk centres as dots). NFSU2 and NFSMW: their own sections below.
+- Heights the data lacks (`nfsu_ground_heights`): floor triangles of the world in a grid (`NfsuFloorGrid`, made once
+  per world). `NfsuWorld` takes them from the terrain and road meshes `TRN_*` only, facing up (down = tunnel and bridge
+  ceilings), road meshes (`*_ROAD*`) over the terrain under the same point; trees, lamps, roofs and the panorama
+  `PAN_*` (NFSU2's distant hills and sea, under and over the city) never. Where several floors lie under the points
+  (bridges, tunnels), the heights with the least total climb (Viterbi; climb beyond a 15 % slope counted 11 times).
+  `Nfs6Ps2World` keeps every mesh, both facings.
+
+## NFS Underground 2 roads (`TRACKS/ROUTESLxRx/`, `resources/blackbox/maps/nfsu2.py`)
+
+- A location bundle `LxRy.BUN` hosts many races; its folder `ROUTESLxRy/` holds `RoutesAll.bin` (every road of the
+  location, L4RA: 971), `RoutesFreeRoam.bin`, `Routes<race>F.bin` / `B.bin` (the roads of a race, forward /
+  backward), `Paths<race>.bin` (0x80034147 with sub-chunks 0x34148 = 24-byte points of up to 40 path pieces with
+  distances, 0x34149 variable records with race ids and names, 0x3414a / 0x3414c / 0x3414d; not decoded, a graph, not one path),
+  `TrackPosMarkers*.bin` (0x34146). The road files are chunks 0x34121 / 0x34122 / 0x34123; 0x34121 is
+  `Nfsu2Roads` (140-byte headers, 56-byte nodes: x, y, route distance of the race file, direction x 32767; no
+  heights; a name with leftover bytes after its null, `name_padding`), the other two stay raw. All 226 `Routes*.bin`
+  write back byte-exact.
+- `nfsu2_track_paths` (branch of `NfsuTrackBundleSerializer.track_paths`, which gets the bundle path from
+  `NfsuWorld.bundle_path`): no route (chunk centres as dots), every road of `ROUTES<bundle>/RoutesAll.bin` as `roads`,
+  heights from the world (`nfsu_ground_heights`, about 2 s for L4RA).
+
+## NFS Most Wanted road network (`TRACKS/L2RA.BUN` chunk 0x3b800, `resources/blackbox/maps/nfsmw.py`)
+
+- `NfsmwRoadNetwork`: a "CARP" pack (table of 16-byte entries: tag stored last character first, kind, size, count,
+  offset from the entry; then the data blocks, 0xAA-padded to 16 bytes): grid cells `CGcn` (raw), grid `CGrd`, header
+  `RNhd`, 4385 nodes `RNnd` (32 bytes: position, profile, up to 7 segments), 710 lane profiles `RNpf`, 1308 roads
+  `RNrd` (not decoded), 6538 segments `RNsg` (22 bytes: cubic Bezier between two nodes, length in m * 65.536, handle
+  lengths in m * 131.072, directions as signed bytes * 127; units fitted to the stored lengths, 0.03 % median error).
+  Positions are simulation axes (Y up): world / scenery axes are (z, -x, y) (checked against the ground under the
+  nodes). `matches_chunk` wants this exact 12-tag table; L2RA.BUN writes back byte-exact. Other CARP packs (0x3b811,
+  NIS bundles) stay raw.
+- `track_paths` of an NFSMW location (`nfsmw_track_paths`, `serializers/misc/nfsmw_road_network.py`): no route (chunk
+  centres as dots), every road as `roads`: segments chained through nodes with two segments, sampled every 10 m / 15
+  degrees of turn, heights from the nodes, rounded to 1 cm (`track_route.json` about 1.8 MB, 4772 roads). Races keep
+  no route: `GLOBAL/gameplay.bin` lists their checkpoints and `BARRIER_SPLINE_*` barriers, the game routes them over
+  the network.
+
 ## NFS Hot Pursuit 2 PlayStation 2 (`games/nfs6_ps2`, SLUS-20362, doc `resources/NFS6_PS2.md`)
 
 - The disc keeps its files in `NFSHP2/ZZDATA.BIN`, listed by `NFSHP2/ZDIR.BIN` (12-byte entries: `bin_hash` of the path
@@ -319,8 +374,10 @@ When you do:
   `TEX<track>TRACK.BIN`, `TEX<track>LOCATION.BIN`, `GLOBAL/INGAMEB`, `GLOBAL/DRIVTEX.BIN` (`nfs6_ps2_texture_pack_paths`).
   The sky dome `SKYDOME` (placed by its scenery instance, 0x11c5f8) is not in the chunks: `spherical.png`
   (`library/utils/nfs6_ps2_sky_to_spherical.py`). `track_route.json`: path 0 of the track paths chunk 0x80034147 (the
-  race route, 2D) with heights from the world's floor triangles (`nfs6_ps2_ground_heights`). GUI:
-  `NFS6_PS2_TRACK_ADAPTER` (`loadLayout`; a bundled-textures adapter with `hasSkybox` takes `spherical.png` from the
+  race route, 2D) with heights from the world's floor triangles (`nfsu_ground_heights`), and the other paths as
+  `roads` (`nfs6_ps2_roads`: branches, their open ends joined to the nearest of their `near_points` on another path);
+  `Nfs6Ps2TrackBundleSerializer.track_paths`, written by NFSU's `_serialize_route`. GUI:
+  `NFS6_PS2_TRACK_ADAPTER` (NFSU's `loadTrackRouteLayout`; a bundled-textures adapter with `hasSkybox` takes `spherical.png` from the
   chunk export, `loadBundledSky`).
 - Cars: `CARS/<car>/GEOMETRY.LZC` (`Nfs6Ps2CarGeometry`, a bundle starting with chunk 0x34013:
   `is_nfs6_ps2_car_bundle`; 44 models, folder names from the car types table) holds the meshes only. The car types
@@ -352,6 +409,14 @@ When you do:
   triangles: lists as they are, strips with every second triangle reversed (Direct3D order, agrees with the shared
   edges of the neighbouring lists), quads 0 1 2 + 0 2 3 (as the collision splits them); triangles repeating a vertex
   are dropped. A track's animated articles have a `vt` part per frame (`ai<n>`): its export keeps `ai0` only.
+- Road network (`serializers/misc/nfs5_road_network.py`, port of Porsche.exe 0x480140..0x481910): `DmiS` slices cut
+  into sections by the `TmiS` counts, split where another section ends within 16 m, section ends within 16 m joined
+  into junctions (as many as the `.jnc` records on every track); the race route is the longest walk from junction 0
+  (the game's race length / progress), a circuit when it comes back to junction 0 (Monaco, skidpad). The track
+  viewer's chunked export (`_serialize_track_chunks`) writes it to `track_layout.json`: `route` (the route's slices,
+  heading of `forward`: the minimap spline and "Spline item"), `closed`, `roads` (every other section between its
+  junction centres, as the game's HUD map 0x432230 links them); the chunks (`chunks`, RD road pieces of one article
+  section, an open chain) stay the terrain streaming.
 
 ## TNFS PlayStation (`games/tnfs_psx`, SLUS-00204, doc `resources/TNFS_PSX.md`)
 
@@ -671,6 +736,16 @@ When you do:
 - `Nfs3SimHeights` (`SIMHTS.DAT`, a float per COL collision_data record = slice) and `Nfs3SpeedsFile` (`SPEEDSF.BIN` /
   `SPEEDSR.BIN`: n // 2 + 1 speed bytes, then n lane bytes; n = (2 x size - 1) // 3, `is_nfs3_speeds_file_size`;
   nfs3.exe 0x40e000 finds the lanes at (n + 1) // 2, one byte early for an even n) are picked by name, exported as JSON.
+- One road per track: the COL collision_data slices (6 m apart, 8 per FRD block, one closed line; the AI only steps
+  through them in order). Shortcuts (connecting roads, corner cuts) have no slices: the FRD position records of the
+  slices at their two ends name each other (`alt_slice_1` / `alt_slice_2`, a run of neighbouring pairs), used only by
+  the polygon search (`BWorld_FindPolygonForks` 0x41f330). Byte 3 of a position record is the slice's music event
+  (`SND_PathEvent`). FRD block `position`s are mean terrain vertices, off the centre line.
+- `FrdMapSerializer` writes `track_route.json` (`nfs3_track_route`, game axes, Y up): `chunks` the block positions
+  (chunk pivots), `points` the slice centres with headings, `roads` one straight line per shortcut (middle pair of
+  its run); the block positions without a fitting COL (golden corpus `TR00.COL` is NFS2's: NFS3's is
+  `test/samples/NFS3_TR00.COL`). `NFS3_TRACK_ADAPTER.loadLayout` reads it. The map's `road_path` curve stays the
+  block positions.
 
 ## NFS4 tracks (`Data/Tracks/<track>/`, nfs4.exe)
 
@@ -692,6 +767,14 @@ When you do:
 - `Nfs4HeightsSim` (`heights.sim`, a float per slice) and `Nfs4SpeedFile` (`spdFA.bin` / `spdRA.bin`, any case:
   ceil(n / 2) speed bytes, n lane bytes, n float AI line offsets; `is_nfs4_speed_file_size`) are picked under a
   `/Data/Tracks/` path, exported as JSON. NFS4 `.CAN` files are `Nfs3CanAnimation` (the same layout).
+- Shortcuts: drivable chunk-4 polygons of the blocks at their ends (no road data of their own: a car on one gets the
+  nearest slice of the polygon's block, 0x439fe0 / 0x439d60), those blocks listed in each other's 8 `neighbors`
+  (`BWorld_BlocksNear` 0x4390d0). vroad `left_link` / `right_link` (s16 at +0x40 / +0x42, -1 none; no reader found in
+  nfs4.exe) give the slice across an open side: runs of consecutive slices linking each other, at the ends of a
+  shortcut or cut-through, or along the two parts of a hairpin side by side (8 of the 9 tracks shared with NFS3;
+  none in the NFS4-only tracks and Hometown). GUI (`NFS4_TRACK_ADAPTER`, `nfs4-track.ts`): the road spline is the
+  vroad slice centres (headed by `forward`; chunks stay at the block positions, near the middle of their slices), the
+  other roads one straight line per linked run, from its middle slice to its link (mirrored runs once).
 
 ## TNFS sound banks (SIMDATA/SOUNDBNK/*.BNK)
 

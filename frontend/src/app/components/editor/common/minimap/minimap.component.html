@@ -5,6 +5,10 @@
     (mousemove)="drag($event)"
     (mouseup)="endDrag()"
     (mouseleave)="endDrag()">
+    <!-- other roads -->
+    @for (road of mapRoadPolylines$ | async; track $index) {
+      <polyline [attr.points]="road" style="fill: none; stroke: #8a8a8a; stroke-width: 2"></polyline>
+    }
     <!-- track -->
     <polyline
       [attr.points]="mapPolyline$ | async"

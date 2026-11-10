@@ -43,18 +43,30 @@ class FrdPositionBlock(DeclarativeCompoundBlock):
         num_polygons = (IntegerBlock(length=1, is_signed=False), {'description': 'Amount of polygons in this group'})
         unk = (
             IntegerBlock(length=1, is_signed=False),
-            {'description': '4..9 in the NFS3 tracks', 'is_unknown': True},
+            {
+                'description': 'The interactive music event of the slice, 4..9 in the NFS3 tracks: when it changes '
+                'under the car the music follows, nfs3.exe sends the new value to the music map (SNDpathevent '
+                '0x4e70fc, from 0x412d60 through 0x4211c0) as an event of its events table ([EaMusicMap](#eamusicmap))',
+            },
         )
         alt_slice_1 = (
             IntegerBlock(length=2, is_signed=True),
             {
-                'description': 'A slice of an alternative route (track fork), -1 (0xFFFF) when none. nfs3.exe '
-                'searches the fork from them (0x41f330)'
+                'description': 'The slice at the other end of a shortcut starting at this slice, -1 (0xFFFF) when '
+                'none. A shortcut (a connecting road, a corner cut, the neck of a turnaround) has no slices of its '
+                'own: the slices at its two ends name each other, a run of neighbouring slice pairs per shortcut '
+                '(TR02: 854..856 <-> 966..964). When a car is on no polygon of the slices around its own, nfs3.exe '
+                'searches the polygons around the nearer of the two slices of the slice and its neighbours '
+                '(BWorld_FindPolygonForks 0x41f330), so the car keeps a track position on a shortcut. The AI follows '
+                'the slices in order and never takes one'
             },
         )
         alt_slice_2 = (
             IntegerBlock(length=2, is_signed=True),
-            {'description': 'A slice of another alternative route, -1 when none, used like `alt_slice_1`'},
+            {
+                'description': 'The slice at the other end of another shortcut, -1 when none, used like `alt_slice_1` '
+                '(the shortcuts of a track use either field, a slice where two meet both)'
+            },
         )
 
 
@@ -250,8 +262,10 @@ class FrdBlock(DeclarativeCompoundBlock):
         position = (
             Point3D(child=DecimalBlock(length=4)),
             {
-                'description': 'Position of the block in the world: a point on the road at the block start. '
-                'Positions of all blocks form the track path'
+                'description': 'Position of the block in the world: the mean of its terrain vertices (`vertices` from '
+                '`num_vertices_obj` up to `num_vertices_high`) truncated to whole numbers, in every block of the NFS3 '
+                'tracks. Not on the road centre line (the COL slices are): 4 m from the middle of its slices and '
+                '5 m above them on average'
             },
         )
         bounds = (

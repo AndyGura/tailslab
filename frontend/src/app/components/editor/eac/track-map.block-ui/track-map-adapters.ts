@@ -1,6 +1,7 @@
 import { MapGraph, MapGraphNodeType, Point3 } from '@gg-web-engine/core';
 import { ClampToEdgeWrapping, RepeatWrapping, Texture } from 'three';
 import { nfs6Route } from './nfs6-route';
+import { NFS4_TRACK_SCALE, nfs4Roads, nfs4SplinePoints } from './nfs4-track';
 import { setupNfs1Texture } from '../../../../../nfs-three-lib/nfs1-model-utils';
 import { BlockData } from '../../types';
 import type { TrackMapWorldEntity } from './track-map-world.entity';
@@ -21,12 +22,23 @@ export interface TrackSplineDetailPanel {
   itemsPerEntry: number;
 }
 
-// Chunk positions, road spline and loop flag of a track
+// A road of the track besides the main road spline (alternative routes, shortcuts, branches, roads of junctions), in
+// game coordinates (Y up)
+export interface TrackRoad {
+  points: Point3[];
+  closed: boolean;
+}
+
+// Chunk positions, road spline, loop flag and other roads of a track
 export interface TrackLayout {
   // null: positions come from `terrain_chunks.json`
   chunkPositions: Point3[] | null;
   splinePoints: TrackSplinePoint[];
   isClosed: boolean;
+  // drawn on the minimap with the road spline. Defaults to none
+  roads?: TrackRoad[];
+  // The spline points are not a road (chunk centers of a track without route data): the minimap shows them as dots
+  pointsOnly?: boolean;
 }
 
 // Per-game differences of the chunked track viewer (`TrackMapBlockUiComponent`). Everything else
@@ -42,6 +54,8 @@ export interface TrackMapAdapter {
   splinePoints?(data: BlockData): TrackSplinePoint[];
   // Whether the last chunk connects to the first one. Defaults to true
   isClosed?(data: BlockData): boolean;
+  // The other roads of the track, drawn on the minimap with the road spline. Defaults to none
+  roads?(data: BlockData): TrackRoad[];
   // Texture archive file kind, shown in the picker ("QFS", "FAM")
   textureArchiveKind?: string;
   // Glob patterns (wildcards in file name only, case-insensitive) of texture archives for this track,
@@ -108,8 +122,20 @@ export const NFS2_TRACK_ADAPTER: TrackMapAdapter = {
   propsController: eacTrackPropsController,
 };
 
+// The serializer writes the block positions (`chunks`), the slices of the COL file (`points`: the road centre line
+// nfs3.exe walks, 8 per block) and the shortcuts (`roads`, straight lines between the slices they join) to
+// `track_route.json`
 export const NFS3_TRACK_ADAPTER: TrackMapAdapter = {
-  chunkPositions: data => (data['blocks'] || []).map((b: any) => b.position),
+  loadLayout: async (serializedPaths: string[]) => {
+    const path = serializedPaths.find(x => x.endsWith('track_route.json'));
+    const route = path ? await (await fetch(path)).json() : { chunks: [], points: [], closed: true };
+    return {
+      chunkPositions: route.chunks,
+      splinePoints: route.points,
+      isClosed: route.closed,
+      roads: route.roads || [],
+    };
+  },
   textureArchiveKind: 'QFS',
   textureArchivePatterns: qfsPatterns,
   hasSkybox: true,
@@ -117,12 +143,9 @@ export const NFS3_TRACK_ADAPTER: TrackMapAdapter = {
   propsController: eacTrackPropsController,
 };
 
-// NFS4 tracks are 1 / 1.3 of their real size in the files: the converter exports them in meters, every position
-// times this (`NFS4_TRACK_SCALE` of serializers/maps.py)
-const NFS4_TRACK_SCALE = 1.3;
-
 // NFS4's FRD track blocks store their position in `blocks_headers[i].position` (a separate array
 // from the block bodies in `blocks`), unlike NFS3 where each block carries its own `position` inline.
+// The road spline is the virtual road's slice centres, the other roads its shortcuts (`nfs4-track.ts`)
 export const NFS4_TRACK_ADAPTER: TrackMapAdapter = {
   chunkPositions: data =>
     (data['blocks_headers'] || []).map((h: any) => ({
@@ -130,6 +153,8 @@ export const NFS4_TRACK_ADAPTER: TrackMapAdapter = {
       y: h.position.y * NFS4_TRACK_SCALE,
       z: h.position.z * NFS4_TRACK_SCALE,
     })),
+  splinePoints: nfs4SplinePoints,
+  roads: nfs4Roads,
   textureArchiveKind: 'QFS',
   textureArchivePatterns: resourceId => {
     // Same convention as the backend's Nfs4FrdMapSerializer: the track's texture archive is named
@@ -212,10 +237,11 @@ export const TNFS_TRACK_ADAPTER: TrackMapAdapter = {
 };
 
 // NFS6 race route (levelNN/aipaths.dat): one chunk per compartment ("compNN.o" listed in drvpath.ini), textures
-// come with the chunks
+// come with the chunks. The road paths the route doesn't use are the other roads
 export const NFS6_TRACK_ADAPTER: TrackMapAdapter = {
   splinePoints: data => nfs6Route(data).points,
   isClosed: data => nfs6Route(data).closed,
+  roads: data => nfs6Route(data).roads,
   bundledTextures: true,
   terrainAlphaTest: 0.5,
   hasSkybox: false,
@@ -265,10 +291,31 @@ export function proximityChunkGraph(nodes: MapGraphNodeType[], k: number = 8): M
   return graphs[0];
 }
 
+// Layout of a Black Box track (NFSU race bundle, NFS Hot Pursuit 2 PS2 track bundle) from the serializer's files:
+// chunk positions of `terrain_chunks.json`, the race route and the other roads of `track_route.json`. Without a route,
+// the chunk centers, shown as dots
+async function loadTrackRouteLayout(serializedPaths: string[]): Promise<TrackLayout> {
+  const load = async (name: string) => {
+    const path = serializedPaths.find(x => x.endsWith(name));
+    return path ? await (await fetch(path)).json() : null;
+  };
+  const chunks: Point3[] = (await load('terrain_chunks.json')) || [];
+  const route = (await load('track_route.json')) || { points: [], closed: false };
+  return {
+    chunkPositions: chunks,
+    splinePoints: route.points.length ? route.points : chunks.map((position: Point3) => ({ position, orientation: 0 })),
+    isClosed: route.closed,
+    roads: route.roads || [],
+    pointsOnly: !route.points.length,
+  };
+}
+
 // NFS Underground race bundle (TRACKS/TRACKBnnnn.lzc): one chunk per scenery of the streamed world sections, textures
-// come with the chunks. No race route yet: the minimap shows chunk centers
+// come with the chunks. The serializer writes the chunk positions to `terrain_chunks.json` and the race route and the
+// roads of the race (with heights) to `track_route.json`. Also the NFSU2 location bundle (TRACKS/LxRA.BUN): no route
+// (chunk centres as dots), every road of the location's road network
 export const NFSU_TRACK_ADAPTER: TrackMapAdapter = {
-  isClosed: () => false,
+  loadLayout: loadTrackRouteLayout,
   bundledTextures: true,
   terrainAlphaTest: 0.5,
   hasSkybox: false,
@@ -280,45 +327,34 @@ export const NFSU_TRACK_ADAPTER: TrackMapAdapter = {
   },
   chunkGraph: nodes => proximityChunkGraph(nodes),
   loadDepth: 3,
-  minimapPointsOnly: true,
 };
 
 // NFS Hot Pursuit 2 PS2 track bundle (TRACKS/TRACKB<track>.LZC): one chunk per scenery, textures come with the chunks,
 // the sky dome on `spherical.png` next to them. The serializer writes the chunk positions to `terrain_chunks.json` and
-// the race route (with heights from the world) to `track_route.json`
+// the race route and the other track paths (`roads`, with heights from the world) to `track_route.json`
 export const NFS6_PS2_TRACK_ADAPTER: TrackMapAdapter = {
   ...NFSU_TRACK_ADAPTER,
-  loadLayout: async (serializedPaths: string[]) => {
-    const load = async (name: string) => {
-      const path = serializedPaths.find(x => x.endsWith(name));
-      return path ? await (await fetch(path)).json() : null;
-    };
-    const chunks: Point3[] = (await load('terrain_chunks.json')) || [];
-    const route = (await load('track_route.json')) || { points: [], closed: false };
-    return {
-      chunkPositions: chunks,
-      splinePoints: route.points.length
-        ? route.points
-        : chunks.map((position: Point3) => ({ position, orientation: 0 })),
-      isClosed: route.closed,
-    };
-  },
-  minimapPointsOnly: false,
   hasSkybox: true,
 };
 
 // NFS5 CRP track ("karT"): the backend splits the meshes into chunks, one per road piece, and writes their
-// positions and road headings to `track_layout.json`. Textures come from the FSH file, referenced by the CRP
+// positions and road headings to `track_layout.json`, with the race route (road spline slices) and the other roads of
+// the track's road network. Textures come from the FSH file, referenced by the CRP
 export const NFS5_TRACK_ADAPTER: TrackMapAdapter = {
   loadLayout: async (serializedPaths: string[]) => {
     const layoutPath = serializedPaths.find(x => x.endsWith('track_layout.json'));
     const layout = layoutPath ? await (await fetch(layoutPath)).json() : { chunks: [], closed: false };
     return {
       chunkPositions: layout.chunks.map((c: any) => c.position),
-      splinePoints: layout.chunks.map((c: any) => ({ position: c.position, orientation: c.orientation })),
+      splinePoints: layout.route?.length
+        ? layout.route
+        : layout.chunks.map((c: any) => ({ position: c.position, orientation: c.orientation })),
       isClosed: layout.closed,
+      roads: layout.roads || [],
     };
   },
+  // the chunks cover the road pieces of one article section, not a whole lap of a circuit: an open chain
+  chunkGraph: nodes => MapGraph.fromMapArray(nodes, false),
   textureArchiveKind: 'FSH',
   textureArchivePatterns: resourceId => {
     const { dir, base } = splitPath(resourceId);

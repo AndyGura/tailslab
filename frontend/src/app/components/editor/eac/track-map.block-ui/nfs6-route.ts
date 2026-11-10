@@ -1,9 +1,11 @@
 import { BlockData } from '../../types';
-import type { TrackSplinePoint } from './track-map-adapters';
+import type { TrackRoad, TrackSplinePoint } from './track-map-adapters';
 
 export interface Nfs6Route {
   points: TrackSplinePoint[];
   closed: boolean;
+  // Every other road path: alternative roads and shortcuts, open
+  roads: TrackRoad[];
 }
 
 interface GraphEdge {
@@ -20,7 +22,9 @@ function nodeKey(p: { x: number; y: number; z: number }): string {
 
 // The main race route of NFS6 AI path graph (aipaths.dat road paths): paths sharing end positions are connected,
 // main road paths (type 1) weigh much more than alternative roads and shortcuts, and a closed loop is preferred
-// to an open route of similar length. Found by exhaustive search, the graphs are small (up to ~25 paths)
+// to an open route of similar length. Found by exhaustive search, the graphs are small (up to ~25 paths). Every road
+// path is a drivable road (`AI_center*`; `path_type` is the shortcut difficulty, see `Nfs6AiPath`): those the route
+// doesn't use are the other roads. The helicopter flight paths are not roads
 export function nfs6Route(data: BlockData): Nfs6Route {
   let route = routes.get(data);
   if (!route) {
@@ -96,6 +100,10 @@ function findRoute(paths: any[]): Nfs6Route {
   if (best.closed) {
     positions.pop();
   }
+  const routePaths = new Set(best.edges.map(edge => edge.path));
+  const roads = paths
+    .filter((path, i) => !routePaths.has(i) && path.points?.length > 1)
+    .map(path => ({ points: path.points.map((p: any) => p.position), closed: false }));
   // heading: 0 is +Z, growing towards +X
   const points = positions.map((position, i) => {
     const next = positions[(i + 1) % positions.length];
@@ -103,5 +111,5 @@ function findRoute(paths: any[]): Nfs6Route {
     const [from, to] = i + 1 < positions.length || best.closed ? [position, next] : [prev, position];
     return { position, orientation: Math.atan2(to.x - from.x, to.z - from.z) };
   });
-  return { points, closed: best.closed };
+  return { points, closed: best.closed, roads };
 }

@@ -190,6 +190,8 @@ class TestNfs4FrdMap(unittest.TestCase):
         self.assertTrue(0 <= vroad['left_side_type'] <= 5 and 0 <= vroad['right_side_type'] <= 5)
         self.assertGreater(vroad['right_lanes'], 0)
         self.assertNotEqual(vroad['lane_open_bits'], 0)
+        # GT1 has no shortcuts: no slice links across an open side
+        self.assertTrue(all(v['left_link'] == -1 and v['right_link'] == -1 for v in data['vroad']))
         types = {x['collision']['type'] for b in data['blocks'] for x in b['xobj']}
         self.assertTrue(types <= {'none', 'solid', 'knockable', 'crash_only'})
         specials = [o['special_data'] for o in data['global_objects_1']['objects'] if o['special_data']]
