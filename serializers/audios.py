@@ -380,3 +380,73 @@ class EaAudioStreamsSerializer(BaseFileSerializer):
         pcm = result.stdout[: len(result.stdout) - len(result.stdout) % (2 * channels)]
         num_samples = layer.get('num_samples', len(pcm) // (2 * channels))
         return pcm, channels, sampling_rate, ea_sound_patch_loop_meta(layer, num_samples, sampling_rate)
+
+
+class Nfs6Ps2JukeboxTrackSerializer(BaseFileSerializer):
+    """A track of NFS HP2 PS2's jukebox (`Nfs6Ps2JukeboxTrack`) to `<name>.wav` + `<name>.meta.json` (no loop). The
+    interleave of its channels is the jukebox's: given by `Nfs6Ps2JukeboxSerializer`, else read from the file of `id`"""
+
+    def serialize(self, data: dict, path: str, id=None, block=None, interleave: int = None, **kwargs) -> List[str]:
+        from library.utils import audio_ps_adpcm_codec
+        from resources.blackbox.audios.nfs6_ps2 import NFS6_PS2_JUKEBOX_SECTOR
+
+        if path.endswith('/') or path.endswith('\\'):
+            path += id.replace('\\', '/').rsplit('/', 1)[-1]
+        super().serialize(data, path)
+        if interleave is None:
+            from library import require_resource
+
+            _, (_, _, jukebox) = require_resource(id)
+            interleave = jukebox['interleave'] * NFS6_PS2_JUKEBOX_SECTOR
+        pcm = audio_ps_adpcm_codec.decode_interleaved(
+            data['wave_data'], data['channels'], interleave, data['data_size']
+        )
+        num_samples = len(pcm) // (2 * data['channels'])
+        _save_wav(f'{path}.wav', pcm, data['channels'], data['sampling_rate'])
+        with open(f'{path}.meta.json', 'w') as file:
+            file.write(json.dumps(ea_sound_patch_loop_meta({}, num_samples, data['sampling_rate']), indent=4))
+        return [f'{path}.wav', f'{path}.meta.json']
+
+
+class Nfs6Ps2JukeboxSerializer(BaseFileSerializer):
+    """NFS HP2 PS2's jukebox (`Nfs6Ps2Jukebox`) to a folder with `<track name>.wav` + `<track name>.meta.json` per
+    track"""
+
+    def __init__(self):
+        super().__init__(is_dir=True)
+
+    def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
+        from library.lazy import transient
+        from library.utils.id import join_id
+        from resources.blackbox.audios.nfs6_ps2 import NFS6_PS2_JUKEBOX_SECTOR
+        from serializers.misc.path_utils import escape_chars
+
+        super().serialize(data, path)
+        interleave = data['interleave'] * NFS6_PS2_JUKEBOX_SECTOR
+        output = []
+        skipped = []
+        for i, child in enumerate(data['children']):
+            # two names end with a space
+            name = escape_chars(child['alias'].strip()).replace('/', '_')
+            try:
+                # one track in memory at a time
+                with transient(child) as entry:
+                    item_block = block.item_block.possible_blocks[entry['item']['choice_index']]
+                    if entry['item']['choice_index'] != 0:
+                        raise Exception('Not a "VAGp" track')
+                    output += Nfs6Ps2JukeboxTrackSerializer().serialize(
+                        entry['item']['data'],
+                        path_join(path, name),
+                        id=join_id(id, 'children', str(i), 'item', 'data'),
+                        block=item_block,
+                        interleave=interleave,
+                    )
+            except Exception as ex:
+                traceback.print_exc()
+                skipped.append((name, format_exception(ex)))
+        if skipped:
+            with open(path_join(path, 'skipped.txt'), 'w') as f:
+                for item in skipped:
+                    f.write('%s\t\t%s\n' % item)
+            output.append(path_join(path, 'skipped.txt'))
+        return output

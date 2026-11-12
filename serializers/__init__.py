@@ -7,7 +7,14 @@ from .archives import (
     SoundBankSerializer,
     BigfArchiveSerializer,
 )
-from .audios import EacsAudioSerializer, FfmpegSupportedAudioSerializer, EaSoundBankSerializer, EaAudioStreamsSerializer
+from .audios import (
+    EacsAudioSerializer,
+    FfmpegSupportedAudioSerializer,
+    EaSoundBankSerializer,
+    EaAudioStreamsSerializer,
+    Nfs6Ps2JukeboxSerializer,
+    Nfs6Ps2JukeboxTrackSerializer,
+)
 from .bitmaps import (
     ImageSerializer,
     TargaImageSerializer,

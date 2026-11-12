@@ -1,5 +1,6 @@
 import json
 import os
+import struct
 import tempfile
 import unittest
 from io import BytesIO
@@ -21,7 +22,14 @@ from serializers.geometries import (
     nfs6_ps2_strip_skips,
     nfs6_ps2_texture_by_name,
 )
-from serializers.maps import BlackBoxRoad, Nfs6Ps2TrackBundleSerializer, Nfs6Ps2World, blackbox_route, nfs6_ps2_roads
+from serializers.maps import (
+    BlackBoxRoad,
+    Nfs6Ps2TrackBundleSerializer,
+    Nfs6Ps2World,
+    blackbox_route,
+    blackbox_track_paths,
+    nfs6_ps2_roads,
+)
 
 # one mesh of TRACKB11.LZC, its textures and TRACK11_MAP, a scenery with two instances of the mesh, 6 route points
 BUNDLE = 'test/samples/NFS6PS2_TRACKB99.BUN'
@@ -135,9 +143,19 @@ class TestNfs6Ps2TrackBundle(unittest.TestCase):
         section_number, infos, instances = world.sceneries[0]
         self.assertEqual((section_number, len(instances)), (7, 2))
         parts = world.scenery_parts(infos, instances)
-        self.assertEqual(set(parts), {x[0] for x in world.meshes[infos[0]['mesh_ids'][0]].parts})
+        # keys: (texture id, whether the mesh is of the road surface)
+        self.assertEqual({k[0] for k in parts}, {x[0] for x in world.meshes[infos[0]['mesh_ids'][0]].parts})
         points, closed = blackbox_route(data)
         self.assertEqual((len(points), closed), (6, False))
+
+    def test_scenery_parts_should_have_vertex_colors(self):
+        (_, _, data) = require_file(BUNDLE)
+        world = Nfs6Ps2World()
+        world.collect(data)
+        _, infos, instances = world.sceneries[0]
+        for vertices, _, _, colors in world.scenery_parts(infos, instances, with_colors=True).values():
+            self.assertEqual(colors.shape, (len(vertices), 4))
+            self.assertTrue(((colors >= 0) & (colors <= 255)).all())
 
     def test_serializer_should_export_chunks_with_textures_and_route(self):
         (name, block, data) = require_file(BUNDLE)
@@ -162,6 +180,10 @@ class TestNfs6Ps2TrackBundle(unittest.TestCase):
             with open(os.path.join(path, 'terrain_chunk_0.obj')) as f:
                 obj = f.read()
             self.assertNotIn('usemtl untextured', obj)
+            # the vertex colours as OBJ vertex colours (GLB: COLOR_0)
+            self.assertEqual(
+                len(obj.splitlines()[next(i for i, x in enumerate(obj.splitlines()) if x.startswith('v '))].split()), 7
+            )
             self.assertEqual(len(os.listdir(os.path.join(path, 'textures'))), 3)
             with open(os.path.join(path, 'track_route.json')) as f:
                 route = json.load(f)
@@ -200,6 +222,118 @@ class TestNfs6Ps2TrackBundle(unittest.TestCase):
         )
 
 
+def _aligned_chunk(chunk_id: int, offset: int, data: bytes) -> bytes:
+    """A chunk at `offset` of the file, its data at the first 16-byte boundary of the payload"""
+    elevens = b'\x11' * (-(offset + 8) % 16)
+    return struct.pack('<II', chunk_id, len(elevens) + len(data)) + elevens + data
+
+
+def _bundle(chunks) -> bytes:
+    res = b''
+    for chunk_id, data, aligned in chunks:
+        res += _aligned_chunk(chunk_id, len(res), data) if aligned else struct.pack('<II', chunk_id, len(data)) + data
+    return res
+
+
+class TestNfs6Ps2TrackPhysicsChunks(unittest.TestCase):
+    def test_topology_and_routes_should_be_read_and_remain_the_same(self):
+        nodes = struct.pack('<8H', 1, 0, 0, 0, 0, 1, 0, 0)
+        squares = struct.pack('<ffHh', 999999, 999999, 0, 0) + struct.pack('<ffHh', 16, -16, 0, 1)
+        # a ground quad: x, y in 1/8 m, heights in 1/256 m over z_base
+        polygon = struct.pack(
+            '<BBBBhh4h4h4h', 0, 0b10_11_00_01, 1, 0x10, 5, 7, 0, 80, 80, 0, 0, 0, 80, 80, 0, 256, 512, 0
+        )
+        indexes = struct.pack('<2H', 0, 0)
+        marker = struct.pack('<IIIiff', 1, 2, 0x8E55C895, 3, 10.5, -20.25)
+        signpost = struct.pack('<BBHfI', 2, 0x15, 7, 0, 1)
+        route = (
+            struct.pack('<IIhhiiiIiff', 1, 2, 1, 50, 1, 1, 1, 1, 0, 0, 0)
+            + bytes(0x3F0)
+            + struct.pack('<4f', 0, 1, 2, 3)
+        )
+        point = (
+            struct.pack('<6f', 1, 2, 3, 0, 1, 0.5)
+            + struct.pack('<2f', 4, 5)
+            + bytes(8)
+            + struct.pack('<fI', 100, 0x4000FF)
+        )
+        route += point + bytes(63) + bytes([50])
+        raw = _bundle(
+            [
+                (0x00034130, nodes, True),
+                (0x00034131, squares, True),
+                (0x00034132, polygon, False),
+                (0x00034133, indexes, False),
+                (0x00034146, marker, False),
+                (0x00034121, route, False),
+                (0x00034122, signpost, False),
+            ]
+        )
+        block = Nfs6Ps2ChunkBundle()
+        data = block.unpack_from_bytes(raw)
+        self.assertEqual(block.pack(data), raw)
+        chunks = {c['data']['chunk_id']: c['data'] for c in data['chunks']}
+        self.assertEqual(len(chunks[0x00034130]['elevens']), 8)
+        self.assertEqual(chunks[0x00034130]['nodes'][0]['children'], [1, 0, 0, 0])
+        self.assertEqual(
+            chunks[0x00034131]['squares'][1], {'centre': {'x': 16, 'y': -16}, 'first_index': 0, 'num_indexes': 1}
+        )
+        polygon = chunks[0x00034132]['polygons'][0]
+        self.assertEqual(polygon['terrain'], 'ROAD')
+        self.assertTrue(polygon['flags']['quad'])
+        self.assertFalse(polygon['flags']['wall'])
+        self.assertEqual((polygon['z_base'], polygon['slot']), (5, 7))
+        self.assertEqual(polygon['x'], [0, 10, 10, 0])
+        self.assertEqual(polygon['z'], [0, 1, 2, 0])
+        self.assertEqual(chunks[0x00034133]['indexes'], [0, 0])
+        marker = chunks[0x00034146]['markers'][0]
+        self.assertEqual(
+            (marker['name_hash'], marker['index'], marker['position']), (0x8E55C895, 3, {'x': 10.5, 'y': -20.25})
+        )
+        route = chunks[0x00034121]['routes'][0]
+        self.assertEqual((route['number'], route['route_type'], route['num_points']), (50, 1, 1))
+        self.assertEqual(route['bbox_max'], {'x': 2, 'y': 3})
+        self.assertEqual(route['points'][0]['position'], {'x': 1, 'y': 2, 'z': 3})
+        self.assertEqual((route['points'][0]['distance'], route['points'][0]['route_number']), (100, 50))
+        self.assertEqual(chunks[0x00034122]['signposts'][0]['point'], 7)
+
+    def test_track_path_records_should_have_route_distances(self):
+        (_, _, data) = require_file(BUNDLE)
+        paths, _ = blackbox_track_paths(data)
+        route = next(x for x in paths if x['path_index'] == 0)
+        self.assertEqual((route['start_distance'], route['scale'], route['spline']), (0, 1, 0))
+        self.assertGreater(route['end_distance'], 0)
+
+    def test_collision_volume_should_be_read_and_remain_the_same(self):
+        name = b'BOX_CV'
+        name_hash = 0xFFFFFFFF
+        for c in name:
+            name_hash = (name_hash * 33 + c) & 0xFFFFFFFF
+        polyhedron = struct.pack('<IIiI8h4II', 3, 3, 1, 0, 1, 1, 1, 3, 200, 400, 100, 2400, 0, 0, 0, 0, name_hash)
+        polyhedron += name.ljust(32, b'\0') + struct.pack('<i', 0) + bytes(8)
+        vertex = struct.pack('<bbhfffi', 0, 1, 0, 1.5, -0.5, 0.25, 0)
+        edge = struct.pack('<bb3hi', 1, 4, 8192, 0, -8192, 1)
+        face = struct.pack('<bbhffffi', 2, 3, 0, 0, 0, 1, 0.5, 5)
+        plane = struct.pack('<IffffI', 0, 0, 0, 1, 0, (2 << 4) | 1)
+        container = b''
+        # offsets of the sub-chunks in the file: the container's header comes first
+        for chunk_id, element in [(0x34021, polyhedron), (0x34024, vertex), (0x34023, edge), (0x34022, face)]:
+            container += _aligned_chunk(chunk_id, 8 + len(container), element)
+        container += _aligned_chunk(0x34025, 8 + len(container), plane * 3)
+        raw = struct.pack('<II', 0x80034020, len(container)) + container
+        block = Nfs6Ps2ChunkBundle()
+        data = block.unpack_from_bytes(raw)
+        self.assertEqual(block.pack(data), raw)
+        sub_chunks = [x['data'] for x in data['chunks'][0]['data']['sub_chunks']]
+        self.assertEqual(sub_chunks[0]['name'], 'BOX_CV')
+        self.assertEqual(sub_chunks[0]['name_hash'], bin_hash('BOX_CV'))
+        self.assertEqual(sub_chunks[1]['vertices'][0]['position'], {'x': 1.5, 'y': -0.5, 'z': 0.25})
+        self.assertEqual(sub_chunks[2]['edges'][0]['direction'], {'x': 1, 'y': 0, 'z': -1})
+        self.assertEqual(sub_chunks[3]['faces'][0]['d'], 0.5)
+        self.assertEqual(len(sub_chunks[4]['planes']), 3)
+        self.assertEqual(sub_chunks[4]['planes'][0]['neighbor'], 0x21)
+
+
 class TestNfs6Ps2Car(unittest.TestCase):
     def _car(self):
         (name, block, data) = require_file(CAR)
@@ -225,6 +359,26 @@ class TestNfs6Ps2Car(unittest.TestCase):
         self.assertGreater(wheels[0]['y'], 0)
         self.assertLess(wheels[1]['y'], 0)
         self.assertLess(wheels[2]['x'], 0)
+
+    def test_car_type_should_have_physics_values(self):
+        (_, _, data) = require_file(GLOBALB)
+        car_type = _chunk(data, 0x00034600)['car_types'][0]
+        self.assertEqual(car_type['is_hp'], 0)
+        self.assertAlmostEqual(car_type['center_of_gravity']['z'], 0.3, places=6)
+        self.assertAlmostEqual(car_type['wheels'][0]['width'], 0.275, places=6)
+        self.assertEqual(car_type['tires'][0]['max_slip_angle'], 12)
+        self.assertEqual(car_type['rigid_body']['mass'], 1.25)
+        # the inertia tensor is the box formula of the dimensions (yaw doubled)
+        dims, tensor = car_type['rigid_body']['dimensions'], car_type['rigid_body']['inertia_tensor']
+        self.assertAlmostEqual(tensor[0], 1.25 / 12 * (dims['y'] ** 2 + dims['z'] ** 2), places=5)
+        self.assertAlmostEqual(tensor[10], 2 * 1.25 / 12 * (dims['x'] ** 2 + dims['y'] ** 2), places=5)
+        self.assertAlmostEqual(car_type['suspensions'][0]['max_height'], 0.15, places=6)
+        self.assertEqual(car_type['drive_train']['num_gears'], 5)
+        self.assertEqual(car_type['drive_train']['gear_ratios'][:3], [-4, 0, 4])
+        self.assertEqual((car_type['engine']['idle_rpm'], car_type['engine']['max_rpm']), (1000, 7000))
+        self.assertEqual(len(car_type['engine']['torque_curve']), 9)
+        # traffic has no speed limiter
+        self.assertEqual(car_type['controls']['speed_limiter'], 0)
 
     def test_parts_should_be_named_by_mesh_id(self):
         (_, _, data) = self._car()

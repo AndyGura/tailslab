@@ -536,7 +536,8 @@ export class Nfs6CarMeshController {
   private _sceneLighting: SceneSun | null = null;
   /**
    * Lit by the scene drawing the car instead of the location: the hemisphere ambient from the means of its sky
-   * (`scene.background` when it is a cube texture, sceneSkyMean) and this sun (specular). Null: the location
+   * (sceneSkyCube: the cube texture `scene.userData[SCENE_SKY_CUBE]` or `scene.background`, sceneSkyMean) and this
+   * sun (specular). Null: the location
    */
   get sceneLighting(): SceneSun | null {
     return this._sceneLighting;
@@ -547,7 +548,7 @@ export class Nfs6CarMeshController {
     this.updateLighting();
   }
 
-  /** The environment map is the sky of the scene drawing the car (when it is a cube texture), not environmentMap */
+  /** The environment map is the sky of the scene drawing the car (sceneSkyCube, when it has one), not environmentMap */
   sceneReflection = false;
 
   private _lightLevel = 1;

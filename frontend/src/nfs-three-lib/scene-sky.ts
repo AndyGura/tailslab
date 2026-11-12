@@ -25,12 +25,22 @@ export const proceduralSkySun = (sky: ProceduralSky3dOpts): SceneSun => {
 const CUBE_FLIP = new Matrix3().set(-1, 0, 0, 0, 1, 0, 0, 0, 1);
 
 /**
- * The sky of `scene`: `scene.background` when it is a cube texture, else null. Sets `matrix` to turn a world direction
- * into the direction to look up in it, as three.js turns it as the background (WebGLBackground)
+ * `scene.userData` key of an app's sky as a cube texture, for the readers here (sceneSkyCube), for when
+ * `scene.background` can't hold it: a sky drawn by a shader (gg-web-engine's dynamic procedural sky), a background lent
+ * to a backdrop pass while the scene is drawn. Read before `scene.background` and looked up as the background is
+ * (`scene.backgroundRotation`, mirrored in x unless it is a render target's texture)
+ */
+export const SCENE_SKY_CUBE = 'skyCube';
+
+const cubeTexture = (x: unknown): Texture | null => (x && (x as any).isCubeTexture ? (x as Texture) : null);
+
+/**
+ * The sky of `scene`: `scene.userData[SCENE_SKY_CUBE]` when it is a cube texture, else `scene.background` when it is
+ * one, else null. Sets `matrix` to turn a world direction into the direction to look up in it, as three.js turns it as
+ * the background (WebGLBackground)
  */
 export const sceneSkyCube = (scene: Scene | null | undefined, matrix: Matrix3): Texture | null => {
-  const background = scene?.background as Texture | null | undefined;
-  const sky = background && (background as any).isCubeTexture ? background : null;
+  const sky = scene ? (cubeTexture(scene.userData[SCENE_SKY_CUBE]) ?? cubeTexture(scene.background)) : null;
   if (sky && scene) {
     matrix.setFromMatrix4(new Matrix4().makeRotationFromEuler(scene.backgroundRotation)).transpose();
     if (!(sky as any).isRenderTargetTexture) {

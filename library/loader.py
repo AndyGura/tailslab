@@ -95,6 +95,10 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.car_specs import CarAiAndCrashBody
 
             return CarAiAndCrashBody
+        elif file_path.upper().endswith('.JBC'):
+            from resources.blackbox.audios.nfs6_ps2 import Nfs6Ps2Jukebox
+
+            return Nfs6Ps2Jukebox
         elif file_path.lower().endswith('.bigspecsfam'):
             from resources.eac.car_specs import Tnfs3doCarPhysics
 

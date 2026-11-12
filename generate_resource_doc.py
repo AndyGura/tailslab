@@ -23,6 +23,7 @@ from resources.blackbox.maps import nfs6_ps2 as blackbox_maps_nfs6_ps2
 from resources.blackbox.maps import nfsmw as blackbox_maps_nfsmw
 from resources.blackbox.bitmaps import nfs6_ps2 as blackbox_bitmaps_nfs6_ps2
 from resources.blackbox.geometries import nfs6_ps2 as blackbox_geometries_nfs6_ps2
+from resources.blackbox.audios import nfs6_ps2 as blackbox_audios_nfs6_ps2
 from resources.blackbox import archives as blackbox_archives
 
 
@@ -826,11 +827,13 @@ EXPORT_RESOURCES = {
         'title': 'NFS Hot Pursuit 2 (PlayStation 2) file specs',
         'file_list': f"""The disc keeps every file in **NFSHP2/ZZDATA.BIN**, listed by **NFSHP2/ZDIR.BIN**: 12-byte entries (Black Box hash of the file path, 2048-byte sector, size). The paths are not stored: the executable SLUS_203.62 has them (e.g. "TRACKS\\TRACKB%d.LZC").
 
-**TRACKS/TRACKB\\<track\\>.LZC** track bundle (track = location * 10 + variant, locations 1, 2, 3, 4 and 6): sceneries, meshes, track paths and race data. Opened in the track viewer with its textures and sky. COMP-compressed: {render_type(blackbox_archives.Nfs6Ps2CompressedBlock())}
+**TRACKS/TRACKB\\<track\\>.LZC** track bundle (track = location * 10 + variant, locations 1, 2, 3, 4 and 6): sceneries, meshes, track paths, routes, the ground and wall polygons of the physics and other race data. Opened in the track viewer with its textures and sky. COMP-compressed: {render_type(blackbox_archives.Nfs6Ps2CompressedBlock())}
 
-**CARS/\\<car\\>/GEOMETRY.LZC** car model (COMP-compressed; GEOMETRY.BIN uncompressed): its meshes. Textures are in **CARS/TEXTURES.BIN** and **GLOBAL/GLOBALB.LZC**, which has the car types table (wheels). {render_type(blackbox_maps_nfs6_ps2.Nfs6Ps2CarGeometry())}
+**CARS/\\<car\\>/GEOMETRY.LZC** car model (COMP-compressed; GEOMETRY.BIN uncompressed): its meshes and collision hull. Textures are in **CARS/TEXTURES.BIN** and **GLOBAL/GLOBALB.LZC**, which has the car types table (wheels, physics values). {render_type(blackbox_maps_nfs6_ps2.Nfs6Ps2CarGeometry())}
 
-**TRACKS/TEX\\<track\\>LOCATION.BIN**, **TRACKS/TEX\\<track\\>TRACK.BIN**, **GLOBAL/\\*.BIN** texture packs and other chunk bundles. {render_type(blackbox_maps_nfs6_ps2.Nfs6Ps2ChunkBundle())}""",
+**TRACKS/TEX\\<track\\>LOCATION.BIN**, **TRACKS/TEX\\<track\\>TRACK.BIN**, **GLOBAL/\\*.BIN** texture packs and other chunk bundles. {render_type(blackbox_maps_nfs6_ps2.Nfs6Ps2ChunkBundle())}
+
+**SOUND/JUKEBOXM.JBC** in-game music: the songs of the PC game, stereo PS-ADPCM. {render_type(blackbox_audios_nfs6_ps2.Nfs6Ps2Jukebox())}""",
         'blocks': {
             'Maps': [
                 blackbox_maps_nfs6_ps2.Nfs6Ps2TrackBundle(),
@@ -846,12 +849,43 @@ EXPORT_RESOURCES = {
                 blackbox_maps_nfs6_ps2.Nfs6Ps2TrackPathRecord(),
                 blackbox_maps_nfs6_ps2.Nfs6Ps2TrackPathPoints(),
                 blackbox_maps_nfs6_ps2.Nfs6Ps2TrackPathPoint(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2TrackPositionMarkers(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2TrackPositionMarker(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2TrackRoutes(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2TrackRoute(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2TrackRoutePoint(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2Signposts(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2Signpost(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2TopologyTreeNodes(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2TopologyTreeNode(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2TopologyTreeSquares(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2TopologyTreeSquare(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2TopologyTreePolygons(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2TopologyTreePolygon(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2TopologyTreeIndexes(),
             ],
             'Cars': [
                 blackbox_maps_nfs6_ps2.Nfs6Ps2CarGeometry(),
                 blackbox_maps_nfs6_ps2.Nfs6Ps2CarTypeInfos(),
                 blackbox_maps_nfs6_ps2.Nfs6Ps2CarTypeInfo(),
                 blackbox_maps_nfs6_ps2.Nfs6Ps2CarWheel(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2CarTire(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2CarRigidBody(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2CarSuspension(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2CarDriveTrain(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2CarEngine(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2CarAero(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2CarControls(),
+                blackbox_geometries_nfs6_ps2.Nfs6Ps2CollisionVolumes(),
+                blackbox_geometries_nfs6_ps2.Nfs6Ps2Polyhedron(),
+                blackbox_geometries_nfs6_ps2.Nfs6Ps2PolyhedronVertices(),
+                blackbox_geometries_nfs6_ps2.Nfs6Ps2PolyhedronVertex(),
+                blackbox_geometries_nfs6_ps2.Nfs6Ps2PolyhedronEdges(),
+                blackbox_geometries_nfs6_ps2.Nfs6Ps2PolyhedronEdge(),
+                blackbox_geometries_nfs6_ps2.Nfs6Ps2PolyhedronFaces(),
+                blackbox_geometries_nfs6_ps2.Nfs6Ps2PolyhedronFace(),
+                blackbox_geometries_nfs6_ps2.Nfs6Ps2PolyhedronPlanes(),
+                blackbox_geometries_nfs6_ps2.Nfs6Ps2PolyhedronPlane(),
             ],
             'Images': [
                 blackbox_bitmaps_nfs6_ps2.Nfs6Ps2TexturePack(),
@@ -872,6 +906,12 @@ EXPORT_RESOURCES = {
                 blackbox_geometries_nfs6_ps2.Nfs6Ps2MeshVifData(),
                 blackbox.geometries.ZeroChunk(),
                 blackbox.geometries.UnknownChunk(),
+            ],
+            'Audio': [
+                blackbox_audios_nfs6_ps2.Nfs6Ps2Jukebox(),
+                blackbox_audios_nfs6_ps2.Nfs6Ps2JukeboxGroup(),
+                blackbox_audios_nfs6_ps2.Nfs6Ps2JukeboxEntry(),
+                blackbox_audios_nfs6_ps2.Nfs6Ps2JukeboxTrack(),
             ],
         },
     },

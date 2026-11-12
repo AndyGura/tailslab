@@ -16,6 +16,7 @@ import {
   Vector3,
   Vector4,
 } from 'three';
+import { sceneSkyCube } from './scene-sky';
 
 export type FceDummy = { name: string; position: [number, number, number] };
 
@@ -386,9 +387,6 @@ class ChromeUniforms {
   readonly cubeMatrix = { value: new Matrix3() };
 }
 
-// three.js WebGLBackground: a cube texture of images (not a render target) is mirrored in x
-const CUBE_FLIP = new Matrix3().set(-1, 0, 0, 0, 1, 0, 0, 0, 1);
-
 /**
  * The chrome pass of nfs3.exe (Render_CarPolyList 0x434120, a second pass of every body triangle but matte ones),
  * added in the fragment shader of the material over its own color: texture coordinates per vertex from the game's
@@ -550,8 +548,9 @@ export class FceCarMeshController {
 
   /**
    * The chrome (environment) texture as nfs3.exe draws it: the track's SKY.FSH `CHRD` (day; `CHRN` night, `CHRW` /
-   * `CHNW` in the rain). Null: the chrome reflects the sky of the scene drawing the car (`scene.background` when it is
-   * a cube texture, e.g. gg-web-engine's baked sky), no chrome without one. Not owned by the controller
+   * `CHNW` in the rain). Null: the chrome reflects the sky of the scene drawing the car (sceneSkyCube: the cube texture
+   * `scene.userData[SCENE_SKY_CUBE]`, else `scene.background` when it is one, e.g. gg-web-engine's baked sky), no
+   * chrome without one. Not owned by the controller
    */
   chromeTexture: Texture | null = null;
 
@@ -796,8 +795,8 @@ export class FceCarMeshController {
    */
   updateChrome(cameraPosition: Vector3, scene?: Scene, mesh: Mesh = this.chromeMeshes[0]) {
     const chrome = this.chrome;
-    const background = scene?.background as Texture | null | undefined;
-    const sky = background && (background as any).isCubeTexture ? background : null;
+    // the cube matrix as three.js turns a background cube texture (WebGLBackground)
+    const sky = sceneSkyCube(scene, chrome.cubeMatrix.value);
     chrome.map.value = this.chromeTexture;
     chrome.cube.value = sky;
     chrome.mode.value =
@@ -817,13 +816,6 @@ export class FceCarMeshController {
     const rotation = new Matrix3().setFromMatrix4(new Matrix4().extractRotation(mesh.matrixWorld));
     chrome.worldMatrix.value.copy(rotation);
     chrome.eye.value.copy(d).normalize();
-    if (sky && scene) {
-      // as three.js turns a background cube texture (WebGLBackground)
-      chrome.cubeMatrix.value.setFromMatrix4(new Matrix4().makeRotationFromEuler(scene.backgroundRotation)).transpose();
-      if (!(sky as any).isRenderTargetTexture) {
-        chrome.cubeMatrix.value.premultiply(CUBE_FLIP);
-      }
-    }
     const e = fce3ChromeEnvMatrix([d.x, d.z, d.y]);
     // column vectors: env normal = Env^T (game normal), game normal = S (world normal), world normal = R (mesh normal)
     const envT = new Matrix3().set(e[0], e[3], e[6], e[1], e[4], e[7], e[2], e[5], e[8]);

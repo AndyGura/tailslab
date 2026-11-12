@@ -52,7 +52,7 @@ docs and a working GUI editor for free.
 | `resources/eac/` | EA Canada format definitions built from `read_blocks` primitives (bitmaps, archives, fonts, audio, geometries, maps, car specs, TNFS replays). Shared across many NFS titles. `compressions/` holds the pure-Python decompressors and compressors (RefPack, QFS2, QFS3, NFSU's JDLZ, NFSU2's HUFF = QFS3 behind a 16-byte header, NFS HP2 PS2's COMP) behind `EacCompressedBlock`, which writes a resource back with the algorithm it was read with (`compression_flags` in its data, new data gets RefPack). Formats, game addresses and compressor notes: `resources/eac_compressions.md`. Compressor output is checked with the games' ASM decoders in `test_compressed_block.py`. |
 | `resources/eac/maps/`, `resources/eac/geometries/` | Per-game specializations (`tnfs.py`, `nfs2.py`, `nfs3.py`, `nfs5.py`, ...). |
 | `resources/common/` | Vendor-neutral formats reused as fallbacks (e.g. Targa image). |
-| `resources/blackbox/` | Blackbox-studio (later NFS titles) formats, NFS Underground 1, 2 and Most Wanted, NFS Hot Pursuit 2 PS2 (`nfs6_ps2.py` modules, see its section below): `chunks.py` (generic id+length chunk dispatch helpers), `geometries/` (car and world geometry packs), `bitmaps/` (texture packs, TPK), `maps/` (chunk bundles, scenery, streaming sections; `NfsuTrackBundle` is a race's `TRACKBnnnn.lzc` or an NFSU2/NFSMW location bundle `LxRA.BUN`), `archives.py` (JDLZ-compressed files). |
+| `resources/blackbox/` | Blackbox-studio (later NFS titles) formats, NFS Underground 1, 2 and Most Wanted, NFS Hot Pursuit 2 PS2 (`nfs6_ps2.py` modules, see its section below): `chunks.py` (generic id+length chunk dispatch helpers), `geometries/` (car and world geometry packs), `bitmaps/` (texture packs, TPK), `maps/` (chunk bundles, scenery, streaming sections; `NfsuTrackBundle` is a race's `TRACKBnnnn.lzc` or an NFSU2/NFSMW location bundle `LxRA.BUN`), `audios/` (NFS HP2 PS2 music `JUKEBOXM.JBC`), `archives.py` (JDLZ-compressed files). |
 | `resources/eac/fields/` | Small reusable domain blocks: `Point2D`/`Point3D`/`RGBBlock`, angle/time fields. |
 | `resources/*.md` | **Auto-generated** per-game docs (`generate_resource_doc.py`). Never hand-edit — edit the block definitions/descriptions and regenerate. |
 | `serializers/` | Turn parsed block data into common output formats and back. One serializer class per resource kind, returned by a block's `serializer_class()`. |
@@ -411,7 +411,11 @@ When you do:
   (`v @ rotation + position`, rotation 2.14 fixed point); the mesh header's matrix is the modelling one, not used.
 - Textures (`nfs6_ps2_texture_to_image`, `library/utils/ps2.py`): 4 / 8-bit indexes, GS-swizzled when the level's
   `swizzled` flag is set (whole GS pages), 256-colour palettes in CSM1 order, alpha 0x80 = opaque (doubled).
-- `Nfs6Ps2TrackBundleSerializer` (an `NfsuTrackBundleSerializer`): one chunk per scenery (game axes, Z up), textures of
+- `Nfs6Ps2TrackBundleSerializer` (an `NfsuTrackBundleSerializer`): one chunk per scenery (game axes, Z up), the meshes'
+  vertex colours as COLOR_0 (`vertex_colors`: RGB / 255, alpha / 128 as the cars'; the game draws texel x colour / 128,
+  the textures are stored at half brightness: drawn without the colours a track looks twice too dark; nfs-web reads
+  them), the road surface's parts apart (`road_part_prefixes`: meshes RD_ / RDDRT_ / TRN_DRV / LI_RD_, chunk meshes
+  `scenery<section>_<n>_road_<texture>`; nfs-web snaps its routes onto them), textures of
   `TEX<track>TRACK.BIN`, `TEX<track>LOCATION.BIN`, `GLOBAL/INGAMEB`, `GLOBAL/DRIVTEX.BIN` (`nfs6_ps2_texture_pack_paths`).
   The sky dome `SKYDOME` (placed by its scenery instance, 0x11c5f8) is not in the chunks: `spherical.png`
   (`library/utils/nfs6_ps2_sky_to_spherical.py`). `track_route.json`: path 0 of the track paths chunk 0x80034147 (the
@@ -446,8 +450,25 @@ When you do:
   the environment map; `sceneLighting`: the scene's sky as the ambient, its sun as light 0, a GUI radio; paint,
   lights, wheels). Textures are looked up by `bin_hash` of the full name (`nfs6_ps2_texture_by_name`): stored names
   are cut to 23 characters (`MURCIELAGO_BRAKELIGHT_O`). nfs-web reads these names and files: keep them stable.
+- Music: `SOUND/JUKEBOXM.JBC` (`resources/blackbox/audios/nfs6_ps2.py`, `Nfs6Ps2Jukebox`, an `ArchiveBlock` of
+  `Nfs6Ps2JukeboxTrack`s named by the track table): the 23 songs of the PC game's `audio/music`, stereo PS-ADPCM
+  ("VAGp" + "VAGx" header), the channels in blocks of `interleave` (16) sectors, decoded by
+  `library/utils/audio_ps_adpcm_codec.py` up to the end flag: 21 of them have the PC files' sample count and correlate
+  at 0.999 with them; "Fever for the Flava (Rmx)" is another mix than the PC's instrumental. The 84-byte name fields
+  hold leftovers after the name (`name_paddings`, kept for byte-exact writes). `Nfs6Ps2JukeboxSerializer` writes
+  `<track name>.wav` + `.meta.json` per track (names stripped: two end with a space); nfs-web loads the race music
+  from these files: keep the names stable.
+- Physics data (field meanings from nfs-web's port of the physics, `src/nfs6/nfs6-physics/notes/*-formats.md`; exe
+  addresses in the descriptions): the car types' wheels, tyres, mass and inertia, suspensions, drive train, engine,
+  aerodynamics and controls (`Nfs6Ps2CarTypeInfo`, its sub-blocks `Nfs6Ps2Car*`; 0x80..0x110 but `is_hp`, 0x324..0x538
+  stay unknown bytes); in the track bundles the ground and wall polygons of the physics, a quad tree (0x34130 nodes and
+  0x34131 squares, 16-byte aligned; 0x34132 polygons, 0x34133 polygon indexes, not aligned: `Nfs6Ps2TopologyTree*`), the
+  start grid markers 0x34146, the routes 0x34121 (lanes and racing lines, back to back, 0x428 bytes + 0x70 per point)
+  and signposts 0x34122; the collision volumes 0x80034020 (`Nfs6Ps2CollisionVolumes`: V-Clip polyhedra as memory images,
+  five sub-chunks each, 16-byte aligned; a car's GEOMETRY has its hull `<model>_CV`, the tracks and INGAMEB the props').
+  Records the game uses in place keep their run time fields (list pointers, slots) as read.
 - Ghidra: nfs-web `decomp/nfs6_ps2/SLUS_203.62.gzf` (R5900 language of the extension `ghidra-emotionengine-reloaded`),
-  VU1 microcode: nfs-web `decomp/vu1dis.py`. Not read yet: sound, NIS, the 136 unnamed files.
+  VU1 microcode: nfs-web `decomp/vu1dis.py`. Not read yet: engine sounds, speech, NIS, the 136 unnamed files.
 
 ## NFS5 data files (`resources/eac/car_specs.py`, `resources/eac/maps/nfs5.py`, `resources/eac/geometries/nfs5.py`)
 

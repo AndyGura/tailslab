@@ -127,6 +127,7 @@ export class EditorComponent implements OnDestroy {
     // NFS6 PS2-specific blocks
     Nfs6Ps2TrackBundle: TrackMapBlockUiComponent,
     Nfs6Ps2CarGeometry: Nfs6Ps2CarBlockUiComponent,
+    Nfs6Ps2JukeboxTrack: EacsAudioBlockUiComponent,
 
     // NFSU-specific blocks
     NfsuBinGeometry: NfsuBinGeometryBlockUiComponent,

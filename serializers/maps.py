@@ -1783,6 +1783,9 @@ class NfsuWorld:
     floor_faces_up = True
     # road meshes (TRN_CN_RoadA_CHOP_...), taken over the terrain under the same point
     road_mesh_marker = '_ROAD'
+    # meshes of the road surface, kept apart from the rest in `scenery_parts` (keys (texture id, is road)) and named
+    # "scenery<section>_<n>_road_<texture>" in the chunk export. None: parts by texture only
+    road_part_prefixes = None
 
     def __init__(self):
         self.meshes = {}
@@ -1828,8 +1831,11 @@ class NfsuWorld:
         instances: list,
         more_skipped_prefixes: Tuple[str, ...] = (),
         kept_prefixes: Optional[Tuple[str, ...]] = None,
-    ) -> Dict[Optional[int], Tuple[list, list, list]]:
-        """World geometry of scenery: texture id -> (vertices, uvs, triangles). Meshes named with
+        with_colors: bool = False,
+    ) -> Dict[Optional[int], tuple]:
+        """World geometry of scenery: texture id (with `road_part_prefixes`: (texture id, whether the mesh is of the road
+        surface)) -> (vertices, uvs, triangles), with `with_colors` also the vertex
+        colours (r, g, b, a 0..255 rows; meshes without colours give 128 grey: the GS's 1.0). Meshes named with
         `skipped_mesh_prefixes` (or `more_skipped_prefixes`) are skipped, so are all but those named with
         `kept_prefixes` if given"""
         import numpy as np
@@ -1848,6 +1854,12 @@ class NfsuWorld:
             position = np.array([instance['position'][k] for k in 'xyz'], dtype=np.float64)
             world = np.asarray(mesh.vertices, dtype=np.float64) @ rotation + position
             mesh_uvs = np.asarray(mesh.uvs, dtype=np.float64)
+            mesh_colors = None
+            if with_colors:
+                mesh_colors = np.full((len(world), 4), 128, dtype=np.float64)
+                colors = getattr(mesh, 'colors', None)
+                if colors is not None and len(colors) == len(world):
+                    mesh_colors = np.asarray(colors, dtype=np.float64).reshape(-1, 4)
             for texture_id, triangles in mesh.parts:
                 if not len(triangles):
                     continue
@@ -1855,14 +1867,22 @@ class NfsuWorld:
                 used, remapped = np.unique(np.asarray(triangles, dtype=np.int64), return_inverse=True)
                 if used[-1] >= len(world):
                     continue
-                vertices, uvs, polygons = parts.setdefault(texture_id, ([], [], []))
+                key = (
+                    (texture_id, mesh.name.upper().startswith(self.road_part_prefixes))
+                    if self.road_part_prefixes
+                    else texture_id
+                )
+                vertices, uvs, polygons, part_colors = parts.setdefault(key, ([], [], [], []))
                 offset = sum(len(x) for x in vertices)
                 vertices.append(world[used])
                 uvs.append(mesh_uvs[used])
                 polygons.append(remapped.reshape(-1, 3) + offset)
+                if mesh_colors is not None:
+                    part_colors.append(mesh_colors[used])
         return {
             texture_id: (np.concatenate(vertices), np.concatenate(uvs), np.concatenate(polygons))
-            for texture_id, (vertices, uvs, polygons) in parts.items()
+            + ((np.concatenate(part_colors),) if with_colors else ())
+            for texture_id, (vertices, uvs, polygons, part_colors) in parts.items()
         }
 
 
@@ -2133,6 +2153,9 @@ class NfsuTrackBundleSerializer(BaseFileSerializer):
     bounding boxes, Y up) are saved to "terrain_chunks.json", the race route and the other roads (`track_paths`) to
     "track_route.json". Game coordinates are Z up, chunk OBJs keep them"""
 
+    # the meshes' vertex colours as the chunk GLBs' COLOR_0
+    vertex_colors = False
+
     def __init__(self):
         super().__init__(is_dir=True)
 
@@ -2202,20 +2225,25 @@ class NfsuTrackBundleSerializer(BaseFileSerializer):
         scenes = [map_scene]
         chunk_positions = []
         for i, (section_number, infos, instances) in enumerate(world.sceneries):
-            parts = world.scenery_parts(infos, instances)
+            parts = world.scenery_parts(infos, instances, with_colors=self.vertex_colors)
             if not parts:
                 continue
-            all_vertices = np.concatenate([vertices for (vertices, _, _) in parts.values()])
+            all_vertices = np.concatenate([part[0] for part in parts.values()])
             pivot = (all_vertices.min(axis=0) + all_vertices.max(axis=0)) / 2 if chunked else np.zeros(3)
             sub_meshes = []
-            for k, (texture_id, (vertices, uvs, polygons)) in enumerate(parts.items()):
+            for k, (key, (vertices, uvs, polygons, *colors)) in enumerate(parts.items()):
+                texture_id, road = key if world.road_part_prefixes else (key, False)
                 sm = SubMesh()
                 sm.texture_id = texture_name(texture_id)
-                sm.name = f'scenery{section_number}_{k}_{sm.texture_id}'
+                # the texture last: readers take the texture name after the last "_"
+                sm.name = f'scenery{section_number}_{k}_{"road_" if road else ""}{sm.texture_id}'
                 # numpy arrays rather than lists: much less memory for a whole city
                 sm.vertices = (vertices - pivot).round(3)
                 sm.vertex_uvs = uvs.round(5)
                 sm.polygons = polygons
+                if colors:
+                    # as the car exports: RGB / 255, alpha / 128 (the GS's 1.0)
+                    sm.vertex_colors = np.minimum(colors[0] / [255, 255, 255, 128], 1.0)
                 sub_meshes.append(sm)
             if chunked:
                 chunk_positions.append({'x': pivot[0], 'y': pivot[2], 'z': pivot[1]})
@@ -2365,6 +2393,10 @@ class Nfs6Ps2World(NfsuWorld):
     floor_mesh_prefixes = None
     floor_faces_up = False
     road_mesh_marker = None
+    # the road surface: RD_SECTION<n>_CHOP<n> (paved, tunnels RD_SECTION<n>_TUNNEL...), RDDRT_SECTION<n>_CHOP<n> (dirt
+    # roads), TRN_DRV_SECTION<n> (drivable terrain: Mediterranean town squares), LI_RD_BRIDGE<n> (bridge decks); the
+    # terrain is TRN_..., shadows SHD_... (nfs-web snaps its routes onto the road surface)
+    road_part_prefixes = ('RD_', 'RDDRT_', 'TRN_DRV', 'LI_RD_')
 
     def collect(self, bundle_data: dict):
         import numpy as np
@@ -2408,7 +2440,11 @@ class Nfs6Ps2TrackBundleSerializer(NfsuTrackBundleSerializer):
     """NFS Hot Pursuit 2 (PS2) track world: one terrain chunk per scenery of TRACKS/TRACKB<track>.LZC (game coordinates,
     Z up), textures from the texture packs of the track (`nfs6_ps2_texture_pack_paths`) saved to
     "textures/<texture id>.png", chunk positions (centers of bounding boxes, Y up) to "terrain_chunks.json". With
-    `maps__save_spherical_skybox_texture`, the sky dome SKYDOME on "spherical.png" (`nfs6_ps2_sky_to_spherical.py`)"""
+    `maps__save_spherical_skybox_texture`, the sky dome SKYDOME on "spherical.png" (`nfs6_ps2_sky_to_spherical.py`).
+    The chunk GLBs have the meshes' vertex colours as COLOR_0 (RGB / 255, alpha / 128, as the cars'): the game draws a
+    texel times its vertex colour / 128 (GS modulate), the textures are stored at half brightness"""
+
+    vertex_colors = True
 
     def load_world(self, data: dict, id: str) -> NfsuWorld:
         from library import require_resource

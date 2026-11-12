@@ -458,7 +458,10 @@ export class Nfs6Ps2CarMeshController {
   // shaded objects: their uniforms and lighting material ("CARSKIN": the paint's)
   private readonly shaded: { uniforms: MaterialUniforms; lightingMaterial: string | null }[] = [];
 
-  /** Environment map pass: the scene's sky (`scene.background` when it is a cube texture) reflected, else none */
+  /**
+   * Environment map pass: the scene's sky (sceneSkyCube: the cube texture `scene.userData[SCENE_SKY_CUBE]` or
+   * `scene.background`) reflected, else none
+   */
   envEnabled = true;
 
   private _skin: string | null = null;
@@ -503,8 +506,9 @@ export class Nfs6Ps2CarMeshController {
 
   private _sceneLighting: SceneSun | null = null;
   /**
-   * Lit by the scene drawing the car instead of `lighting`: the ambient from its sky (`scene.background` when it is a
-   * cube texture, sceneSkyMean) and this sun as light 0, the other lights off. Null: `lighting`
+   * Lit by the scene drawing the car instead of `lighting`: the ambient from its sky (sceneSkyCube: the cube texture
+   * `scene.userData[SCENE_SKY_CUBE]` or `scene.background`, sceneSkyMean) and this sun as light 0, the other lights
+   * off. Null: `lighting`
    */
   get sceneLighting(): SceneSun | null {
     return this._sceneLighting;

@@ -1,6 +1,13 @@
 from typing import Dict
 
-from library.read_blocks import ArrayBlock, BytesBlock, DecimalBlock, DeclarativeCompoundBlock, IntegerBlock
+from library.read_blocks import (
+    ArrayBlock,
+    BytesBlock,
+    DecimalBlock,
+    DeclarativeCompoundBlock,
+    FixedPointBlock,
+    IntegerBlock,
+)
 from library.read_blocks.misc.value_validators import Eq
 from library.read_blocks.strings import UTF8Block
 from resources.blackbox.chunks import container_chunk_length, nfsu_sub_chunks_field
@@ -374,4 +381,275 @@ class Nfs6Ps2LightingMaterials(DeclarativeCompoundBlock):
         materials = (
             ArrayBlock(child=Nfs6Ps2LightingMaterial(), length=lambda ctx: ctx.data('num_materials')),
             {'description': 'Materials'},
+        )
+
+
+# Collision volumes (chunk 0x80034020: car hulls "<model>_CV" in CARS/<car>/GEOMETRY, the props' in the track bundles,
+# GLOBAL/INGAMEB's): V-Clip polyhedra as memory images, LoaderCollisionVolumes SLUS_203.62 0x218e10. The loader takes
+# the sub-chunks five by five in this order, without checking their ids: the polyhedron, its vertices, edges, faces
+# and Voronoi planes. Pointers between the features are indexes in the images (ConvertToPointers 0x1d3e68)
+
+
+def _collision_elements_fields(chunk_id: int, items_field: str, item_block, item_size: int, items_description: str):
+    return {
+        'chunk_id': (IntegerBlock(length=4, value_validator=Eq(chunk_id)), {'description': _CHUNK_ID_DESCR}),
+        'chunk_length': (
+            IntegerBlock(
+                length=4,
+                programmatic_value=lambda ctx: len(ctx.data('elevens')) + item_size * len(ctx.data(items_field)),
+            ),
+            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
+        ),
+        'elevens': _elevens_field(),
+        items_field: (
+            ArrayBlock(
+                child=item_block,
+                length=lambda ctx: (ctx.data('chunk_length') - len(ctx.data('elevens'))) // item_size,
+            ),
+            {'description': items_description},
+        ),
+    }
+
+
+class Nfs6Ps2Polyhedron(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'A collision polyhedron (PipelinePolyhedron object, 0x60 bytes, used in place; '
+            'PipelinePolyhedron::MemoryImageLoad). Its features are the next four sub-chunks',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034021)), {'description': _CHUNK_ID_DESCR})
+        chunk_length = (
+            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('elevens')) + 0x60),
+            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
+        )
+        elevens = _elevens_field()
+        list_node = (
+            ArrayBlock(child=IntegerBlock(length=4), length=2),
+            {
+                'description': 'Written by the game: next and previous of the polyhedra list (0x331a18); leftover '
+                'pointers in the files'
+            },
+        )
+        owns_arrays = (
+            IntegerBlock(length=4),
+            {'description': '1 in the files: the arrays are its own (VCPolyhedron::Init 0x1d3148 / 0x1d3200)'},
+        )
+        debug_object = (IntegerBlock(length=4), {'description': 'Debug drawing object, 0 in the files'})
+        counts = (
+            ArrayBlock(child=IntegerBlock(length=2, is_signed=True), length=4),
+            {
+                'description': 'Amounts of vertices, edges, faces and Voronoi planes: the loader sets them from the '
+                "sub-chunks' sizes (equal in the files)"
+            },
+        )
+        maxima = (
+            ArrayBlock(child=IntegerBlock(length=2, is_signed=True), length=4),
+            {
+                'description': "Room for vertices, edges, faces and planes: the tool's (200, 400, 100, 2400 for the "
+                'cars); the loader sets them to the counts'
+            },
+        )
+        pointers = (
+            ArrayBlock(child=IntegerBlock(length=4), length=4),
+            {'description': "Written by the game: the arrays' addresses; leftovers of the tool in the files"},
+        )
+        name_hash = (
+            IntegerBlock(length=4),
+            {
+                'description': 'bStringHash of the name (h = -1, h = h x 33 + byte): FindPipelinePolyhedron 0x219078 '
+                'finds a car\'s hull by it ("<model name>_CV", CarCollisionBody::CarCollisionBody 0x1d7e48)'
+            },
+        )
+        name = (
+            UTF8Block(length=32),
+            {'description': 'Name, e.g. "CORVETTE_CV" (36 vertices, 102 edges, 68 triangles); not read by the game'},
+        )
+        cog_moved = (
+            IntegerBlock(length=4),
+            {
+                'description': "0 in the files, 1 once moved by a car type's centre of gravity "
+                '(PipelinePolyhedron::MoveCenterOfGravity 0x2190e0): car types sharing a model share its hull, moved '
+                'by the first one'
+            },
+        )
+        padding = (BytesBlock(length=8), {'description': 'Leftover bytes', 'is_unknown': True})
+
+
+class Nfs6Ps2PolyhedronVertex(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {**super().schema, 'block_description': 'A vertex of a collision polyhedron (VCVertex, 0x14 bytes)'}
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        feature_type = (IntegerBlock(length=1, is_signed=True), {'description': 'Feature type: 0, a vertex'})
+        num_planes = (
+            IntegerBlock(length=1, is_signed=True),
+            {'description': 'Its Voronoi planes, one per edge at the vertex (VCVertex::SetVoronoiPlanes 0x1d2800)'},
+        )
+        unk = (IntegerBlock(length=2), {'description': 'Leftover bytes', 'is_unknown': True})
+        position = (
+            Point3D(child=DecimalBlock(length=4)),
+            {
+                'description': "Position in the model's coordinates (X forward, Y left, Z up), before the move by the "
+                'centre of gravity'
+            },
+        )
+        first_plane = (
+            IntegerBlock(length=4, is_signed=True),
+            {'description': 'Index of its first Voronoi plane; its num_planes planes follow it'},
+        )
+
+
+class Nfs6Ps2PolyhedronEdge(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'An edge of a collision polyhedron (VCEdge, 12 bytes). Its 4 Voronoi planes border '
+            'its tail vertex, head vertex and its two faces',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        feature_type = (IntegerBlock(length=1, is_signed=True), {'description': 'Feature type: 1, an edge'})
+        num_planes = (IntegerBlock(length=1, is_signed=True), {'description': 'Its Voronoi planes: 4'})
+        direction = (
+            Point3D(child=FixedPointBlock(length=2, fraction_bits=13, is_signed=True)),
+            {'description': 'Unit direction, tail to head (stored x 8192, truncated: VCPolyhedron::NewEdge 0x1d3498)'},
+        )
+        first_plane = (
+            IntegerBlock(length=4, is_signed=True),
+            {'description': 'Index of its first Voronoi plane; its num_planes planes follow it'},
+        )
+
+
+class Nfs6Ps2PolyhedronFace(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {**super().schema, 'block_description': 'A face of a collision polyhedron (VCFace, 0x18 bytes)'}
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        feature_type = (IntegerBlock(length=1, is_signed=True), {'description': 'Feature type: 2, a face'})
+        num_planes = (
+            IntegerBlock(length=1, is_signed=True),
+            {'description': 'Its Voronoi planes, one per edge: 3 in every polyhedron of the files (triangles)'},
+        )
+        unk = (IntegerBlock(length=2), {'description': 'Leftover bytes', 'is_unknown': True})
+        normal = (
+            Point3D(child=DecimalBlock(length=4)),
+            {'description': 'Outward unit normal (VCFace::Move 0x1d30a8)'},
+        )
+        d = (DecimalBlock(length=4), {'description': 'normal . p = d on the face'})
+        first_plane = (
+            IntegerBlock(length=4, is_signed=True),
+            {'description': 'Index of its first Voronoi plane; its num_planes planes follow it'},
+        )
+
+
+class Nfs6Ps2PolyhedronPlane(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'A Voronoi plane of a feature of a collision polyhedron (VCVoronoiPlane, 0x18 '
+            'bytes): the border of its region towards a neighbouring feature',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        unk = (IntegerBlock(length=4), {'description': 'Leftover bytes', 'is_unknown': True})
+        normal = (
+            Point3D(child=DecimalBlock(length=4)),
+            {
+                'description': '(0, 0, 1) in the files: the game computes the planes after loading '
+                '(SetVoronoiPlanes of the features)'
+            },
+        )
+        d = (DecimalBlock(length=4), {'description': '0 in the files, computed as the normal'})
+        neighbor = (
+            IntegerBlock(length=4),
+            {
+                'description': 'The feature beyond the plane as a feature code: index << 4 | feature type (0 vertex, '
+                '1 edge, 2 face), 0xffffffff none (VCPolyhedron::GetFeature 0x1d3c60)'
+            },
+        )
+
+
+class Nfs6Ps2PolyhedronVertices(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {**super().schema, 'block_description': 'Vertices of a collision polyhedron'}
+
+    Fields = type(
+        'Fields',
+        (DeclarativeCompoundBlock.Fields,),
+        _collision_elements_fields(0x00034024, 'vertices', Nfs6Ps2PolyhedronVertex(), 0x14, 'Vertices'),
+    )
+
+
+class Nfs6Ps2PolyhedronEdges(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {**super().schema, 'block_description': 'Edges of a collision polyhedron'}
+
+    Fields = type(
+        'Fields',
+        (DeclarativeCompoundBlock.Fields,),
+        _collision_elements_fields(0x00034023, 'edges', Nfs6Ps2PolyhedronEdge(), 0xC, 'Edges'),
+    )
+
+
+class Nfs6Ps2PolyhedronFaces(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {**super().schema, 'block_description': 'Faces of a collision polyhedron'}
+
+    Fields = type(
+        'Fields',
+        (DeclarativeCompoundBlock.Fields,),
+        _collision_elements_fields(0x00034022, 'faces', Nfs6Ps2PolyhedronFace(), 0x18, 'Faces'),
+    )
+
+
+class Nfs6Ps2PolyhedronPlanes(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'Voronoi planes of a collision polyhedron, the planes of each feature one after the '
+            'other',
+        }
+
+    Fields = type(
+        'Fields',
+        (DeclarativeCompoundBlock.Fields,),
+        _collision_elements_fields(0x00034025, 'planes', Nfs6Ps2PolyhedronPlane(), 0x18, 'Voronoi planes'),
+    )
+
+
+class Nfs6Ps2CollisionVolumes(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'Collision volumes: convex polyhedra for V-Clip collision tests, five sub-chunks per '
+            'polyhedron (LoaderCollisionVolumes SLUS_203.62 0x218e10). A car\'s GEOMETRY has its hull "<model>_CV"; '
+            "the track bundles and GLOBAL/INGAMEB the props' (CS_BarrelA_L, CS_SMOKEBOMB...). Without a hull the "
+            'game takes a box (RectPolyhedron)',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x80034020)), {'description': _CHUNK_ID_DESCR})
+        chunk_length = container_chunk_length()
+        sub_chunks = nfsu_sub_chunks_field(
+            [
+                Nfs6Ps2Polyhedron(),
+                Nfs6Ps2PolyhedronVertices(),
+                Nfs6Ps2PolyhedronEdges(),
+                Nfs6Ps2PolyhedronFaces(),
+                Nfs6Ps2PolyhedronPlanes(),
+            ],
+            'For each polyhedron: the polyhedron, its vertices, edges, faces and Voronoi planes',
         )

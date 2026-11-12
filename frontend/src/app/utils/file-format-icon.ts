@@ -41,6 +41,8 @@ const iconMap: Record<string, string> = {
   EacsAudioFile: 'audiotrack',
   AsfAudio: 'audiotrack',
   EaAudioStreams: 'audiotrack',
+  Nfs6Ps2Jukebox: 'audiotrack',
+  Nfs6Ps2JukeboxTrack: 'audiotrack',
 
   PlayerCarPhysics: 'speed',
   CarAiAndCrashBody: 'speed',

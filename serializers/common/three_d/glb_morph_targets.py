@@ -217,7 +217,7 @@ def add_glb_vertex_attributes(glb_path: str, sub_meshes: List[SubMesh], toleranc
     geometry attribute `_game_normal`), and their `vertex_colors` as COLOR_0. The GLB keeps Blender's NORMAL: the game
     normals are for code that follows the game's own shading (FCE chrome, `FceCarMeshController`). Vertices are matched
     as for the morph targets"""
-    with_normals = {sm.name for sm in sub_meshes if sm.vertices and len(sm.vertex_normals) == len(sm.vertices)}
+    with_normals = {sm.name for sm in sub_meshes if len(sm.vertices) and len(sm.vertex_normals) == len(sm.vertices)}
     with_colors = {sm.name for sm in sub_meshes if len(sm.vertices) and len(sm.vertex_colors) == len(sm.vertices)}
     sub_meshes = [sm for sm in sub_meshes if sm.name in with_normals or sm.name in with_colors]
     if not sub_meshes:
