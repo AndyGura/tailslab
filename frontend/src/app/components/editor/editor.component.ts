@@ -53,6 +53,12 @@ import { EaFieldDescriptionsBlockUiComponent } from './eac/ea-field-descriptions
 import { IniFileBlockUiComponent } from './common/ini-file.block-ui/ini-file.block-ui.component';
 import { Nfs6CarIniBlockUiComponent } from './eac/nfs6-car-ini.block-ui/nfs6-car-ini.block-ui.component';
 import { Nfs6EngineAudioBlockUiComponent } from './eac/nfs6-engine-audio.block-ui/nfs6-engine-audio.block-ui.component';
+import { Nfs5CarPhysicsBlockUiComponent } from './eac/nfs5-car-physics.block-ui/nfs5-car-physics.block-ui.component';
+import { Nfs5CarPartsBlockUiComponent } from './eac/nfs5-car-parts.block-ui/nfs5-car-parts.block-ui.component';
+import { Nfs5CarAiBlockUiComponent } from './eac/nfs5-car-ai.block-ui/nfs5-car-ai.block-ui.component';
+import { Nfs5CarsBlockUiComponent } from './eac/nfs5-cars.block-ui/nfs5-cars.block-ui.component';
+import { Nfs5FactoryMissionsBlockUiComponent } from './eac/nfs5-career.block-ui/nfs5-factory-missions.block-ui.component';
+import { Nfs5TournamentsBlockUiComponent } from './eac/nfs5-career.block-ui/nfs5-tournaments.block-ui.component';
 import { isLazyStub } from '../../utils/lazy';
 
 @Component({
@@ -129,6 +135,12 @@ export class EditorComponent implements OnDestroy {
 
     // NFS5-specific blocks
     CrpGeometry: CrpGeometryBlockUiComponent,
+    Nfs5CarPhysics: Nfs5CarPhysicsBlockUiComponent,
+    Nfs5CarParts: Nfs5CarPartsBlockUiComponent,
+    Nfs5CarAi: Nfs5CarAiBlockUiComponent,
+    Nfs5Cars: Nfs5CarsBlockUiComponent,
+    Nfs5FactoryMissions: Nfs5FactoryMissionsBlockUiComponent,
+    Nfs5Tournaments: Nfs5TournamentsBlockUiComponent,
 
     // NFS6-specific blocks
     Nfs6AiPaths: TrackMapBlockUiComponent,

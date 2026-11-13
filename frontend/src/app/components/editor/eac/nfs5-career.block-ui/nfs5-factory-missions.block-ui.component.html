@@ -1,0 +1,221 @@
+@if (resourceId && resourceName && !hideName) {
+  <h2 [matTooltip]="resourceDescription || ''" matTooltipPosition="above">{{ resourceName }}</h2>
+}
+@if (!hideBlockActions) {
+  <app-block-actions
+    [resource]="{
+      id: resourceId!,
+      name: resourceName!,
+      data: resourceData,
+      schema: resourceSchema,
+    }"></app-block-actions>
+}
+
+<ng-template #fields let-names>
+  <app-compound-block-ui
+    [resourceId]="missionId"
+    [resourceName]="'' + selected"
+    [resourceSchema]="missionSchema"
+    [resourceData]="mission || undefined"
+    [hideName]="true"
+    [hideBlockActions]="true"
+    [preferHorizontalLayout]="true"
+    [disabled]="disabled"
+    [fieldWhitelist]="names"></app-compound-block-ui>
+</ng-template>
+
+@if (resourceData && resourceSchema) {
+  @if (lookupNote) {
+    <p class="note">{{ lookupNote }}</p>
+  }
+  <div class="database">
+    <app-record-list
+      [items]="items"
+      [selected]="selected"
+      placeholder="Filter missions (car, level, map)"
+      (select)="onSelect($event)"></app-record-list>
+
+    @if (mission; as m) {
+      <div class="record">
+        <div class="record-title">
+          <h3>Mission {{ selected }}: {{ m['map_picture'] }}</h3>
+          <span class="muted">level {{ m['level'] }}, number {{ m['mission_number'] }}</span>
+        </div>
+        <app-stat-tiles [tiles]="tiles" [disabled]="disabled"></app-stat-tiles>
+
+        <mat-tab-group [(selectedIndex)]="selectedTab" animationDuration="0ms" mat-stretch-tabs="false">
+          <mat-tab label="Mission">
+            <ng-template matTabContent>
+              <div class="tab">
+                <h3>Brief</h3>
+                <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.brief }"></ng-container>
+                <h3>Race</h3>
+                <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.race }"></ng-container>
+                <h3>Rules</h3>
+                <p class="note">{{ resourceSchema.fields[0]?.schema?.child_schema?.block_description }}</p>
+                <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.rules }"></ng-container>
+                <h3>Progress (in the save game)</h3>
+                <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.progress }"></ng-container>
+              </div>
+            </ng-template>
+          </mat-tab>
+
+          <mat-tab label="Car">
+            <ng-template matTabContent>
+              <div class="tab">
+                <div class="actions">
+                  <select [disabled]="!!disabled" (change)="setMissionField(['car_id'], +$any($event.target).value)">
+                    @for (c of carOptions; track c.id) {
+                      <option [value]="c.id" [selected]="c.id === m['car_id']">#{{ c.id }} {{ c.name }}</option>
+                    }
+                    @if (!carOptions.length) {
+                      <option [value]="m['car_id']" selected>#{{ m['car_id'] }}</option>
+                    }
+                  </select>
+                  <button
+                    class="link"
+                    type="button"
+                    [disabled]="!carsPath || hasUnsavedChanges"
+                    [matTooltip]="hasUnsavedChanges ? 'Save this file first' : 'Open nfs5.car at this car'"
+                    (click)="openCar(m['car_id'])">
+                    open the car
+                  </button>
+                </div>
+                <h3>Parts installed</h3>
+                <p class="note">{{ fieldDescription('part_ids') }}</p>
+                <table class="gear-table">
+                  <tbody>
+                    @for (r of partRows; track r.slot) {
+                      <tr>
+                        <td>{{ r.slot }}</td>
+                        <td>
+                          <button
+                            class="link"
+                            type="button"
+                            [disabled]="!partsPath || hasUnsavedChanges"
+                            (click)="openPart(r.id)">
+                            #{{ r.id }}
+                          </button>
+                        </td>
+                        <td [class.muted]="r.missing">{{ r.label }}</td>
+                        <td>
+                          <button
+                            mat-icon-button
+                            [disabled]="!!disabled"
+                            matTooltip="Remove"
+                            (click)="removePart(r.slot)">
+                            <mat-icon>close</mat-icon>
+                          </button>
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+                <div class="actions">
+                  <select [disabled]="!!disabled" (change)="newPartId = +$any($event.target).value">
+                    <option [value]="0">Add a part…</option>
+                    @for (p of partOptions; track p.id) {
+                      <option [value]="p.id">#{{ p.id }} {{ p.label }}</option>
+                    }
+                  </select>
+                  <button mat-button [disabled]="!!disabled || !newPartId" (click)="addPart()">
+                    <mat-icon>add</mat-icon>
+                    Add
+                  </button>
+                </div>
+                <h3>Paint</h3>
+                <div class="actions">
+                  <label class="colour">
+                    <input
+                      type="color"
+                      [value]="argbToCss(m['body_colours'][0])"
+                      [disabled]="!!disabled"
+                      (change)="
+                        setColour([...base, 'body_colours', 0], $any($event.target).value, m['body_colours'][0])
+                      " />
+                    Body
+                  </label>
+                  <label class="colour">
+                    <input
+                      type="color"
+                      [value]="argbToCss(m['interior_colours'][0])"
+                      [disabled]="!!disabled"
+                      (change)="
+                        setColour([...base, 'interior_colours', 0], $any($event.target).value, m['interior_colours'][0])
+                      " />
+                    Interior
+                  </label>
+                  <span class="muted">The other colours of the record are read by no code.</span>
+                </div>
+                <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.paint }"></ng-container>
+              </div>
+            </ng-template>
+          </mat-tab>
+
+          <mat-tab label="Opponents">
+            <ng-template matTabContent>
+              <div class="tab">
+                <p class="note">{{ fieldDescription('opponents') }}</p>
+                <table class="gear-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Personality</th>
+                      <th>Car</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (o of m['opponents']; track $index) {
+                      <tr>
+                        <td>{{ $index }}</td>
+                        <td>
+                          <input
+                            type="number"
+                            step="1"
+                            [value]="o['personality_id']"
+                            [disabled]="!!disabled"
+                            (change)="
+                              onNumberInput(
+                                [...base, 'opponents', $index, 'personality_id'],
+                                $any($event.target).value,
+                                true
+                              )
+                            " />
+                        </td>
+                        <td>
+                          <select
+                            [disabled]="!!disabled"
+                            (change)="setMissionField(['opponents', $index, 'car_id'], +$any($event.target).value)">
+                            <option [value]="0" [selected]="!o['car_id']">–</option>
+                            @for (c of carOptions; track c.id) {
+                              <option [value]="c.id" [selected]="c.id === o['car_id']">#{{ c.id }} {{ c.name }}</option>
+                            }
+                          </select>
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            </ng-template>
+          </mat-tab>
+
+          <mat-tab label="All fields">
+            <ng-template matTabContent>
+              <div class="tab">
+                <app-compound-block-ui
+                  [resourceId]="missionId"
+                  [resourceName]="'' + selected"
+                  [resourceSchema]="missionSchema"
+                  [resourceData]="m"
+                  [hideName]="true"
+                  [hideBlockActions]="true"
+                  [disabled]="disabled"></app-compound-block-ui>
+              </div>
+            </ng-template>
+          </mat-tab>
+        </mat-tab-group>
+      </div>
+    }
+  </div>
+}

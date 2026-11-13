@@ -245,6 +245,21 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.car_specs import Nfs5Cars
 
             return Nfs5Cars
+        elif length and length % 0xF0 == 0 and _file_or_archive_item_name(file_path).lower() == 'nfs5.fac':
+            # NFS5 Factory Driver missions FEData/Data/nfs5.fac
+            from resources.eac.nfs5_career import Nfs5FactoryMissions
+
+            return Nfs5FactoryMissions
+        elif length and length % 0xD40 == 0 and _file_or_archive_item_name(file_path).lower() == 'nfs5.trn':
+            # NFS5 Evolution tournaments FEData/Data/nfs5.trn
+            from resources.eac.nfs5_career import Nfs5Tournaments
+
+            return Nfs5Tournaments
+        elif length and length % 0x2C == 0 and _file_or_archive_item_name(file_path).lower() == 'nfs5.per':
+            # NFS5 AI personalities FEData/Data/nfs5.per
+            from resources.eac.nfs5_career import Nfs5Personalities
+
+            return Nfs5Personalities
         elif length is not None and file_path.lower().endswith('.jnc'):
             # NFS5 track junction weights GameData/Track/<track>.jnc
             from resources.eac.maps.nfs5 import Nfs5Junctions, is_nfs5_junctions_size

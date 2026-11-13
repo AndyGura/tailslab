@@ -522,14 +522,35 @@ When you do:
   files; GLOBALB's DifficultyInfo 0x34b00 (AI difficulty, LoaderDifficultyInfo 0x12ff68), CharacterInfo 0x34300 /
   0x34301 (drivers), NisInfo 0x37010.
 
-## NFS5 data files (`resources/eac/car_specs.py`, `resources/eac/maps/nfs5.py`, `resources/eac/geometries/nfs5.py`)
+## NFS5 data files (`resources/eac/car_specs.py`, `resources/eac/nfs5_career.py`, `resources/eac/maps/nfs5.py`, `resources/eac/geometries/nfs5.py`)
 
-- Field meanings from Porsche.exe (nfs-web `decomp/nfs5/Porsche.exe.gzf`, addresses in the descriptions): `.sim`
-  `Nfs5CarPhysics` (328 bytes, picked by size under `/Simulation/CarData/`), `.ais` `Nfs5CarAi` (304 bytes),
-  `nfs5.prt` `Nfs5CarParts` (360-byte records), `nfs5.car` `Nfs5Cars` (0x670-byte records starting with the car id;
-  texts are Latin-1: `Latin1Block`), `<track>.jnc` `Nfs5Junctions`, `<track>.edg` `Nfs5WallEdges`; all write back
-  byte-exact, exported as JSON. In the CRP, the track parts `DmiS` / `TmiS` (road spline slices and sections), `esaB`
-  (`CrpBasePart`: flags, bounds, object tag, levels of detail) and `fd` (vertex colours) are parsed.
+- Field meanings from Porsche.exe (nfs-web `decomp/nfs5/Porsche.exe.gzf`, addresses in the descriptions; the research
+  notes and probe scripts in nfs-web `decomp/nfs5/port-work/car-specs/`): `.sim` `Nfs5CarPhysics` (328 bytes, picked
+  by size under `/Simulation/CarData/`; torque in lb·ft), `.ais` `Nfs5CarAi` (304 bytes: corner look-ahead in 6 m
+  track slices and target speeds, read only by the AI target speed 0x40b650), `nfs5.prt` `Nfs5CarParts` (360-byte
+  records; `sort_key` is the price), `nfs5.car` `Nfs5Cars` (0x670-byte records starting with the car id, no header;
+  colours stored A, R, G, B, read as big-endian 0xAARRGGBB; texts are Latin-1: `Latin1Block`), and in
+  `nfs5_career.py` `nfs5.fac` `Nfs5FactoryMissions` (0xf0), `nfs5.trn` `Nfs5Tournaments` (0xd40), `nfs5.per`
+  `Nfs5Personalities` (0x2c), picked by name and record size; `<track>.jnc` `Nfs5Junctions`, `<track>.edg`
+  `Nfs5WallEdges`. Every byte is a named field (`padding_*` / `unused_*`: read by no code); the few values with no
+  reader whose meaning is unknown stay `is_unknown` (`unk_*`). `nfs5.trk`, `nfs5-1.hud` / `nfs5-2.hud` and the
+  `Simulation/AI` files are not parsed (what they are: the NFS5 doc). All write back byte-exact.
+- Conversion: the car data blocks use `CompleteJsonSerializer` (`serializers/complete_json.py`): `<file>.json` with
+  every field (unknown ones too), reversible: the JSON imports back and writes the file byte-exact
+  (`test/resources/eac/test_nfs5_car_data.py`, samples `test/samples/nfs5/`). nfs-web reads the raw files, not the
+  JSON; keep the existing keys stable (`sort_key`, the geometry entries' `a` / `b`).
+- GUI (`frontend/.../editor/eac/`): `nfs5-car-physics.block-ui` (`.sim`: dyno, gearing with the automatic gearbox,
+  drive against the air drag and an idealized speed run, brakes, downforce, steering lock; formulas in
+  `nfs5-car-physics.ts`), `nfs5-car-ai.block-ui` (`.ais`), and the record database editors on the shared
+  `common/record-list` (a filterable list beside one record): `nfs5-cars.block-ui` (`nfs5.car`: market with the value
+  by year, dealer price and car value, parts by name, paints as colours, dashboard), `nfs5-car-parts.block-ui`
+  (`nfs5.prt`: effects of `Cars_ProcessSpecs` 0x49cb50 in `nfs5-parts.ts`, prices with the inflation table, geometry
+  switches, the cars listing the part), `nfs5-career.block-ui` (`nfs5.fac`, `nfs5.trn`). They read `nfs5.car` /
+  `nfs5.prt` next to the opened file (`nfs5-files.ts`: `find_files` + `retrieve_value`) for names, and link to the
+  other files (`.sim`, `.ais`, a car, a part) by opening them (`nfs5PendingSelection` picks the record shown; off
+  with unsaved changes). Their derived values follow the field descriptions: keep the two in sync.
+- In the CRP, the track parts `DmiS` / `TmiS` (road spline slices and sections), `esaB` (`CrpBasePart`: flags, bounds,
+  object tag, levels of detail) and `fd` (vertex colours) are parsed.
 - CRP `pr` parts (`TrianglePartData`): the info row blocks are picked by `row_type` (`vt`, `nm`, `uv`, `fd`, `n$`),
   not by position; one index table per index row (`index_table`, `uv_index_table`), and a row's `index_stream` picks
   the table its indices come from, 0xffff = consecutive (`crp_stream_indices` in `serializers/geometries.py`, as
