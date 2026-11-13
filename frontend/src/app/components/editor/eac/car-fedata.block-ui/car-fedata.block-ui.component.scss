@@ -1,0 +1,81 @@
+.sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 6px;
+}
+
+.sheet-title {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.25rem 0.75rem;
+}
+
+.sheet-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 0.75rem;
+}
+
+.sheet-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.text-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 40%) 1fr;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 13px;
+
+  &.invalid .text-value {
+    border-color: #d32f2f;
+  }
+}
+
+.text-label {
+  color: rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.text-value {
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  font: inherit;
+}
+
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+
+  label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 13px;
+  }
+}
+
+.price-table {
+  border-collapse: collapse;
+  font-size: 13px;
+
+  th,
+  td {
+    padding: 3px 10px 3px 0;
+    text-align: left;
+  }
+
+  input {
+    width: 120px;
+  }
+}

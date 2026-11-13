@@ -1,0 +1,236 @@
+@if (resourceId && resourceName && !hideName) {
+  <h2 [matTooltip]="resourceDescription || ''" matTooltipPosition="above">{{ resourceName }}</h2>
+}
+@if (!hideBlockActions) {
+  <app-block-actions
+    [resource]="{
+      id: resourceId!,
+      name: resourceName!,
+      data: resourceData,
+      schema: resourceSchema,
+    }"></app-block-actions>
+}
+
+<ng-template #fields let-names>
+  <app-compound-block-ui
+    [resourceId]="resourceId"
+    [resourceName]="resourceName"
+    [resourceSchema]="resourceSchema"
+    [resourceData]="resourceData"
+    [hideName]="true"
+    [hideBlockActions]="true"
+    [preferHorizontalLayout]="true"
+    [disabled]="disabled"
+    [fieldWhitelist]="names"></app-compound-block-ui>
+</ng-template>
+
+<ng-template #textInput let-row>
+  <label class="text-row" [class.invalid]="row.invalid" [matTooltip]="row.label + ' · text ' + row.index">
+    <span class="text-label">{{ row.label }}</span>
+    <input
+      #input
+      class="text-value"
+      [value]="row.value"
+      [disabled]="!!disabled"
+      [attr.aria-label]="row.name"
+      (change)="setText(row.index, input.value)" />
+  </label>
+</ng-template>
+
+@if (resourceData && resourceSchema) {
+  <app-stat-tiles [tiles]="tiles" [disabled]="disabled" (tileChange)="onTileChange($event)"></app-stat-tiles>
+
+  <mat-tab-group [(selectedIndex)]="selectedTab" animationDuration="0ms" mat-stretch-tabs="false" class="tabs">
+    <mat-tab label="Spec sheet">
+      <ng-template matTabContent>
+        <div class="tab">
+          <p class="note">
+            The showroom's spec sheet: the labels are the front end's (TEXT.&lt;lang&gt;), the values this file's texts.
+            Texts are Latin-1 (8-bit): a character beyond it is refused. Text 2 is also the car's name in the car lists.
+          </p>
+          <div class="sheet">
+            <div class="sheet-title">
+              @for (row of names; track row.index) {
+                <ng-container *ngTemplateOutlet="textInput; context: { $implicit: row }"></ng-container>
+              }
+            </div>
+            <div class="sheet-columns">
+              @for (section of sheet; track section.title) {
+                <div class="sheet-section">
+                  <h3>{{ section.title }}</h3>
+                  @for (row of section.rows; track row.index) {
+                    <ng-container *ngTemplateOutlet="textInput; context: { $implicit: row }"></ng-container>
+                  }
+                </div>
+              }
+            </div>
+          </div>
+          <div class="sheet-columns">
+            <div class="sheet-section">
+              <h3>History</h3>
+              @for (row of history; track row.index) {
+                <ng-container *ngTemplateOutlet="textInput; context: { $implicit: row }"></ng-container>
+              }
+            </div>
+            <div class="sheet-section">
+              <h3>Paint colours</h3>
+              <p class="note">The names of the car's paints, in the order of its colour picker.</p>
+              @for (row of colors; track row.index) {
+                <ng-container *ngTemplateOutlet="textInput; context: { $implicit: row }"></ng-container>
+              }
+            </div>
+          </div>
+          @if (extraTexts.length) {
+            <h3>Texts past the game's</h3>
+            <p class="note">{{ exeName }} reads no text past index {{ textNames.length - 1 }}.</p>
+            @for (row of extraTexts; track row.index) {
+              <ng-container *ngTemplateOutlet="textInput; context: { $implicit: row }"></ng-container>
+            }
+          }
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Ratings{{ isNfs4 ? ' & prices' : '' }}">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-curve-editor
+            [title]="isNfs4 ? 'Ratings by upgrade level' : 'Ratings'"
+            [hint]="
+              isNfs4
+                ? 'The bars of the showroom and car select (0..20, shown × 0.05) at each upgrade level. Unless the car has no upgrades, the loader raises each level to at least the one before (0x473d20). The overall rating picks AI opponents of a similar car (0x476ef0). Drag the points'
+                : 'The bars of the showroom and car select (0..20). Drag the bars'
+            "
+            [series]="ratingSeries"
+            [xAxis]="ratingXAxis"
+            [yAxis]="ratingYAxis"
+            [height]="260"
+            [disabled]="disabled"
+            (seriesChange)="onRatingsChange($event)"></app-curve-editor>
+          @if (isNfs4) {
+            <h3>Career prices</h3>
+            <table class="price-table">
+              <tr>
+                <th>Level</th>
+                <th>Price</th>
+                <th>Total</th>
+              </tr>
+              @for (total of levelPrices(); track $index) {
+                <tr>
+                  <td>{{ $index === 0 ? 'Stock (dealer)' : 'Upgrade ' + $index }}</td>
+                  <td>
+                    <input
+                      #price
+                      type="number"
+                      [value]="$index === 0 ? resourceData['price'] : resourceData['upgrade_prices'][$index - 1]"
+                      [disabled]="!!disabled"
+                      (change)="
+                        $index === 0
+                          ? setNumber('price', price.value)
+                          : onNumberInput(['upgrade_prices', $index - 1], price.value, true)
+                      " />
+                  </td>
+                  <td>${{ fmt(total, 0) }}</td>
+                </tr>
+              }
+            </table>
+          } @else {
+            <ng-container *ngTemplateOutlet="fields; context: { $implicit: nfs3Groups.unused }"></ng-container>
+          }
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Car list">
+      <ng-template matTabContent>
+        <div class="tab">
+          <p class="note">
+            The values {{ exeName }} keeps in its car list:
+            {{
+              isNfs4
+                ? 'the file is the list record as it is in memory, from byte 2 on (record = file + 2).'
+                : 'the loader copies them field by field into its list record.'
+            }}
+          </p>
+          <div class="choices">
+            <label>
+              Class
+              <select
+                [value]="resourceData['car_class']"
+                [disabled]="!!disabled"
+                (change)="setNumber('car_class', $any($event.target).value)">
+                @for (o of classOptions; track o.value) {
+                  <option [value]="o.value">{{ o.label }}</option>
+                }
+              </select>
+            </label>
+            @if (isNfs4) {
+              <label>
+                Engine position
+                <select
+                  [value]="resourceData['engine_position']"
+                  [disabled]="!!disabled"
+                  (change)="setNumber('engine_position', $any($event.target).value)">
+                  @for (o of engineOptions; track o.value) {
+                    <option [value]="o.value">{{ o.label }}</option>
+                  }
+                </select>
+              </label>
+            } @else {
+              <label>
+                Driver seat
+                <select
+                  [value]="resourceData['driver_seat'] > 1 ? 2 : resourceData['driver_seat']"
+                  [disabled]="!!disabled"
+                  (change)="setNumber('driver_seat', $any($event.target).value)">
+                  @for (o of seatOptions; track o.value) {
+                    <option [value]="o.value">{{ o.label }}</option>
+                  }
+                </select>
+              </label>
+            }
+          </div>
+          <app-slider-field
+            label="interior_view_heading"
+            [description]="descriptions['interior_view_heading'] + ' (' + fmt(headingDegrees(), 1) + '°)'"
+            [value]="resourceData['interior_view_heading']"
+            [spec]="headingSlider"
+            [disabled]="disabled"
+            (valueChange)="setNumber('interior_view_heading', $event)"></app-slider-field>
+          <h3>Identity</h3>
+          <ng-container
+            *ngTemplateOutlet="
+              fields;
+              context: { $implicit: isNfs4 ? nfs4Groups.identity : nfs3Groups.identity }
+            "></ng-container>
+          <h3>Flags</h3>
+          <ng-container
+            *ngTemplateOutlet="
+              fields;
+              context: { $implicit: isNfs4 ? nfs4Groups.flags : nfs3Groups.flags }
+            "></ng-container>
+          @if (isNfs4) {
+            <h3>Run time slots and unread bytes</h3>
+            <p class="note">Zeros in the game's files: the loader fills them, or nothing reads them.</p>
+            <ng-container *ngTemplateOutlet="fields; context: { $implicit: nfs4Groups.runtime }"></ng-container>
+          }
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="All fields">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-compound-block-ui
+            [resourceId]="resourceId"
+            [resourceName]="resourceName"
+            [resourceSchema]="resourceSchema"
+            [resourceData]="resourceData"
+            [hideName]="true"
+            [hideBlockActions]="true"
+            [disabled]="disabled"></app-compound-block-ui>
+        </div>
+      </ng-template>
+    </mat-tab>
+  </mat-tab-group>
+}

@@ -68,6 +68,7 @@ import { PlayerCarPhysicsBlockUiComponent } from './eac/player-car-physics.block
 import { CarAiAndCrashBodyBlockUiComponent } from './eac/car-ai-and-crash-body.block-ui/car-ai-and-crash-body.block-ui.component';
 import { Nfs2CarPhysicsBlockUiComponent } from './eac/nfs2-car-physics.block-ui/nfs2-car-physics.block-ui.component';
 import { Nfs3CarPhysicsBlockUiComponent } from './eac/nfs3-car-physics.block-ui/nfs3-car-physics.block-ui.component';
+import { CarFeDataBlockUiComponent } from './eac/car-fedata.block-ui/car-fedata.block-ui.component';
 import { Nfs2CarAiBlockUiComponent } from './eac/nfs2-car-ai.block-ui/nfs2-car-ai.block-ui.component';
 
 @NgModule({
@@ -125,6 +126,7 @@ import { Nfs2CarAiBlockUiComponent } from './eac/nfs2-car-ai.block-ui/nfs2-car-a
     CarAiAndCrashBodyBlockUiComponent,
     Nfs2CarPhysicsBlockUiComponent,
     Nfs3CarPhysicsBlockUiComponent,
+    CarFeDataBlockUiComponent,
     Nfs2CarAiBlockUiComponent,
   ],
   imports: [

@@ -52,6 +52,16 @@ const AI_SECTIONS = 8;
 const AI_SECTION_LENGTH = 14;
 // the menus' default tuning (0x55d024): engine, brake balance, steering, gear ratio, suspension, aero, tyres
 const TUNING_DEFAULT = [1, 0, 1, 1, 1, 1, 1];
+// NFS4 (0x500f20): the front wheels' lateral force x 0.8 x understeer_gradient, the rear wheels' x 1.4 / it (NFS3:
+// 0.8 and 1.4); the range of the charts and the slider, around the files' 0.85..1.09
+const LATERAL_FRONT = 0.8;
+const LATERAL_REAR = 1.4;
+const UNDERSTEER_RANGE = [0.5, 1.5];
+// NFS4 air brake (spoiler_type 1, 0x501860 / 0x4ff6b0): braking above 0.15 of the pedal adds |speed| x
+// aero_downforce to the brake, and the rear downforce factor is 1.75 instead of 1.5
+const AIR_BRAKE_SPOILER = 1;
+const AIR_BRAKE_PEDAL = 0.15;
+const AIR_BRAKE_REAR_DOWNFORCE = 1.75;
 const PEDAL_LEVELS = ['0-31', '32-63', '64-95', '96-127', '128-159', '160-191', '192-223', '224-255'];
 
 type GearSet = { gears: string; ratio: string; gearRatio: string; efficiency: string; finalGear: string };
@@ -123,8 +133,8 @@ export class Nfs3CarPhysicsBlockUiComponent extends CarSpecEditorBase {
     // the ramp curves are edited on their chart
     brakes: ['max_brake_decel', 'abs'],
     steering: ['min_steering_accel', 'turn_in_ramp', 'turn_out_ramp', 'turning_circle', 'power_steering'],
-    // understeer_gradient: NFS4 only
-    grip: ['mass', 'understeer_gradient', 'tire_front', 'tire_rear', 'suspension_stiffness'],
+    // understeer_gradient (NFS4 only) has its chart and slider
+    grip: ['mass', 'tire_front', 'tire_rear', 'suspension_stiffness'],
     body: ['pitch_roll', 'road_bumpiness', 'spoiler_type', 'spoiler_speed', 'camera_arm', 'subdivide_level'],
     identity: ['serial_number', 'car_class'],
     aid: [
@@ -165,6 +175,11 @@ export class Nfs3CarPhysicsBlockUiComponent extends CarSpecEditorBase {
       ['aero_downforce', { min: 0, max: 0.004, step: 0.00005 }],
     ],
   };
+
+  // NFS4 only: the understeer gradient (front / rear lateral force factors) as a slider
+  readonly nfs4Sliders: [string, SliderSpec][] = [
+    ['understeer_gradient', { min: UNDERSTEER_RANGE[0], max: UNDERSTEER_RANGE[1], step: 0.005, unit: '×' }],
+  ];
 
   selectedTab = 0;
   automatic = false;
@@ -219,6 +234,17 @@ export class Nfs3CarPhysicsBlockUiComponent extends CarSpecEditorBase {
   downforceSeries: CurveSeries[] = [];
   readonly gripAxis: CurveAxis = { label: 'Grip ×', min: 1 };
 
+  // NFS4: understeer gradient and air brake
+  understeerSeries: CurveSeries[] = [];
+  understeerMarkers: CurveMarker[] = [];
+  airBrakeSeries: CurveSeries[] = [];
+  readonly gradientAxis: CurveAxis = {
+    label: 'understeer_gradient',
+    min: UNDERSTEER_RANGE[0],
+    max: UNDERSTEER_RANGE[1],
+  };
+  readonly lateralAxis: CurveAxis = { label: 'Lateral force ×', min: 0 };
+
   // AI and driving aid
   aiSeries: CurveSeries[] = [];
   aiMarkers: CurveMarker[] = [];
@@ -247,6 +273,7 @@ export class Nfs3CarPhysicsBlockUiComponent extends CarSpecEditorBase {
     this.buildBrakes();
     this.buildSteering();
     this.buildGrip();
+    if (this.isNfs4) this.buildNfs4();
     this.buildAi();
     this.buildTuning();
     this.buildTiles();
@@ -875,6 +902,99 @@ export class Nfs3CarPhysicsBlockUiComponent extends CarSpecEditorBase {
     return G * (this.d['lateral_grip'] || 0) * (this.d['front_grip_bias'] || 0);
   }
 
+  // ---------- NFS4: understeer gradient, air brake ----------
+
+  // lateral force factors of the front and rear wheels (nfs4.exe 0x500f20)
+  lateralFactors(gradient: number): { front: number; rear: number } {
+    return { front: LATERAL_FRONT * gradient, rear: gradient ? LATERAL_REAR / gradient : 0 };
+  }
+
+  get hasAirBrake(): boolean {
+    return this.d['spoiler_type'] === AIR_BRAKE_SPOILER;
+  }
+
+  // braking deceleration at a speed with the full pedal (0x501860): max_brake_decel, + |speed| x aero_downforce with
+  // the air brake; a step never brakes more than |speed| x 32
+  brakeDecelAt(v: number, airBrake: boolean): number {
+    const d = this.d;
+    const brake = (d['max_brake_decel'] || 0) + (airBrake ? Math.abs(v) * (d['aero_downforce'] || 0) : 0);
+    return Math.min(brake, Math.abs(v) * STEPS);
+  }
+
+  private buildNfs4() {
+    const d = this.d;
+    const g = d['understeer_gradient'] ?? 1;
+    const front: CurvePoint[] = [];
+    const rear: CurvePoint[] = [];
+    for (let k = 0; k <= 100; k++) {
+      const x = UNDERSTEER_RANGE[0] + ((UNDERSTEER_RANGE[1] - UNDERSTEER_RANGE[0]) * k) / 100;
+      const f = this.lateralFactors(x);
+      front.push({ x, y: f.front });
+      rear.push({ x, y: f.rear });
+    }
+    const formatY = (v: number) => '× ' + fmt(v, 3);
+    this.understeerSeries = [
+      { id: 'front', label: 'Front wheels (0.8 × it)', color: '#1e88e5', points: front, formatY },
+      { id: 'rear', label: 'Rear wheels (1.4 / it)', color: '#f4511e', points: rear, formatY },
+    ];
+    this.understeerMarkers = [
+      {
+        id: 'understeer_gradient',
+        value: g,
+        label: 'understeer_gradient',
+        color: '#455a64',
+        editable: true,
+        constraints: { min: UNDERSTEER_RANGE[0], max: UNDERSTEER_RANGE[1], step: 0.005 },
+        format: v => fmt(v, 3),
+      },
+    ];
+    const end = this.speedEnd;
+    const plain: CurvePoint[] = [];
+    const air: CurvePoint[] = [];
+    for (let k = 0; k <= 120; k++) {
+      const v = (end * k) / 120;
+      plain.push({ x: v * MPS_TO_KMH, y: this.brakeDecelAt(v, false) });
+      air.push({ x: v * MPS_TO_KMH, y: this.brakeDecelAt(v, true) });
+    }
+    this.airBrakeSeries = [
+      { id: 'brake', label: 'Brake', color: '#546e7a', points: plain, formatY: v => fmt(v, 2) + ' m/s²' },
+      {
+        id: 'air_brake',
+        label: this.hasAirBrake ? 'With the air brake' : 'With an air brake (spoiler_type 1)',
+        color: '#8e24aa',
+        points: air,
+        formatY: v => fmt(v, 2) + ' m/s²',
+      },
+    ];
+    if (this.hasAirBrake) {
+      const aero = d['aero_downforce'] || 0;
+      const braking: CurvePoint[] = [];
+      for (let k = 0; k <= 120; k++) {
+        const v = (end * k) / 120;
+        braking.push({
+          x: v * MPS_TO_KMH,
+          y: v > DOWNFORCE_MIN_SPEED ? 1 + v * aero * AIR_BRAKE_REAR_DOWNFORCE : 1 + aero,
+        });
+      }
+      this.downforceSeries = [
+        ...this.downforceSeries,
+        {
+          id: 'rear_braking',
+          label: 'Rear, air brake on',
+          color: '#8e24aa',
+          points: braking,
+          formatY: v => '× ' + fmt(v, 3),
+        },
+      ];
+    }
+  }
+
+  onUndersteerMarker(e: CurveMarkerChange) {
+    this.setValue(['understeer_gradient'], this.round(e.value, 3));
+  }
+
+  readonly airBrakePedal = AIR_BRAKE_PEDAL;
+
   // ---------- AI and driving aid ----------
 
   private aiTable(): number[] {
@@ -1172,6 +1292,18 @@ export class Nfs3CarPhysicsBlockUiComponent extends CarSpecEditorBase {
         hint: "Front wheel angle at full lock: min_steering_accel x 1.5 degrees; each wheel's lateral force is capped at 2 x min_steering_accel",
       },
     ];
+    if (this.isNfs4) {
+      const g = d['understeer_gradient'] ?? 1;
+      const f = this.lateralFactors(g);
+      this.tiles.push({
+        id: 'understeer_gradient',
+        label: 'Understeer gradient',
+        value: fmt(g, 3),
+        edit: { value: this.round(g, 3), step: 0.01, min: UNDERSTEER_RANGE[0], max: UNDERSTEER_RANGE[1] },
+        sub: `lateral force front × ${fmt(f.front, 2)} · rear × ${fmt(f.rear, 2)}`,
+        hint: "NFS4: the front wheels' lateral force is × 0.8 × it, the rear wheels' × 1.4 / it (0x500f20): above 1 the front grips more and the rear less",
+      });
+    }
     if (!mass) {
       this.tiles.push({ label: 'Mass', value: '0', sub: 'the car has no drive force', tone: 'warn' });
     }

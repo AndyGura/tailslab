@@ -1,5 +1,6 @@
 import json
 from collections import defaultdict
+from copy import deepcopy
 from typing import List
 
 from library.read_blocks import CompoundBlock
@@ -83,3 +84,78 @@ class Nfs3CarPhysicsSerializer(JsonSerializer):
         with open(f'{path}.bin', 'wb') as file:
             file.write(block.pack(data))
         return output + [f'{path}.bin']
+
+    def ui_serialization(self):
+        return {
+            'file_type': 'json',
+            'is_directory': False,
+            'output_file_name_suffix': '.json',
+            'reversible': True,
+            'reversible_settings_patch': {},
+        }
+
+    def deserialize(self, file_paths: List[str], id=None, block=None, **kwargs) -> dict:
+        """The values of `<name>.json` put over the carp loaded under `id` (its text keeps its labels and number
+        styles: the JSON it exported imports back to the same bytes), else over a new text; fields the JSON lacks
+        keep their values"""
+        data = _current_resource(id) or block.new_data()
+        data = deepcopy(data)
+        values = _read_json(file_paths)
+        for name, *_ in block.carp_fields:
+            if name in values:
+                data[name] = values[name]
+        return data
+
+
+class CarFeDataSerializer(JsonSerializer):
+    """NFS3 / NFS4 `fedata.<lang>` (`Nfs3CarFeData`, `Nfs4CarFeData`): every field as `<name>.json` (its texts a list
+    in file order), plus the file itself as `<name>.bin`, the raw copy the converter wrote before the format was
+    parsed. The JSON imports back to the same bytes"""
+
+    def ui_serialization(self):
+        return {
+            'file_type': 'json',
+            'is_directory': False,
+            'output_file_name_suffix': '.json',
+            'reversible': True,
+            'reversible_settings_patch': {},
+        }
+
+    def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
+        if path.endswith('/') or path.endswith('\\'):
+            path += id[id.rindex('/') + 1 :]
+        output = super().serialize(data, path, id=id, block=block, **kwargs)
+        with open(f'{path}.bin', 'wb') as file:
+            file.write(block.pack(data))
+        return output + [f'{path}.bin']
+
+    def deserialize(self, file_paths: List[str], id=None, block=None, **kwargs) -> dict:
+        data = block.new_data()
+        values = _read_json(file_paths)
+        for name, _ in block.field_blocks:
+            if name in values:
+                data[name] = values[name]
+        return data
+
+
+def _read_json(file_paths: List[str]) -> dict:
+    from serializers.misc.json_utils import revert_bytes
+
+    path = next((p for p in file_paths if p.lower().endswith('.json')), None)
+    if path is None:
+        raise Exception('No .json file given')
+    with open(path, encoding='utf-8') as file:
+        return revert_bytes(json.load(file))
+
+
+def _current_resource(id: str):
+    """The data loaded under `id`, which an import replaces (None without one)"""
+    if not id:
+        return None
+    from library import require_resource
+
+    try:
+        (_, _, current), _ = require_resource(id)
+        return current if isinstance(current, dict) else None
+    except Exception:
+        return None

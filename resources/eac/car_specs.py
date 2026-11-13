@@ -2545,7 +2545,11 @@ class Nfs3CarPhysics(DeclarativeCompoundBlock):
             "automatic gear set and the menus' tuning sliders, and sets the per gear values and the air drag. Car "
             'physics steps run at 32 Hz (every 2nd tick of the 64 Hz simulation). Field descriptions: label, place '
             "in the game's carp, the default for a missing field, then the use, from the nfs3.exe port in nfs-web "
-            '(`src/nfs3/nfs3-physics`); "no reader identified" = no code found reading it',
+            '(`src/nfs3/nfs3-physics`); "no reader identified" = no instruction of nfs3.exe reads it through the car\'s '
+            'carp pointer (car+0x528; a linear disassembly of the whole executable, AI, camera and drawing code '
+            'included: nfs-web `decomp/nfs3/port-work/car-specs/carp_readers.py`). Also read from the traffic and '
+            "pursuit cars' `Traffic/<nnnn>/CAR.VIV` and the network placeholder `FeData/Plac/CAR.VIV` (a text with "
+            'the serial number only: every other field takes the default)',
         }
 
     Fields = _nfs3_carp_fields_class()
@@ -2852,9 +2856,11 @@ _NFS4_CARP_DEFAULT_AI_ACC = _NFS3_CARP_DEFAULT_AI_ACC
 # (0x5be344), description)
 _NFS4_CARP_FIELDS = (
     ('serial_number', 0, 0x000, CarpTextNfs4Int(), 0,
-     'Serial number of the car (0 to 42; 0 in the traffic cars). No reader found in the ported nfs4.exe code'),
+     'Serial number of the car (0 to 42; 0 in the traffic cars). No reader in nfs4.exe (the front end takes the '
+     'number from fedata.<lang>)'),
     ('car_class', 1, 0x004, CarpTextNfs4Int(), 0,
-     'Car class (0 to 3). No reader found in the ported nfs4.exe code. Missing: 0, from the second default image '
+     'Car class (0 to 3). No reader in nfs4.exe (the front end and Carp_TuneCar take the class from fedata.<lang>). '
+     'Missing: 0, from the second default image '
      '0x5bdee0 (Carp_FillDefaults 0x5032b0 takes this field from it)'),
     ('mass', 2, 0x008, CarpTextNfs4Float(), 1000.0,
      'Mass in kg (915 to 9400). Drive acceleration of gear g (Carp_TuneCar 0x4fcad0) = '
@@ -2941,7 +2947,8 @@ _NFS4_CARP_FIELDS = (
      '1) x 0.1), gear ratio slider / t, aero slider / (1 + (t - 1) x 0.05); game setup flag 1: x 1.75'),
     ('top_speed_cap', 15, 0x180, CarpTextNfs4Float(), 50.0,
      'Top speed cap in m/s (= `max_velocity` in every shipped file). The file\'s value is never used: Carp_TuneCar '
-     '(0x4fcad0) sets it to `max_velocity` before the tuning sliders change that'),
+     '(0x4fcad0) sets it to `max_velocity` before the tuning sliders change that. The AI reads it (0x403613, '
+     '0x40d910: no acceleration above it, 0x411230, 0x4123a0, 0x419530, 0x4d3250, 0x4d3950, 0x52b400)'),
     ('front_drive_ratio', 16, 0x184, CarpTextNfs4Float(), 0.0,
      'Part of the drive force on each front wheel (0 rear wheel drive, 0.5 four wheel drive in the NFS4 files), the '
      'rear wheels get the rest (0x501860)'),
@@ -2972,15 +2979,14 @@ _NFS4_CARP_FIELDS = (
      'Brake ramp down: the brake value falls toward the pedal by round(entry) per physics step, entry = brake value '
      '>> 5, keyboard braking only (0x4feb60)'),
     ('wheel_base', 24, 0x1e4, CarpTextNfs4Float(), 2.5,
-     'Wheel base in m (2.2 to 4.5). No reader found in the ported nfs4.exe code'),
+     'Wheel base in m (2.2 to 4.5). No reader in nfs4.exe'),
     ('front_grip_bias', 25, 0x1e8, CarpTextNfs4Float(), 0.5,
      'Front grip bias (0.42 to 0.56). The static wheel loads (gravity x `lateral_grip` x the wheel\'s surface grip) '
      'times it give the front wheels\' grip; the rear wheels get load - (1 - bias) x load, which is also bias x load '
      '(the exe quirk of NFS3: both axles get the same share, 0x501860), before the load transfer and the downforce. '
      'Steering tuning slider t: x (1 + (t - 1) x 0.625), clamped to 0.46..0.56'),
     ('power_steering', 26, 0x1ec, CarpTextNfs4Int(), 1,
-     'Power steering, boolean (0 or 1). No reader found in the ported nfs4.exe code (NFS3 reads it for the force '
-     'feedback only)'),
+     'Power steering, boolean (0 or 1). Read only by the force feedback (0x4c0cb0), as NFS3, not by the physics'),
     ('min_steering_accel', 27, 0x1f0, CarpTextNfs4Float(), 10.0,
      'Minimum steering acceleration (9.5 to 18.65). Front wheel angle (0x5014e0) = this x 1.5 / 360 turns at full '
      'lock x steering / 128, reduced: by steering damage; with the handbrake, steering against the slide, x '
@@ -3022,42 +3028,42 @@ _NFS4_CARP_FIELDS = (
      'r, 0.98) each step (otherwise 0.95 / 0.99); the same sideways below 2 m/s. Steering tuning slider t: + (1 - t) '
      'x 0.5 x radius'),
     ('tire_front', 35, 0x214, CarpTextNfs4Array(CarpTextNfs4Int(), 3), [275, 40, 19],
-     'Front tyre size: width in mm, aspect ratio in %, rim in inches (`245,40,17` = 245/40 R17). No reader found in '
-     'the ported nfs4.exe code'),
+     'Front tyre size: width in mm, aspect ratio in %, rim in inches (`245,40,17` = 245/40 R17). No reader in '
+     'nfs4.exe'),
     ('tire_rear', 36, 0x220, CarpTextNfs4Array(CarpTextNfs4Int(), 3), [305, 40, 19],
-     'Rear tyre size: width in mm, aspect ratio in %, rim in inches. No reader found in the ported nfs4.exe code'),
+     'Rear tyre size: width in mm, aspect ratio in %, rim in inches. No reader in nfs4.exe'),
     ('tire_wear', 37, 0x22c, CarpTextNfs4Float(), 0.0,
-     'Tyre wear (0 in every file). No reader found in the ported nfs4.exe code'),
+     'Tyre wear (0 in every file). No reader in nfs4.exe'),
     ('slide_mult', 38, 0x230, CarpTextNfs4Float(), 0.5,
-     'Slide multiplier (0.1 to 1.25). No reader found in the ported nfs4.exe code'),
+     'Slide multiplier (0.1 to 1.25). No reader in nfs4.exe'),
     ('spin_velocity_cap', 39, 0x234, CarpTextNfs4Float(), 0.5,
-     'Spin velocity cap (0.3 to 0.6). No reader found in the ported nfs4.exe code'),
+     'Spin velocity cap (0.3 to 0.6). No reader in nfs4.exe'),
     ('slide_velocity_cap', 40, 0x238, CarpTextNfs4Float(), 0.5,
-     'Slide velocity cap (0.2 to 1). No reader found in the ported nfs4.exe code'),
+     'Slide velocity cap (0.2 to 1). No reader in nfs4.exe'),
     ('slide_assist', 41, 0x23c, CarpTextNfs4Int(), 10,
      'Slide assistance factor, read as an integer (the files write `128.000000` / `150.000000`: `%d` stops at the '
-     '`.`). No reader found in the ported nfs4.exe code'),
+     '`.`). No reader in nfs4.exe'),
     ('push_factor', 42, 0x240, CarpTextNfs4Int(), 10,
-     'Push factor (9000 to 12000). No reader found in the ported nfs4.exe code'),
+     'Push factor (9000 to 12000). No reader in nfs4.exe'),
     ('low_turn_factor', 43, 0x244, CarpTextNfs4Float(), 0.5,
-     'Low turn factor, "the lower the figure, the better the turn" (0.02 to 0.03). No reader found in the ported '
-     'nfs4.exe code'),
+     'Low turn factor, "the lower the figure, the better the turn" (0.02 to 0.03). No reader in '
+     'nfs4.exe'),
     ('high_turn_factor', 44, 0x248, CarpTextNfs4Float(), 0.6,
-     'High turn factor, "the lower the figure, the better the turn" (0.0215 to 0.035). No reader found in the ported '
-     'nfs4.exe code'),
+     'High turn factor, "the lower the figure, the better the turn" (0.0215 to 0.035). No reader in '
+     'nfs4.exe'),
     ('pitch_roll', 45, 0x24c, CarpTextNfs4Float(), 1.0,
-     'Pitch / roll factor (0.63 to 1.1), in NFS3 the drawn body roll and pitch. Suspension tuning slider t: / sqrt(t) '
-     '(0x4fcad0). No other reader found in the ported nfs4.exe code'),
+     'Pitch / roll factor (0.63 to 1.1) of the drawn body roll and pitch (0x4494b0, 0x44bd80, 0x44c430), not the '
+     'physics. Suspension tuning slider t: / sqrt(t) (0x4fcad0)'),
     ('road_bumpiness', 46, 0x250, CarpTextNfs4Float(), 0.7,
-     'Road bumpiness factor (0.59 to 1.5), in NFS3 the drawn body shake. No reader found in the ported nfs4.exe '
-     'code'),
+     'Road bumpiness factor (0.59 to 1.5) of the drawn body shake (0x4493f0: car+0x984 = the road surface\'s bump '
+     'value x this x sin(speed)), not the physics'),
     ('spoiler_type', 47, 0x254, CarpTextNfs4Int(), 0,
      'Spoiler function type: 0, 1 or 8. 1 is an air brake: braking above 0.15 of the pedal adds |forward speed| x '
      '`aero_downforce` to the brake and the rear downforce factor is 1.75 instead of 1.5 (0x501860, 0x4ff6b0), and '
      'the car keeps a spoiler value car+0x970 (0.25 braking, else above 11.18 m/s 0.0694 / (speed - 11.18) + 0.0278). '
      '8: shifting up, the rpm rises by 25 per step instead of 50 / 75 (0x4ffa20)'),
     ('spoiler_speed', 48, 0x258, CarpTextNfs4Float(), 0.0,
-     'Spoiler activation speed in m/s (0, 5 or 10). No reader found in the ported nfs4.exe code'),
+     'Spoiler activation speed in m/s (0, 5 or 10). No reader in nfs4.exe'),
     ('gradual_turn_cutoff', 49, 0x25c, CarpTextNfs4Int(), 96,
      'Driving aid turn cutoff (16 to 110; NFS3: the turn of the road ahead, 1/1024 turns, above which the aid slows '
      'down by `medium_turn_speed`). Read only by nfs4.exe\'s driving aid 0x4fd580, which no code calls'),
@@ -3073,18 +3079,18 @@ _NFS4_CARP_FIELDS = (
      'Driving aid target speed factor of an extreme turn (0.4 to 0.94). Read only by the uncalled driving aid '
      '0x4fd580'),
     ('subdivide_level', 55, 0x274, CarpTextNfs4Int(), 0,
-     'Subdivide level (1 or 3). No reader found in the ported nfs4.exe code'),
+     'Subdivide level (1 or 3). No reader in nfs4.exe'),
     ('camera_arm', 56, 0x278, CarpTextNfs4Float(), 0.25,
-     'Camera arm (0.25 in every file), a float (NFS3 keeps it as 16.16). No reader found in the ported nfs4.exe '
-     'code'),
+     'Camera arm (0.25 in every file), a float (NFS3 keeps it as 16.16). Read by the camera code (0x43e8aa), not the '
+     'physics'),
     ('body_damage', 57, 0x27c, CarpTextNfs4Float(), 0.0,
-     'Body damage (0 in every file). No reader found in the ported nfs4.exe code (the car\'s damage is kept in the '
+     'Body damage (0 in every file). No reader in nfs4.exe (the car\'s damage is kept in the '
      'car, car+0x558..)'),
     ('engine_damage', 58, 0x280, CarpTextNfs4Float(), 0.0,
-     'Engine damage (0 in every file). No reader found in the ported nfs4.exe code (the engine damage of the torque '
+     'Engine damage (0 in every file). No reader in nfs4.exe (the engine damage of the torque '
      'and the engine wear is car+0x57c)'),
     ('suspension_damage', 59, 0x284, CarpTextNfs4Float(), 0.0,
-     'Suspension damage (0 in every file). No reader found in the ported nfs4.exe code'),
+     'Suspension damage (0 in every file). No reader in nfs4.exe'),
     ('engine_tuning', 60, 0x288, CarpTextNfs4Float(), 1.0,
      'Engine tuning (1 in every file, the default of the engine slider; fields 60 to 66 hold the default tuning in '
      'nearly every file). No reader found: the sliders\' values are in the game setup. '
@@ -3119,8 +3125,9 @@ _NFS4_CARP_FIELDS = (
     (f'ai_acc{k}', 67 + k, 0x2A4 + 56 * k, CarpTextNfs4Array(CarpTextNfs4Float(), 14),
      _NFS4_CARP_DEFAULT_AI_ACC[14 * k: 14 * k + 14],
      f'AI acceleration table, entries {14 * k} to {14 * k + 13} of a table of 112 (8 sections of 14) in m/s² by '
-     'speed (NFS3: an AI car accelerates by entry round(speed in m/s - 0.5)). Not read by the player car; the AI car '
-     'physics (0x40ff70) is not ported. A missing section takes its own default')
+     'speed: an AI car accelerates by entry round(speed in m/s - 0.5), clamped to 0..111 (0x40d910, as NFS3\'s '
+     '0x4064f0; times factors, none above `top_speed_cap`); 0x40ee90 and 0x40f570 compare with entry 0. Not read by '
+     'the player car. A missing section takes its own default')
     for k in range(8)
 )  # fmt: skip
 
@@ -3180,7 +3187,10 @@ class Nfs4CarPhysics(Nfs3CarPhysics):
             'sliders, and sets the per gear values and the air drag. Car physics steps run at 32 Hz (every 2nd tick '
             "of the 64 Hz simulation). Field descriptions: label, place in the game's carp, the default for a "
             'missing field, then the use, from the nfs4.exe port in nfs-web (`src/nfs4/nfs4-physics`); "no reader '
-            'found" = no ported code reads it (AI, sound and drawing code is not ported)',
+            'found" / "no reader" = no instruction of nfs4.exe reads it through the car\'s carp pointer (car+0x474; a '
+            'linear disassembly of the whole executable, AI, camera and drawing code included: nfs-web '
+            "`decomp/nfs4/port-work/car-specs/`). `Data/Plac.viv`'s `carp.txt` is the network placeholder: a text "
+            'with the serial number only, every other field takes the default',
         }
 
     Fields = _nfs4_carp_fields_class()
