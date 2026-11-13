@@ -22,6 +22,7 @@ from serializers.geometries import (
     nfs6_ps2_strip_skips,
     nfs6_ps2_texture_by_name,
 )
+from serializers.nfs6_ps2_car_specs import Nfs6Ps2ChunkBundleSerializer
 from serializers.maps import (
     BlackBoxRoad,
     Nfs6Ps2TrackBundleSerializer,
@@ -39,6 +40,8 @@ COMPRESSED = 'test/samples/NFS6PS2_PRERACEANIM.LZC'
 # lighting materials, the car type COUPE (index 0 here), the shared textures of the model and the paints of COUPE
 CAR = 'test/samples/nfs6_ps2_cars/CARS/COUPE/GEOMETRY.LZC'
 GLOBALB = 'test/samples/nfs6_ps2_cars/GLOBAL/GLOBALB.BUN'
+# GLOBAL/GLOBALB.BUN's car type 0 (CORVETTE, chunk 0x34600) and its five paints (chunk 0x34601)
+CAR_TYPE = 'test/samples/NFS6PS2_CARTYPE_CORVETTE.BUN'
 
 
 def _chunk(data, chunk_id):
@@ -351,7 +354,7 @@ class TestNfs6Ps2Car(unittest.TestCase):
     def test_car_type_should_have_wheels(self):
         (_, _, data) = require_file(GLOBALB)
         car_type = _chunk(data, 0x00034600)['car_types'][0]
-        self.assertEqual((car_type['name'], car_type['model_name'], car_type['car_class']), ('COUPE', 'COUPE', 2))
+        self.assertEqual((car_type['name'], car_type['model_name'], car_type['usage_type']), ('COUPE', 'COUPE', 2))
         self.assertEqual(car_type['geometry_path'], 'CARS\\COUPE\\GEOMETRY.BIN')
         wheels = {w['index']: w['position'] for w in car_type['wheels']}
         # front left, front right, rear right, rear left; X forward, Y left
@@ -466,6 +469,12 @@ class TestNfs6Ps2Car(unittest.TestCase):
             with open(os.path.join(path, 'skins.json')) as f:
                 skins = json.load(f)
             self.assertEqual([x['name'] for x in skins], [f'SKIN{n}' for n in range(1, 9)])
+            # the complete values of the model's car types, as GLOBALB's car_types.json
+            with open(os.path.join(path, 'car_types.json')) as f:
+                car_types = json.load(f)['car_types']
+            self.assertEqual([x['name'] for x in car_types], ['COUPE'])
+            self.assertEqual(car_types[0]['rigid_body']['mass'], 1.25)
+            self.assertEqual(car_types[0]['unused_e8'], {'$bytes': [0] * 8})
             for skin in skins:
                 self.assertTrue(os.path.exists(os.path.join(path, skin['texture'])))
             with open(os.path.join(path, 'car.json')) as f:
@@ -499,6 +508,92 @@ class TestNfs6Ps2Car(unittest.TestCase):
                     image.convert('RGBA').tobytes(),
                     nfs6_ps2_texture_to_image(info, raw).convert('RGBA').tobytes(),
                 )
+
+
+class TestNfs6Ps2CarSpecs(unittest.TestCase):
+    """The CORVETTE's record of the car types table (GLOBALB chunk 0x34600, car type 0) and its paints (0x34601)"""
+
+    def _bundle(self):
+        with open(CAR_TYPE, 'rb') as f:
+            raw = f.read()
+        block = Nfs6Ps2ChunkBundle()
+        return raw, block, block.unpack_from_bytes(raw)
+
+    def test_car_type_should_be_read_and_remain_the_same(self):
+        raw, block, data = self._bundle()
+        self.assertEqual(block.pack(data), raw)
+
+    def test_car_type_should_have_front_end_values(self):
+        _, _, data = self._bundle()
+        t = _chunk(data, 0x00034600)['car_types'][0]
+        self.assertEqual((t['name'], t['manufacturer'], t['dashboard_geometry_path']), ('CORVETTE', 'CHEVROLET', ''))
+        self.assertEqual((t['is_hp'], t['num_skins'], t['car_class'], t['open_top']), (0, 5, 1, 0))
+        self.assertEqual(t['skins'][:5], [5, 1, 2, 4, 3])
+        self.assertEqual((t['default_skin'], t['car_type'], t['usage_type']), (4, 0, 0))
+        self.assertEqual((t['default_status'], t['cop_default_status'], t['language_info']), (1, 3, 0))
+        self.assertEqual(t['traffic_weights'], [1, 1, 1, 1, 1])
+        # left hand drive: the driver sits on the left (Y left)
+        self.assertGreater(t['driver_position']['y'], 0.3)
+
+    def test_car_type_should_have_sound_camera_and_gauges(self):
+        _, _, data = self._bundle()
+        t = _chunk(data, 0x00034600)['car_types'][0]
+        sound = t['engine_sound']
+        self.assertEqual((sound['region'], sound['sample_prefix'], sound['ai_sample']), ('NewECam', 'Cam', 1))
+        self.assertEqual(
+            (sound['rpm_pitch'], sound['pitch_offset'], sound['exhaust_mix']), (1600, 125, [10, 80, 120, 120])
+        )
+        self.assertEqual(len(sound['sample_volumes']), 12)
+        camera = t['camera']
+        self.assertEqual((camera['num_views'], camera['num_split_screen_views']), (3, 3))
+        self.assertEqual([v['type'] for v in camera['views']], ['bumper', 'chase', 'chase', 'bumper'])
+        chase = camera['views'][1]
+        self.assertAlmostEqual(chase['distance'], 5.8, places=5)
+        self.assertEqual((chase['pitch'], chase['raised_pitch']), (600, 9158))
+        gauges = t['gauges']
+        self.assertEqual((gauges['own_overlay'], gauges['tach_scale_rpm'], gauges['kmh_max']), (1, 7000, 320))
+        self.assertEqual(gauges['tach_center'], {'x': 71, 'y': 72})
+
+    def test_paints_should_have_colours(self):
+        _, _, data = self._bundle()
+        skins = _chunk(data, 0x00034601)['skins']
+        self.assertEqual(len(skins), 5)
+        self.assertTrue(all(x['car_type_index'] == 0 for x in skins))
+        # one colour bit each
+        self.assertTrue(all(bin(x['color_bit']).count('1') == 1 for x in skins))
+
+    def test_json_should_import_back_byte_exact(self):
+        raw, block, data = self._bundle()
+        with tempfile.TemporaryDirectory() as path:
+            out = Nfs6Ps2ChunkBundleSerializer().serialize(data, os.path.join(path, 'GLOBALB.BUN'), block=block)
+            self.assertEqual(sorted(os.path.basename(x) for x in out), ['car_skins.json', 'car_types.json'])
+            self.assertEqual(block.pack(Nfs6Ps2ChunkBundleSerializer.apply_json(data, out)), raw)
+            # an edited value lands in its bytes, the rest stays
+            with open(out[0] if out[0].endswith('car_types.json') else out[1]) as f:
+                values = json.load(f)
+            values['car_types'][0]['rigid_body']['mass'] = 2.0
+            edited = os.path.join(path, 'car_types.json')
+            with open(edited, 'w') as f:
+                json.dump(values, f)
+            changed = block.pack(Nfs6Ps2ChunkBundleSerializer.apply_json(data, [edited]))
+            self.assertEqual(struct.unpack_from('<f', changed, 0x10 + 0x1E0)[0], 2.0)
+            self.assertEqual(
+                changed[: 0x10 + 0x1E0] + changed[0x10 + 0x1E4 :], raw[: 0x10 + 0x1E0] + raw[0x10 + 0x1E4 :]
+            )
+
+    def test_compressed_plain_bundle_should_be_no_track(self):
+        # GLOBAL/GLOBALB.LZC: a chunk bundle without sceneries reads as Nfs6Ps2ChunkBundle (car spec JSON), not a track
+        with open(GLOBALB, 'rb') as f:
+            raw = f.read()
+        compressed = CompCompression().compress(BytesIO(raw), len(raw))
+        with tempfile.TemporaryDirectory() as path:
+            file = os.path.join(path, 'GLOBALB.LZC')
+            with open(file, 'wb') as f:
+                f.write(compressed)
+            (name, block, data) = require_file(file, lazy=False)
+            self.assertIsInstance(block, Nfs6Ps2CompressedBlock)
+            self.assertIs(type(block.possible_blocks[data['choice_index']]), Nfs6Ps2ChunkBundle)
+            self.assertEqual(block.pack(data, name=name), compressed)
 
 
 if __name__ == '__main__':

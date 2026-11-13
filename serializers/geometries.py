@@ -2682,6 +2682,7 @@ class Nfs6Ps2CarSerializer(BaseFileSerializer):
         textures = {}
         car_type = None
         car_type_index = None
+        model_car_types = []
         lighting = {}
         car_skins = []
         for pack_path in texture_packs:
@@ -2702,6 +2703,8 @@ class Nfs6Ps2CarSerializer(BaseFileSerializer):
                         ((i, x) for i, x in enumerate(chunk_data['car_types']) if x['model_name'] == model_name),
                         (None, None),
                     )
+                    # every car type of the model (e.g. CORVETTE, CORVETTEHP, CORVETTECOP), complete
+                    model_car_types = [x for x in chunk_data['car_types'] if x['model_name'] == model_name]
                 elif chunk_data.get('chunk_id') == 0x00034601:
                     car_skins += chunk_data['skins']
                 elif chunk_data.get('chunk_id') == 0x0003401E:
@@ -2897,7 +2900,13 @@ class Nfs6Ps2CarSerializer(BaseFileSerializer):
                 f,
                 indent=2,
             )
-        return paths + [skins_path, car_path]
+        # the car spec values of the model's car types, as GLOBALB's conversion writes them (car_types.json)
+        from serializers.nfs6_ps2_car_specs import nfs6_ps2_car_spec_json
+
+        car_types_path = path_join(path, 'car_types.json')
+        with open(car_types_path, 'w') as f:
+            json.dump({'car_types': nfs6_ps2_car_spec_json(model_car_types)}, f, indent=2)
+        return paths + [skins_path, car_path, car_types_path]
 
 
 def _nfsmw_mesh(header: dict, texture_ids: list, container: dict, faces_chunk, materials: list) -> Optional[NfsuMesh]:

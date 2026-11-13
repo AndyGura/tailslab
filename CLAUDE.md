@@ -405,7 +405,8 @@ When you do:
 - Files are Black Box chunk bundles with NFSU's chunk ids but other layouts (`resources/blackbox/{geometries,bitmaps,maps}/
   nfs6_ps2.py`): the loader picks `Nfs6Ps2ChunkBundle` for a bundle with a mesh pack 0x80034000 or a texture pack
   0xB0300001 (`is_nfs6_ps2_bundle`; NFSU's are 0x80134000 / 0xB3300000), `Nfs6Ps2TrackBundle` with sceneries too. Every
-  track and global bundle writes back byte-exact.
+  track and global bundle writes back byte-exact. The bundle blocks subclass `Nfs6Ps2ChunkBundle`: `Nfs6Ps2CompressedBlock`
+  takes the loader's class itself (`detect`), so a plain `.LZC` bundle (GLOBALB, INGAMEB, FRONTB) is no track.
 - Meshes (`nfs6_ps2_mesh`): VIF packets for the game's VU1 microprogram (layout in its docstring, strips:
   `nfs6_ps2_strip_skips`, the R register LFSR of the VU). Vertices are local: a scenery instance places them
   (`v @ rotation + position`, rotation 2.14 fixed point); the mesh header's matrix is the modelling one, not used.
@@ -460,15 +461,39 @@ When you do:
   from these files: keep the names stable.
 - Physics data (field meanings from nfs-web's port of the physics, `src/nfs6/nfs6-physics/notes/*-formats.md`; exe
   addresses in the descriptions): the car types' wheels, tyres, mass and inertia, suspensions, drive train, engine,
-  aerodynamics and controls (`Nfs6Ps2CarTypeInfo`, its sub-blocks `Nfs6Ps2Car*`; 0x80..0x110 but `is_hp`, 0x324..0x538
-  stay unknown bytes); in the track bundles the ground and wall polygons of the physics, a quad tree (0x34130 nodes and
+  aerodynamics and controls (`Nfs6Ps2CarTypeInfo`, its sub-blocks `Nfs6Ps2Car*`); in the track bundles the ground and wall polygons of the physics, a quad tree (0x34130 nodes and
   0x34131 squares, 16-byte aligned; 0x34132 polygons, 0x34133 polygon indexes, not aligned: `Nfs6Ps2TopologyTree*`), the
   start grid markers 0x34146, the routes 0x34121 (lanes and racing lines, back to back, 0x428 bytes + 0x70 per point)
   and signposts 0x34122; the collision volumes 0x80034020 (`Nfs6Ps2CollisionVolumes`: V-Clip polyhedra as memory images,
   five sub-chunks each, 16-byte aligned; a car's GEOMETRY has its hull `<model>_CV`, the tracks and INGAMEB the props').
   Records the game uses in place keep their run time fields (list pointers, slots) as read.
+- Car types table (`Nfs6Ps2CarTypeInfo`, every byte named): readers found by a register taint scan of the whole
+  disassembly (nfs-web `decomp/nfs6_ps2/port-work/car-specs/fieldscan.py`: from the table pointer 0x330868, Car+0xc,
+  CarState, PhysicsCar+0x4c, CarRenderInfo+8); a field without a reader is `unused*`, described "not read". Besides the
+  physics: dashboard model paths, manufacturer, paints (`num_skins`, `skins`, `default_skin`), `car_class` (performance
+  class 0..4: front end, racing line, records), `open_top`, `driver_position`, the engine sound (`Nfs6Ps2CarEngineSound`,
+  0x330: region, 12 samples lelo..cxhi, pitches in cents), the camera views (`Nfs6Ps2CarCamera`, 0x3c0: POVs bumper /
+  in car / chase, split screen), the HUD gauges (`Nfs6Ps2CarGauges`, 0x4d0), random car weights by location,
+  `usage_type` (0 racer, 1 police, 2 traffic), the car selector's statuses until unlocked (eCarStatus), `language_info`
+  (run time pointer). The PC game's `Cars/<car>/car.ini` is another physics model: its keys are named in the
+  descriptions where a value matches (SpeedGovernor m/s = speed limiter mph / 2.237, NumberOfGears = num_gears + 2).
+  Paints (`Nfs6Ps2CarSkin`): `color_bit` is the colour group of the cops' speech and of unique grid colours.
+- Car spec JSON: `Nfs6Ps2ChunkBundleSerializer` (`serializers/nfs6_ps2_car_specs.py`, the serializer of a plain bundle)
+  writes `car_types.json` (`{"car_types": [...]}`, every field of the 64 car types, bytes as `{"$bytes": [...]}`) and
+  `car_skins.json` (`{"skins": [...]}`) into GLOBALB's output folder, nothing for a bundle without these chunks; its
+  import (`apply_json`, the GUI's reversible import) puts their values back, unchanged files write byte-exact.
+  `Nfs6Ps2CarSerializer` adds `car_types.json` next to `car.json`: the car types of the model (CORVETTE, CORVETTEHP,
+  CORVETTECOP), the same entries.
+- GUI: `Nfs6Ps2CarTypesBlockUiComponent` (`frontend/.../editor/blackbox/nfs6-ps2-car-types.block-ui/`, on
+  `CarSpecEditorBase`, registered for `Nfs6Ps2CarTypeInfos`, the chunk in GLOBALB's chunk list): car type list, key
+  figures and tabs per subsystem (engine, gearbox with the automatic's shift points, chassis and tyres with a top view of
+  the wheels, aero, steering lock by speed, engine sound, camera views, HUD gauges, front end, all fields). The
+  executable's formulas are `nfs6-ps2-car-specs.ts` (CalculateShiftPoints, the speed limiter, the steering tables, the
+  grid order...): keep them and the field descriptions in sync.
 - Ghidra: nfs-web `decomp/nfs6_ps2/SLUS_203.62.gzf` (R5900 language of the extension `ghidra-emotionengine-reloaded`),
-  VU1 microcode: nfs-web `decomp/vu1dis.py`. Not read yet: engine sounds, speech, NIS, the 136 unnamed files.
+  VU1 microcode: nfs-web `decomp/vu1dis.py`. Not read yet: the engine sound banks, speech, NIS, the 136 unnamed
+  files; GLOBALB's DifficultyInfo 0x34b00 (AI difficulty, LoaderDifficultyInfo 0x12ff68), CharacterInfo 0x34300 /
+  0x34301 (drivers), NisInfo 0x37010.
 
 ## NFS5 data files (`resources/eac/car_specs.py`, `resources/eac/maps/nfs5.py`, `resources/eac/geometries/nfs5.py`)
 
