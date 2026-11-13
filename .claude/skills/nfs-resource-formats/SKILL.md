@@ -503,7 +503,14 @@ a value.
 that runs on every change under the resource (`CarSpecEditorBase` in `car-specs.ts` listens to
 `ChangesService.change$`, since an embedded array editor would otherwise take the change notification), the
 remaining scalar fields are grouped through `<app-compound-block-ui [fieldWhitelist]>`, and an "All fields" tab
-keeps the generic editor.
+keeps the generic editor. A table of records (NFS HP2 PS2 car types, `Nfs6Ps2CarTypesBlockUiComponent`) is edited the
+same way with a record list: paths `[array, index, ...]` through `setValue`, nested parts through
+`<app-compound-block-ui>` with `joinId(resourceId, array, index, sub)` and the array's `child_schema`; the game's
+formulas in a plain `.ts` next to it, tested by the spec.
+
+A format whose values should reach other tools as JSON gets a serializer writing them (every field, bytes through
+`convert_bytes` as `{"$bytes": [...]}`) and, where it can, an import putting them back so unchanged JSON writes the file
+byte-exact (`Nfs6Ps2ChunkBundleSerializer.apply_json`, `revert_bytes`; keys a file lacks keep their values).
 
 ## Roadmap awareness
 

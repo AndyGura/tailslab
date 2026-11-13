@@ -60,6 +60,7 @@ import { TargaImageBlockUiComponent } from './common/targa-image.block-ui/targa-
 import { ImageViewerComponent } from './common/image-viewer/image-viewer.component';
 import { NfsuBinGeometryBlockUiComponent } from './blackbox/nfsu-bin-geometry.block-ui/nfsu-bin-geometry.block-ui.component';
 import { Nfs6Ps2CarBlockUiComponent } from './blackbox/nfs6-ps2-car.block-ui/nfs6-ps2-car.block-ui.component';
+import { Nfs6Ps2CarTypesBlockUiComponent } from './blackbox/nfs6-ps2-car-types.block-ui/nfs6-ps2-car-types.block-ui.component';
 import { EaglModelBlockUiComponent } from './eac/eagl-model.block-ui/eagl-model.block-ui.component';
 import { CurveEditorComponent } from './common/curve-editor/curve-editor.component';
 import { StatTilesComponent } from './common/stat-tiles/stat-tiles.component';
@@ -120,6 +121,7 @@ import { Nfs2CarAiBlockUiComponent } from './eac/nfs2-car-ai.block-ui/nfs2-car-a
     CrpGeometryBlockUiComponent,
     NfsuBinGeometryBlockUiComponent,
     Nfs6Ps2CarBlockUiComponent,
+    Nfs6Ps2CarTypesBlockUiComponent,
     EaglModelBlockUiComponent,
     PlayerCarPhysicsBlockUiComponent,
     CarAiAndCrashBodyBlockUiComponent,
