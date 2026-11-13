@@ -107,7 +107,11 @@ class TestCarFeData(unittest.TestCase):
 class TestCarpPlacAndJson(unittest.TestCase):
     def test_plac_carp_is_read(self):
         for path, cls, item in (
-            ('test/samples/carp_plac/nfs3_carp.txt', Nfs3CarPhysics, 'games/nfs3/FeData/Plac/CAR.VIV__children/0_carp.txt'),
+            (
+                'test/samples/carp_plac/nfs3_carp.txt',
+                Nfs3CarPhysics,
+                'games/nfs3/FeData/Plac/CAR.VIV__children/0_carp.txt',
+            ),
             ('test/samples/carp_plac/nfs4_carp.txt', Nfs4CarPhysics, 'games/nfs4/Data/Plac.viv__children/0_carp.txt'),
         ):
             raw = _read(path)
