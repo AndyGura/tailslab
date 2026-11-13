@@ -73,6 +73,9 @@ import { CarFeDataBlockUiComponent } from './eac/car-fedata.block-ui/car-fedata.
 import { Nfs2CarAiBlockUiComponent } from './eac/nfs2-car-ai.block-ui/nfs2-car-ai.block-ui.component';
 import { Nfs2SimTuneBlockUiComponent } from './eac/nfs2-sim-tune.block-ui/nfs2-sim-tune.block-ui.component';
 import { EaFieldDescriptionsBlockUiComponent } from './eac/ea-field-descriptions.block-ui/ea-field-descriptions.block-ui.component';
+import { IniFileBlockUiComponent } from './common/ini-file.block-ui/ini-file.block-ui.component';
+import { Nfs6CarIniBlockUiComponent } from './eac/nfs6-car-ini.block-ui/nfs6-car-ini.block-ui.component';
+import { Nfs6EngineAudioBlockUiComponent } from './eac/nfs6-engine-audio.block-ui/nfs6-engine-audio.block-ui.component';
 
 @NgModule({
   declarations: [
@@ -134,6 +137,9 @@ import { EaFieldDescriptionsBlockUiComponent } from './eac/ea-field-descriptions
     Nfs2CarAiBlockUiComponent,
     Nfs2SimTuneBlockUiComponent,
     EaFieldDescriptionsBlockUiComponent,
+    IniFileBlockUiComponent,
+    Nfs6CarIniBlockUiComponent,
+    Nfs6EngineAudioBlockUiComponent,
   ],
   imports: [
     CommonModule,

@@ -87,6 +87,12 @@ def _is_nfs4_speed_file_size(length: int) -> bool:
     return is_nfs4_speed_file_size(length)
 
 
+def _nfs6_car_ini_class(file_path: str):
+    from resources.eac.nfs6_car_specs import nfs6_car_ini_class
+
+    return nfs6_car_ini_class(file_path)
+
+
 def _peek(buffer, n: int) -> bytes:
     """The next n bytes of the buffer, without moving it"""
     data = buffer.read(n)
@@ -186,6 +192,9 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.psx import TnfsPsxHorizonInfo
 
             return TnfsPsxHorizonInfo
+        elif file_path.lower().endswith('.ini') and _nfs6_car_ini_class(file_path):
+            # NFS HP2 PC car spec files Cars/<car>/car.ini, vehicle.ini... and Cars/Cars.ini, Cameras.ini...
+            return _nfs6_car_ini_class(file_path)
         elif file_path.upper().endswith('.HRZ'):
             # NFS2 / NFS2 SE / NFS3 track sky settings TR<nn>.HRZ, 3TR<nn>*.HRZ
             from resources.eac.horizons import hrz_block_class
@@ -344,6 +353,11 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.misc import DashDeclarationFile
 
             return DashDeclarationFile
+        elif header_str == 'CRDl':
+            # NFS HP2 PC engine sound tables, items of Cars/cartable.viv
+            from resources.eac.nfs6_car_specs import Nfs6EngineAudioTable
+
+            return Nfs6EngineAudioTable
         elif header_str == 'BNKl':
             from resources.eac.archives import EaSoundBank
 

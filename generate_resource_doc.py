@@ -22,6 +22,7 @@ from resources.blackbox.bitmaps import nfsu as blackbox_bitmaps_nfsu
 from resources.blackbox.maps import nfsu as blackbox_maps_nfsu
 from resources.blackbox.maps import nfsu2 as blackbox_maps_nfsu2
 from resources.blackbox.maps import nfs6_ps2 as blackbox_maps_nfs6_ps2
+from resources.eac import nfs6_car_specs
 from resources.blackbox.maps import nfsmw as blackbox_maps_nfsmw
 from resources.blackbox.bitmaps import nfs6_ps2 as blackbox_bitmaps_nfs6_ps2
 from resources.blackbox.geometries import nfs6_ps2 as blackbox_geometries_nfs6_ps2
@@ -789,6 +790,26 @@ EXPORT_RESOURCES = {
 
 **levelNN\\aipaths.dat** race route. {render_type(eac.maps.Nfs6AiPaths())}
 
+**cars\\<car>\\car.ini**, **car_hp.ini**, **car_cop.ini**, **carracer.ini** car physics (player, hot pursuit, police, AI racer). {render_type(nfs6_car_specs.Nfs6CarIni())}
+
+**cars\\<car>\\vehicle.ini** shading, skins, paint swatches, light glows. {render_type(nfs6_car_specs.Nfs6VehicleIni())}
+
+**cars\\<car>\\bounds.ini** bounding boxes. {render_type(nfs6_car_specs.Nfs6BoundsIni())}
+
+**cars\\<car>\\geomdata.ini** levels of detail and damage zones of the model's geometries. {render_type(nfs6_car_specs.Nfs6GeomDataIni())}
+
+**cars\\<car>\\damage.ini**, **lod.ini** (not read by the game). {render_type(nfs6_car_specs.Nfs6DamageIni())}, {render_type(nfs6_car_specs.Nfs6LodIni())}
+
+**cars\\Cars.ini** the car list. {render_type(nfs6_car_specs.Nfs6CarsIni())}
+
+**cars\\Cameras.ini** race cameras. {render_type(nfs6_car_specs.Nfs6CamerasIni())}
+
+**cars\\RearView.ini** (not read by the game). {render_type(nfs6_car_specs.Nfs6RearViewIni())}
+
+**cars\\reflection.ini** car reflections. {render_type(nfs6_car_specs.Nfs6ReflectionIni())}
+
+**cars\\cartable.viv** engine sound tables **engine.rpm**, **engine.ctb**, **engine.htb**, **engine.ltb**, **engine.btb**. {render_type(nfs6_car_specs.Nfs6EngineAudioTable())}
+
 **audio/music/\\*.asf** song (names in **music.ini**), **audio/speech/\\<language\\>/radio.viv** police radio speech (EA MicroTalk, not decoded). {render_type(eac.audios.EaAudioStreams())}
 
 **\\*.BNK** sound bank. {render_type(eac.archives.EaSoundBank())}
@@ -815,8 +836,23 @@ EXPORT_RESOURCES = {
                 eac.maps.Nfs6AiPath(),
                 eac.maps.Nfs6AiPathPoint(),
             ],
-            # 'Physics': [
-            # ],
+            'Car specs': [
+                nfs6_car_specs.Nfs6CarIni(),
+                nfs6_car_specs.Nfs6CarHpIni(),
+                nfs6_car_specs.Nfs6CarCopIni(),
+                nfs6_car_specs.Nfs6CarRacerIni(),
+                nfs6_car_specs.Nfs6VehicleIni(),
+                nfs6_car_specs.Nfs6CarsIni(),
+                nfs6_car_specs.Nfs6BoundsIni(),
+                nfs6_car_specs.Nfs6GeomDataIni(),
+                nfs6_car_specs.Nfs6DamageIni(),
+                nfs6_car_specs.Nfs6LodIni(),
+                nfs6_car_specs.Nfs6CamerasIni(),
+                nfs6_car_specs.Nfs6RearViewIni(),
+                nfs6_car_specs.Nfs6ReflectionIni(),
+                nfs6_car_specs.Nfs6EngineAudioTable(),
+                *nfs6_car_specs.NFS6_CAR_SPEC_SECTIONS,
+            ],
             'Images': [
                 eac.bitmaps.EacImage(),
                 eac.bitmaps.EacPalette(),

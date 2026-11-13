@@ -1,0 +1,198 @@
+@if (!embedded) {
+  @if (resourceId && resourceName && !hideName) {
+    <h2 [matTooltip]="resourceDescription || ''" matTooltipPosition="above">{{ resourceName }}</h2>
+  }
+  @if (!hideBlockActions) {
+    <app-block-actions
+      [resource]="{
+        id: resourceId!,
+        name: resourceName!,
+        data: resourceData,
+        schema: resourceSchema,
+      }"></app-block-actions>
+  }
+  @if (resourceSchema?.block_description) {
+    <p class="note">{{ resourceSchema.block_description }}</p>
+  }
+}
+
+<ng-template #keyRows let-section="section" let-values="values" let-base="base">
+  <table class="ini-keys">
+    <tbody>
+      @for (row of visibleRows(section, values); track row.field) {
+        <tr [class.not-read]="row.notRead">
+          <td class="key" [matTooltip]="row.description" matTooltipPosition="above">{{ row.key }}</td>
+          <td class="value">
+            @if (row.itemKeys) {
+              <div class="items">
+                @for (itemKey of row.itemKeys; track itemKey; let i = $index) {
+                  <label class="item" [matTooltip]="itemKey">
+                    <span class="index">{{ i }}</span>
+                    <input
+                      [type]="row.kind === 'string' ? 'text' : 'number'"
+                      [value]="display(values?.[row.field]?.[i])"
+                      [placeholder]="placeholder(row)"
+                      [disabled]="!!disabled"
+                      (change)="onKeyInput(base.concat([row.field, i]), $any($event.target).value, row.kind)" />
+                  </label>
+                }
+              </div>
+            } @else {
+              <input
+                [type]="row.kind === 'string' ? 'text' : 'number'"
+                [value]="display(values?.[row.field])"
+                [placeholder]="placeholder(row)"
+                [disabled]="!!disabled"
+                (change)="onKeyInput(base.concat([row.field]), $any($event.target).value, row.kind)" />
+              @if (values?.[row.field] !== null && values?.[row.field] !== undefined) {
+                <button
+                  mat-icon-button
+                  class="small"
+                  matTooltip="Remove the key from the file (the game then takes its default)"
+                  [disabled]="!!disabled"
+                  (click)="removeKey(base.concat([row.field]))">
+                  <mat-icon>close</mat-icon>
+                </button>
+              }
+            }
+          </td>
+          <td class="unit">{{ row.unit }}</td>
+          <td class="description">{{ row.description }}</td>
+        </tr>
+      }
+    </tbody>
+  </table>
+  <ng-container
+    *ngTemplateOutlet="
+      otherKeys;
+      context: { list: values?.other_keys, path: base.concat(['other_keys']) }
+    "></ng-container>
+</ng-template>
+
+<ng-template #otherKeys let-list="list" let-path="path">
+  @if (list?.length) {
+    <div class="other-title">Keys the definition does not name (not read by the game)</div>
+  }
+  @for (kv of list; track $index; let i = $index) {
+    <div class="other-key">
+      <input
+        type="text"
+        class="key-input"
+        [value]="kv.key"
+        [disabled]="!!disabled"
+        (change)="setValue(path.concat([i, 'key']), $any($event.target).value)" />
+      <span>=</span>
+      <input
+        type="text"
+        [value]="kv.value"
+        [disabled]="!!disabled"
+        (change)="setValue(path.concat([i, 'value']), $any($event.target).value)" />
+      <button mat-icon-button class="small" [disabled]="!!disabled" (click)="removeOtherKey(path, i)">
+        <mat-icon>delete</mat-icon>
+      </button>
+    </div>
+  }
+  <button mat-button class="add" [disabled]="!!disabled" (click)="addOtherKey(path)">
+    <mat-icon>add</mat-icon> Key
+  </button>
+</ng-template>
+
+@if (resourceData && resourceSchema) {
+  <div class="actions">
+    <mat-checkbox [(ngModel)]="showNotRead">Keys the game does not read</mat-checkbox>
+    <mat-checkbox [(ngModel)]="onlyInFile">Only keys in the file</mat-checkbox>
+  </div>
+  @for (section of sections; track section.field) {
+    <mat-expansion-panel class="section" [expanded]="sections.length <= 3">
+      <mat-expansion-panel-header>
+        <mat-panel-title>{{ section.title }}</mat-panel-title>
+        <mat-panel-description>
+          {{ section.description }}
+          @if (section.group) {
+            · {{ resourceData[section.field]?.length || 0 }} sections
+          } @else {
+            · {{ keysInFile(resourceData[section.field]) }} keys in the file
+          }
+        </mat-panel-description>
+      </mat-expansion-panel-header>
+      <ng-template matExpansionPanelContent>
+        @if (section.group) {
+          @for (item of resourceData[section.field]; track $index; let i = $index) {
+            <mat-expansion-panel class="group-item">
+              <mat-expansion-panel-header>
+                <mat-panel-title>[{{ item.section }}]</mat-panel-title>
+                <mat-panel-description>{{ keysInFile(item) }} keys</mat-panel-description>
+              </mat-expansion-panel-header>
+              <ng-template matExpansionPanelContent>
+                <div class="actions">
+                  <label>
+                    Section name
+                    <input
+                      type="text"
+                      [value]="item.section"
+                      [disabled]="!!disabled"
+                      (change)="setValue([section.field, i, 'section'], $any($event.target).value)" />
+                  </label>
+                  <button mat-stroked-button [disabled]="!!disabled" (click)="removeGroupItem(section, i)">
+                    <mat-icon>delete</mat-icon> Remove section
+                  </button>
+                </div>
+                <ng-container
+                  *ngTemplateOutlet="
+                    keyRows;
+                    context: { section: section, values: item, base: [section.field, i] }
+                  "></ng-container>
+              </ng-template>
+            </mat-expansion-panel>
+          }
+          <button mat-button class="add" [disabled]="!!disabled" (click)="addGroupItem(section)">
+            <mat-icon>add</mat-icon> Section
+          </button>
+        } @else {
+          <ng-container
+            *ngTemplateOutlet="
+              keyRows;
+              context: { section: section, values: resourceData[section.field], base: [section.field] }
+            "></ng-container>
+        }
+      </ng-template>
+    </mat-expansion-panel>
+  }
+  @if (!sectionWhitelist) {
+    <mat-expansion-panel class="section">
+      <mat-expansion-panel-header>
+        <mat-panel-title>Other sections</mat-panel-title>
+        <mat-panel-description>
+          Not named by the definition, or repeated (the game reads the first) ·
+          {{ resourceData['other_sections']?.length || 0 }}
+        </mat-panel-description>
+      </mat-expansion-panel-header>
+      <ng-template matExpansionPanelContent>
+        @for (s of resourceData['other_sections']; track $index; let i = $index) {
+          <div class="actions">
+            <label>
+              [
+              <input
+                type="text"
+                [value]="s.section"
+                [disabled]="!!disabled"
+                (change)="setValue(['other_sections', i, 'section'], $any($event.target).value)" />
+              ]
+            </label>
+            <button mat-icon-button class="small" [disabled]="!!disabled" (click)="removeOtherSection(i)">
+              <mat-icon>delete</mat-icon>
+            </button>
+          </div>
+          <ng-container
+            *ngTemplateOutlet="
+              otherKeys;
+              context: { list: s.keys, path: ['other_sections', i, 'keys'] }
+            "></ng-container>
+        }
+        <button mat-button class="add" [disabled]="!!disabled" (click)="addOtherSection()">
+          <mat-icon>add</mat-icon> Section
+        </button>
+      </ng-template>
+    </mat-expansion-panel>
+  }
+}
