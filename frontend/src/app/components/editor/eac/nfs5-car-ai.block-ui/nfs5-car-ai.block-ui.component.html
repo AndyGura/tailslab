@@ -1,0 +1,95 @@
+@if (resourceId && resourceName && !hideName) {
+  <h2 [matTooltip]="resourceDescription || ''" matTooltipPosition="above">{{ resourceName }}</h2>
+}
+@if (!hideBlockActions) {
+  <app-block-actions
+    [resource]="{
+      id: resourceId!,
+      name: resourceName!,
+      data: resourceData,
+      schema: resourceSchema,
+    }"></app-block-actions>
+}
+
+@if (resourceData && resourceSchema) {
+  <app-stat-tiles [tiles]="tiles" [disabled]="disabled"></app-stat-tiles>
+  <p class="note">
+    Only the AI's target speed (Porsche.exe 0x40b650) reads this file: AI racers, and a car the AI drives for the
+    player. It looks at the track ahead (slices 6 m apart), adds the largest turn to each side and takes the corner
+    speed of that sharpness; the race then lowers it for damage, slippery surfaces, the driver's skill and narrow roads.
+  </p>
+
+  <mat-tab-group [(selectedIndex)]="selectedTab" animationDuration="0ms" mat-stretch-tabs="false" class="tabs">
+    <mat-tab label="Corner speeds">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-curve-editor
+            title="Target speed by corner"
+            [hint]="descriptions['speeds']"
+            [series]="speedSeries"
+            [xAxis]="turnAxis"
+            [yAxis]="targetAxis"
+            [height]="320"
+            [disabled]="disabled"
+            [describeX]="describeTurn"
+            (seriesPreview)="onSpeedsPreview($event)"
+            (seriesChange)="onSpeedsChange($event)"></app-curve-editor>
+          <h3>As raced</h3>
+          <p class="note">
+            When the car loads, the speeds above the slowest one are scaled by the car's grip ratio (grip after / before
+            its parts and setup), then all of them by the track's factor for the car's group. A preview, not stored.
+          </p>
+          <div class="sliders">
+            <app-slider-field
+              label="Grip ratio"
+              [value]="gripRatio"
+              [spec]="ratioSlider"
+              (valueChange)="onRescale($event, trackFactor)"></app-slider-field>
+            <app-slider-field
+              label="Track factor"
+              [value]="trackFactor"
+              [spec]="ratioSlider"
+              (valueChange)="onRescale(gripRatio, $event)"></app-slider-field>
+          </div>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Look-ahead">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-curve-editor
+            title="Corner look-ahead by speed"
+            [hint]="descriptions['lookahead_slices']"
+            [series]="lookaheadSeries"
+            [xAxis]="slotAxis"
+            [yAxis]="distanceAxis"
+            [height]="300"
+            [disabled]="disabled"
+            [describeX]="describeSlot"
+            (seriesPreview)="onLookaheadPreview($event)"
+            (seriesChange)="onLookaheadChange($event)"></app-curve-editor>
+          <p class="note">
+            One entry per 5 m/s of the car's speed (divided by the .sim's ai_speed_slot_scale, 1 in every file), rounded
+            to whole slices.
+          </p>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="All fields">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-compound-block-ui
+            [resourceId]="resourceId"
+            [resourceName]="resourceName"
+            [resourceSchema]="resourceSchema"
+            [resourceData]="resourceData"
+            [hideName]="true"
+            [hideBlockActions]="true"
+            [disabled]="disabled"></app-compound-block-ui>
+        </div>
+      </ng-template>
+    </mat-tab>
+  </mat-tab-group>
+}

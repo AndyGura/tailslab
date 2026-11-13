@@ -1,0 +1,352 @@
+@if (resourceId && resourceName && !hideName) {
+  <h2 [matTooltip]="resourceDescription || ''" matTooltipPosition="above">{{ resourceName }}</h2>
+}
+@if (!hideBlockActions) {
+  <app-block-actions
+    [resource]="{
+      id: resourceId!,
+      name: resourceName!,
+      data: resourceData,
+      schema: resourceSchema,
+    }"></app-block-actions>
+}
+
+<ng-template #fields let-names>
+  <app-compound-block-ui
+    [resourceId]="carId"
+    [resourceName]="'' + selected"
+    [resourceSchema]="carSchema"
+    [resourceData]="car || undefined"
+    [hideName]="true"
+    [hideBlockActions]="true"
+    [preferHorizontalLayout]="true"
+    [disabled]="disabled"
+    [fieldWhitelist]="names"></app-compound-block-ui>
+</ng-template>
+
+<ng-template #partTable let-rows="rows" let-list="list">
+  <table class="gear-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Id</th>
+        <th>Part</th>
+        <th>Type</th>
+        <th matTooltip="New price in the part's own year (Parts_Price 0x5181c0)">Price</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (r of rows; track r.slot) {
+        <tr>
+          <td>{{ r.slot }}</td>
+          <td>
+            <button
+              class="link"
+              type="button"
+              [disabled]="!partsPath || hasUnsavedChanges"
+              [matTooltip]="hasUnsavedChanges ? 'Save this file first' : 'Open nfs5.prt at this part'"
+              (click)="openPart(r.id)">
+              #{{ r.id }}
+            </button>
+          </td>
+          <td [class.muted]="r.missing">{{ r.label }}</td>
+          <td>{{ r.type }}</td>
+          <td class="num">{{ r.price !== null ? '$' + fmt(r.price, 0) : '' }}</td>
+          <td>
+            <button mat-icon-button [disabled]="!!disabled" matTooltip="Remove" (click)="removePart(list, r.slot)">
+              <mat-icon>close</mat-icon>
+            </button>
+          </td>
+        </tr>
+      }
+    </tbody>
+  </table>
+</ng-template>
+
+@if (resourceData && resourceSchema) {
+  <div class="database">
+    <app-record-list
+      [items]="items"
+      [selected]="selected"
+      placeholder="Filter cars (name, year, era, #id)"
+      (select)="onSelect($event)"></app-record-list>
+
+    @if (car; as c) {
+      <div class="record">
+        <div class="record-title">
+          <h3>{{ c['display_name'] }}</h3>
+          <span class="muted">#{{ c['id'] }} · {{ c['short_name'] }}</span>
+          <span class="spacer"></span>
+          <button mat-button [disabled]="!!disabled" (click)="duplicateCar()">
+            <mat-icon>content_copy</mat-icon>
+            Duplicate
+          </button>
+          <button mat-button color="warn" [disabled]="!!disabled" (click)="deleteCar()">
+            <mat-icon>delete</mat-icon>
+            Delete
+          </button>
+        </div>
+        <app-stat-tiles [tiles]="tiles" [disabled]="disabled" (tileChange)="onTileChange($event)"></app-stat-tiles>
+
+        <mat-tab-group [(selectedIndex)]="selectedTab" animationDuration="0ms" mat-stretch-tabs="false">
+          <mat-tab label="Car">
+            <ng-template matTabContent>
+              <div class="tab">
+                <div class="actions">
+                  <button
+                    mat-stroked-button
+                    [disabled]="!simPath || hasUnsavedChanges"
+                    [matTooltip]="
+                      simPath
+                        ? hasUnsavedChanges
+                          ? 'Save this file first'
+                          : simPath
+                        : 'Not found in GameData/Simulation/CarData'
+                    "
+                    (click)="openFile(simPath)">
+                    <mat-icon>open_in_new</mat-icon>
+                    {{ c['spec'] }}.sim
+                  </button>
+                  <button
+                    mat-stroked-button
+                    [disabled]="!aisPath || hasUnsavedChanges"
+                    [matTooltip]="
+                      aisPath
+                        ? hasUnsavedChanges
+                          ? 'Save this file first'
+                          : aisPath
+                        : 'Not found in GameData/Simulation/AICarData'
+                    "
+                    (click)="openFile(aisPath)">
+                    <mat-icon>open_in_new</mat-icon>
+                    {{ c['ai_spec'] }}.ais
+                  </button>
+                  <span class="muted">Physics and AI of the car (the GUI shows one file at a time).</span>
+                </div>
+                <h3>Names</h3>
+                <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.names }"></ng-container>
+                <h3>Files</h3>
+                <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.files }"></ng-container>
+                <h3>Body and class</h3>
+                <p class="note">
+                  Class {{ classes[c['class_string_id']] || c['class_string_id'] }},
+                  {{ eras[c['era_string_id']] || c['era_string_id'] }}.
+                </p>
+                <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.body }"></ng-container>
+                <h3>Unknown</h3>
+                <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.unknown }"></ng-container>
+              </div>
+            </ng-template>
+          </mat-tab>
+
+          <mat-tab label="Market">
+            <ng-template matTabContent>
+              <div class="tab">
+                <app-curve-editor
+                  title="Value by year"
+                  [hint]="fieldDescription('value_by_year')"
+                  [series]="valueSeries"
+                  [xAxis]="yearAxis"
+                  [yAxis]="percentAxis"
+                  [y2Axis]="moneyAxis"
+                  [height]="320"
+                  [disabled]="disabled"
+                  [describeX]="describeYear"
+                  (seriesPreview)="onValuePreview($event)"
+                  (seriesChange)="onValueChange($event)"></app-curve-editor>
+                <p class="note">
+                  Car value: the price × the value of the year (Porsche.exe 0x4f8e50, before mileage, wear, wins and
+                  installed parts). Dealer price: the price × the value of the entry year − first year (0x4ee220): the
+                  game reads the table by the car's age there, though the data is by year.
+                </p>
+                <div class="actions">
+                  <label>
+                    Tiles' year
+                    <input type="number" step="1" [value]="year" (change)="onYear($any($event.target).value)" />
+                  </label>
+                </div>
+                <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.market }"></ng-container>
+                <h3>Ratings</h3>
+                <table class="gear-table">
+                  <thead>
+                    <tr>
+                      @for (n of ratingNames; track $index) {
+                        <th [matTooltip]="fieldDescription('ratings')">{{ n }}</th>
+                      }
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      @for (r of c['ratings']; track $index) {
+                        <td>
+                          <input
+                            type="number"
+                            step="1"
+                            min="0"
+                            max="100"
+                            [value]="r"
+                            [disabled]="!!disabled"
+                            (change)="onRating($index, $any($event.target).value)" />
+                        </td>
+                      }
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </ng-template>
+          </mat-tab>
+
+          <mat-tab label="Parts">
+            <ng-template matTabContent>
+              <div class="tab">
+                @if (partsNote) {
+                  <p class="note">{{ partsNote }}</p>
+                }
+                <h3>Stock parts</h3>
+                <p class="note">{{ fieldDescription('stock_parts') }}</p>
+                <ng-container
+                  *ngTemplateOutlet="partTable; context: { rows: stockRows, list: 'stock_parts' }"></ng-container>
+                <div class="actions">
+                  <select [disabled]="!!disabled" (change)="newStockId = +$any($event.target).value">
+                    <option [value]="0">Add a stock part…</option>
+                    @for (p of partOptions; track p.id) {
+                      <option [value]="p.id">#{{ p.id }} {{ p.label }}</option>
+                    }
+                  </select>
+                  <button
+                    mat-button
+                    [disabled]="!!disabled || !newStockId"
+                    (click)="addPart('stock_parts', newStockId)">
+                    <mat-icon>add</mat-icon>
+                    Add
+                  </button>
+                </div>
+                <h3>Parts for sale</h3>
+                <p class="note">{{ fieldDescription('upgrade_parts') }}</p>
+                <ng-container
+                  *ngTemplateOutlet="partTable; context: { rows: upgradeRows, list: 'upgrade_parts' }"></ng-container>
+                <div class="actions">
+                  <select [disabled]="!!disabled" (change)="newUpgradeId = +$any($event.target).value">
+                    <option [value]="0">Add a part for sale…</option>
+                    @for (p of partOptions; track p.id) {
+                      <option [value]="p.id">#{{ p.id }} {{ p.label }}</option>
+                    }
+                  </select>
+                  <button
+                    mat-button
+                    [disabled]="!!disabled || !newUpgradeId"
+                    (click)="addPart('upgrade_parts', newUpgradeId)">
+                    <mat-icon>add</mat-icon>
+                    Add
+                  </button>
+                </div>
+              </div>
+            </ng-template>
+          </mat-tab>
+
+          <mat-tab label="Paint">
+            <ng-template matTabContent>
+              <div class="tab">
+                <h3>Paints</h3>
+                <p class="note">{{ fieldDescription('paints') }}. Colour pickers keep the alpha.</p>
+                <table class="gear-table">
+                  <tbody>
+                    @for (r of paintRows; track r.slot) {
+                      <tr>
+                        <td>{{ r.slot }}</td>
+                        @for (f of r.fields; track f.key) {
+                          <td>
+                            <label class="colour">
+                              <input
+                                type="color"
+                                [value]="f.css"
+                                [disabled]="!!disabled"
+                                (change)="onColour('paints', r.slot, f.key, $any($event.target).value)" />
+                              {{ f.label }}
+                            </label>
+                          </td>
+                        }
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+                <div class="actions">
+                  <button mat-button [disabled]="!!disabled" (click)="addPaint('paints')">
+                    <mat-icon>add</mat-icon>
+                    Add paint
+                  </button>
+                  <button mat-button [disabled]="!!disabled || !paintRows.length" (click)="removeLastPaint('paints')">
+                    <mat-icon>remove</mat-icon>
+                    Remove the last
+                  </button>
+                </div>
+                <h3>Interiors</h3>
+                <table class="gear-table">
+                  <tbody>
+                    @for (r of interiorRows; track r.slot) {
+                      <tr>
+                        <td>{{ r.slot }}</td>
+                        @for (f of r.fields; track f.key) {
+                          <td>
+                            <label class="colour">
+                              <input
+                                type="color"
+                                [value]="f.css"
+                                [disabled]="!!disabled"
+                                (change)="onColour('interiors', r.slot, f.key, $any($event.target).value)" />
+                              {{ f.label }}
+                            </label>
+                          </td>
+                        }
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+                <div class="actions">
+                  <button mat-button [disabled]="!!disabled" (click)="addPaint('interiors')">
+                    <mat-icon>add</mat-icon>
+                    Add interior
+                  </button>
+                  <button
+                    mat-button
+                    [disabled]="!!disabled || !interiorRows.length"
+                    (click)="removeLastPaint('interiors')">
+                    <mat-icon>remove</mat-icon>
+                    Remove the last
+                  </button>
+                </div>
+              </div>
+            </ng-template>
+          </mat-tab>
+
+          <mat-tab label="Dashboard">
+            <ng-template matTabContent>
+              <div class="tab">
+                <p class="note">{{ fieldDescription('gauges') }}</p>
+                <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.dash }"></ng-container>
+              </div>
+            </ng-template>
+          </mat-tab>
+
+          <mat-tab label="All fields">
+            <ng-template matTabContent>
+              <div class="tab">
+                <app-compound-block-ui
+                  [resourceId]="carId"
+                  [resourceName]="'' + selected"
+                  [resourceSchema]="carSchema"
+                  [resourceData]="c"
+                  [hideName]="true"
+                  [hideBlockActions]="true"
+                  [disabled]="disabled"></app-compound-block-ui>
+              </div>
+            </ng-template>
+          </mat-tab>
+        </mat-tab-group>
+      </div>
+    } @else {
+      <p class="note">No cars.</p>
+    }
+  </div>
+}

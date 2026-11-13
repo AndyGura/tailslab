@@ -16,6 +16,7 @@ from library.utils.docs import add_doc_numbers
 from resources import eac, blackbox
 from resources.eac import psx as eac_psx, psx_bitmaps as eac_psx_bitmaps
 from resources.eac import horizons as eac_horizons
+from resources.eac import nfs5_career as eac_nfs5_career
 from resources.blackbox.bitmaps import nfsu as blackbox_bitmaps_nfsu
 from resources.blackbox.maps import nfsu as blackbox_maps_nfsu
 from resources.blackbox.maps import nfsu2 as blackbox_maps_nfsu2
@@ -668,6 +669,14 @@ EXPORT_RESOURCES = {
 **FEData/Data/nfs5.prt** car parts. {render_type(eac.car_specs.Nfs5CarParts())}
 
 **FEData/Data/nfs5.car** car database. {render_type(eac.car_specs.Nfs5Cars())}
+
+**FEData/Data/nfs5.fac** Factory Driver missions. {render_type(eac_nfs5_career.Nfs5FactoryMissions())}
+
+**FEData/Data/nfs5.trn** Evolution tournaments. {render_type(eac_nfs5_career.Nfs5Tournaments())}
+
+**FEData/Data/nfs5.per** AI personalities. {render_type(eac_nfs5_career.Nfs5Personalities())}
+
+**FEData/Data/nfs5.trk** tracks and their best times (15 records of 0x4a8 bytes: id, name text id, `.crp` name, pictures, lock, circuit flag, difficulty, the traffic and cop car ids of the track, speech locations, 8 records of driver, car and time in 1/100 s; Porsche.exe 0x4fb750, 0x4fae20, kept in the save folder), not parsed. **nfs5-1.hud**, **nfs5-2.hud** the default HUD layouts copied for a new player (0x4de5b0; 5 configs of 0x1e0 / 0x68 bytes), not parsed. **nfs5.loc** is not read by Porsche.exe. `GameData/Simulation/AI/`: **TRAFCFG.DAT** (the AI physics parameters; the game uses its built-in copy, 0x5cc0e0), **GLUE.BIN** / **hhglue.bin** (catch-up factors, loaded and never read), **SCRIPTS.BIN** and **prsonal.bin** (per personality), **tuning.bin** (NFS4's sheet, no effect), **SPREAD.BIN** (not loaded); the CSVs are the developers' sources, not read.
         
 **\\*.FFN** bitmap font. {render_type(eac.fonts.FfnFont())}
 
@@ -700,6 +709,20 @@ EXPORT_RESOURCES = {
                 eac.car_specs.Nfs5PartGeometryEntry(),
                 eac.car_specs.Nfs5Cars(),
                 eac.car_specs.Nfs5CarRecord(),
+                eac.car_specs.Nfs5DashGauge(),
+                eac.car_specs.Nfs5CarPaint(),
+                eac.car_specs.Nfs5CarInterior(),
+            ],
+            'Career': [
+                eac_nfs5_career.Nfs5FactoryMissions(),
+                eac_nfs5_career.Nfs5FactoryMission(),
+                eac_nfs5_career.Nfs5FactoryOpponent(),
+                eac_nfs5_career.Nfs5Tournaments(),
+                eac_nfs5_career.Nfs5Tournament(),
+                eac_nfs5_career.Nfs5TournamentOpponent(),
+                eac_nfs5_career.Nfs5TournamentRace(),
+                eac_nfs5_career.Nfs5Personalities(),
+                eac_nfs5_career.Nfs5Personality(),
             ],
             'Geometries': [
                 eac.geometries.nfs5.CrpGeometry(),

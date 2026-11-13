@@ -56,7 +56,7 @@ you always see the whole file.
 | **NFS II / II SE** | Cars (GEO), car physics and AI (SE `p<car>.DAT`, `simtune.dat`, `<car>.dat`, `TRAFCFG.DAT`, `PRSONAL.DAT`), tracks (TRK, COL), archives (VIV, MSK), images, fonts, sound banks, videos (UV) |
 | **NFS III Hot Pursuit** | Cars (FCE in VIV), car physics (`carp.txt` in the car VIV), tracks (FRD, COL, slice ceiling heights SIMHTS.DAT, animation paths CAN), images, fonts, sound banks |
 | **NFS High Stakes** | Cars (FCE4), car physics (`carp.txt` in the car VIV), tracks (FRD, slice ceiling heights heights.sim, AI line spdFA.bin / spdRA.bin, animation paths CAN), images, fonts, sound banks |
-| **NFS Porsche Unleashed** | Cars and tracks (CRP, with the road spline), car physics and AI (`.sim`, `.ais`), car parts and car database (`nfs5.prt`, `nfs5.car`), track junctions and wall edges (`.jnc`, `.edg`), images (FSH, ENV), fonts, sound banks |
+| **NFS Porsche Unleashed** | Cars and tracks (CRP, with the road spline), car physics and AI (`.sim`, `.ais`), car parts and car database (`nfs5.prt`, `nfs5.car`), Factory Driver missions, tournaments and AI personalities (`nfs5.fac`, `nfs5.trn`, `nfs5.per`), track junctions and wall edges (`.jnc`, `.edg`), images (FSH, ENV), fonts, sound banks |
 | **NFS Hot Pursuit 2** | Cars with their skins, tracks and race routes, DXT images, fonts, sound banks |
 | **NFS Hot Pursuit 2** (PlayStation 2) | Tracks with their sky and race route (TRACKB LZC, COMP-compressed), cars with their paints and wheels (GEOMETRY LZC), texture packs (TEX BIN) |
 | **NFS Underground / Underground 2 / Most Wanted** | City maps (Olympic City, Bayview, Rockport), car models, texture packs |

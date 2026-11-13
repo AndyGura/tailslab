@@ -1,0 +1,266 @@
+@if (resourceId && resourceName && !hideName) {
+  <h2 [matTooltip]="resourceDescription || ''" matTooltipPosition="above">{{ resourceName }}</h2>
+}
+@if (!hideBlockActions) {
+  <app-block-actions
+    [resource]="{
+      id: resourceId!,
+      name: resourceName!,
+      data: resourceData,
+      schema: resourceSchema,
+    }"></app-block-actions>
+}
+
+<ng-template #sliderFields let-specs>
+  <div class="sliders">
+    @for (s of specs; track s[0]) {
+      <app-slider-field
+        [label]="s[0]"
+        [description]="descriptions[s[0]]"
+        [value]="resourceData?.[s[0]]"
+        [spec]="s[1]"
+        [disabled]="disabled"
+        (valueChange)="setField(s[0], $event)"></app-slider-field>
+    }
+  </div>
+</ng-template>
+
+<ng-template #fields let-names>
+  <app-compound-block-ui
+    [resourceId]="resourceId"
+    [resourceName]="resourceName"
+    [resourceSchema]="resourceSchema"
+    [resourceData]="resourceData"
+    [hideName]="true"
+    [hideBlockActions]="true"
+    [preferHorizontalLayout]="true"
+    [disabled]="disabled"
+    [fieldWhitelist]="names"></app-compound-block-ui>
+</ng-template>
+
+@if (resourceData && resourceSchema) {
+  <app-stat-tiles [tiles]="tiles" [disabled]="disabled" (tileChange)="onTileChange($event)"></app-stat-tiles>
+  <p class="note">
+    The car as the file has it: Porsche.exe adds the installed parts (nfs5.prt) and the menus' setup when it loads the
+    car (Cars_ProcessSpecs 0x49cb50); with the default setup they change nothing.
+  </p>
+
+  <mat-tab-group [(selectedIndex)]="selectedTab" animationDuration="0ms" mat-stretch-tabs="false" class="tabs">
+    <mat-tab label="Engine">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-curve-editor
+            title="Torque and power"
+            [hint]="descriptions['torque_curve']"
+            [series]="torqueSeries"
+            [markers]="torqueMarkers"
+            [xAxis]="rpmAxis"
+            [yAxis]="torqueAxis"
+            [y2Axis]="powerAxis"
+            [height]="340"
+            [disabled]="disabled"
+            [describeX]="describeRpm"
+            (seriesPreview)="onTorquePreview($event)"
+            (seriesChange)="onTorqueChange($event)"
+            (markerChange)="onRpmMarker($event)"></app-curve-editor>
+          <p class="note">
+            Drag the torque points (lb·ft, 500 rpm apart) or the redline marker; the power curve and the peaks follow.
+            The engine clamps its rpm to the redline before it reads the curve, so the entries past the one after the
+            redline are never read. Turbo and supercharged engines (aspiration) build boost between the two green
+            markers.
+          </p>
+          <h3>Engine parameters</h3>
+          <ng-container *ngTemplateOutlet="sliderFields; context: { $implicit: sliders['engine'] }"></ng-container>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.engine }"></ng-container>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Gearbox">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-curve-editor
+            title="Gearing"
+            hint="Engine rpm by road speed in each gear: rpm = speed (m/s) × final drive × gear ratio × 60 / tyre circumference. Drag the end of a gear line to change its ratio, the markers to change the redline and the top speed. The automatic gearbox shifts up when the rpm passes 0.9 × redline plus a random 0..0.1 × redline (dots: from 0.9), and down when the gear below would turn under 0.8 × redline. It never shifts into the top gear while the gear below it reaches the top speed before the redline"
+            [series]="gearSeries"
+            [markers]="gearMarkers"
+            [xAxis]="speedAxis"
+            [yAxis]="gearRpmAxis"
+            [height]="340"
+            [disabled]="disabled"
+            [describeX]="describeSpeed"
+            (seriesPreview)="onGearPreview($event)"
+            (seriesChange)="onGearChange($event)"
+            (markerChange)="onSpeedMarker($event)"></app-curve-editor>
+
+          <table class="gear-table">
+            <thead>
+              <tr>
+                <th>Gear</th>
+                <th [matTooltip]="descriptions['gear_ratios']">Ratio</th>
+                <th matTooltip="Engine rpm per m/s: final drive × ratio × 60 / tyre circumference (0x49cb50)">
+                  Rpm per m/s
+                </th>
+                <th matTooltip="Road speed at the redline in this gear">At redline</th>
+                <th
+                  matTooltip="Drive acceleration at the peak torque, full gas: torque × rpm per m/s / mass × 0.1 × gear acceleration factor (× 1.05 manual)">
+                  Peak drive
+                </th>
+                <th
+                  matTooltip="Automatic gearbox: up-shift from 0.9 × redline / down-shift below 0.8 × redline in the gear below">
+                  Auto up / down
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (g of gears; track g.slot) {
+                <tr>
+                  <td class="gear-name"><span class="swatch" [style.background]="g.color"></span>{{ g.name }}</td>
+                  <td>
+                    <input
+                      type="number"
+                      step="0.01"
+                      [value]="round(g.ratio, 4)"
+                      [disabled]="!!disabled || g.slot === 1"
+                      (change)="onGearRatioInput(g.slot, $any($event.target).value)" />
+                  </td>
+                  <td class="num">{{ fmt(g.rpmPerMps, 1) }}</td>
+                  <td class="num">{{ g.slot === 1 ? '–' : fmt(g.redlineSpeed, 0) + ' km/h' }}</td>
+                  <td class="num">{{ g.slot === 1 ? '–' : fmt(g.peakDrive, 2) + ' m/s²' }}</td>
+                  <td class="num">
+                    {{ g.upshiftSpeed !== null ? fmt(g.upshiftSpeed, 0) : '–' }} /
+                    {{ g.downshiftSpeed !== null ? fmt(g.downshiftSpeed, 0) : '–' }}
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+          <h3>Gearbox parameters</h3>
+          <ng-container *ngTemplateOutlet="sliderFields; context: { $implicit: sliders['gearbox'] }"></ng-container>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.gearbox }"></ng-container>
+          <h3>Tyres</h3>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.tyres }"></ng-container>
+          <p class="note">Tyre circumference {{ fmt(circumference, 4) }} m.</p>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Acceleration">
+      <ng-template matTabContent>
+        <div class="tab">
+          <div class="actions">
+            <mat-checkbox [checked]="manual" (change)="onManualChange($event.checked)">Manual gearbox</mat-checkbox>
+            <span class="muted">
+              The car record's transmission, not in the file: with a manual gearbox every gear drives 5% harder.
+            </span>
+          </div>
+          <app-curve-editor
+            title="Drive and air drag"
+            hint="The engine's drive acceleration by road speed in each gear at full gas: torque (lb·ft) × rpm per m/s / mass × 0.1 × gear acceleration factor; the air drag grows with the speed cubed. Before tyre grip, wheel spin and the clutch"
+            [series]="accelSeries"
+            [markers]="accelMarkers"
+            [xAxis]="speedAxis"
+            [yAxis]="accelAxis"
+            [height]="320"
+            [disabled]="disabled"
+            [describeX]="describeSpeed"
+            (markerChange)="onSpeedMarker($event)"></app-curve-editor>
+          @if (dragNote) {
+            <p class="note">{{ dragNote }}</p>
+          }
+          <app-curve-editor
+            title="Speed run"
+            hint="Full gas from standstill on a flat road, automatic gearbox, one physics step (1/32 s) at a time: the gear's drive minus the air drag, no drive while a shift lasts (shift time steps). Idealized: no tyres, wheel spin, clutch slip or engine rpm dynamics, so the game's times are longer"
+            [series]="runSeries"
+            [xAxis]="timeAxis"
+            [yAxis]="speedAxis"
+            [height]="260"
+            [describeX]="describeTime"></app-curve-editor>
+          @if (run) {
+            <p class="note">
+              0-100 km/h {{ run.to100 !== null ? fmt(run.to100, 1) + ' s' : 'not reached' }}, 0-160 km/h
+              {{ run.to160 !== null ? fmt(run.to160, 1) + ' s' : 'not reached' }}; after a minute
+              {{ fmt(run.topSpeed * MPS_TO_KMH, 0) }} km/h.
+            </p>
+          }
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Brakes and aero">
+      <ng-template matTabContent>
+        <div class="tab">
+          <div class="chart-grid">
+            <app-curve-editor
+              title="Braking"
+              [hint]="descriptions['brake_force']"
+              [series]="brakeSeries"
+              [xAxis]="speedAxis"
+              [yAxis]="decelAxis"
+              [height]="260"
+              [describeX]="describeSpeed"></app-curve-editor>
+            <app-curve-editor
+              title="Wheel loads with downforce"
+              hint="The load of one wheel on a flat road (Porsche.exe 0x4a1900): grip × 9.8 × 0.5 × the axle's weight share, plus the downforce × the forward speed (m/s) above 5 m/s. A wheel's grip is its load; load transfer left out"
+              [series]="downforceSeries"
+              [xAxis]="speedAxis"
+              [yAxis]="loadAxis"
+              [height]="260"
+              [describeX]="describeSpeed"></app-curve-editor>
+          </div>
+          <h3>Brakes</h3>
+          <ng-container *ngTemplateOutlet="sliderFields; context: { $implicit: sliders['brakes'] }"></ng-container>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.brakes }"></ng-container>
+          <h3>Downforce</h3>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.aero }"></ng-container>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Grip and chassis">
+      <ng-template matTabContent>
+        <div class="tab">
+          <h3>Tyres and weight</h3>
+          <ng-container *ngTemplateOutlet="sliderFields; context: { $implicit: sliders['tyres'] }"></ng-container>
+          <h3>Steering</h3>
+          <app-curve-editor
+            title="Steering lock by speed"
+            hint="Porsche.exe 0x49f160: the steering lock grows below 30 m/s (× 1.75 − speed × 0.025), is capped at 20, then × 17 / steering lock; above 80 m/s divided by speed × 0.0125. The front wheels turn by steering (−127..127) × this / 127 (toe added to the left wheel, subtracted from the right one)"
+            [series]="steerSeries"
+            [xAxis]="speedAxis"
+            [yAxis]="steerAxis"
+            [height]="240"
+            [describeX]="describeSpeed"></app-curve-editor>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.steering }"></ng-container>
+          <h3>Suspension and load transfer</h3>
+          <ng-container *ngTemplateOutlet="sliderFields; context: { $implicit: sliders['suspension'] }"></ng-container>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.suspension }"></ng-container>
+          <h3>When the AI drives</h3>
+          <p class="note">
+            Read only while the AI drives the car (AI racers, a car the AI drives for the player), with the car's .ais
+            file (Porsche.exe 0x40b650, 0x40bfe0).
+          </p>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.ai }"></ng-container>
+          <h3>Other</h3>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.identity }"></ng-container>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.other }"></ng-container>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="All fields">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-compound-block-ui
+            [resourceId]="resourceId"
+            [resourceName]="resourceName"
+            [resourceSchema]="resourceSchema"
+            [resourceData]="resourceData"
+            [hideName]="true"
+            [hideBlockActions]="true"
+            [disabled]="disabled"></app-compound-block-ui>
+        </div>
+      </ng-template>
+    </mat-tab>
+  </mat-tab-group>
+}

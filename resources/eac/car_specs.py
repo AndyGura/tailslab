@@ -3287,8 +3287,8 @@ class Nfs5CarPhysics(DeclarativeCompoundBlock):
         name = (
             UTF8Block(length=64),
             {
-                'description': 'Display name ("1950 356 coupe 1.1L"), not read by the physics. Bytes after the end '
-                'are leftovers of other names'
+                'description': 'Display name ("1950 356 coupe 1.1L"), read by no code. Bytes after the end are '
+                'leftovers of other names'
             },
         )
         mass = (_f32(), _sim('Mass, kg [550, 1690]; plus the `mass` of each installed part'))
@@ -3300,11 +3300,12 @@ class Nfs5CarPhysics(DeclarativeCompoundBlock):
                 '0.001 (to m)',
             ),
         )
-        unk0 = (
+        engine_position = (
             IntegerBlock(length=4, is_signed=True),
             {
-                'is_unknown': True,
-                'description': '[0, 2], not read by 0x49c6c0 / 0x49cb50 (another module: the drive layout?)',
+                'description': 'Engine position [0, 2]: 0 rear (356, 901, 930, 935, 959, 964, 965, 993, 996, GT2, GT3; '
+                'also the mid-engined 550 A), 1 mid (914, Boxster, GT1), 2 front (928, 944), as the files have it. '
+                'Read by no code (every reader of the car specs, car+0x760, checked)'
             },
         )
         aspiration = (
@@ -3318,17 +3319,18 @@ class Nfs5CarPhysics(DeclarativeCompoundBlock):
         forward_gears = (
             IntegerBlock(length=4, is_signed=True, value_validator=Lte(6)),
             {
-                'description': 'Number of forward gears [4, 6]. The loader adds 2 (reverse, neutral: the gear slots); '
-                'a "Gear Box" part replaces it with its `forward_gears` + 2. Read by the controls (Porsche.exe '
-                '0x413890: the upshift limit)'
+                'description': 'Number of forward gears [4, 6], at most 6 (8 gear slots in the derived tables). The '
+                'loader adds 2 (reverse, neutral: the gear slots); a "Gear Box" part replaces it with its '
+                '`forward_gears` + 2. Read by the controls (Porsche.exe 0x413890: the upshift limit) and the simple AI '
+                "physics' gear (0x408130: the highest gear whose redline speed is below the speed)"
             },
         )
         shift_time = (
             IntegerBlock(length=4, is_signed=True),
             {
-                'description': 'Gear shift time in physics steps, the clutch out [4, 8] (physics); car+0xed8 '
-                '(Porsche.exe 0x406ef0). A "Gear Box" part replaces it with its `shift_time`, other gearbox parts '
-                'add theirs'
+                'description': 'Gear shift time in physics steps (32 per second), the clutch out [4, 8] (physics); '
+                'car+0xed8 (Porsche.exe 0x406ef0); the engine sound lowers the volume over it on an upshift (0x4aa659). '
+                'A "Gear Box" part replaces it with its `shift_time`, other gearbox parts add theirs'
             },
         )
         gear_acceleration_factor = (
@@ -3348,12 +3350,19 @@ class Nfs5CarPhysics(DeclarativeCompoundBlock):
             {
                 'description': 'Gear ratios by gear slot: reverse (negative), neutral (0), 1st..6th (0 for missing '
                 "gears); plus the setup's gear offsets. The slot is the gear byte car+0xd82 (Porsche.exe 0x4a2790 "
-                'turns the engine speed into wheel rotation with it). 0x49cb50 turns them into engine rpm per m/s: '
-                'final drive x ratio x 60 / tyre circumference'
+                'turns the engine speed into wheel rotation with it). 0x49cb50 overwrites them with engine rpm per m/s: '
+                'final drive x ratio x 60 / tyre circumference (a 0 ratio: 0.1 m/s per rpm); the AI pedals (0x40c011) '
+                'and the simple AI physics (0x4084ad) read those too'
             },
         )
         final_drive = (_f32(), {'description': 'Final drive ratio [2.2, 4.429]; plus the setup offset'})
-        tyre_width = (_f32(), {'description': 'Tyre width, mm [130, 305]'})
+        tyre_width = (
+            _f32(),
+            {
+                'description': 'Tyre width, mm [130, 305]; also the width of the four per-wheel objects of 0x478ea0 '
+                '(skid marks?, 0x410fc4): half width = width x 0.0005 m x 0.9 (x 1.5 at graphics detail 2, 3)'
+            },
+        )
         tyre_aspect_ratio = (_f32(), {'description': 'Tyre aspect ratio, % [30, 70]'})
         rim_diameter = (
             _f32(),
@@ -3365,25 +3374,30 @@ class Nfs5CarPhysics(DeclarativeCompoundBlock):
         top_speed = (
             _f32(),
             _sim(
-                'Top speed, mph [87.5, 220]: the automatic gearbox never shifts into the top gear while that '
-                "gear's speed at the redline exceeds it (physics). Divided by the parts' `top_speed_divisor`, "
-                'scaled by the torque change and the downforce setup; the air drag (specs +0x1b0) uses its cube',
+                'Top speed, mph [87.5, 220], above 0: the automatic gearbox never shifts into the top gear while the '
+                "gear below it reaches this speed before the redline (0x49daf0). Divided by the parts' "
+                '`top_speed_divisor`, scaled by the torque change and the downforce setup; the air drag (specs '
+                "+0x1b0) is the top gear's drive at this speed / its cube, so the car stops accelerating there",
                 '0.446428567 (to m/s)',
             ),
         )
         redline = (
             _f32(),
             {
-                'description': 'Redline, rpm [5500, 8000]: the rev limiter works from it to +250, at most 1.25 x it; '
-                'the controls refuse a downshift while the rpm (car+0xdb4) is above it (Porsche.exe 0x4991e0); '
-                'specs +0x14c = 1 / it'
+                'description': 'Redline, rpm [5500, 8000], below 10000: the rev limiter works from it to +250, at most '
+                '1.25 x it; the engine reads the torque curve at the rpm clamped to it; the controls refuse a '
+                'downshift while the rpm (car+0xdb4) is above it (Porsche.exe 0x4991e0); specs +0x14c = 1 / it. Also '
+                'the AI pedals (0x40c034), the AI gear (0x408130) and the engine sounds (0x4a736a, 0x4a79c9, turbo '
+                'whistle 0x4aa050 at 0.5 / 0.9 x it)'
             },
         )
         engine_braking = (_f32(), _sim('Engine braking [10, 35]', '0.01'))
         torque_curve = (
             ArrayBlock(child=_f32(), length=21),
             {
-                'description': 'Torque at 0, 500 ... 10000 rpm (0 past the redline), interpolated linearly. '
+                'description': 'Torque in lb·ft (the 993 Carrera: 243, its 330 N·m) at 0, 500 ... 10000 rpm (0 past '
+                'the redline), read at the rpm clamped to the redline, linear between the entries (Porsche.exe '
+                '0x49e440); its maximum must be above 0. Power (never computed by the game) = lb·ft x rpm / 5252. '
                 '"Engine" parts replace it, other engine parts add 0.67 x theirs'
             },
         )
@@ -3493,21 +3507,37 @@ class Nfs5CarPhysics(DeclarativeCompoundBlock):
             _f32(),
             {'description': '1.0 in every file: roll rate limit per update (Porsche.exe 0x499a70)'},
         )
-        unk1 = (_f32(), {'is_unknown': True, 'description': '1.0 in every file'})
-        grip_factor = (
+        ai_speed_slot_scale = (
             _f32(),
             {
-                'is_unknown': True,
-                'description': '[0.8, 1.15]: x the track grip factor (Porsche.exe 0x4a2950), divided by ((grip '
-                'after / before the setup + 2) / 3)',
+                'description': '1.0 in every file. When the AI drives: its corner look-ahead speed slot = round(min('
+                'speed x 0.2 x this, 23)) (Porsche.exe 0x40b6ca), the index of `lookahead_slices` of the '
+                '[Nfs5CarAi](#nfs5carai)'
             },
         )
-        unk2 = (_f32(), {'is_unknown': True, 'description': '[1, 1.075]'})
+        ai_steer_lookahead = (
+            _f32(),
+            {
+                'description': '[0.8, 1.15] (1.0 in 73 files; GT1 0.8, 935 0.9). When the AI drives (AI racers, a car '
+                'the AI drives for the player): it steers at the racing line n = trunc(max(this x forward speed x 4 '
+                '/ 21, 2 on a narrow road, else 4)) slices ahead (Porsche.exe 0x40c148), about 1.14 x this x speed '
+                'metres. Divided by ((grip after / before parts and setup + 2) / 3) (0x49d284) and x the track grip '
+                'factor (0x4a2950) at load'
+            },
+        )
+        ai_corner_scale = (
+            _f32(),
+            {
+                'description': '[1, 1.075]. When the AI drives: the corner sharpness ahead x this picks its corner '
+                'speed (Porsche.exe 0x40ba64: index round(min(degrees x this x zone factor, 115) / 3) of `speeds` '
+                'of the [Nfs5CarAi](#nfs5carai)): above 1 the AI takes corners slower'
+            },
+        )
 
     def serializer_class(self):
-        from serializers import JsonSerializer
+        from serializers import CompleteJsonSerializer
 
-        return JsonSerializer
+        return CompleteJsonSerializer
 
 
 class Nfs5CarAi(DeclarativeCompoundBlock):
@@ -3515,51 +3545,74 @@ class Nfs5CarAi(DeclarativeCompoundBlock):
     def schema(self) -> Dict:
         return {
             **super().schema,
-            'block_description': 'NFS5 car AI data, `GameData/Simulation/AICarData/<ai>.ais` (304 bytes, 22 files). '
-            'Porsche.exe 0x49ca30 loads `%s%s.ais` with the AI spec name of the car record (`ai_spec` of '
-            '[Nfs5CarRecord](#nfs5carrecord); `default.ais` when missing) into the AI specs at car+0x764. Mostly '
-            'not verified',
+            'block_description': 'NFS5 car AI data, `GameData/Simulation/AICarData/<ai>.ais` (304 bytes, 22 files): '
+            'how far ahead the AI looks for corners and how fast it takes them. Porsche.exe 0x49ca30 loads `%s%s.ais` '
+            'with the AI spec name of the car record (`ai_spec` of [Nfs5CarRecord](#nfs5carrecord); `default.ais` '
+            'when missing) into the AI specs at car+0x764 for every car; only the AI target speed 0x40b650 reads '
+            'them (AI racers, a car the AI drives for the player). Track slices are 6 m apart on every track',
         }
 
     class Fields(DeclarativeCompoundBlock.Fields):
-        name = (UTF8Block(length=32), {'description': 'Name ("Porsche 356 Family")'})
-        unk0 = (
+        name = (UTF8Block(length=32), {'description': 'Name ("Porsche 356 Family"), read by no code'})
+        lookahead_slices = (
             ArrayBlock(child=_f32(), length=24),
             {
-                'is_unknown': True,
-                'description': 'Read by the AI controls (Porsche.exe 0x40b650), indexed by a speed slot: 8 .. 30, '
-                'increasing',
+                'description': 'How many track slices (6 m) ahead the AI looks for corners, by speed slot i (speed (i '
+                '+- 0.5) x 5 m/s / `ai_speed_slot_scale` of the [Nfs5CarPhysics](#nfs5carphysics)), rounded to an '
+                'integer: the sharpness of the road from 2 slices ahead to there picks the corner speed (Porsche.exe '
+                '0x40b6f9) [8, 30], whole numbers, not decreasing'
             },
         )
         speeds = (
             ArrayBlock(child=_f32(), length=40),
             {
-                'description': 'AI speeds, decreasing (about 60..100 down to 10..14), rescaled at load: with m their '
-                'minimum, x -> ((x - m) x car+0x10d8 + m) x the AI track factor (Porsche.exe 0x4a2dc0); read by the '
-                'AI controls (0x40b650)'
+                'description': 'AI target speed, m/s, by corner sharpness i = the turn of the road ahead (the largest '
+                'angle to each side added) around 3i degrees; 0 = straight [99.4 .. 10.1], not increasing; entry 39 '
+                'is never picked (index at most round(115 / 3) = 38) but counts for the minimum at load (Porsche.exe '
+                '0x40bac1). Rescaled at load (0x49ca30): with m their minimum, x -> ((x - m) x the grip ratio '
+                '(car+0x10d8: grip after / before parts and setup) + m) x the track and car group factor (0x4a2dc0). '
+                'The race then divides it by the damage, multiplies it by the surface grip, the skill factor and the '
+                'road width'
             },
         )
-        unk1 = (ArrayBlock(child=_f32(), length=4), {'is_unknown': True, 'description': 'Zeros'})
+        unused = (
+            ArrayBlock(child=_f32(), length=4),
+            {'description': 'Zeros in every file, read by no code (the AI specs are read by 0x40b650 only)'},
+        )
 
     def serializer_class(self):
-        from serializers import JsonSerializer
+        from serializers import CompleteJsonSerializer
 
-        return JsonSerializer
+        return CompleteJsonSerializer
+
+
+def _bytes(n: int, text: str):
+    return (BytesBlock(length=n), {'description': text})
 
 
 class Nfs5PartGeometryEntry(DeclarativeCompoundBlock):
     @property
     def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'A body part switch of a car part, 6 bytes'}
+        return {**super().schema, 'block_description': 'A geometry switch of a car part, 6 bytes'}
 
     class Fields(DeclarativeCompoundBlock.Fields):
-        a = (IntegerBlock(length=2, is_signed=True), {'description': 'Row of the car record GEOMCONFIG table'})
-        b = (IntegerBlock(length=2, is_signed=True), {'description': 'Column of the car record GEOMCONFIG table'})
+        a = (
+            IntegerBlock(length=2, is_signed=True),
+            {'description': 'Row of the car GEOMCONFIG table: 0 a geometry slot, 1 a texture slot'},
+        )
+        b = (
+            IntegerBlock(length=2, is_signed=True),
+            {
+                'description': 'Slot (column) of the row [2, 41]: the slots of the car model `.tpg` `[style<n>]` '
+                'entries (`geometry<i>` / `texture<i>`), e.g. geometry 2..5 / 11 bumpers, 16 the engine lid, 7 the '
+                'Boxster roof, texture 13 the rims'
+            },
+        )
         value = (
             IntegerBlock(length=2, is_signed=True),
             {
-                'description': 'Value: the car record GEOMCONFIG (record +0x32c) [b + a x 60] = it (which body parts '
-                'the model shows)'
+                'description': 'Value [0, 5]: GEOMCONFIG[b + a x 60] = it (Porsche.exe 0x49c605, front end viewer '
+                '0x4bffd0): which variant the model draws there, over the style (0x437b00, 0x43ae50)'
             },
         )
 
@@ -3569,91 +3622,178 @@ class Nfs5CarPart(DeclarativeCompoundBlock):
     def schema(self) -> Dict:
         return {
             **super().schema,
-            'block_description': 'A car part, 360 bytes. Installed into the car part slots by Porsche.exe 0x49c4c0 '
-            '(which clears bytes 0x48..0x50 before the copy), applied to the specs by 0x49cb50 (only when the AI spec '
-            'name is not 959 / 928 / GT2 / GT3)',
+            'block_description': 'A car part, 360 bytes. Every reader copies whole records: the race installs the '
+            "parts of the race car record's `_PARTINDEX` into the car's 20 part slots (Porsche.exe 0x49c4c0, which "
+            'clears only bytes 0x48..0x50 of an empty slot) and applies them to the specs (0x49cb50; not for the AI '
+            'spec names 959 / 928 / GT2 / GT3); the front end (`FEParts_Init` 0x517ad0) lists, sells, installs, wears '
+            'and repairs them. A part slot is identified by `type` + `name`: installing a part replaces the '
+            'installed part with the same pair (0x518510). Prices (0x5181c0): new price = `sort_key` + `sort_key` x S '
+            '/ 100, S the sum of the inflation table 0x5ba4a4 (62 percentages) over the years since `year`; used '
+            'value = new price x (100 - c) / 100 with c = clamp(2 x `damage` + 20, 0, 100) (0x518220); repair = new '
+            'price x 2 x `damage` / 100 (0x518880)',
         }
 
     class Fields(DeclarativeCompoundBlock.Fields):
-        id = (IntegerBlock(length=2, is_signed=True), {'description': 'Part id, found by Porsche.exe 0x49c470'})
-        unk0 = (IntegerBlock(length=2), {'is_unknown': True, 'description': '0'})
-        unk1 = (IntegerBlock(length=2), {'is_unknown': True, 'description': '0x1390..0x14b6'})
-        unk2 = (IntegerBlock(length=2), {'is_unknown': True, 'description': '0'})
-        family = (Latin1Block(length=30), {'description': 'Car family ("356", "911 (993)", "Boxster"), not verified'})
+        id = (
+            IntegerBlock(length=2, is_signed=True),
+            {
+                'description': 'Part id [13, 731], the key of every part list (`Cars_FindPart` 0x49c470; nfs5.car '
+                '`upgrade_parts` / `stock_parts`, `_PARTINDEX`); third sort key of the lists (0x49c350)'
+            },
+        )
+        padding_02 = _bytes(2, 'Zeros, read by no code (padding)')
+        name_string_id = (
+            IntegerBlock(length=4, is_signed=True),
+            {
+                'description': 'FEStrings id of the name the menus show (5000 "Standard Brake Package" .. 5302 '
+                '"Body"; `Locale_String` 0x4e06d0 at 0x515d2e); the description is this id + 500 '
+                '(`Parts.AllParts(DESC)`, 0x515dce)'
+            },
+        )
+        family = (
+            Latin1Block(length=30),
+            {
+                'description': 'Car family ("356", "911 (993)", "Boxster"), shown before the name ("911 (993) Sport '
+                'Brake Package", 0x515cc0); not used to match parts to cars (nfs5.car lists the parts of each car)'
+            },
+        )
         type = (
             IntegerBlock(length=2, is_signed=True),
             {
-                'description': 'Part type: 1 engine parts (Air Intake, Engine, Engine (Standard), Exhaust, Turbo, '
-                'Supercharger, Chip...), 2 brakes, 3 gear box / shifter, 4 springs, 5 shocks, 6 front dam / spoiler, '
-                '7 body panels, 8 sway bars, 9 tyres (no name), 10 body / rims'
+                'description': 'Part type, the front end category (0x518d60) and the race effect (0x49cb50): 1 engine '
+                '(torque curve, "Turbo"), 2 brakes, 3 transmission ("Gear Box": the gearbox; "Shifter": shift '
+                'time), 4 springs, 5 shocks, 6 front dam / rear dam / spoiler (downforce), 7 body panels (mass), 8 '
+                'sway bars, 9 tyres, 10 body / rims / roof (cosmetic). First sort key (0x49c350); 0 = an empty slot'
             },
         )
         name = (
             Latin1Block(length=30),
             {
-                'description': 'Name. Porsche.exe compares it with "Engine" (type 1: replaces the torque curve), '
-                '"Turbo" (aspiration 1), "Supercharged" (aspiration 2: the file says "Supercharger", never equal), '
-                '"Gear Box" (type 3: replaces the gears)'
+                'description': 'Internal name; with `type` the slot it fills. Porsche.exe compares it with "Engine" '
+                '(type 1: replaces the torque curve), "Turbo" (aspiration 1), "Supercharged" (aspiration 2: the file '
+                'says "Supercharger", never equal), "Gear Box" (type 3: replaces the gearbox), "Body" (type 10: the '
+                'shell, never sold, 0x5da748). Tyres have none'
             },
         )
-        year = (IntegerBlock(length=2, is_signed=True), {'description': 'A year (1950..2000), not verified'})
-        flags = (
-            ArrayBlock(child=IntegerBlock(length=1), length=12),
-            {'is_unknown': True, 'description': '0 / 1 bytes; the first 9 are cleared by 0x49c4c0 before the copy'},
+        year = (
+            IntegerBlock(length=2, is_signed=True),
+            {
+                'description': 'Model year [1950, 2000]: the shop lists only parts of the current year or older '
+                '(0x517da9), and prices inflate from it. Part 579 has 100 (a data error)'
+            },
         )
-        mass = (_f32(), {'description': 'Mass added to the car (`mass` of [Nfs5CarPhysics](#nfs5carphysics))'})
+        zones = (
+            ArrayBlock(child=IntegerBlock(length=1), length=10),
+            {
+                'description': 'The damage zones the part sits in (1 = yes), as car+0x4e4[10]: 1 front centre, 5 rear '
+                'centre, 3 / 7 sides, 0 / 2 / 4 / 6 corners, 8 roof, 9 (type 10 bodies). The wear of the part = the '
+                'mean damage of its zones x (1.5 - `durability` x 0.005) + `damage` (Porsche.exe 0x4938a0..0x493b30, '
+                '0x493bc0, 0x493cf0)'
+            },
+        )
+        padding_52 = _bytes(2, 'Zeros, read by no code (padding)')
+        mass = (
+            _f32(),
+            {'description': 'Mass added to the car, kg [-85, 25] (`mass` of [Nfs5CarPhysics](#nfs5carphysics))'},
+        )
         top_speed_divisor = (
             _f32(),
-            {'description': 'The specs `top_speed` is divided by (1 + this x 0.01)'},
+            {
+                'description': 'Top speed loss, %: the specs `top_speed` is divided by (1 + this x 0.01) (0x49cd3f) '
+                '[0, 1]; -20 for the Boxster Hardtop'
+            },
         )
         sort_key = (
             IntegerBlock(length=4, is_signed=True),
-            {'description': 'Front end sort key (after the type, before the id: Porsche.exe 0x49c350)'},
+            {
+                'description': 'Price of a new part in its `year`, $ [46, 40000]: every price, value and repair cost '
+                'starts from it (Porsche.exe 0x5181c7, 0x518237, 0x518897, 0x518913); second sort key of the lists '
+                '(0x49c36a, cheapest first)'
+            },
         )
-        unk3 = (_f32(), {'is_unknown': True, 'description': '100, 95, 90, 80...'})
-        unk4 = (BytesBlock(length=0x28), {'is_unknown': True, 'description': 'Zeros'})
+        durability = (
+            _f32(),
+            {
+                'description': 'Durability [65, 100]: wear and damage of the part grow with 1.5 - this x 0.005 (100: '
+                'x 1, 65: x 1.175; 0x4938d9.., `Car_PartsFactor` 0x493bc0, 0x493d20); upgrades wear faster. Part 387 '
+                'has -65 (a sign error)'
+            },
+        )
+        unused_64 = _bytes(0x28, 'Zeros, read by no code (every reader of a part record checked)')
         num_geometry_entries = (
             IntegerBlock(length=2, is_signed=True, value_validator=Lte(8)),
-            {'description': 'Number of `geometry_entries` used (0..4)'},
+            {'description': 'Number of `geometry_entries` used [0, 4] (types 6 and 10 only; 0x49c5fa, 0x4c03ab)'},
         )
         geometry_entries = (
             ArrayBlock(child=Nfs5PartGeometryEntry(), length=8),
-            {'description': 'Body part switches, the first `num_geometry_entries` are used'},
+            {
+                'description': 'Geometry switches, the first `num_geometry_entries` are used: which bumpers, engine '
+                'lid, roof or rims the car model draws (race 0x49c605, front end viewer 0x4bffd0)'
+            },
         )
-        unk5 = (BytesBlock(length=2), {'is_unknown': True, 'description': 'Zeros'})
+        padding_be = _bytes(2, 'Zeros, read by no code (padding)')
         value_a = (
             _f32(),
             {
-                'description': 'Gear box: the final drive; brakes, springs, shocks, sway bars, front aero, tyres '
-                '(front): a factor. Engine parts have 5500.. here (a redline?), not verified'
+                'description': 'By type (0x49cb50): brakes: brake force x (this + 3) / 4 [1, 2.5]; "Gear Box": the '
+                'final drive [3.44, 4.429]; springs: load transfer divisors x (this + 4) / 5, grip x (this + 15) / 16, '
+                'roll gain / ((this + 3) / 4) [1, 2.5]; shocks: damping / ((this + 4) / 5), grip x (this + 11) / 12 '
+                '[0.8, 2]; aero: front downforce x (1 + this x 0.005) [0, 10]; sway bars: load transfer x (this + 4) '
+                '/ 5, grip x (this + 11) / 12, roll gain / ((this + 3) / 4) [1.2, 3]; tyres: the front grip [1, 2] '
+                '(see `value_b`). Engine parts hold 5500..7300 (their redline), never read'
             },
         )
-        value_b = (_f32(), {'description': 'Springs: ride height, mm; aero: the rear factor; tyres: the rear factor'})
+        value_b = (
+            _f32(),
+            {
+                'description': 'By type (0x49cb50): aero: rear downforce x (1 + this x 0.005) [0, 30]; tyres: with g = '
+                'car grip x 3, front = (g + value_a) / (g + 1), rear = (g + this) / (g + 1): grip x (front + rear + 1) '
+                '/ 3, front weight share x (2 front / (front + rear) + 1) / 2 [1, 2]; springs: a lowering in mm (0, 5, '
+                '15, 20) the race writes to the ride height, then overwrites with the setup (0x49d567): no effect'
+            },
+        )
         drive_type = (
             IntegerBlock(length=4, is_signed=True),
-            {'description': 'Tyres: the drive type (0, 1, 2) -> specs +0x1c0, the tyre type'},
+            {
+                'description': 'Tyres: the tyre type -> specs +0x1c0 (0x49d1f4): 0 road, 1 rain, 2 race (the surface '
+                'grip table column) [0, 2]; other types: not read'
+            },
         )
-        unk6 = (BytesBlock(length=0x1E), {'is_unknown': True, 'description': 'Zeros'})
-        forward_gears = (IntegerBlock(length=2, is_signed=True), {'description': 'Gear box: forward gears'})
+        unused_cc = _bytes(0x1E, 'Zeros, read by no code (every reader of a part record checked)')
+        forward_gears = (
+            IntegerBlock(length=2, is_signed=True),
+            {'description': '"Gear Box": forward gears [4, 6], the specs gear slots = this + 2 (0x49cf02)'},
+        )
         shift_time = (
             IntegerBlock(length=2, is_signed=True),
             {
-                'description': 'Gear box: specs `shift_time` (+0x54): replaced by a "Gear Box", added by the other '
-                'gearbox parts'
+                'description': 'Gearbox parts: shift time in physics steps: a "Gear Box" sets the specs `shift_time` '
+                '(0x49ceea) [4, 8], any other (Shifter) adds it (0x49cf4f) [-2]'
             },
         )
-        unk7 = (BytesBlock(length=2), {'is_unknown': True, 'description': 'Zeros'})
+        padding_ee = _bytes(2, 'Zeros, read by no code (padding)')
         gear_ratios = (
             ArrayBlock(child=_f32(), length=8),
-            {'description': 'Gear box: the ratios of reverse, neutral, 1st..6th'},
+            {
+                'description': '"Gear Box": the ratios of reverse, neutral, 1st..6th, replacing the specs ones (0x49cf30)'
+            },
         )
         torque_curve = (
             ArrayBlock(child=_f32(), length=21),
-            {'description': 'Engine: the torque curve (0..10000 rpm)'},
+            {
+                'description': 'Engine parts: torque, lb·ft, at 0, 500 ... 10000 rpm: an "Engine" replaces the car '
+                'curve (0x49cdaf), any other engine part adds 0.67 x it (0x49ce5e); parts in slot order, so an Engine '
+                'after a turbo kit drops the kit. Zeros for the stock "Engine (Standard)", "Standard ECU", "Standard '
+                'Turbo" (slot holders). Part 565 has 1110 (a data error)'
+            },
         )
         damage = (
-            IntegerBlock(length=4, is_signed=True),
-            {'description': 'Damage (the front end sends it as PARTDAMAGE), 0 in every part'},
+            _f32(),
+            {
+                'description': 'Damage, % (0 = new; 0 in every record): copied from the race car record '
+                '`_PARTDAMAGE` (0x410880), worn in the race, kept by the front end (0x4edd40) and the saves; the menus '
+                'show 100 - the mean of a type (0x4ef580)'
+            },
         )
 
 
@@ -3662,8 +3802,8 @@ class Nfs5CarParts(DeclarativeCompoundBlock):
     def schema(self) -> Dict:
         return {
             **super().schema,
-            'block_description': 'NFS5 car parts, `FEData/Data/nfs5.prt`: 683 [Nfs5CarPart](#nfs5carpart) records '
-            '(read whole by Porsche.exe 0x49c3a0)',
+            'block_description': 'NFS5 car parts, `FEData/Data/nfs5.prt`: 683 [Nfs5CarPart](#nfs5carpart) records, '
+            'no header (read whole by Porsche.exe `Cars_LoadParts` 0x49c3a0 and `FEParts_Init` 0x517ad0)',
         }
 
     class Fields(DeclarativeCompoundBlock.Fields):
@@ -3673,9 +3813,84 @@ class Nfs5CarParts(DeclarativeCompoundBlock):
         )
 
     def serializer_class(self):
-        from serializers import JsonSerializer
+        from serializers import CompleteJsonSerializer
 
-        return JsonSerializer
+        return CompleteJsonSerializer
+
+
+class Nfs5DashGauge(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'A dial of the HUD dashboard, 12 bytes, sent to the race as options '
+            '(`FE_SendHumanCar` 0x4eb710; HUD 0x42e710 / 0x42e810)',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        style = (
+            IntegerBlock(length=2, is_signed=True),
+            {'description': 'Dial picture (SPEEDOSTYLEKMH / SPEEDOSTYLEMPH / TACHSTYLE) [0, 12]'},
+        )
+        total_units = (
+            IntegerBlock(length=2, is_signed=True),
+            {'description': 'Units on the dial (SPEEDOTOTALUNITS / TACHTOTALUNITS): km/h, mph or rpm / 10 [100, 820]'},
+        )
+        needle_style = (
+            IntegerBlock(length=2, is_signed=True),
+            {'description': 'Needle picture (NEEDLESTYLE): read from the tachometer only, the speedometers copy it'},
+        )
+        start_angle = (
+            IntegerBlock(length=2, is_signed=True),
+            {'description': 'Needle angle at 0, degrees (SPEEDOSTARTANGLE / TACHSTARTANGLE) [-52, 60]'},
+        )
+        degrees_per_unit = (
+            IntegerBlock(length=2, is_signed=True),
+            {
+                'description': 'Needle degrees per unit x 1000 (SPEEDODEGREESPERUNIT / TACHDEGREESPERUNIT; the HUD '
+                'multiplies by 0.001) [250, 2702]'
+            },
+        )
+        needle_pivot = (
+            IntegerBlock(length=2, is_signed=True),
+            {
+                'description': 'Needle pivot (NEEDLEPIVOT) [9, 18]: read from the tachometer only, the speedometers copy it'
+            },
+        )
+
+
+def _argb(text: str):
+    return (
+        IntegerBlock(length=4, byte_order='big'),
+        {'description': text + ', 0xAARRGGBB (stored A, R, G, B; the front end swaps the bytes, 0x4eb710)'},
+    )
+
+
+class Nfs5CarPaint(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {**super().schema, 'block_description': 'A paint of a car, 16 bytes'}
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        flag = (
+            IntegerBlock(length=4),
+            {'description': '0 or 0xcd: copied with the paint (0x4f32e0), read by no code'},
+        )
+        body = _argb('Body colour (FE car +0x674, `_COLORCONFIG` 0)')
+        accent_1 = _argb('First accent colour (+0x67c, `_COLORCONFIG` 1)')
+        accent_2 = _argb('Second accent colour (+0x680, `_COLORCONFIG` 2)')
+
+
+class Nfs5CarInterior(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {**super().schema, 'block_description': 'An interior colour of a car, 16 bytes'}
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        unused_0 = (IntegerBlock(length=4), {'description': '0, read by no code'})
+        colour = _argb('Interior colour (FE car +0x678, `_COLORCONFIG` 3)')
+        unused_8 = (IntegerBlock(length=4), {'description': '0xff000000, read by no code'})
+        unused_c = (IntegerBlock(length=4), {'description': '0xff000000, read by no code'})
 
 
 class Nfs5CarRecord(DeclarativeCompoundBlock):
@@ -3683,56 +3898,234 @@ class Nfs5CarRecord(DeclarativeCompoundBlock):
     def schema(self) -> Dict:
         return {
             **super().schema,
-            'block_description': 'A car of the NFS5 car database, 0x670 bytes, read by the front end (its car object '
-            'holds the record at +6). Porsche.exe 0x4eeda0 sends the fields the race uses as car record options. '
-            'Most of the record is not decoded',
+            'block_description': 'A car of the NFS5 car database, 0x670 bytes. Only the front end reads the file '
+            '(loader 0x4f3a40, lists 0x4f3e40); an FE car object holds a copy at +4 (and the Evolution saves keep '
+            'it: an edit does not reach cars already in a save). The race gets the fields it uses as options '
+            '(`FE_SendCarRecord` 0x4eeda0, `FE_SendHumanCar` 0x4eb710). Prices: dealer price (0x4ee220) = `price` x '
+            '`value_by_year`[year - `first_year`] / 100 after the first year; current value (0x4f8e50) = `price` x '
+            '`value_by_year`[year - 1948] / 100 (base) + base x the mileage, wear and wins terms + the installed '
+            'parts minus the stock parts, at least base x 0.05',
         }
 
     class Fields(DeclarativeCompoundBlock.Fields):
-        id = (IntegerBlock(length=2, is_signed=True), {'description': 'Car id (76..223, increasing)'})
-        display_name = (Latin1Block(length=0x32), {'description': 'Display name ("\'50 356 1100 Cabriolet")'})
-        short_name = (Latin1Block(length=0x19), {'description': 'Short / multiplayer name ("911 Turbo")'})
-        locale_id = (Latin1Block(length=0x32), {'description': 'Locale id ("1950356Cabrio11")'})
-        model = (Latin1Block(length=0x32), {'description': 'Model: `GameData/CarModel/<model>.crp`'})
+        id = (
+            IntegerBlock(length=2, is_signed=True),
+            {
+                'description': 'Car id [76, 223] (by id: cars 0x4f4360, cops 0x4f43a0, traffic 0x4f4400; nfs5.fac, '
+                'nfs5.trn and the track records name cars by it; `_FEMULTIPLAYERCARID`)'
+            },
+        )
+        display_name = (
+            Latin1Block(length=0x32),
+            {
+                'description': 'Display name ("\'50 356 1100 Cabriolet"): the dealer list draws bytes 0..2 as the '
+                'year column and the rest from byte 4 (0x4f3510), so it starts "\'YY "; network games send it as '
+                '`_FEMULTIPLAYERCARNAME`'
+            },
+        )
+        short_name = (
+            Latin1Block(length=0x19),
+            {'description': 'Short name ("911 Turbo"), accessor field SHORT (0x4f3020), `_FEMULTIPLAYERCARNAME`'},
+        )
+        locale_id = (
+            Latin1Block(length=0x32),
+            {'description': 'Showcase text file: `FEData/Locale/<locale_id>.loc` (0x508b70)'},
+        )
+        model = (
+            Latin1Block(length=0x32),
+            {
+                'description': 'Model: `GameData/CarModel/<model>.crp` (`_FILENAME`); a car without the file is '
+                'left out of the lists (0x4f3e40)'
+            },
+        )
         spec = (
             Latin1Block(length=0x32),
-            {'description': 'Spec: the `.sim` file name ([Nfs5CarPhysics](#nfs5carphysics))'},
+            {
+                'description': 'Spec: the `.sim` file name ([Nfs5CarPhysics](#nfs5carphysics), `_SPECNAME`); the '
+                'all-cars cheat sends "993coupe36"'
+            },
         )
-        unk0 = (Latin1Block(length=0x32), {'is_unknown': True, 'description': '"356-14"...'})
+        showcase_picture = (
+            Latin1Block(length=0x32),
+            {
+                'description': 'Showcase picture: `FEData/Showcase/<name>.fsh` ("356-14", "b1"; missing: "993tCo96", '
+                '0x508b70)'
+            },
+        )
         ai_spec = (
             Latin1Block(length=0x32),
             {
-                'description': 'AI spec: the `.ais` file name ([Nfs5CarAi](#nfs5carai)), also compared with "GT1", '
-                '"959"...'
+                'description': 'AI spec: the `.ais` file name ([Nfs5CarAi](#nfs5carai), `_AISPECNAME`), also compared '
+                'with "GT1", "959"... by the race'
             },
         )
-        logos = (Latin1Block(length=0x32), {'description': 'Logos ("finallogos2")'})
-        sound = (Latin1Block(length=0x32), {'description': 'Sound ("sd1b")'})
-        unk1 = (BytesBlock(length=1), {'is_unknown': True})
-        unk2 = (
-            ArrayBlock(child=IntegerBlock(length=4, is_signed=True), length=2),
-            {'is_unknown': True, 'description': '(501, 521), (502, 523)...'},
+        logos = (
+            Latin1Block(length=0x32),
+            {
+                'description': 'Logos: `FEData/Art/<logos>.fsh` ("finallogos2"), images 2 x `logo_index` and the next (0x4c1660)'
+            },
         )
-        body_text = (Latin1Block(length=0xC), {'description': 'Body text ("Cabrio")'})
-        body_style = (IntegerBlock(length=2, is_signed=True), {'description': 'Body style (0..12)'})
-        unk3 = (BytesBlock(length=0x12E), {'is_unknown': True})
+        sound = (Latin1Block(length=0x32), {'description': 'Sound set ("sd1b", `_SOUNDNAME`)'})
+        padding_1ab = _bytes(1, 'Zero, read by no code (padding)')
+        class_string_id = (
+            IntegerBlock(length=4, is_signed=True),
+            {
+                'description': 'Car class, an FEStrings id: 501 CLASS 3, 502 CLASS 2, 503 CLASS 1, 504 RACE CLASS (0 '
+                'traffic). The lists group and sort by it (0x4f3510, 0x4f1d40), opponents are picked by it '
+                '(0x4f4fa0), CLASSLISTING shows it (0x4f0a50), 504 shows the gear ratio setup (0x4f1ac0)'
+            },
+        )
+        era_string_id = (
+            IntegerBlock(length=4, is_signed=True),
+            {'description': 'Era, an FEStrings id: 521 CLASSIC, 522 GOLDEN, 523 MODERN ERA (CLASSLISTING, 0x4f0a50)'},
+        )
+        body_text = (
+            Latin1Block(length=0xB),
+            {'description': 'Body text ("Cabrio", "Convertibl": 10 characters), read by no code'},
+        )
+        convertible = (
+            IntegerBlock(length=1),
+            {
+                'description': '1: an open car (Cabrio, Speedster, Roadster): the Car.Roof setting (`_CABRIODOWN`, '
+                '0x4f1e40) and the roof button (0x50cc30)'
+            },
+        )
+        body_style = (
+            IntegerBlock(length=2, is_signed=True),
+            {
+                'description': 'Body style [0, 12] (`_BODYSTYLE`): the race model takes the car `.tpg` section '
+                '`[style<n + 1>]` (0x437b00), as does the front end viewer'
+            },
+        )
+        engine_text = (Latin1Block(length=0x32), {'description': 'Engine text ("2.0 L S"), read by no code'})
+        kind = (
+            IntegerBlock(length=2, is_signed=True),
+            {'description': 'Kind: 0 car, 1 traffic, 2 cop (the lists of 0x4f3e40)'},
+        )
+        logo_index = (
+            IntegerBlock(length=2, is_signed=True),
+            {'description': 'Logo pair in the `logos` FSH [0, 27]: images 2 x this and the next (0x4c1660)'},
+        )
+        first_year = (
+            IntegerBlock(length=2, is_signed=True),
+            {
+                'description': 'First model year [1948, 2000]: the dealer sells it from then (Evolution), the dealer '
+                'price ages from it, used cars appear later'
+            },
+        )
+        unused_1fa = _bytes(8, 'Zeros, read by no code')
+        last_year = (
+            IntegerBlock(length=2, is_signed=True),
+            {'description': 'Last model year (0 traffic): "in production" from `first_year` to it (list 0x691a00)'},
+        )
+        availability = (
+            IntegerBlock(length=2, is_signed=True),
+            {
+                'description': 'Availability: 0 normal; 1 not in the dealer list outside Evolution and network games '
+                '(but with the cheat); 2 never sold new in Evolution nor used (959, 928 GTS, GT2, GT3); 3 never in the '
+                'dealer or used lists (factory driver copies) (0x4f3e40, 0x4f80c0)'
+            },
+        )
+        unused_206 = _bytes(2, 'Zeros, read by no code')
+        price = (
+            IntegerBlock(length=4, is_signed=True),
+            {'description': 'Price new, $ [0, 1000000] (0x4ee220, 0x4f8e50)'},
+        )
+        value_by_year = (
+            ArrayBlock(child=_f32(), length=53),
+            {
+                'description': 'Value, % of `price`, for the years 1948..2000 [41, 1000]. The current value '
+                '(0x4f8e50) reads entry year - 1948; the dealer price (0x4ee220) reads entry year - `first_year` (so it '
+                'reads another year than the data means once the car is past its first year)'
+            },
+        )
+        unk_2e0 = (
+            IntegerBlock(length=1),
+            {
+                'is_unknown': True,
+                'description': '[0, 100] (356: 10..20, 914: 60..70, traffic 100), no reader found in Porsche.exe',
+            },
+        )
+        padding_2e1 = _bytes(1, 'Zero, read by no code (padding)')
+        abs_available = (
+            IntegerBlock(length=1),
+            {'description': '1: the car has ABS to switch on (Car.ABS, 0x4f1da0; forced off when 0)'},
+        )
+        traction_available = (
+            IntegerBlock(length=1),
+            {'description': '1: the car has traction control to switch on (Car.Traction, 0x4f1df0)'},
+        )
+        unused_2e4 = _bytes(4, 'Zeros, read by no code')
+        unk_2e8 = (
+            _f32(),
+            {'is_unknown': True, 'description': '-0.9, -0.8, -0.6 (cops 0), no reader found in Porsche.exe'},
+        )
+        unk_2ec = (
+            _f32(),
+            {'is_unknown': True, 'description': '0.1, 0.2, 0.3 (cops 0), no reader found in Porsche.exe'},
+        )
         gauges = (
             ArrayBlock(child=_f32(), length=4),
-            {'description': 'Tachometer / speedometer values ((-0.07, 0.13, -0.03, 0.11)...)'},
+            {
+                'description': 'Cockpit needles (the model parts 0xb / 0xc, 0x438440), angles: _TACH0RPM (tachometer '
+                'at 0 rpm), _TACH1000RPM (per 1000 rpm), _SPEEDO0KM (speedometer at 0), _SPEEDO100KM (per 100 km/h): '
+                "tach = [0] + [1] x rpm x 0.001, speedo = [2] + [3] x m/s x 0.144. The '67 911 Targa has -37 (a typo)"
+            },
         )
-        unk4 = (BytesBlock(length=0xBC), {'is_unknown': True})
+        speedo_kmh = (Nfs5DashGauge(), {'description': 'HUD speedometer in km/h (Display.SpeedUnits)'})
+        speedo_mph = (Nfs5DashGauge(), {'description': 'HUD speedometer in mph'})
+        tachometer = (Nfs5DashGauge(), {'description': 'HUD tachometer (also the needle style and pivot of both)'})
+        ratings = (
+            ArrayBlock(child=IntegerBlock(length=2, is_signed=True), length=5),
+            {
+                'description': 'Car compare bars [30, 100] (traffic 50; 0x4ca790, 0x50e780): acceleration, top '
+                'speed, braking, handling, overall'
+            },
+        )
+        num_upgrade_parts = (
+            IntegerBlock(length=2, is_signed=True, value_validator=Lte(70)),
+            {'description': 'Number of `upgrade_parts` [0, 61]'},
+        )
+        upgrade_parts = (
+            ArrayBlock(child=IntegerBlock(length=2, is_signed=True), length=70),
+            {
+                'description': 'Ids of the parts ([Nfs5CarPart](#nfs5carpart)) the shop offers for the car, the first '
+                '`num_upgrade_parts`: those of the current year or older, but the "Body" (0x517d10); the inventory '
+                'parts are matched against them (0x517f70)'
+            },
+        )
         num_stock_parts = (
             IntegerBlock(length=2, is_signed=True, value_validator=Lte(20)),
-            {'description': 'Number of `stock_parts` (0..17)'},
+            {'description': 'Number of `stock_parts` [0, 17]'},
         )
         stock_parts = (
             ArrayBlock(child=IntegerBlock(length=2, is_signed=True), length=20),
             {
                 'description': 'Ids of the stock parts ([Nfs5CarPart](#nfs5carpart)), the first `num_stock_parts`: '
-                'all installed for a quick race, ordered by Porsche.exe 0x4ee9a0 / 0x49c350'
+                'installed in a new car, ordered by `FE_InstallStockParts` 0x4ee9a0 / 0x49c350; before a race every '
+                'stock type + name slot must be filled (0x4f0220)'
             },
         )
-        unk5 = (BytesBlock(length=0x28A), {'is_unknown': True})
+        num_paints = (
+            IntegerBlock(length=2, is_signed=True, value_validator=Lte(20)),
+            {'description': 'Number of `paints` [0, 19]; 0: red (0xffff0000)'},
+        )
+        paints = (
+            ArrayBlock(child=Nfs5CarPaint(), length=20),
+            {
+                'description': 'Paints, the first `num_paints`; a new car gets a random one (0x4f82c0, 0x4f4fa0, 0x4ec1a0)'
+            },
+        )
+        num_interiors = (
+            IntegerBlock(length=2, is_signed=True, value_validator=Lte(20)),
+            {'description': 'Number of `interiors` [0, 5]; 0: white (0xffffffff)'},
+        )
+        padding_52a = _bytes(2, 'Zeros, read by no code (padding)')
+        interiors = (
+            ArrayBlock(child=Nfs5CarInterior(), length=20),
+            {'description': 'Interior colours, the first `num_interiors`; a new car gets a random one'},
+        )
+        padding_66c = _bytes(4, 'Zeros, read by no code (padding)')
 
 
 class Nfs5Cars(DeclarativeCompoundBlock):
@@ -3741,7 +4134,7 @@ class Nfs5Cars(DeclarativeCompoundBlock):
         return {
             **super().schema,
             'block_description': 'NFS5 car database, `FEData/Data/nfs5.car`: 109 [Nfs5CarRecord](#nfs5carrecord) '
-            'records of 0x670 bytes',
+            'records of 0x670 bytes, no header (cars, traffic, cops)',
         }
 
     class Fields(DeclarativeCompoundBlock.Fields):
@@ -3753,6 +4146,6 @@ class Nfs5Cars(DeclarativeCompoundBlock):
         )
 
     def serializer_class(self):
-        from serializers import JsonSerializer
+        from serializers import CompleteJsonSerializer
 
-        return JsonSerializer
+        return CompleteJsonSerializer

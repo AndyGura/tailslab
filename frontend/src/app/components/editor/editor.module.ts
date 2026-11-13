@@ -69,6 +69,13 @@ import { CarAiAndCrashBodyBlockUiComponent } from './eac/car-ai-and-crash-body.b
 import { Nfs2CarPhysicsBlockUiComponent } from './eac/nfs2-car-physics.block-ui/nfs2-car-physics.block-ui.component';
 import { Nfs3CarPhysicsBlockUiComponent } from './eac/nfs3-car-physics.block-ui/nfs3-car-physics.block-ui.component';
 import { Nfs2CarAiBlockUiComponent } from './eac/nfs2-car-ai.block-ui/nfs2-car-ai.block-ui.component';
+import { Nfs5CarPhysicsBlockUiComponent } from './eac/nfs5-car-physics.block-ui/nfs5-car-physics.block-ui.component';
+import { Nfs5CarPartsBlockUiComponent } from './eac/nfs5-car-parts.block-ui/nfs5-car-parts.block-ui.component';
+import { Nfs5CarAiBlockUiComponent } from './eac/nfs5-car-ai.block-ui/nfs5-car-ai.block-ui.component';
+import { Nfs5CarsBlockUiComponent } from './eac/nfs5-cars.block-ui/nfs5-cars.block-ui.component';
+import { Nfs5FactoryMissionsBlockUiComponent } from './eac/nfs5-career.block-ui/nfs5-factory-missions.block-ui.component';
+import { Nfs5TournamentsBlockUiComponent } from './eac/nfs5-career.block-ui/nfs5-tournaments.block-ui.component';
+import { RecordListComponent } from './common/record-list/record-list.component';
 
 @NgModule({
   declarations: [
@@ -126,6 +133,13 @@ import { Nfs2CarAiBlockUiComponent } from './eac/nfs2-car-ai.block-ui/nfs2-car-a
     Nfs2CarPhysicsBlockUiComponent,
     Nfs3CarPhysicsBlockUiComponent,
     Nfs2CarAiBlockUiComponent,
+    Nfs5CarPhysicsBlockUiComponent,
+    Nfs5CarPartsBlockUiComponent,
+    Nfs5CarAiBlockUiComponent,
+    Nfs5CarsBlockUiComponent,
+    Nfs5FactoryMissionsBlockUiComponent,
+    Nfs5TournamentsBlockUiComponent,
+    RecordListComponent,
   ],
   imports: [
     CommonModule,

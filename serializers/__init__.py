@@ -36,6 +36,7 @@ from .geometries import (
     Nfs6Ps2CarSerializer,
 )
 from .json import JsonSerializer, TnfsPsxHorizonInfoSerializer, Nfs3CarPhysicsSerializer
+from .complete_json import CompleteJsonSerializer
 from .horizons import EacHorizonSettingsSerializer
 from .maps import (
     TriMapSerializer,

@@ -1,0 +1,34 @@
+<div class="record-list" (keydown)="onKey($event)" tabindex="-1">
+  <input
+    class="filter"
+    type="search"
+    [placeholder]="placeholder"
+    [value]="filter"
+    (input)="onFilter($any($event.target).value)" />
+  <div class="count">{{ shownCount }} of {{ items.length }}</div>
+  <div class="items">
+    @for (g of groups; track g.name) {
+      @if (g.name) {
+        <div class="group">{{ g.name }}</div>
+      }
+      @for (item of g.items; track item.index) {
+        <button
+          type="button"
+          class="item"
+          [class.selected]="item.index === selected"
+          [class.muted]="item.muted"
+          (click)="select.emit(item.index)">
+          <span class="text">
+            <span class="label">{{ item.label }}</span>
+            @if (item.sub) {
+              <span class="sub">{{ item.sub }}</span>
+            }
+          </span>
+          @if (item.tag) {
+            <span class="tag">{{ item.tag }}</span>
+          }
+        </button>
+      }
+    }
+  </div>
+</div>
