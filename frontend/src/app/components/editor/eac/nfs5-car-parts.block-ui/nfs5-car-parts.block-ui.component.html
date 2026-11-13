@@ -1,0 +1,242 @@
+@if (resourceId && resourceName && !hideName) {
+  <h2 [matTooltip]="resourceDescription || ''" matTooltipPosition="above">{{ resourceName }}</h2>
+}
+@if (!hideBlockActions) {
+  <app-block-actions
+    [resource]="{
+      id: resourceId!,
+      name: resourceName!,
+      data: resourceData,
+      schema: resourceSchema,
+    }"></app-block-actions>
+}
+
+@if (resourceData && resourceSchema) {
+  <div class="database">
+    <app-record-list
+      [items]="items"
+      [selected]="selected"
+      placeholder="Filter parts (name, family, type, #id)"
+      (select)="onSelect($event)"></app-record-list>
+
+    @if (part; as p) {
+      <div class="record">
+        <div class="record-title">
+          <h3>{{ p['name'] || typeName(p['type']) }}</h3>
+          <span class="muted">#{{ p['id'] }} · {{ p['family'] }}</span>
+          <span class="spacer"></span>
+          <button mat-button [disabled]="!!disabled" (click)="duplicatePart()">
+            <mat-icon>content_copy</mat-icon>
+            Duplicate
+          </button>
+          <button mat-button color="warn" [disabled]="!!disabled" (click)="deletePart()">
+            <mat-icon>delete</mat-icon>
+            Delete
+          </button>
+        </div>
+        <app-stat-tiles [tiles]="tiles" [disabled]="disabled" (tileChange)="onTileChange($event)"></app-stat-tiles>
+
+        <mat-tab-group [(selectedIndex)]="selectedTab" animationDuration="0ms" mat-stretch-tabs="false">
+          <mat-tab label="Effect">
+            <ng-template matTabContent>
+              <div class="tab">
+                <table class="gear-table effects">
+                  <thead>
+                    <tr>
+                      <th>Changes</th>
+                      <th>By</th>
+                      <th>Porsche.exe 0x49cb50</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (e of effects; track $index) {
+                      <tr>
+                        <td class="gear-name">{{ e.target }}</td>
+                        <td class="num">{{ e.value }}</td>
+                        <td class="formula">{{ e.formula }}</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+                <p class="note">
+                  Installed parts change the car's .sim values when the race loads the car, in the order of the car's
+                  part slots; the AI spec names 959, 928, GT2 and GT3 ignore every part.
+                </p>
+
+                @if (p['type'] === 1) {
+                  <app-curve-editor
+                    title="Torque curve"
+                    hint="lb·ft at 0, 500 ... 10000 rpm. A part named Engine replaces the car's curve, every other engine part adds 0.67 × this curve to it"
+                    [series]="torqueSeries"
+                    [xAxis]="rpmAxis"
+                    [yAxis]="torqueAxis"
+                    [y2Axis]="powerAxis"
+                    [height]="300"
+                    [disabled]="disabled"
+                    [describeX]="describeRpm"
+                    (seriesPreview)="onTorquePreview($event)"
+                    (seriesChange)="onTorqueChange($event)"></app-curve-editor>
+                }
+                @if (p['type'] === 3) {
+                  <table class="gear-table">
+                    <thead>
+                      <tr>
+                        @for (n of gearNames; track $index) {
+                          <th>{{ n }}</th>
+                        }
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        @for (r of p['gear_ratios']; track $index) {
+                          <td>
+                            <input
+                              type="number"
+                              step="0.01"
+                              [value]="round(r, 4)"
+                              [disabled]="!!disabled"
+                              (change)="onPartNumberInput(['gear_ratios', $index], $any($event.target).value)" />
+                          </td>
+                        }
+                      </tr>
+                    </tbody>
+                  </table>
+                  <p class="note">
+                    Only a part named Gear Box replaces the car's gearbox (ratios, forward gears, value_a as the final
+                    drive, shift time); other gearbox parts (Shifter) add their shift time.
+                  </p>
+                }
+              </div>
+            </ng-template>
+          </mat-tab>
+
+          <mat-tab label="Prices">
+            <ng-template matTabContent>
+              <div class="tab">
+                <app-curve-editor
+                  title="Price by year"
+                  hint="New price: the price plus the yearly inflation (table 0x5ba4a4) of the years since the part's year (Parts_Price 0x5181c0). Sells for: the new price less 20% plus 2% per point of damage (0x518220). Repair: 2% of the new price per point of damage (0x518880)"
+                  [series]="priceSeries"
+                  [xAxis]="yearAxis"
+                  [yAxis]="moneyAxis"
+                  [height]="280"
+                  [describeX]="describeYear"></app-curve-editor>
+                <div class="sliders">
+                  <app-slider-field
+                    label="Damage (preview)"
+                    [value]="previewDamage"
+                    [spec]="{ min: 0, max: 50, step: 1, unit: '%' }"
+                    (valueChange)="onPreviewDamage($event)"></app-slider-field>
+                </div>
+              </div>
+            </ng-template>
+          </mat-tab>
+
+          <mat-tab label="Geometry">
+            <ng-template matTabContent>
+              <div class="tab">
+                <p class="note">{{ fieldDescription('geometry_entries') }}</p>
+                <table class="gear-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Row</th>
+                      <th>Column</th>
+                      <th>Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (g of geometryEntries; track $index) {
+                      <tr>
+                        <td>{{ $index }}</td>
+                        @for (k of geometryKeys; track k) {
+                          <td>
+                            <input
+                              type="number"
+                              step="1"
+                              [value]="g[k]"
+                              [disabled]="!!disabled"
+                              (change)="
+                                onPartNumberInput(['geometry_entries', $index, k], $any($event.target).value, true)
+                              " />
+                          </td>
+                        }
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+                <div class="actions">
+                  <button mat-button [disabled]="!!disabled" (click)="addGeometryEntry()">
+                    <mat-icon>add</mat-icon>
+                    Add switch
+                  </button>
+                  <button mat-button [disabled]="!!disabled || !geometryEntries.length" (click)="removeGeometryEntry()">
+                    <mat-icon>remove</mat-icon>
+                    Remove the last
+                  </button>
+                </div>
+              </div>
+            </ng-template>
+          </mat-tab>
+
+          <mat-tab label="Cars">
+            <ng-template matTabContent>
+              <div class="tab">
+                @if (carsNote) {
+                  <p class="note">{{ carsNote }}</p>
+                } @else if (!carUses.length) {
+                  <p class="note">No car of nfs5.car lists this part.</p>
+                } @else {
+                  <table class="gear-table">
+                    <thead>
+                      <tr>
+                        <th>Car</th>
+                        <th>Stock</th>
+                        <th>Upgrade</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (u of carUses; track u.carIndex) {
+                        <tr>
+                          <td>
+                            <button
+                              class="link"
+                              type="button"
+                              [disabled]="hasUnsavedChanges"
+                              [matTooltip]="hasUnsavedChanges ? 'Save this file first' : 'Open nfs5.car at this car'"
+                              (click)="openCar(u)">
+                              #{{ u.carId }} {{ u.name }}
+                            </button>
+                          </td>
+                          <td>{{ u.stock ? 'yes' : '' }}</td>
+                          <td>{{ u.buyable ? 'yes' : '' }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                }
+              </div>
+            </ng-template>
+          </mat-tab>
+
+          <mat-tab label="All fields">
+            <ng-template matTabContent>
+              <div class="tab">
+                <app-compound-block-ui
+                  [resourceId]="partId"
+                  [resourceName]="'' + selected"
+                  [resourceSchema]="partSchema"
+                  [resourceData]="p"
+                  [hideName]="true"
+                  [hideBlockActions]="true"
+                  [disabled]="disabled"></app-compound-block-ui>
+              </div>
+            </ng-template>
+          </mat-tab>
+        </mat-tab-group>
+      </div>
+    } @else {
+      <p class="note">No parts.</p>
+    }
+  </div>
+}

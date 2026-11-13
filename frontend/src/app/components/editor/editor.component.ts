@@ -24,113 +24,181 @@ import { BinaryBlockUiComponent } from './library/binary.block-ui/binary.block-u
 import { SubByteCompoundBlockUiComponent } from './library/sub-byte-compound.block-ui/sub-byte-compound.block-ui.component';
 import { AngleBlockUiComponent } from './eac/angle.block-ui/angle.block-ui.component';
 import { ChangesService } from '../../services/changes.service';
-import { ImageBlockUiComponent } from './eac/image.block-ui/image.block-ui.component';
-import { PaletteBlockUiComponent } from './eac/palette.block-ui/palette.block-ui.component';
-import { PsxImageBlockUiComponent } from './eac/psx-image.block-ui/psx-image.block-ui.component';
-import { PsxClutBlockUiComponent } from './eac/psx-clut.block-ui/psx-clut.block-ui.component';
-import { OripGeometryBlockUiComponent } from './eac/orip-geometry.block-ui/orip-geometry.block-ui.component';
-import { EacsAudioBlockUiComponent } from './eac/eacs-audio.block-ui/eacs-audio.block-ui.component';
-import { SoundbankBlockUiComponent } from './eac/soundbank.block-ui/soundbank.block-ui.component';
-import { GeoGeometryBlockUiComponent } from './eac/geo-geometry.block-ui/geo-geometry.block-ui.component';
-import { TrackMapBlockUiComponent } from './eac/track-map.block-ui/track-map.block-ui.component';
-import { FceGeometryBlockUiComponent } from './eac/fce-geometry.block-ui/fce-geometry.block-ui.component';
-import { CrpGeometryBlockUiComponent } from './eac/crp-geometry.block-ui/crp-geometry.block-ui.component';
-import { FontBlockUiComponent } from './eac/font.block-ui/font.block-ui.component';
 import { ArchiveBlockUiComponent } from './library/archive.block-ui/archive.block-ui.component';
-import { TargaImageBlockUiComponent } from './common/targa-image.block-ui/targa-image.block-ui.component';
-import { NfsuBinGeometryBlockUiComponent } from './blackbox/nfsu-bin-geometry.block-ui/nfsu-bin-geometry.block-ui.component';
-import { Nfs6Ps2CarBlockUiComponent } from './blackbox/nfs6-ps2-car.block-ui/nfs6-ps2-car.block-ui.component';
-import { EaglModelBlockUiComponent } from './eac/eagl-model.block-ui/eagl-model.block-ui.component';
-import { PlayerCarPhysicsBlockUiComponent } from './eac/player-car-physics.block-ui/player-car-physics.block-ui.component';
-import { CarAiAndCrashBodyBlockUiComponent } from './eac/car-ai-and-crash-body.block-ui/car-ai-and-crash-body.block-ui.component';
-import { Nfs2CarPhysicsBlockUiComponent } from './eac/nfs2-car-physics.block-ui/nfs2-car-physics.block-ui.component';
-import { Nfs3CarPhysicsBlockUiComponent } from './eac/nfs3-car-physics.block-ui/nfs3-car-physics.block-ui.component';
-import { Nfs2CarAiBlockUiComponent } from './eac/nfs2-car-ai.block-ui/nfs2-car-ai.block-ui.component';
 import { isLazyStub } from '../../utils/lazy';
+import { MatIcon } from '@angular/material/icon';
+import { MatProgressSpinner } from '@angular/material/progress-spinner';
 
 @Component({
   selector: 'app-editor',
   templateUrl: './editor.component.html',
   styleUrls: ['./editor.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [MatIcon, MatProgressSpinner, DataBlockUIDirective],
 })
 export class EditorComponent implements OnDestroy {
-  static readonly DATA_BLOCK_COMPONENTS_MAP: { [key: string]: Type<GuiComponent> } = {
-    // basic primitives
-    IntegerBlock: NumberBlockUiComponent,
-    DecimalBlock: NumberBlockUiComponent,
-    UTF8Block: StringBlockUiComponent,
-    NullTerminatedUTF8Block: StringBlockUiComponent,
-    EnumByteBlock: EnumBlockUiComponent,
-    BytesBlock: BinaryBlockUiComponent,
+  // Built on first use: the container editors import EditorComponent back, so they are not defined yet with this class
+  private static dataBlockComponents?: { [key: string]: Type<GuiComponent> };
+  static get DATA_BLOCK_COMPONENTS_MAP(): { [key: string]: Type<GuiComponent> } {
+    return (EditorComponent.dataBlockComponents ??= {
+      // basic primitives
+      IntegerBlock: NumberBlockUiComponent,
+      DecimalBlock: NumberBlockUiComponent,
+      UTF8Block: StringBlockUiComponent,
+      NullTerminatedUTF8Block: StringBlockUiComponent,
+      EnumByteBlock: EnumBlockUiComponent,
+      BytesBlock: BinaryBlockUiComponent,
 
-    // basic containers
-    ArchiveBlock: ArchiveBlockUiComponent,
-    ArrayBlock: ArrayBlockUiComponent,
-    SubByteArrayBlock: ArrayBlockUiComponent,
-    CompoundBlock: CompoundBlockUiComponent,
-    SubByteCompoundBlock: SubByteCompoundBlockUiComponent,
-    DelegateBlock: DelegateBlockUiComponent,
-    TrailingOptionalBlock: TrailingOptionalBlockUiComponent,
+      // basic containers
+      ArchiveBlock: ArchiveBlockUiComponent,
+      ArrayBlock: ArrayBlockUiComponent,
+      SubByteArrayBlock: ArrayBlockUiComponent,
+      CompoundBlock: CompoundBlockUiComponent,
+      SubByteCompoundBlock: SubByteCompoundBlockUiComponent,
+      DelegateBlock: DelegateBlockUiComponent,
+      TrailingOptionalBlock: TrailingOptionalBlockUiComponent,
 
+      // misc
+      AngleBlock: AngleBlockUiComponent,
+      IntegerAngleBlock: AngleBlockUiComponent,
+    });
+  }
+
+  // Bespoke editors, each loaded on first use: they pull three.js, charts... out of the initial bundle
+  static readonly LAZY_DATA_BLOCK_COMPONENTS_MAP: { [key: string]: () => Promise<Type<GuiComponent>> } = {
     // common
-    TargaImage: TargaImageBlockUiComponent,
-
-    // misc
-    AngleBlock: AngleBlockUiComponent,
-    IntegerAngleBlock: AngleBlockUiComponent,
+    TargaImage: () =>
+      import('./common/targa-image.block-ui/targa-image.block-ui.component').then(m => m.TargaImageBlockUiComponent),
 
     // Common classic Need For Speed blocks
-    EacImage: ImageBlockUiComponent,
-    EacPalette: PaletteBlockUiComponent,
+    EacImage: () => import('./eac/image.block-ui/image.block-ui.component').then(m => m.ImageBlockUiComponent),
+    EacPalette: () => import('./eac/palette.block-ui/palette.block-ui.component').then(m => m.PaletteBlockUiComponent),
     // PSX images (SHPP) and their CLUTs
-    PsxImage: PsxImageBlockUiComponent,
-    PsxClut: PsxClutBlockUiComponent,
-    FfnFont: FontBlockUiComponent,
+    PsxImage: () =>
+      import('./eac/psx-image.block-ui/psx-image.block-ui.component').then(m => m.PsxImageBlockUiComponent),
+    PsxClut: () => import('./eac/psx-clut.block-ui/psx-clut.block-ui.component').then(m => m.PsxClutBlockUiComponent),
+    FfnFont: () => import('./eac/font.block-ui/font.block-ui.component').then(m => m.FontBlockUiComponent),
     // EA audio streams: NFS2 SE, NFS5, NFS6 music
-    EaAudioStreams: EacsAudioBlockUiComponent,
+    EaAudioStreams: () =>
+      import('./eac/eacs-audio.block-ui/eacs-audio.block-ui.component').then(m => m.EacsAudioBlockUiComponent),
 
     // TNFS-specific blocks
-    OripGeometry: OripGeometryBlockUiComponent,
-    OrixGeometry: OripGeometryBlockUiComponent,
-    EacsAudioFile: EacsAudioBlockUiComponent,
-    AsfAudio: EacsAudioBlockUiComponent,
-    SoundBank: SoundbankBlockUiComponent,
-    TriMap: TrackMapBlockUiComponent,
-    PlayerCarPhysics: PlayerCarPhysicsBlockUiComponent,
-    CarAiAndCrashBody: CarAiAndCrashBodyBlockUiComponent,
+    OripGeometry: () =>
+      import('./eac/orip-geometry.block-ui/orip-geometry.block-ui.component').then(m => m.OripGeometryBlockUiComponent),
+    OrixGeometry: () =>
+      import('./eac/orip-geometry.block-ui/orip-geometry.block-ui.component').then(m => m.OripGeometryBlockUiComponent),
+    EacsAudioFile: () =>
+      import('./eac/eacs-audio.block-ui/eacs-audio.block-ui.component').then(m => m.EacsAudioBlockUiComponent),
+    AsfAudio: () =>
+      import('./eac/eacs-audio.block-ui/eacs-audio.block-ui.component').then(m => m.EacsAudioBlockUiComponent),
+    SoundBank: () =>
+      import('./eac/soundbank.block-ui/soundbank.block-ui.component').then(m => m.SoundbankBlockUiComponent),
+    TriMap: () => import('./eac/track-map.block-ui/track-map.block-ui.component').then(m => m.TrackMapBlockUiComponent),
+    PlayerCarPhysics: () =>
+      import('./eac/player-car-physics.block-ui/player-car-physics.block-ui.component').then(
+        m => m.PlayerCarPhysicsBlockUiComponent,
+      ),
+    CarAiAndCrashBody: () =>
+      import('./eac/car-ai-and-crash-body.block-ui/car-ai-and-crash-body.block-ui.component').then(
+        m => m.CarAiAndCrashBodyBlockUiComponent,
+      ),
 
     // NFS2-specific blocks
-    GeoGeometry: GeoGeometryBlockUiComponent,
-    TrkMap: TrackMapBlockUiComponent,
-    Nfs2CarPhysics: Nfs2CarPhysicsBlockUiComponent,
-    Nfs2CarAi: Nfs2CarAiBlockUiComponent,
+    GeoGeometry: () =>
+      import('./eac/geo-geometry.block-ui/geo-geometry.block-ui.component').then(m => m.GeoGeometryBlockUiComponent),
+    TrkMap: () => import('./eac/track-map.block-ui/track-map.block-ui.component').then(m => m.TrackMapBlockUiComponent),
+    Nfs2CarPhysics: () =>
+      import('./eac/nfs2-car-physics.block-ui/nfs2-car-physics.block-ui.component').then(
+        m => m.Nfs2CarPhysicsBlockUiComponent,
+      ),
+    Nfs2CarAi: () =>
+      import('./eac/nfs2-car-ai.block-ui/nfs2-car-ai.block-ui.component').then(m => m.Nfs2CarAiBlockUiComponent),
+    Nfs2SimTune: () =>
+      import('./eac/nfs2-sim-tune.block-ui/nfs2-sim-tune.block-ui.component').then(m => m.Nfs2SimTuneBlockUiComponent),
+    EaFieldDescriptions: () =>
+      import('./eac/ea-field-descriptions.block-ui/ea-field-descriptions.block-ui.component').then(
+        m => m.EaFieldDescriptionsBlockUiComponent,
+      ),
 
     // NFS3-specific blocks
-    FrdMap: TrackMapBlockUiComponent,
-    Fce3Geometry: FceGeometryBlockUiComponent,
-    Nfs3CarPhysics: Nfs3CarPhysicsBlockUiComponent,
+    FrdMap: () => import('./eac/track-map.block-ui/track-map.block-ui.component').then(m => m.TrackMapBlockUiComponent),
+    Fce3Geometry: () =>
+      import('./eac/fce-geometry.block-ui/fce-geometry.block-ui.component').then(m => m.FceGeometryBlockUiComponent),
+    Nfs3CarPhysics: () =>
+      import('./eac/nfs3-car-physics.block-ui/nfs3-car-physics.block-ui.component').then(
+        m => m.Nfs3CarPhysicsBlockUiComponent,
+      ),
+    Nfs3CarFeData: () =>
+      import('./eac/car-fedata.block-ui/car-fedata.block-ui.component').then(m => m.CarFeDataBlockUiComponent),
+    Nfs4CarFeData: () =>
+      import('./eac/car-fedata.block-ui/car-fedata.block-ui.component').then(m => m.CarFeDataBlockUiComponent),
 
     // NFS4-specific blocks
-    Fce4Geometry: FceGeometryBlockUiComponent,
-    Nfs4FrdMap: TrackMapBlockUiComponent,
+    Fce4Geometry: () =>
+      import('./eac/fce-geometry.block-ui/fce-geometry.block-ui.component').then(m => m.FceGeometryBlockUiComponent),
+    Nfs4FrdMap: () =>
+      import('./eac/track-map.block-ui/track-map.block-ui.component').then(m => m.TrackMapBlockUiComponent),
 
     // NFS5-specific blocks
-    CrpGeometry: CrpGeometryBlockUiComponent,
+    CrpGeometry: () =>
+      import('./eac/crp-geometry.block-ui/crp-geometry.block-ui.component').then(m => m.CrpGeometryBlockUiComponent),
+    Nfs5CarPhysics: () =>
+      import('./eac/nfs5-car-physics.block-ui/nfs5-car-physics.block-ui.component').then(
+        m => m.Nfs5CarPhysicsBlockUiComponent,
+      ),
+    Nfs5CarParts: () =>
+      import('./eac/nfs5-car-parts.block-ui/nfs5-car-parts.block-ui.component').then(
+        m => m.Nfs5CarPartsBlockUiComponent,
+      ),
+    Nfs5CarAi: () =>
+      import('./eac/nfs5-car-ai.block-ui/nfs5-car-ai.block-ui.component').then(m => m.Nfs5CarAiBlockUiComponent),
+    Nfs5Cars: () =>
+      import('./eac/nfs5-cars.block-ui/nfs5-cars.block-ui.component').then(m => m.Nfs5CarsBlockUiComponent),
+    Nfs5FactoryMissions: () =>
+      import('./eac/nfs5-career.block-ui/nfs5-factory-missions.block-ui.component').then(
+        m => m.Nfs5FactoryMissionsBlockUiComponent,
+      ),
+    Nfs5Tournaments: () =>
+      import('./eac/nfs5-career.block-ui/nfs5-tournaments.block-ui.component').then(
+        m => m.Nfs5TournamentsBlockUiComponent,
+      ),
 
     // NFS6-specific blocks
-    Nfs6AiPaths: TrackMapBlockUiComponent,
-    NfsuTrackBundle: TrackMapBlockUiComponent,
-    EaglModel: EaglModelBlockUiComponent,
+    Nfs6AiPaths: () =>
+      import('./eac/track-map.block-ui/track-map.block-ui.component').then(m => m.TrackMapBlockUiComponent),
+    NfsuTrackBundle: () =>
+      import('./eac/track-map.block-ui/track-map.block-ui.component').then(m => m.TrackMapBlockUiComponent),
+    EaglModel: () =>
+      import('./eac/eagl-model.block-ui/eagl-model.block-ui.component').then(m => m.EaglModelBlockUiComponent),
+    // NFS HP2 PC car spec files (and any typed INI file)
+    IniFile: () =>
+      import('./common/ini-file.block-ui/ini-file.block-ui.component').then(m => m.IniFileBlockUiComponent),
+    Nfs6CarIni: () =>
+      import('./eac/nfs6-car-ini.block-ui/nfs6-car-ini.block-ui.component').then(m => m.Nfs6CarIniBlockUiComponent),
+    Nfs6EngineAudioTable: () =>
+      import('./eac/nfs6-engine-audio.block-ui/nfs6-engine-audio.block-ui.component').then(
+        m => m.Nfs6EngineAudioBlockUiComponent,
+      ),
 
     // NFS6 PS2-specific blocks
-    Nfs6Ps2TrackBundle: TrackMapBlockUiComponent,
-    Nfs6Ps2CarGeometry: Nfs6Ps2CarBlockUiComponent,
-    Nfs6Ps2JukeboxTrack: EacsAudioBlockUiComponent,
+    Nfs6Ps2TrackBundle: () =>
+      import('./eac/track-map.block-ui/track-map.block-ui.component').then(m => m.TrackMapBlockUiComponent),
+    Nfs6Ps2CarGeometry: () =>
+      import('./blackbox/nfs6-ps2-car.block-ui/nfs6-ps2-car.block-ui.component').then(
+        m => m.Nfs6Ps2CarBlockUiComponent,
+      ),
+    Nfs6Ps2CarTypeInfos: () =>
+      import('./blackbox/nfs6-ps2-car-types.block-ui/nfs6-ps2-car-types.block-ui.component').then(
+        m => m.Nfs6Ps2CarTypesBlockUiComponent,
+      ),
+    Nfs6Ps2JukeboxTrack: () =>
+      import('./eac/eacs-audio.block-ui/eacs-audio.block-ui.component').then(m => m.EacsAudioBlockUiComponent),
 
     // NFSU-specific blocks
-    NfsuBinGeometry: NfsuBinGeometryBlockUiComponent,
+    NfsuBinGeometry: () =>
+      import('./blackbox/nfsu-bin-geometry.block-ui/nfsu-bin-geometry.block-ui.component').then(
+        m => m.NfsuBinGeometryBlockUiComponent,
+      ),
   };
 
   _resourceId?: string;
@@ -143,6 +211,7 @@ export class EditorComponent implements OnDestroy {
     this._resourceId = value?.id;
     this._resourceName = value?.name;
     this.resourceError = null;
+    this._componentLoadResource = null;
     if (value?.data?.error_class !== undefined) {
       this.resourceError = { class: value?.data?.error_class, message: value?.data?.error_text };
       this._resourceSchema = undefined;
@@ -174,6 +243,32 @@ export class EditorComponent implements OnDestroy {
     }
     this._lazyResource = null;
 
+    if (this._resourceSchema !== value?.schema && value?.schema?.block_class_mro) {
+      const lookup = EditorComponent.findComponent(value.schema.block_class_mro);
+      if (lookup instanceof Promise) {
+        // bespoke editor not loaded yet: show the spinner, render once its chunk is there
+        this._resourceData = undefined;
+        this._componentLoadResource = value;
+        lookup.then(
+          () => {
+            if (this._componentLoadResource === value) {
+              this._componentLoadResource = null;
+              this.resourceOrError = value;
+            }
+          },
+          err => {
+            if (this._componentLoadResource === value) {
+              this._componentLoadResource = null;
+              this.resourceError = { message: 'Failed to load the editor: ' + err };
+              this.cdr.markForCheck();
+            }
+          },
+        );
+        this.cdr.markForCheck();
+        return;
+      }
+    }
+
     this._resourceData = value?.data;
     if (this._resourceSchema !== value?.schema) {
       let reuseComponent =
@@ -188,13 +283,8 @@ export class EditorComponent implements OnDestroy {
       }
       if (this._resourceSchema?.block_class_mro) {
         if (!reuseComponent) {
-          let component: Type<GuiComponent> | undefined;
-          for (const className of this._resourceSchema.block_class_mro.split('__')) {
-            component = EditorComponent.DATA_BLOCK_COMPONENTS_MAP[className];
-            if (component) {
-              break;
-            }
-          }
+          const component = EditorComponent.findComponent(this._resourceSchema.block_class_mro) as
+            Type<GuiComponent> | undefined;
           if (!component) {
             this.resourceError = {
               message: 'UI not implemented for ' + this._resourceSchema.block_class_mro.replace(/__/g, ' &rarr; '),
@@ -229,6 +319,29 @@ export class EditorComponent implements OnDestroy {
 
   // the resource whose lazy part is being loaded now, if any
   _lazyResource: Resource | ResourceError | null = null;
+  // the resource whose editor component is being loaded now, if any
+  _componentLoadResource: Resource | ResourceError | null = null;
+
+  // lazy editors already loaded, by class name of LAZY_DATA_BLOCK_COMPONENTS_MAP
+  private static readonly loadedComponents: { [key: string]: Type<GuiComponent> } = {};
+
+  // The editor of the first class of the MRO having one, a promise while that is a lazy editor not loaded yet
+  static findComponent(blockClassMro: string): Type<GuiComponent> | Promise<Type<GuiComponent>> | undefined {
+    for (const className of blockClassMro.split('__')) {
+      const component = EditorComponent.DATA_BLOCK_COMPONENTS_MAP[className];
+      if (component) {
+        return component;
+      }
+      const loader = EditorComponent.LAZY_DATA_BLOCK_COMPONENTS_MAP[className];
+      if (loader) {
+        return (
+          EditorComponent.loadedComponents[className] ??
+          loader().then(loaded => (EditorComponent.loadedComponents[className] = loaded))
+        );
+      }
+    }
+    return undefined;
+  }
 
   _resourceDescription?: string;
   @Input()

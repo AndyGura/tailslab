@@ -1,17 +1,50 @@
-import { ChangeDetectionStrategy, Component, Input, ViewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input, ViewChild, forwardRef } from '@angular/core';
 import { SubscribableGuiComponent } from '../../gui.component';
 import { joinId } from '../../../../utils/join-id';
 import { BlockData, BlockSchema, Resource } from '../../types';
 
 import { ArrayTableColumn, DataTableComponent } from '../../common/data-table/data-table.component';
 import { blockClassStr } from '../../../../utils/block_class_str';
+import { MatTooltip } from '@angular/material/tooltip';
+import {
+  MatExpansionPanel,
+  MatExpansionPanelHeader,
+  MatExpansionPanelTitle,
+  MatExpansionPanelDescription,
+} from '@angular/material/expansion';
+import { NgTemplateOutlet, NgClass } from '@angular/common';
+import { MatIconButton, MatButton } from '@angular/material/button';
+import { MatIcon } from '@angular/material/icon';
+import { EditorComponent } from '../../editor.component';
+import { MatPaginator } from '@angular/material/paginator';
+import { MatFormField, MatSelect, MatOption } from '@angular/material/select';
+import { FormsModule } from '@angular/forms';
 
+// forwardRef: EditorComponent imports this component back
 @Component({
   selector: 'app-array-block-ui',
   templateUrl: './array.block-ui.component.html',
   styleUrls: ['./array.block-ui.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [
+    MatTooltip,
+    DataTableComponent,
+    MatExpansionPanel,
+    MatExpansionPanelHeader,
+    MatExpansionPanelTitle,
+    MatExpansionPanelDescription,
+    NgTemplateOutlet,
+    MatIconButton,
+    MatIcon,
+    forwardRef(() => EditorComponent),
+    MatButton,
+    NgClass,
+    MatPaginator,
+    MatFormField,
+    MatSelect,
+    FormsModule,
+    MatOption,
+  ],
 })
 export class ArrayBlockUiComponent extends SubscribableGuiComponent {
   override get resourceSchema(): BlockSchema {

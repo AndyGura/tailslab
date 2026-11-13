@@ -5,9 +5,10 @@ import {
   CurveMarkerChange,
   CurveSeries,
   CurveSeriesChange,
+  CurveEditorComponent,
 } from '../../common/curve-editor/curve-editor.component';
-import { StatTile } from '../../common/stat-tiles/stat-tiles.component';
-import { SliderSpec } from '../../common/slider-field/slider-field.component';
+import { StatTile, StatTilesComponent } from '../../common/stat-tiles/stat-tiles.component';
+import { SliderSpec, SliderFieldComponent } from '../../common/slider-field/slider-field.component';
 import {
   angleToDeg,
   CarSpecEditorBase,
@@ -17,6 +18,11 @@ import {
   MPS_TO_KMH,
   ordinal,
 } from '../player-car-physics.block-ui/car-specs';
+import { MatTooltip } from '@angular/material/tooltip';
+import { BlockActionsComponent } from '../../common/block-actions/block-actions.component';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
+import { NgTemplateOutlet } from '@angular/common';
+import { MatCheckbox } from '@angular/material/checkbox';
 
 // `handling_factor` of traffic, cops, TSUPRA and TRAFFC: no corner slowdown
 const NO_CORNER_SLOWDOWN = 0xff0000;
@@ -31,7 +37,16 @@ const TURN_AXIS_MAX_DEG = 30;
   templateUrl: './car-ai-and-crash-body.block-ui.component.html',
   styleUrls: ['./car-ai-and-crash-body.block-ui.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [
+    MatTooltip,
+    BlockActionsComponent,
+    SliderFieldComponent,
+    CompoundBlockUiComponent,
+    StatTilesComponent,
+    CurveEditorComponent,
+    NgTemplateOutlet,
+    MatCheckbox,
+  ],
 })
 export class CarAiAndCrashBodyBlockUiComponent extends CarSpecEditorBase {
   readonly groups = {

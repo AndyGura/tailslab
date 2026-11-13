@@ -26,6 +26,10 @@ import {
   snapValue,
   ValueConstraints,
 } from './curve-editor.utils';
+import { MatIcon } from '@angular/material/icon';
+import { MatTooltip } from '@angular/material/tooltip';
+import { MatSlider, MatSliderThumb } from '@angular/material/slider';
+import { FormsModule } from '@angular/forms';
 
 export type { CurvePoint } from './curve-editor.utils';
 
@@ -154,8 +158,8 @@ const PX_LIMIT = 1e5;
   templateUrl: './curve-editor.component.html',
   styleUrls: ['./curve-editor.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
   host: { tabindex: '0' },
+  imports: [MatIcon, MatTooltip, MatSlider, MatSliderThumb, FormsModule],
 })
 export class CurveEditorComponent implements OnInit, AfterViewInit, OnDestroy {
   private _series: CurveSeries[] = [];

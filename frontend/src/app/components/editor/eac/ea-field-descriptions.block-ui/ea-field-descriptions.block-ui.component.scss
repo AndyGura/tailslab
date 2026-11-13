@@ -1,0 +1,154 @@
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.5rem;
+  font-size: 13px;
+
+  b {
+    font-weight: 500;
+  }
+
+  .problems {
+    color: #d32f2f;
+  }
+
+  .fine {
+    color: #2e7d32;
+  }
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  font-size: 13px;
+
+  input[type='search'] {
+    font: inherit;
+    padding: 4px 6px;
+    min-width: 260px;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 3px;
+  }
+
+  label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+  }
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.des-table {
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  width: 100%;
+
+  th {
+    text-align: left;
+    font-weight: 500;
+    color: rgba(0, 0, 0, 0.65);
+    padding: 4px 10px 4px 0;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 2px 10px 2px 0;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    vertical-align: middle;
+  }
+
+  .mono {
+    font-family: monospace;
+    white-space: nowrap;
+  }
+
+  .num {
+    white-space: nowrap;
+    text-align: right;
+  }
+
+  .value {
+    font-family: monospace;
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .leaf {
+    font-family: monospace;
+    color: rgba(0, 0, 0, 0.7);
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  tr.chain td {
+    background: rgba(0, 0, 0, 0.04);
+    font-weight: 500;
+  }
+
+  tr.problem td {
+    background: rgba(211, 47, 47, 0.06);
+  }
+
+  .name-cell {
+    display: flex;
+    align-items: center;
+    min-width: 320px;
+  }
+
+  .name-cell input {
+    flex: 1;
+    font: inherit;
+    padding: 2px 4px;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    background: transparent;
+
+    &:hover:not(:disabled) {
+      border-color: rgba(0, 0, 0, 0.2);
+    }
+
+    &:focus {
+      outline: 2px solid var(--mat-sys-primary, #3f51b5);
+      outline-offset: -1px;
+      background: white;
+    }
+  }
+
+  .name-error {
+    color: #d32f2f;
+    font-size: 12px;
+    margin-left: 6px;
+    white-space: nowrap;
+  }
+
+  .status {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+    vertical-align: middle;
+
+    &.ok {
+      color: #2e7d32;
+    }
+
+    &.problem {
+      color: #d32f2f;
+    }
+
+    &.none {
+      color: rgba(0, 0, 0, 0.35);
+    }
+  }
+}

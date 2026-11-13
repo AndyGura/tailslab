@@ -51,7 +51,7 @@ describe('Nfs2CarPhysicsBlockUiComponent', () => {
   beforeEach(async () => {
     appendChanges = jasmine.createSpy('appendChanges').and.returnValue(Promise.resolve());
     await TestBed.configureTestingModule({
-      declarations: [Nfs2CarPhysicsBlockUiComponent],
+      imports: [Nfs2CarPhysicsBlockUiComponent],
       providers: [
         { provide: MainService, useValue: { focusedResourceId$: new BehaviorSubject(null) } },
         {
@@ -154,9 +154,9 @@ describe('Nfs2CarPhysicsBlockUiComponent', () => {
     points[1] = { ...points[1], y: 30 };
     component.onBrakeChange({ seriesId: 'arcade', points, changed: [1] });
     expect(appendChanges.calls.mostRecent().args[0].newValue).toBe(15);
-    const sim = component.brakeSeries[1].points.map(p => ({ ...p }));
-    sim[0] = { ...sim[0], y: 9.5 };
-    component.onBrakeChange({ seriesId: 'sim', points: sim, changed: [0] });
+    const sim = component.brakeSeries.find(s => s.id === 'sim')!.points.map(p => ({ ...p }));
+    sim[1] = { ...sim[1], y: 9.5 };
+    component.onBrakeChange({ seriesId: 'sim', points: sim, changed: [1] });
     expect(appendChanges.calls.mostRecent().args[0].newValue).toBe(9.5);
   });
 
@@ -173,5 +173,97 @@ describe('Nfs2CarPhysicsBlockUiComponent', () => {
     const change = appendChanges.calls.mostRecent().args[0];
     expect(change.id).toBe('CARDATA.VIV__data/children/3/item/data/torque_curve');
     expect(change.newValue[11]).toBeCloseTo(790, -1);
+  });
+
+  it('splits the simulation grip between the axles with the downforce above 5 m/s', () => {
+    // 10 m/s² × lateral_acceleration_grip_multiplier
+    expect(component.simGrip).toBeCloseTo(32, 9);
+    const still = component.simAxleGrip(5);
+    expect(still.front).toBeCloseTo(32 * 0.492, 9);
+    expect(still.rear).toBeCloseTo(32 * 0.508, 9);
+    const fast = component.simAxleGrip(40);
+    expect(fast.front).toBeCloseTo(32 * 0.492 * (1 + 40 * 0.00075), 9);
+    expect(fast.rear).toBeCloseTo(32 * 0.508 * (1 + 40 * 0.00075 * 1.5), 9);
+    const front = component.axleGripSeries.find(s => s.id === 'front')!;
+    expect(front.points[0]).toEqual({ x: 0, y: 32 * 0.492 });
+  });
+
+  it('moves grip to the rear under acceleration and to the front under braking', () => {
+    const braking = component.transferGrip(-12);
+    expect(braking.front).toBeCloseTo(32 * 0.492 + 12 * 0.6, 9);
+    expect(braking.rear).toBeCloseTo(32 * 0.508 - 12 * 0.6, 9);
+    // the chart goes from full braking to the peak 1st gear drive (395 N·m × drive, capped at 10 m/s²)
+    expect(component.simPeakFirstDrive).toBe(10);
+    const rear = component.transferSeries.find(s => s.id === 'rear')!.points;
+    expect(rear[0].x).toBe(-12);
+    expect(rear[rear.length - 1].x).toBeCloseTo(10, 9);
+    expect(rear[rear.length - 1].y).toBeCloseTo(32 * 0.508 + 10 * 0.6, 9);
+  });
+
+  it('turns the simulation front wheels by max_steering_acceleration, less above 60 m/s', () => {
+    const lock = 19 * (127 / 128) * (360 / 256);
+    expect(component.simSteerLock(0)).toBeCloseTo(lock, 9);
+    expect(component.simSteerLock(60)).toBeCloseTo(lock, 9);
+    expect(component.simSteerLock(90)).toBeCloseTo(lock / 1.5, 9);
+    const tile = component.tiles.find(t => t.id === 'sim_steer')!;
+    expect(tile.value).toBe('26.5°');
+    component.onTileChange({ id: 'sim_steer', value: lock * 2 });
+    const change = appendChanges.calls.mostRecent().args[0];
+    expect(change.id).toBe('CARDATA.VIV__data/children/3/item/data/max_steering_acceleration');
+    expect(change.newValue).toBeCloseTo(38, 3);
+  });
+
+  it('sets the simulation grip multiplier from the grip tile', () => {
+    expect(component.tiles.find(t => t.id === 'sim_grip')!.value).toBe('32 m/s²');
+    component.onTileChange({ id: 'sim_grip', value: 25 });
+    const change = appendChanges.calls.mostRecent().args[0];
+    expect(change.id).toBe('CARDATA.VIV__data/children/3/item/data/lateral_acceleration_grip_multiplier');
+    expect(change.newValue).toBe(2.5);
+  });
+
+  it('derives the yaw lever from the wheel base with the speed bands', () => {
+    expect(component.yawLever).toBeCloseTo((2.52 / 2) * 0.0245 * 256, 9);
+    expect([30, 50, 70, 80, 90].map(v => component.yawBand(v))).toEqual([0.5, 0.75, 1, 1, 1.5]);
+    const side = component.yawSeries[0].points;
+    expect(side[0].y).toBeCloseTo(32 * component.yawLever * 0.5, 9);
+  });
+
+  it('damps the yaw rate of a slide by slip × slide_velocity_cap, at least to half', () => {
+    expect(component.slideKeep(0.05)).toBe(1);
+    expect(component.slideKeep(0.5)).toBeCloseTo(1 - 0.5 * 0.2, 9);
+    expect(component.slideKeep(0.5, 2)).toBeCloseTo(1 - 0.5 * 0.4, 9);
+    expect(component.slideKeep(0.5, 1 / 8)).toBeCloseTo(1 - 0.5 * 0.025, 9);
+    expect(component.slideKeep(1, 4)).toBe(0.5);
+    expect(component.slideSeries.map(s => s.id)).toEqual(['normal', 'counter', 'brake', 'handbrake']);
+    const counter = component.slideSeries.find(s => s.id === 'counter')!;
+    expect(counter.points[counter.points.length - 1]).toEqual({ x: 1, y: 1 - 0.1 });
+  });
+
+  it('brakes with the engine by gas_off_factor, in arcade also by the speed', () => {
+    // 20 m/s × 231.34 = 4627 rpm: entry 18
+    const sim = 373 * component.drive(3) * 0.2;
+    expect(component.engineBrakeSim(20, 3)).toBeCloseTo(sim, 9);
+    expect(component.engineBrakeArcade(20, 3)).toBeCloseTo(sim * 20 * 0.1, 9);
+    // above the redline: the redline entry
+    expect(component.engineBrakeSim(100, 2)).toBeCloseTo(310 * component.drive(2) * 0.2, 9);
+    expect(component.engineBrakeSimSeries.map(s => s.label)).toEqual(['1st', '2nd', '3rd', '4th', '5th', '6th']);
+  });
+
+  it('caps the simulation brakes at 32 × speed and splits them by front_bias_brake_ratio', () => {
+    const fast = component.simBrake(10);
+    expect(fast.total).toBe(12);
+    expect(fast.front).toBeCloseTo(7.2, 9);
+    expect(fast.rear).toBeCloseTo(4.8, 9);
+    expect(component.simBrake(0.1).total).toBeCloseTo(3.2, 9);
+    const front = component.brakeSeries.find(s => s.id === 'sim-front')!;
+    expect(front.points[1].y).toBeCloseTo(7.2, 9);
+  });
+
+  it('marks the simulation over-rev on the gearing chart', () => {
+    expect(component.gearMarkers.find(m => m.id === 'over_rev')!.value).toBe(7550 * 1.5);
+  });
+
+  it('labels the gas curves as not read', () => {
+    expect(component.rampSeries.find(s => s.id === 'gas_increasing_curve')!.label).toContain('not read');
   });
 });

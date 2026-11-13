@@ -3,7 +3,15 @@ import { SubscribableGuiComponent } from '../../gui.component';
 import { filter, Subject, takeUntil } from 'rxjs';
 import { BlockData, BlockSchema, CustomAction } from '../../types';
 import { CustomActionService } from '../../../../services/custom-action.service';
-import { MatSelectChange } from '@angular/material/select';
+import {
+  MatSelectChange,
+  MatFormField,
+  MatLabel,
+  MatSelect,
+  MatSelectTrigger,
+  MatOptgroup,
+  MatOption,
+} from '@angular/material/select';
 import {
   ImageMarker,
   ImageMarkerMove,
@@ -15,6 +23,13 @@ import { ChangeEntry } from '../../../../services/changes.service';
 import { MatDialog } from '@angular/material/dialog';
 import { firstValueFrom } from 'rxjs';
 import { ConfirmDialogComponent } from '../../../confirm.dialog/confirm.dialog.component';
+import { MatCheckbox } from '@angular/material/checkbox';
+import { MatTooltip } from '@angular/material/tooltip';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
+import { MatIconButton, MatButton } from '@angular/material/button';
+import { MatIcon } from '@angular/material/icon';
+import { EditorComponent } from '../../editor.component';
+import { AsyncPipe } from '@angular/common';
 
 type SiblingStats = { images: number; color_models: { [model: string]: number }; with_mipmaps: number };
 
@@ -44,7 +59,23 @@ const isPowerOfTwo = (n: number | undefined): boolean => !!n && n > 0 && (n & (n
   templateUrl: './image.block-ui.component.html',
   styleUrls: ['./image.block-ui.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [
+    ImageViewerComponent,
+    MatFormField,
+    MatLabel,
+    MatSelect,
+    MatSelectTrigger,
+    MatOptgroup,
+    MatOption,
+    MatCheckbox,
+    MatTooltip,
+    CompoundBlockUiComponent,
+    MatIconButton,
+    MatIcon,
+    EditorComponent,
+    MatButton,
+    AsyncPipe,
+  ],
 })
 export class ImageBlockUiComponent extends SubscribableGuiComponent implements AfterViewInit {
   private readonly destroyed$: Subject<void> = new Subject<void>();

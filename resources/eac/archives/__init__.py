@@ -232,6 +232,8 @@ class BigfBlock(ArchiveBlock):
             Nfs3CarPhysics,
             Nfs4CarPhysics,
         )
+        from resources.eac.fedata import Nfs3CarFeData, Nfs4CarFeData
+        from resources.eac.nfs6_car_specs import Nfs6EngineAudioTable
 
         super().__init__(
             item_block=AutoDetectBlock(
@@ -254,6 +256,9 @@ class BigfBlock(ArchiveBlock):
                     Nfs2Personalities(),
                     Nfs3CarPhysics(),
                     Nfs4CarPhysics(),
+                    Nfs3CarFeData(),
+                    Nfs4CarFeData(),
+                    Nfs6EngineAudioTable(),
                     self,
                     BytesBlock(
                         length=(

@@ -2,12 +2,15 @@ import { ChangeDetectionStrategy, Component, EventEmitter, inject, Input, Output
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { PrimitiveGuiComponent } from '../../gui.component';
 import { BlockSchema } from '../../types';
+import { MatFormField, MatLabel, MatSelect, MatOption, MatHint } from '@angular/material/select';
+import { MatTooltip } from '@angular/material/tooltip';
+import { MatInput } from '@angular/material/input';
 
 @Component({
   selector: 'app-string-block-ui',
   templateUrl: './string.block-ui.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [MatFormField, MatTooltip, MatLabel, MatSelect, MatOption, MatInput, MatHint],
 })
 export class StringBlockUiComponent extends PrimitiveGuiComponent<string> {
   override get resourceSchema(): BlockSchema | undefined {

@@ -1,0 +1,91 @@
+import{$n as ih,A as Cw,Dr as rn,Fr as te,L as Fc,Lt as Rl,Qt as Ty,Ur as w0,Y as I,bn as Yt,cn as Vp,dt as Ml,hn as Xp,jt as Pn,kr as sE,ot as LI,ti as yi,tr as iy,tt as Jp,wt as Nw}from"./chunk-6B6O2DWR.js";import{Dt as gm,H as Pm}from"./chunk-CamVZSRl.js";import"./chunk-CcLbjPvh.js";import{i as Gt}from"./main-INAPFNEV.js";import{A as Ue,F as Vn,O as T0,Z as rt,c as Gt$1,d as I$1,l as He,q as na,rt as zt}from"./chunk-VbVOOEOM.js";import{n as p,r as x$1,t as d}from"./chunk-BkMRjAQN.js";import{n as o,t as n}from"./chunk-Db4r5fXk.js";import{t as nt}from"./chunk-7fq5373T.js";var he=.33;var ge=/^(?:hp|mp|lp)_\d+_\w*RUBBER/i;var ue=/^(?:hp|mp|lp)_\d+_\w*BRAKE/i;var pe=[[/^LIGHT_TAIL/i,16711680],[/^LIGHT_REVERSE/i,16777215],[/^LIGHT_HEAD/i,16777164],[/^LIGHT_(?:COP|SIREN)/i,255]];var C={name:`Parkland`,ambient_sky:[186,181,168],ambient_ground:[63,65,59],sun:[255,254,248],sun_position:[782.69,3489.32,6281.44]};var me=.4;var ve=.85;var de=(h,t)=>{let n=h||{},i=(n.specular_sun_intensity??0)/255;return[n.specular_red,n.specular_green,n.specular_blue].map((e,c)=>Math.min(1,i*t[c]/255+(e??0)/255))};var fe=h=>Math.max(h,.4);var Se=(h,t,n)=>{let i=t>.2?Math.min(1,t+.2):0,e=n?0:1;return h.map(c=>(e-c)*i+c)};var _e=(h,t)=>h!==`glass`?`opaque`:t.includes(`ALPHA_ADD`)?`add`:t.includes(`ALPHA_TRANS`)?`trans`:`opaque`;var be=`z`;var ye=h=>[h[0],h[2],h[1]];var k=class{ambientSky={value:new I$1};ambientGround={value:new I$1};sunPosition={value:new I$1};rootPosition={value:new I$1};paintSpecular={value:new I$1};hotSpecular={value:new I$1};white={value:new I$1(1,1,1)};exponents={paint:0,hot:0,glass:0,rubber:0};brightness={value:1};envMap={value:null};sceneCube={value:null};sceneCubeMatrix={value:new Ue};sceneLight={value:0};sceneEnv={value:0}};function Ee(h,t,n){let{shader:i,gameNormals:e,colorSize:c}=n,g=i===`glass`,a=i===`generic`?`paint`:i,o=h.onBeforeCompile,s=h.customProgramCacheKey;h.onBeforeCompile=(r,m)=>{o.call(h,r,m),r.uniforms.eaglAmbientSky=t.ambientSky,r.uniforms.eaglAmbientGround=t.ambientGround,r.uniforms.eaglSunPosition=t.sunPosition,r.uniforms.eaglRootPosition=t.rootPosition,r.uniforms.eaglSpecular=i===`paint`||i===`generic`?t.paintSpecular:t.white,r.uniforms.eaglHotSpecular=t.hotSpecular,r.uniforms.eaglExponent={get value(){return t.exponents[a]}},r.uniforms.eaglHotExponent={get value(){return t.exponents.hot}},r.uniforms.eaglBrightness=t.brightness,r.uniforms.eaglVertexAlpha={value:n.vertexAlpha},r.uniforms.eaglEnvMap=t.envMap,r.uniforms.eaglEnvMode={get value(){return t.sceneEnv.value?2:t.envMap.value?1:0}},r.uniforms.eaglSceneCube=t.sceneCube,r.uniforms.eaglSceneCubeMatrix=t.sceneCubeMatrix,r.uniforms.eaglSceneLight=t.sceneLight,r.uniforms.eaglEnvFlipY={get value(){return t.envMap.value?.flipY?1:0}},r.uniforms.eaglEnvSrgb={get value(){return t.envMap.value?.colorSpace===`srgb`?1:0}},r.uniforms.eaglMapSrgb={get value(){return h.map?.colorSpace===`srgb`?1:0}};let f=e?`_game_normal`:`normal`,p=`vec4( 1.0, 1.0, 1.0, eaglVertexAlpha )`;c===4?p=`color`:c===3&&(p=`vec4( sRGBTransferOETF( vec4( color.rgb, 1.0 ) ).rgb, eaglVertexAlpha )`),r.vertexShader=r.vertexShader.replace(`#include <fog_pars_vertex>`,`#include <fog_pars_vertex>
+        ${e?`attribute vec3 _game_normal;`:``}
+        ${g&&c?`attribute vec4 color;`:``}
+        uniform vec3 eaglAmbientSky;
+        uniform vec3 eaglAmbientGround;
+        uniform vec3 eaglSunPosition;
+        uniform vec3 eaglRootPosition;
+        uniform vec3 eaglSpecular;
+        uniform vec3 eaglHotSpecular;
+        uniform float eaglExponent;
+        uniform float eaglHotExponent;
+        uniform float eaglBrightness;
+        uniform float eaglVertexAlpha;
+        uniform samplerCube eaglSceneCube;
+        uniform mat3 eaglSceneCubeMatrix;
+        uniform float eaglSceneLight;
+        varying vec4 vEaglD0;
+        varying vec4 vEaglD1;
+        varying vec2 vEaglEnvUv;
+        varying vec3 vEaglSceneReflect;
+        ${g?``:d}
+        // nfs6Lit
+        float eaglLit( float nh, float power ) {
+          return nh > 0.0 ? pow( nh, clamp( power, -127.9961, 127.9961 ) ) : 0.0;
+        }
+        ${c===3?`vec4 sRGBTransferOETF( in vec4 value ) {
+          return vec4( mix( pow( value.rgb, vec3( 0.41666 ) ) * 1.055 - vec3( 0.055 ), value.rgb * 12.92,
+            vec3( lessThanEqual( value.rgb, vec3( 0.0031308 ) ) ) ), value.a );
+        }`:``}`).replace(`#include <fog_vertex>`,`#include <fog_vertex>
+        {
+          vec4 eaglWorld = modelMatrix * vec4( position, 1.0 );
+          vec3 eaglWorldNormal = mat3( modelMatrix ) * ${f};
+          // nfs6BentNormal (model space = the car's, turned with it) and nfs6SphereMapUv
+          vec3 eaglBent = normalize( eaglWorldNormal + ${me} * ( eaglWorld.xyz - eaglRootPosition ) );
+          vec3 eaglViewBent = mat3( viewMatrix ) * eaglBent;
+          vEaglEnvUv = 1.0 - ( eaglViewBent.xy * ${ve} * 0.5 + 0.5 );
+          // the scene's sky instead of the sphere map: the camera ray reflected by the bent normal
+          vEaglSceneReflect = reflect( eaglWorld.xyz - cameraPosition, eaglBent );
+          // specular: half vector of the camera and the sun position
+          vec3 eaglEye = normalize( cameraPosition - eaglWorld.xyz );
+          vec3 eaglSun = normalize( eaglSunPosition - eaglWorld.xyz );
+          float eaglNH = dot( normalize( eaglWorldNormal ), normalize( eaglEye + eaglSun ) );
+          vec3 eaglSpec = max( 0.0, eaglLit( eaglNH, eaglExponent ) ) * eaglSpecular;
+          ${i===`paint`?`eaglSpec += eaglLit( eaglNH, eaglHotExponent ) * eaglHotSpecular;`:``}
+          vEaglD1 = clamp( vec4( eaglSpec, eaglBrightness ), 0.0, 1.0 );
+          ${g?`vEaglD0 = clamp( ${p}, 0.0, 1.0 );`:`float eaglSky = eaglWorldNormal.${be} * 0.5 + 0.5;
+          vec3 eaglSkyColor = eaglAmbientSky;
+          vec3 eaglGroundColor = eaglAmbientGround;
+          if ( eaglSceneLight > 0.5 ) {
+            eaglSkyColor = sceneSkyMean( eaglSceneCube, eaglSceneCubeMatrix, 1.0 );
+            eaglGroundColor = sceneSkyMean( eaglSceneCube, eaglSceneCubeMatrix, -1.0 );
+          }
+          vEaglD0 = vec4( min( eaglSky * eaglSkyColor + ( 1.0 - eaglSky ) * eaglGroundColor, vec3( 1.0 ) ), 1.0 );`}
+        }`),r.fragmentShader=r.fragmentShader.replace(`#include <fog_pars_fragment>`,`#include <fog_pars_fragment>
+        uniform sampler2D eaglEnvMap;
+        uniform float eaglEnvMode;
+        uniform samplerCube eaglSceneCube;
+        uniform mat3 eaglSceneCubeMatrix;
+        varying vec3 vEaglSceneReflect;
+        uniform float eaglEnvFlipY;
+        uniform float eaglEnvSrgb;
+        uniform float eaglMapSrgb;
+        varying vec4 vEaglD0;
+        varying vec4 vEaglD1;
+        varying vec2 vEaglEnvUv;`).replace(`#include <opaque_fragment>`,`{
+          // nfs6PixelColor, in the stored color values
+          #ifdef USE_MAP
+          vec4 eaglT0 = texture2D( map, vMapUv );
+          if ( eaglMapSrgb > 0.5 ) {
+            eaglT0 = vec4( sRGBTransferOETF( eaglT0 ).rgb, eaglT0.a );
+          }
+          #else
+          vec4 eaglT0 = vec4( 1.0 );
+          #endif
+          vec3 eaglT1 = vec3( 0.0 );
+          if ( eaglEnvMode > 1.5 ) {
+            vec4 env = textureCube( eaglSceneCube, eaglSceneCubeMatrix * normalize( vEaglSceneReflect ) );
+            eaglT1 = clamp( sRGBTransferOETF( vec4( env.rgb, 1.0 ) ).rgb, 0.0, 1.0 );
+          } else if ( eaglEnvMode > 0.5 ) {
+            // D3D: v = 0 is the top row
+            vec4 env = texture2D( eaglEnvMap, vec2( vEaglEnvUv.x, eaglEnvFlipY > 0.5 ? 1.0 - vEaglEnvUv.y : vEaglEnvUv.y ) );
+            eaglT1 = eaglEnvSrgb > 0.5 ? sRGBTransferOETF( env ).rgb : env.rgb;
+          }
+          vec3 eaglR0 = clamp( eaglT0.a * eaglT1, 0.0, 1.0 );
+          eaglR0 = clamp( vEaglD0.rgb * eaglT0.rgb + eaglR0, 0.0, 1.0 );
+          eaglR0 = clamp( eaglT0.a * vEaglD1.rgb + eaglR0, 0.0, 1.0 );
+          eaglR0 = clamp( eaglR0 * vEaglD1.a, 0.0, 1.0 );
+          outgoingLight = sRGBTransferEOTF( vec4( eaglR0, 1.0 ) ).rgb;
+          diffuseColor.a = ${g?`vEaglD0.a`:`1.0`};
+        }
+        #include <opaque_fragment>`)},h.customProgramCacheKey=()=>`${s.call(h)}|eagl-vehicle-${i}-${e?`game`:`normal`}-${c}`,h.needsUpdate=!0}var E=class h{skins;lighting;wheels=[];lights=null;spinAngle=0;skinMaterials=[];textureLoader=new Vn;animationTimer=null;baseUrl=null;uniforms=new k;root;disposed=!1;_hasGameShading=!1;_skin=null;get skin(){return this._skin}set skin(t){let n=this.skins.find(e=>e.name===t);if(!this.baseUrl){let e=this.skinMaterials[0]?.map?.source.data?.src;this.baseUrl=e&&/^(.*\/)textures\/skin\.png(\?.*)?$/.exec(e)?.[1]||null}let i=this.baseUrl;!n||!i||(this._skin=t,this.updateLighting(),this.textureLoader.load(i+n.texture,e=>{for(let c of this.skinMaterials){let g=c.map;e.flipY=g.flipY,e.wrapS=g.wrapS,e.wrapT=g.wrapT,e.colorSpace=g.colorSpace,e.anisotropy=g.anisotropy,e.magFilter=g.magFilter,e.minFilter=g.minFilter,e.needsUpdate=!0,c.map=e,c.needsUpdate=!0}}))}_location=C;get location(){return this._location}set location(t){this._location=t,this.updateLighting()}get environmentMap(){return this.uniforms.envMap.value}set environmentMap(t){this.uniforms.envMap.value=t}_sceneLighting=null;get sceneLighting(){return this._sceneLighting}set sceneLighting(t){this._sceneLighting=t,this.updateLighting()}sceneReflection=!1;_lightLevel=1;get lightLevel(){return this._lightLevel}set lightLevel(t){this._lightLevel=t,this.updateLighting()}_speed=0;get speed(){return this._speed}set speed(t){let n=this._speed!==0;this._speed=t,n!==(t!==0)&&(this.animationTimer&&(clearInterval(this.animationTimer),this.animationTimer=null),t!==0&&(this.animationTimer=setInterval(()=>{this.spinAngle-=this._speed/he/60,this.updateWheels()},1e3/60)))}_steeringAngle=0;get steeringAngle(){return this._steeringAngle}set steeringAngle(t){this._steeringAngle=t,this.updateWheels()}get showLights(){return!!this.lights?.visible}set showLights(t){this.lights&&(this.lights.visible=t)}get hasWheels(){return this.wheels.length>0}get hasLights(){return!!this.lights}get hasGameShading(){return this._hasGameShading}constructor(t,n,i,e=null,c=null,g=null){this.skins=i,this.lighting=e,this.root=t,this.baseUrl=g,this.setupWheels(t),this.setupShaders(t,c),this.setupSkinMaterials(t);let a=n.filter(o=>h.lightColor(o.name)!==null);if(a.length>0){this.lights=new zt,this.lights.visible=!1;for(let o of a){let s=new He(new na(.05,8,8),new Gt$1({color:h.lightColor(o.name)}));s.name=o.name,s.position.set(...o.position),this.lights.add(s)}t.add(this.lights)}this.skins.length>0&&this.skinMaterials.length>0&&(this._skin=this.skins[0].name),this._location=e?.locations?.find(o=>o.name===C.name)||e?.locations?.[0]||C,this.updateLighting()}setupWheels(t){let n=[],i=[];t.traverse(a=>{a instanceof He&&(ge.test(a.name)?n.push(a):ue.test(a.name)&&i.push(a))});let e=[],c=a=>(a.geometry.computeBoundingBox(),a.geometry.boundingBox.getCenter(new I$1)),g=(a,o)=>{a.geometry.translate(-o.x,-o.y,-o.z),a.position.copy(o),a.rotation.order=`ZXY`};for(let a of n){let o=c(a);e.push(o),g(a,o),this.wheels.push({meshes:[a],isFront:o.y>0,spins:!0})}for(let a of i){let o=c(a),s=e.reduce((r,m)=>!r||m.distanceTo(o)<r.distanceTo(o)?m:r,null);g(a,s?new I$1(o.x,s.y,s.z):o),this.wheels.push({meshes:[a],isFront:o.y>0,spins:!1})}}setupShaders(t,n){if(t.traverse(e=>{e instanceof He&&(n?.[e.name]??e.userData)?.eaglShader&&(this._hasGameShading=!0)}),!this._hasGameShading)return;let i=new Map;t.traverse(e=>{if(!(e instanceof He)||e.parent===this.lights)return;let c=n?.[e.name]??e.userData??{},g=c.eaglShader??`paint`,a=c.eaglBlend??_e(g,e.name),o=!!e.geometry.getAttribute(`_game_normal`),s=e.geometry.getAttribute(`color`),r=g===`glass`&&s?s.itemSize:0,m=c.eaglVertexAlpha??1,f=S=>{let l=`${S.uuid}|${g}|${a}|${o}|${r}|${m}`,u=i.get(l);return u||(u=S.clone(),u.vertexColors=!1,u.alphaTest=0,u.premultipliedAlpha=!1,u.transparent=a!==`opaque`,u.depthWrite=a===`opaque`,u.blending=a===`add`?2:1,Ee(u,this.uniforms,{shader:g,gameNormals:o,colorSize:r,vertexAlpha:m}),i.set(l,u)),u};e.material=e.material instanceof Array?e.material.map(f):f(e.material),e.renderOrder=a===`add`?2:a===`trans`?1:0;let p=e.onBeforeRender;e.onBeforeRender=(S,l,...u)=>{if(p.call(e,S,l,...u),!this.disposed){let d=this.uniforms;this.root.updateWorldMatrix(!0,!1),d.rootPosition.value.setFromMatrixPosition(this.root.matrixWorld),d.sceneCube.value=x$1(l,d.sceneCubeMatrix.value),d.sceneLight.value=this._sceneLighting&&d.sceneCube.value?1:0,d.sceneEnv.value=this.sceneReflection&&d.sceneCube.value?1:0}}})}setupSkinMaterials(t){t.traverse(n=>{if(!(n instanceof He))return;let i=n.material instanceof Array?n.material:[n.material];for(let e of i)e.name===`skin`&&e.map&&!this.skinMaterials.includes(e)&&this.skinMaterials.push(e)})}updateLighting(){let t=this.uniforms,n=this._location,e=(this.skins.find(a=>a.name===this._skin)??this.skins[0])?.specular;t.ambientSky.value.set(...n.ambient_sky.map(a=>a/255)),t.ambientGround.value.set(...n.ambient_ground.map(a=>a/255));let c=this._sceneLighting;c?t.sunPosition.value.set(...c.direction).multiplyScalar(1e6):t.sunPosition.value.set(...ye(n.sun_position));let g=de(e,c?c.color.map(a=>a*255):n.sun);t.paintSpecular.value.set(...g),t.hotSpecular.value.set(...Se(g,this._lightLevel,this.lighting?.vehicle_type===`traffic`)),t.exponents.paint=e?.specular_paint_exponent??0,t.exponents.glass=e?.specular_glass_exponent??0,t.exponents.rubber=e?.specular_rubber_exponent??0,t.exponents.hot=this.lighting?.specular_hotspot_exponent??0,t.brightness.value=fe(this._lightLevel)}static lightColor(t){return pe.find(([n])=>n.test(t))?.[1]??null}updateWheels(){for(let{meshes:t,isFront:n,spins:i}of this.wheels)for(let e of t)e.rotation.set(i?this.spinAngle:0,0,n?this._steeringAngle:0)}dispose(){this.disposed=!0,this.animationTimer&&(clearInterval(this.animationTimer),this.animationTimer=null)}};var re=`Track`;var ce=`Showroom`;var x=`Scene`;var We=(()=>{class h extends gm{previewPaths$=new Pn(null);cdr=I(w0);customControls=[];previewViewFilters=[];extraPath=null;skinsPath=null;lightingPath=null;meshController=null;environmentMaps=new Map;destroyed$=new te;ngAfterViewInit(){return Yt(this,null,function*(){this.changes.change$.pipe(Rl(this.destroyed$),rn(n=>!!(this.resourceId&&n.startsWith(this.resourceId))),Ml(150)).subscribe(()=>Yt(this,null,function*(){yield this.loadPreview()}))})}ngOnChanges(n){(n.hasOwnProperty(`resourceId`)||n.hasOwnProperty(`resourceData`))&&this.loadPreview().then()}loadPreview(){return Yt(this,null,function*(){if(this.previewPaths$.next(null),this.resourceId){let n=yield this.mainService.api.serializeResource(this.resourceId,null,{geometry__save_obj:!0,geometry__save_blend:!1,geometry__export_to_gg_web_engine:!1});this.extraPath=n.find(e=>e.endsWith(`_extra.json`))||null,this.skinsPath=n.find(e=>e.endsWith(`/skins.json`))||null,this.lightingPath=n.find(e=>e.endsWith(`/lighting.json`))||null;let i=this.skinsPath?[this.lodViewFilter]:[];i.length!==this.previewViewFilters.length&&(this.previewViewFilters=i,this.cdr.markForCheck()),this.previewPaths$.next([n.find(e=>e.endsWith(`.obj`)),n.find(e=>e.endsWith(`.mtl`))])}})}onObjectLoaded(n$1){return Yt(this,null,function*(){if(this.meshController?.dispose(),this.meshController=null,this.customControls=[],!this.skinsPath){this.cdr.markForCheck();return}try{let i=l=>Yt(this,null,function*(){try{return l?yield(yield fetch(l)).json():null}catch(u){return console.warn(`Cannot load ${l}`,u),null}}),e=yield i(this.extraPath),c=e?.dummies||[],g=e?.objects||null,a=(yield i(this.skinsPath))||[],o$1=yield i(this.lightingPath),s=new E(n$1,c,a,o$1,g);this.meshController=s;let r=(this.lightingPath||``).replace(/[^/]*$/,``),m=re,f=()=>{let l=m===ce?o$1?.environment_map:s.location.environment_map;s.sceneReflection=m===x,s.environmentMap=l?this.environmentMap(r+l):null};f();let p$1=[],S=o$1?.locations||[];if(s.hasGameShading&&(p$1.push({label:`Lighting`,type:`radio`,options:[...(S.length?S:[s.location]).map(l=>l.name),x],value:s.location.name,change:l=>{s.sceneLighting=l===x?p(T0):null,s.location=S.find(u=>u.name===l)||s.location,f()}}),p$1.push({label:`Reflection`,type:`radio`,options:[re,...o$1?.environment_map?[ce]:[],x],value:m,change:l=>{m=l,f()}}),p$1.push({label:`Road light level`,type:`slider`,value:s.lightLevel,minValue:0,maxValue:1,valueStep:.05,format:l=>l.toFixed(2),change:l=>s.lightLevel=l})),s.skin&&a.length>1){let l=u=>`${u.label} (${u.name})`;p$1.push({label:`Skin`,type:`radio`,options:a.map(l),value:l(a[0]),change:u=>s.skin=a.find(d=>l(d)===u)?.name||null})}s.hasLights&&p$1.push({label:`Show lights`,type:`checkbox`,value:s.showLights,change:l=>s.showLights=l}),s.hasWheels&&p$1.push(n(l=>s.speed=l),o(l=>s.steeringAngle=l)),this.customControls=p$1.length>0?[{title:`NFS6 car features`,controls:p$1}]:[]}catch(i){console.error(i)}this.cdr.markForCheck()})}lodViewFilter={name:`LOD`,filterGroups:[`High-poly`,`Medium-poly`,`Low-poly`,`Other`],checkedIndex:0,pickFunction:n=>{let i=[`hp_`,`mp_`,`lp_`].findIndex(e=>n.name.startsWith(e));return i>=0?i:3}};environmentMap(n){let i=this.environmentMaps.get(n);return i||(i=new Vn().load(n),this.environmentMaps.set(n,i)),i}ngOnDestroy(){this.meshController?.dispose();for(let n of this.environmentMaps.values())n.dispose();this.environmentMaps.clear(),this.destroyed$.next(),this.destroyed$.complete()}static ɵfac=(()=>{let n;return function(e){return(n||(n=Ty(h)))(e||h)}})();static ɵcmp=LI({type:h,selectors:[[`app-eagl-model-block-ui`]],features:[Vp,iy],decls:3,vars:13,consts:[[3,`onObjectLoaded`,`paths`,`viewFilters`,`customControls`],[3,`resourceId`,`resourceName`,`resourceSchema`,`resourceData`,`resourceDescription`,`hideName`,`hideBlockActions`,`disabled`]],template:function(i,e){i&1&&(yi(0,`app-obj-viewer`,0),Cw(1,`async`),ih(`onObjectLoaded`,function(g){return e.onObjectLoaded(g)}),Fc(),Xp(2,`app-compound-block-ui`,1)),i&2&&(Jp(`paths`,Nw(1,11,e.previewPaths$))(`viewFilters`,e.previewViewFilters)(`customControls`,e.customControls),sE(2),Jp(`resourceId`,e.resourceId)(`resourceName`,e.resourceName)(`resourceSchema`,e.resourceSchema)(`resourceData`,e.resourceData)(`resourceDescription`,e.resourceDescription)(`hideName`,e.hideName)(`hideBlockActions`,e.hideBlockActions)(`disabled`,e.disabled))},dependencies:[nt,Gt,Pm],encapsulation:2})}return h})();export{We as EaglModelBlockUiComponent};

@@ -1,14 +1,16 @@
 import { ChangeDetectionStrategy, Component, ElementRef, Input, ViewChild } from '@angular/core';
 import { SubscribableGuiComponent } from '../../gui.component';
 import { BehaviorSubject } from 'rxjs';
-import { HexEditorDeltaChange } from 'ngx-hex-editor';
+import { HexEditorDeltaChange, HexEditorComponent } from 'ngx-hex-editor';
+import { MatTooltip } from '@angular/material/tooltip';
+import { AsyncPipe } from '@angular/common';
 
 @Component({
   selector: 'app-binary-block-ui',
   templateUrl: './binary.block-ui.component.html',
   styleUrls: ['./binary.block-ui.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [MatTooltip, HexEditorComponent, AsyncPipe],
 })
 export class BinaryBlockUiComponent extends SubscribableGuiComponent<{ $bytes: number[] }> {
   @ViewChild('editor') editorDiv?: ElementRef<HTMLDivElement>;

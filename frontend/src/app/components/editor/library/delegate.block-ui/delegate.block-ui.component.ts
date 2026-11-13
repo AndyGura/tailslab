@@ -1,17 +1,21 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, forwardRef } from '@angular/core';
 import { SubscribableGuiComponent } from '../../gui.component';
 import { joinId } from '../../../../utils/join-id';
 import { BlockData, BlockSchema, CustomAction } from '../../types';
 import { blockClassStr } from '../../../../utils/block_class_str';
+import { MatLabel } from '@angular/material/select';
+import { MatTooltip } from '@angular/material/tooltip';
+import { EditorComponent } from '../../editor.component';
 
 type DelegateBlockData = { choice_index: number; data: BlockData };
 
+// forwardRef: EditorComponent imports this component back
 @Component({
   selector: 'app-delegate-block-ui',
   templateUrl: './delegate.block-ui.component.html',
   styleUrls: ['./delegate.block-ui.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [MatLabel, MatTooltip, forwardRef(() => EditorComponent)],
 })
 export class DelegateBlockUiComponent extends SubscribableGuiComponent<DelegateBlockData> {
   // choiceDataCaches: BlockData[] = [];

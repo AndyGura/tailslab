@@ -113,10 +113,15 @@ the context tree (`unpack_from_bytes` and bare `ReadContext`s are eager).
 
 ## GUI dispatch and adding a generic `*.block-ui` component
 
-`frontend/src/app/components/editor/editor.component.ts` keeps a
-`DATA_BLOCK_COMPONENTS_MAP: {[className]: Component}`. To render a field it walks
-`schema.block_class_mro.split('__')` (most-specific class first) and uses the **first** name with
-a registered component. Consequences:
+`frontend/src/app/components/editor/editor.component.ts` keeps two maps keyed by Python class name:
+`DATA_BLOCK_COMPONENTS_MAP` (the generic `library/` components and the angle field, imported statically,
+rendered synchronously) and `LAZY_DATA_BLOCK_COMPONENTS_MAP` (every bespoke editor as
+`() => import('...').then((m) => m.X)`: its own chunk, loaded on first use with a spinner, which keeps
+three.js and the chart editors out of the initial bundle and under the `initial` budget of `angular.json`).
+To render a field `EditorComponent.findComponent` walks `schema.block_class_mro.split('__')`
+(most-specific class first) and uses the **first** name found in either map. All editor components are
+standalone (their own `imports`); `EditorModule` only exports `EditorComponent`, `SidenavResListComponent`
+and `BlockActionsComponent` to the app. Consequences:
 
 - A brand-new *concrete* block class (e.g. a new format-specific `CompoundBlock` subclass) needs
   **no** new UI as long as some ancestor (`CompoundBlock`, `ArrayBlock`, `IntegerBlock`, ...) is
@@ -129,10 +134,13 @@ a registered component. Consequences:
   `frontend/src/app/components/editor/library/<name>.block-ui/{<name>.block-ui.component.ts,.html,.scss}`,
   implementing the `GuiComponent` inputs (copy `number.block-ui` or `string.block-ui` as the
   simplest templates; `compound.block-ui`/`array.block-ui`/`delegate.block-ui` show the
-  container/recursive pattern). Then register it in **both**:
-  - `editor.module.ts` — import + add to the `declarations` array.
-  - `editor.component.ts` — import + add an entry to `DATA_BLOCK_COMPONENTS_MAP` keyed by the
-    **Python class name**.
+  container/recursive pattern), standalone with its own `imports`. Register it in `editor.component.ts`'s
+  `DATA_BLOCK_COMPONENTS_MAP` keyed by the **Python class name** (a bespoke editor goes into
+  `LAZY_DATA_BLOCK_COMPONENTS_MAP` as a dynamic import instead, never imported statically by eager code, or it
+  lands back in the initial bundle). A component of the eager map that renders `<app-editor>` imports it as
+  `forwardRef(() => EditorComponent)`: `editor.component.ts` imports it back, and without the `forwardRef` its
+  compiled `dependencies` capture `EditorComponent` before the class exists (the map is built on first use for
+  the same reason).
 
 ## Adding cross-cutting serializer behavior
 

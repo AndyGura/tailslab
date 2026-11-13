@@ -16,10 +16,14 @@ from library.utils.docs import add_doc_numbers
 from resources import eac, blackbox
 from resources.eac import psx as eac_psx, psx_bitmaps as eac_psx_bitmaps
 from resources.eac import horizons as eac_horizons
+from resources.eac import field_descriptions as eac_field_descriptions
+from resources.eac import fedata as eac_fedata
+from resources.eac import nfs5_career as eac_nfs5_career
 from resources.blackbox.bitmaps import nfsu as blackbox_bitmaps_nfsu
 from resources.blackbox.maps import nfsu as blackbox_maps_nfsu
 from resources.blackbox.maps import nfsu2 as blackbox_maps_nfsu2
 from resources.blackbox.maps import nfs6_ps2 as blackbox_maps_nfs6_ps2
+from resources.eac import nfs6_car_specs
 from resources.blackbox.maps import nfsmw as blackbox_maps_nfsmw
 from resources.blackbox.bitmaps import nfs6_ps2 as blackbox_bitmaps_nfs6_ps2
 from resources.blackbox.geometries import nfs6_ps2 as blackbox_geometries_nfs6_ps2
@@ -354,6 +358,10 @@ EXPORT_RESOURCES = {
 **GAMEDATA/SIM/AI/TRAFCFG.DAT**, `trafcfg.dat` / `TRAFCFG.DAT` in **GAMEDATA/SIM/CARDATA/CARDATA.VIV** AI and traffic configuration, glue factors. {render_type(eac.car_specs.Nfs2TrafficConfig())}
 
 **GAMEDATA/SIM/AI/PRSONAL.DAT**, `prsonal.dat` in **GAMEDATA/SIM/CARDATA/CARDATA.VIV** AI racer personalities and grid assignments. {render_type(eac.car_specs.Nfs2Personalities())}
+
+**GAMEDATA/SIM/CARDATA/P\\*.QDA**, **GAMEDATA/CARMODEL/PC/SIMTUNE.QDA** compressed copies of the `.DAT` files of the same name (QFS3 or RefPack, the `.DAT` block inside). {render_type(eac.archives.EacCompressedBlock())}
+
+**\\*.DES** (`P*.DES`, `SIMTUNE.DES`, `MCF1.DES`, `TRAFCFG.DES`, `PRSONAL.DES`, `SM*.DES`) the developers' field descriptions of the `.DAT` files. {render_type(eac_field_descriptions.EaFieldDescriptions())}
         
 **\\*.FFN** bitmap font. {render_type(eac.fonts.FfnFont())}
 
@@ -419,6 +427,10 @@ EXPORT_RESOURCES = {
                 eac.car_specs.Nfs2Personalities(),
                 eac.car_specs.Nfs2PersonalityGrid(),
                 eac.car_specs.Nfs2Personality(),
+                eac_field_descriptions.EaFieldDescriptions(),
+                eac_field_descriptions.EaFieldDescriptionBody(),
+                eac_field_descriptions.EaFieldDescriptionRecord(),
+                eac_field_descriptions.EaFieldDescriptionShape(),
             ],
             'Images': [
                 eac.bitmaps.EacImage(),
@@ -456,6 +468,8 @@ EXPORT_RESOURCES = {
 **GameData/Audio/pc/\\*.map** interactive music map, **\\*.lin** linear song map of the `.mus` file of the same name. {render_type(eac.audios.EaMusicMap())}
 
 **GameData/CarModel/\\<car\\>/car.viv: carp.txt** car physics, plain text (label and value lines). {render_type(eac.car_specs.Nfs3CarPhysics())}. The converter writes it as `carp.txt.json` (named values) and `carp.txt.bin` (the file as it is)
+
+**GameData/CarModel/\\<car\\>/car.viv: fedata.\\<lang\\>** (eng, fre, ger, ita, spa, swe, bri) car showroom data: car list values and spec sheet texts. {render_type(eac_fedata.Nfs3CarFeData())}. The converter writes it as `fedata.<lang>.json` (every field; imports back to the same bytes) and `fedata.<lang>.bin` (the file as it is)
 
 **GameData/Tracks/TRK\\<nnn\\>/TR\\<nn\\>\\<k\\>.CAN**, **TR\\<nn\\>00A.CAN** animation path of knocked-away objects. {render_type(eac.maps.Nfs3CanAnimation())}
 
@@ -534,6 +548,7 @@ EXPORT_RESOURCES = {
             ],
             'Physics': [
                 eac.car_specs.Nfs3CarPhysics(),
+                eac_fedata.Nfs3CarFeData(),
             ],
             'Images': [
                 eac.bitmaps.EacImage(),
@@ -570,6 +585,8 @@ EXPORT_RESOURCES = {
 **Data/Tracks/\\<track\\>/Tr\\<nn\\>.can**, **Tr00a.can** animation path of knocked-away objects. {render_type(eac.maps.Nfs3CanAnimation())}
 
 **Data/Cars/\\<car\\>/car.viv: carp.txt** (**carp\\<n\\>.txt**) car physics, plain text (label and value lines). {render_type(eac.car_specs.Nfs4CarPhysics())}. The converter writes it as `carp.txt.json` (named values) and `carp.txt.bin` (the file as it is)
+
+**Data/Cars/\\<car\\>/car.viv: fedata.\\<lang\\>** (eng, fre, ger, ita, spa, swe, bri) car showroom data: the car list record and spec sheet texts. {render_type(eac_fedata.Nfs4CarFeData())}. The converter writes it as `fedata.<lang>.json` (every field; imports back to the same bytes) and `fedata.<lang>.bin` (the file as it is)
 
 **\\*.FCE** 3D model (car.fce in car.viv: car model). {render_type(eac.geometries.Fce4Geometry())}
 
@@ -623,6 +640,7 @@ EXPORT_RESOURCES = {
             ],
             'Physics': [
                 eac.car_specs.Nfs4CarPhysics(),
+                eac_fedata.Nfs4CarFeData(),
             ],
             'Images': [
                 eac.bitmaps.EacImage(),
@@ -668,6 +686,14 @@ EXPORT_RESOURCES = {
 **FEData/Data/nfs5.prt** car parts. {render_type(eac.car_specs.Nfs5CarParts())}
 
 **FEData/Data/nfs5.car** car database. {render_type(eac.car_specs.Nfs5Cars())}
+
+**FEData/Data/nfs5.fac** Factory Driver missions. {render_type(eac_nfs5_career.Nfs5FactoryMissions())}
+
+**FEData/Data/nfs5.trn** Evolution tournaments. {render_type(eac_nfs5_career.Nfs5Tournaments())}
+
+**FEData/Data/nfs5.per** AI personalities. {render_type(eac_nfs5_career.Nfs5Personalities())}
+
+**FEData/Data/nfs5.trk** tracks and their best times (15 records of 0x4a8 bytes: id, name text id, `.crp` name, pictures, lock, circuit flag, difficulty, the traffic and cop car ids of the track, speech locations, 8 records of driver, car and time in 1/100 s; Porsche.exe 0x4fb750, 0x4fae20, kept in the save folder), not parsed. **nfs5-1.hud**, **nfs5-2.hud** the default HUD layouts copied for a new player (0x4de5b0; 5 configs of 0x1e0 / 0x68 bytes), not parsed. **nfs5.loc** is not read by Porsche.exe. `GameData/Simulation/AI/`: **TRAFCFG.DAT** (the AI physics parameters; the game uses its built-in copy, 0x5cc0e0), **GLUE.BIN** / **hhglue.bin** (catch-up factors, loaded and never read), **SCRIPTS.BIN** and **prsonal.bin** (per personality), **tuning.bin** (NFS4's sheet, no effect), **SPREAD.BIN** (not loaded); the CSVs are the developers' sources, not read.
         
 **\\*.FFN** bitmap font. {render_type(eac.fonts.FfnFont())}
 
@@ -700,6 +726,20 @@ EXPORT_RESOURCES = {
                 eac.car_specs.Nfs5PartGeometryEntry(),
                 eac.car_specs.Nfs5Cars(),
                 eac.car_specs.Nfs5CarRecord(),
+                eac.car_specs.Nfs5DashGauge(),
+                eac.car_specs.Nfs5CarPaint(),
+                eac.car_specs.Nfs5CarInterior(),
+            ],
+            'Career': [
+                eac_nfs5_career.Nfs5FactoryMissions(),
+                eac_nfs5_career.Nfs5FactoryMission(),
+                eac_nfs5_career.Nfs5FactoryOpponent(),
+                eac_nfs5_career.Nfs5Tournaments(),
+                eac_nfs5_career.Nfs5Tournament(),
+                eac_nfs5_career.Nfs5TournamentOpponent(),
+                eac_nfs5_career.Nfs5TournamentRace(),
+                eac_nfs5_career.Nfs5Personalities(),
+                eac_nfs5_career.Nfs5Personality(),
             ],
             'Geometries': [
                 eac.geometries.nfs5.CrpGeometry(),
@@ -773,6 +813,26 @@ EXPORT_RESOURCES = {
 
 **levelNN\\aipaths.dat** race route. {render_type(eac.maps.Nfs6AiPaths())}
 
+**cars\\<car>\\car.ini**, **car_hp.ini**, **car_cop.ini**, **carracer.ini** car physics (player, hot pursuit, police, AI racer). {render_type(nfs6_car_specs.Nfs6CarIni())}
+
+**cars\\<car>\\vehicle.ini** shading, skins, paint swatches, light glows. {render_type(nfs6_car_specs.Nfs6VehicleIni())}
+
+**cars\\<car>\\bounds.ini** bounding boxes. {render_type(nfs6_car_specs.Nfs6BoundsIni())}
+
+**cars\\<car>\\geomdata.ini** levels of detail and damage zones of the model's geometries. {render_type(nfs6_car_specs.Nfs6GeomDataIni())}
+
+**cars\\<car>\\damage.ini**, **lod.ini** (not read by the game). {render_type(nfs6_car_specs.Nfs6DamageIni())}, {render_type(nfs6_car_specs.Nfs6LodIni())}
+
+**cars\\Cars.ini** the car list. {render_type(nfs6_car_specs.Nfs6CarsIni())}
+
+**cars\\Cameras.ini** race cameras. {render_type(nfs6_car_specs.Nfs6CamerasIni())}
+
+**cars\\RearView.ini** (not read by the game). {render_type(nfs6_car_specs.Nfs6RearViewIni())}
+
+**cars\\reflection.ini** car reflections. {render_type(nfs6_car_specs.Nfs6ReflectionIni())}
+
+**cars\\cartable.viv** engine sound tables **engine.rpm**, **engine.ctb**, **engine.htb**, **engine.ltb**, **engine.btb**. {render_type(nfs6_car_specs.Nfs6EngineAudioTable())}
+
 **audio/music/\\*.asf** song (names in **music.ini**), **audio/speech/\\<language\\>/radio.viv** police radio speech (EA MicroTalk, not decoded). {render_type(eac.audios.EaAudioStreams())}
 
 **\\*.BNK** sound bank. {render_type(eac.archives.EaSoundBank())}
@@ -799,8 +859,23 @@ EXPORT_RESOURCES = {
                 eac.maps.Nfs6AiPath(),
                 eac.maps.Nfs6AiPathPoint(),
             ],
-            # 'Physics': [
-            # ],
+            'Car specs': [
+                nfs6_car_specs.Nfs6CarIni(),
+                nfs6_car_specs.Nfs6CarHpIni(),
+                nfs6_car_specs.Nfs6CarCopIni(),
+                nfs6_car_specs.Nfs6CarRacerIni(),
+                nfs6_car_specs.Nfs6VehicleIni(),
+                nfs6_car_specs.Nfs6CarsIni(),
+                nfs6_car_specs.Nfs6BoundsIni(),
+                nfs6_car_specs.Nfs6GeomDataIni(),
+                nfs6_car_specs.Nfs6DamageIni(),
+                nfs6_car_specs.Nfs6LodIni(),
+                nfs6_car_specs.Nfs6CamerasIni(),
+                nfs6_car_specs.Nfs6RearViewIni(),
+                nfs6_car_specs.Nfs6ReflectionIni(),
+                nfs6_car_specs.Nfs6EngineAudioTable(),
+                *nfs6_car_specs.NFS6_CAR_SPEC_SECTIONS,
+            ],
             'Images': [
                 eac.bitmaps.EacImage(),
                 eac.bitmaps.EacPalette(),

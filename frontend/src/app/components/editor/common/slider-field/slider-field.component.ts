@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, EventEmitter, Input, Output } from '@angular/core';
 import { decimalsForStep, formatValue } from '../curve-editor/curve-editor.utils';
+import { MatTooltip } from '@angular/material/tooltip';
+import { MatSlider, MatSliderThumb } from '@angular/material/slider';
 
 export type SliderSpec = {
   min: number;
@@ -17,7 +19,7 @@ export type SliderSpec = {
   templateUrl: './slider-field.component.html',
   styleUrls: ['./slider-field.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [MatTooltip, MatSlider, MatSliderThumb],
 })
 export class SliderFieldComponent {
   @Input() label = '';

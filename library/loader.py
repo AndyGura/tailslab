@@ -15,35 +15,63 @@ def _file_or_archive_item_name(file_path: str) -> str:
     return name
 
 
+def _nfs2_data_file_name(file_path: str) -> str:
+    """Name of an NFS2 data file: a loose file, an item of CARDATA.VIV, or the uncompressed data of a compressed copy
+    `<name>.QDA` (`<path>.QDA__uncompressed`), named `<name>.DAT` then"""
+    if file_path.upper().endswith('.QDA__UNCOMPRESSED'):
+        return _file_or_archive_item_name(file_path[: -len('__uncompressed')])[:-4] + '.DAT'
+    return _file_or_archive_item_name(file_path)
+
+
 def _is_nfs2_car_physics_name(file_path: str) -> bool:
-    """NFS2 SE `p<car>.DAT`: a loose file, or an item of CARDATA.VIV"""
-    name = _file_or_archive_item_name(file_path)
+    """NFS2 SE `p<car>.DAT`: a loose file, an item of CARDATA.VIV, or a `P<car>.QDA`'s data"""
+    name = _nfs2_data_file_name(file_path)
     return name[:1] in ('p', 'P') and name.upper().endswith('.DAT')
 
 
 def _is_nfs2_car_ai_name(file_path: str) -> bool:
-    """NFS2 SE car AI data `<car>.dat` (4 letters or digits): a loose file, or an item of CARDATA.VIV"""
-    name = _file_or_archive_item_name(file_path)
+    """NFS2 SE car AI data `<car>.dat` (4 letters or digits): a loose file, an item of CARDATA.VIV, or a
+    `<car>.QDA`'s data (NFS2 `SIM/AICARDT`)"""
+    name = _nfs2_data_file_name(file_path)
     return len(name) == 8 and name[:4].isalnum() and name[:4].isascii() and name.upper().endswith('.DAT')
 
 
 def _is_nfs3_car_physics_path(file_path: str) -> bool:
-    """NFS3 `carp.txt` of `GameData/CarModel/<car>/car.viv` (NFS4's `Data/Cars/<car>/car.viv` one is another format)"""
-    return (
-        _file_or_archive_item_name(file_path).lower() == 'carp.txt'
-        and '/CARMODEL/' in file_path.replace('\\', '/').upper()
+    """NFS3 `carp.txt` of `GameData/CarModel/<car>/car.viv` and of the network placeholder `FeData/Plac/CAR.VIV`
+    (NFS4's `Data/Cars/<car>/car.viv` one is another format)"""
+    path = file_path.replace('\\', '/').upper()
+    return _file_or_archive_item_name(file_path).lower() == 'carp.txt' and (
+        '/CARMODEL/' in path or '/FEDATA/PLAC/' in path
+    )
+
+
+def _is_nfs4_plac_item(file_path: str) -> bool:
+    """An item of NFS4's network placeholder car `Data/Plac.viv`"""
+    return '/DATA/PLAC.VIV' in '/' + file_path.replace('\\', '/').upper()
+
+
+def _fedata_language_name(file_path: str) -> bool:
+    """`fedata.<lang>` of an NFS3 / NFS4 car.viv (`fedata.fsh` is an image)"""
+    return _file_or_archive_item_name(file_path).lower() in (
+        'fedata.eng',
+        'fedata.fre',
+        'fedata.ger',
+        'fedata.ita',
+        'fedata.spa',
+        'fedata.swe',
+        'fedata.bri',
     )
 
 
 def _is_nfs4_car_physics_path(file_path: str) -> bool:
-    """NFS4 `carp.txt` / `carp<n>.txt` of `Data/Cars/<car>/car.viv` (also `traffic/...`; `Data/Plac.viv`'s `carp.txt`
-    is a placeholder text)"""
+    """NFS4 `carp.txt` / `carp<n>.txt` of `Data/Cars/<car>/car.viv` (also `traffic/...`) and of the network placeholder
+    `Data/Plac.viv` (a text with the serial number only)"""
     name = _file_or_archive_item_name(file_path).lower()
     return (
         name.startswith('carp')
         and name.endswith('.txt')
         and (name == 'carp.txt' or name[4:-4].isdigit())
-        and '/DATA/CARS/' in '/' + file_path.replace('\\', '/').upper()
+        and ('/DATA/CARS/' in '/' + file_path.replace('\\', '/').upper() or _is_nfs4_plac_item(file_path))
     )
 
 
@@ -59,11 +87,23 @@ def _is_nfs4_speed_file_size(length: int) -> bool:
     return is_nfs4_speed_file_size(length)
 
 
+def _nfs6_car_ini_class(file_path: str):
+    from resources.eac.nfs6_car_specs import nfs6_car_ini_class
+
+    return nfs6_car_ini_class(file_path)
+
+
 def _peek(buffer, n: int) -> bytes:
     """The next n bytes of the buffer, without moving it"""
     data = buffer.read(n)
     buffer.seek(-len(data), SEEK_CUR)
     return data
+
+
+def _is_ea_field_descriptions(buffer, length) -> bool:
+    from resources.eac.field_descriptions import is_ea_field_descriptions
+
+    return is_ea_field_descriptions(_peek(buffer, 102), length)
 
 
 def _is_ea_audio_stream(buffer, length) -> bool:
@@ -115,7 +155,15 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.car_specs import Nfs4CarPhysics
 
             return Nfs4CarPhysics
-        elif length == 232 and _file_or_archive_item_name(file_path).upper() == 'SIMTUNE.DAT':
+        elif _fedata_language_name(file_path) and _peek(buffer, 0x3C0):
+            from resources.eac.fedata import Nfs3CarFeData, Nfs4CarFeData, is_nfs3_fedata, is_nfs4_fedata
+
+            head = _peek(buffer, 0x3C0)
+            if is_nfs4_fedata(head):
+                return Nfs4CarFeData
+            if is_nfs3_fedata(head):
+                return Nfs3CarFeData
+        elif length == 232 and _nfs2_data_file_name(file_path).upper() == 'SIMTUNE.DAT':
             from resources.eac.car_specs import Nfs2SimTune
 
             return Nfs2SimTune
@@ -131,6 +179,10 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.car_specs import Nfs2Personalities
 
             return Nfs2Personalities
+        elif file_path.upper().endswith('.DES') and _is_ea_field_descriptions(buffer, length):
+            from resources.eac.field_descriptions import EaFieldDescriptions
+
+            return EaFieldDescriptions
         elif file_path.endswith('CONFIG.DAT'):
             from resources.eac.configs import TnfsConfigDat
 
@@ -140,6 +192,9 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.psx import TnfsPsxHorizonInfo
 
             return TnfsPsxHorizonInfo
+        elif file_path.lower().endswith('.ini') and _nfs6_car_ini_class(file_path):
+            # NFS HP2 PC car spec files Cars/<car>/car.ini, vehicle.ini... and Cars/Cars.ini, Cameras.ini...
+            return _nfs6_car_ini_class(file_path)
         elif file_path.upper().endswith('.HRZ'):
             # NFS2 / NFS2 SE / NFS3 track sky settings TR<nn>.HRZ, 3TR<nn>*.HRZ
             from resources.eac.horizons import hrz_block_class
@@ -190,6 +245,21 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.car_specs import Nfs5Cars
 
             return Nfs5Cars
+        elif length and length % 0xF0 == 0 and _file_or_archive_item_name(file_path).lower() == 'nfs5.fac':
+            # NFS5 Factory Driver missions FEData/Data/nfs5.fac
+            from resources.eac.nfs5_career import Nfs5FactoryMissions
+
+            return Nfs5FactoryMissions
+        elif length and length % 0xD40 == 0 and _file_or_archive_item_name(file_path).lower() == 'nfs5.trn':
+            # NFS5 Evolution tournaments FEData/Data/nfs5.trn
+            from resources.eac.nfs5_career import Nfs5Tournaments
+
+            return Nfs5Tournaments
+        elif length and length % 0x2C == 0 and _file_or_archive_item_name(file_path).lower() == 'nfs5.per':
+            # NFS5 AI personalities FEData/Data/nfs5.per
+            from resources.eac.nfs5_career import Nfs5Personalities
+
+            return Nfs5Personalities
         elif length is not None and file_path.lower().endswith('.jnc'):
             # NFS5 track junction weights GameData/Track/<track>.jnc
             from resources.eac.maps.nfs5 import Nfs5Junctions, is_nfs5_junctions_size
@@ -298,6 +368,11 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.misc import DashDeclarationFile
 
             return DashDeclarationFile
+        elif header_str == 'CRDl':
+            # NFS HP2 PC engine sound tables, items of Cars/cartable.viv
+            from resources.eac.nfs6_car_specs import Nfs6EngineAudioTable
+
+            return Nfs6EngineAudioTable
         elif header_str == 'BNKl':
             from resources.eac.archives import EaSoundBank
 

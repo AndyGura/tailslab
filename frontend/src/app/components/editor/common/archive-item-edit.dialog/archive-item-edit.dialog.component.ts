@@ -1,7 +1,17 @@
 import { ChangeDetectionStrategy, Component, Inject, inject } from '@angular/core';
 import { MainService } from '../../../../services/main.service';
-import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
+import {
+  MAT_DIALOG_DATA,
+  MatDialogRef,
+  MatDialogTitle,
+  MatDialogContent,
+  MatDialogActions,
+} from '@angular/material/dialog';
 import { BlockData, BlockSchema } from '../../types';
+import { CdkScrollable } from '@angular/cdk/scrolling';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
+import { MatButton } from '@angular/material/button';
+import { AsyncPipe } from '@angular/common';
 
 export interface ArchiveItemEditDialogData {
   id: string;
@@ -15,7 +25,15 @@ export interface ArchiveItemEditDialogData {
   templateUrl: './archive-item-edit.dialog.component.html',
   styleUrls: ['./archive-item-edit.dialog.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [
+    MatDialogTitle,
+    CdkScrollable,
+    MatDialogContent,
+    CompoundBlockUiComponent,
+    MatDialogActions,
+    MatButton,
+    AsyncPipe,
+  ],
 })
 export class ArchiveItemEditDialogComponent {
   readonly mainService = inject(MainService);

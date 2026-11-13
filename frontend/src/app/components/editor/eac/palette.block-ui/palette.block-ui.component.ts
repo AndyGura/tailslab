@@ -1,12 +1,19 @@
 import { AfterViewInit, ChangeDetectionStrategy, Component, ElementRef, inject, ViewChild } from '@angular/core';
 import { SubscribableGuiComponent } from '../../gui.component';
 import { joinId } from '../../../../utils/join-id';
-import { MatSelectChange } from '@angular/material/select';
+import { MatSelectChange, MatFormField, MatLabel, MatSelect, MatOption } from '@angular/material/select';
 import { CustomAction } from '../../types';
 import { CustomActionService } from '../../../../services/custom-action.service';
 import { parseColorInputValue } from '../../../../utils/parse-color-input-value';
 import { auditTime, Subject, takeUntil } from 'rxjs';
 import { ChangeEntry } from '../../../../services/changes.service';
+import { BlockActionsComponent } from '../../common/block-actions/block-actions.component';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
+import { MatButton } from '@angular/material/button';
+import { MatInput } from '@angular/material/input';
+import { FormsModule } from '@angular/forms';
+import { MatTooltip } from '@angular/material/tooltip';
+import { MatIcon } from '@angular/material/icon';
 
 // TNFS car textures (CFM): entries the game recolors (`serializers/misc/tnfs_car_colors.py`)
 const TNFS_CAR_SPECIAL_ENTRIES: { [index: number]: string } = {
@@ -55,7 +62,19 @@ function shiftHue(color: number, degrees: number): number {
   templateUrl: './palette.block-ui.component.html',
   styleUrls: ['./palette.block-ui.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [
+    BlockActionsComponent,
+    MatFormField,
+    MatLabel,
+    MatSelect,
+    MatOption,
+    CompoundBlockUiComponent,
+    MatButton,
+    MatInput,
+    FormsModule,
+    MatTooltip,
+    MatIcon,
+  ],
 })
 export class PaletteBlockUiComponent extends SubscribableGuiComponent implements AfterViewInit {
   @ViewChild('colorInput') colorInput!: ElementRef<HTMLInputElement>;

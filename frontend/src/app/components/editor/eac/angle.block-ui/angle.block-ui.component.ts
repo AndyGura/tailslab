@@ -1,6 +1,9 @@
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, ElementRef, OnDestroy, ViewChild } from '@angular/core';
 import { BehaviorSubject, Subscription } from 'rxjs';
 import { PrimitiveGuiComponent } from '../../gui.component';
+import { MatTooltip } from '@angular/material/tooltip';
+import { MatFormField, MatLabel, MatSuffix } from '@angular/material/select';
+import { MatInput } from '@angular/material/input';
 
 export type AngleUnit = 'deg' | 'rad';
 
@@ -23,7 +26,7 @@ const loadUnit = (): AngleUnit => {
   templateUrl: './angle.block-ui.component.html',
   styleUrls: ['./angle.block-ui.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [MatTooltip, MatFormField, MatLabel, MatInput, MatSuffix],
 })
 export class AngleBlockUiComponent extends PrimitiveGuiComponent<number> implements OnDestroy {
   static readonly unit$ = new BehaviorSubject<AngleUnit>(loadUnit());

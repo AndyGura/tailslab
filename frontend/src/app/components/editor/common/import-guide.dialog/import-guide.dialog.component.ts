@@ -1,5 +1,15 @@
 import { ChangeDetectionStrategy, Component, Inject } from '@angular/core';
-import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
+import {
+  MAT_DIALOG_DATA,
+  MatDialogRef,
+  MatDialogTitle,
+  MatDialogContent,
+  MatDialogActions,
+} from '@angular/material/dialog';
+import { CdkScrollable } from '@angular/cdk/scrolling';
+import { MatCheckbox } from '@angular/material/checkbox';
+import { FormsModule } from '@angular/forms';
+import { MatButton } from '@angular/material/button';
 
 /** Guides the GUI shows before an import, by the `import_guide` of a serializer's `ui_serialization()` */
 export type ImportGuide = 'orip_obj';
@@ -23,7 +33,7 @@ export interface ImportGuideDialogResult {
   templateUrl: './import-guide.dialog.component.html',
   styleUrls: ['./import-guide.dialog.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [MatDialogTitle, CdkScrollable, MatDialogContent, MatDialogActions, MatCheckbox, FormsModule, MatButton],
 })
 export class ImportGuideDialogComponent {
   dontShowAgain = false;

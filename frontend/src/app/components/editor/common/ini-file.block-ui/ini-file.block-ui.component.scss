@@ -1,0 +1,104 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+h2 {
+  margin: 0;
+}
+
+.note,
+.description,
+.other-title {
+  color: rgba(0, 0, 0, 0.6);
+  font-size: 13px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.25rem;
+}
+
+.ini-keys {
+  border-collapse: collapse;
+  width: 100%;
+
+  td {
+    padding: 3px 6px;
+    vertical-align: top;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  }
+
+  .key {
+    font-family: monospace;
+    white-space: nowrap;
+  }
+
+  .value {
+    white-space: nowrap;
+
+    input {
+      width: 9em;
+    }
+  }
+
+  .unit {
+    white-space: nowrap;
+    color: rgba(0, 0, 0, 0.6);
+  }
+
+  .description {
+    min-width: 260px;
+  }
+
+  tr.not-read .key,
+  tr.not-read input {
+    opacity: 0.55;
+  }
+}
+
+.items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  white-space: normal;
+  max-width: 560px;
+
+  .item {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+
+    .index {
+      font-size: 10px;
+      color: rgba(0, 0, 0, 0.5);
+    }
+
+    input {
+      width: 5.5em;
+    }
+  }
+}
+
+.other-key {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+
+  .key-input {
+    font-family: monospace;
+  }
+}
+
+.small {
+  transform: scale(0.75);
+}
+
+.group-item {
+  margin: 4px 0;
+}

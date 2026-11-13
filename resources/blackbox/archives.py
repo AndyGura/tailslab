@@ -61,6 +61,29 @@ class Nfs6Ps2CompressedBlock(EacCompressedBlock):
             'block_description': 'COMP-compressed data (LZ77 with "COMP" header): NFS Hot Pursuit 2 (PS2) *.LZC files',
         }
 
+    def detect(self, ctx, name=None, read_bytes_amount=None):
+        # the bundle blocks subclass Nfs6Ps2ChunkBundle: the loader's class itself, not the first subclass of it (a
+        # plain bundle such as GLOBAL/GLOBALB.LZC is no track)
+        from library import probe_block_class
+        from library.utils.id import join_id
+
+        file_path = ctx.ctx_path
+        if name and not file_path.endswith(name):
+            file_path = join_id(file_path, name)
+        try:
+            block_class = probe_block_class(
+                ctx.buffer,
+                file_path=file_path,
+                length=read_bytes_amount,
+                resources_to_pick=[x.__class__ for x in self.possible_blocks],
+            )
+        except NotImplementedError:
+            block_class = None
+        for i, block in enumerate(self.possible_blocks):
+            if block_class is not None and type(block) is block_class:
+                return i
+        return super().detect(ctx, name, read_bytes_amount)
+
     def _detect_compression(self, buffer):
         from resources.eac.compressions.comp import CompCompression
 

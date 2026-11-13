@@ -11,7 +11,11 @@ import {
 import { GuiComponent } from '../../gui.component';
 import { BehaviorSubject, debounceTime, filter, Subject, takeUntil } from 'rxjs';
 import { Object3D } from 'three';
-import { ObjViewerCustomControl, ViewFilterOpts } from '../../common/obj-viewer/obj-viewer.component';
+import {
+  ObjViewerCustomControl,
+  ViewFilterOpts,
+  ObjViewerComponent,
+} from '../../common/obj-viewer/obj-viewer.component';
 import { steeringControl, wheelSpeedControl } from '../../common/obj-viewer/car-preview-controls';
 import {
   Nfs6Ps2CarInfo,
@@ -20,6 +24,8 @@ import {
 } from '../../../../../nfs-three-lib/nfs6-ps2-car-mesh-controller';
 import { proceduralSkySun } from '../../../../../nfs-three-lib/scene-sky';
 import { VIEWER_SKY } from '../../common/obj-viewer/viewer-sky';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
+import { AsyncPipe } from '@angular/common';
 
 // lighting of the front end's car showroom (NFS6_PS2_FRONTEND_LIGHTING) or of the viewer's sky
 const LIGHTING_SHOWROOM = 'Showroom';
@@ -31,7 +37,7 @@ const LIGHTING_SCENE = 'Scene';
   selector: 'app-nfs6-ps2-car-block-ui',
   templateUrl: './nfs6-ps2-car.block-ui.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [ObjViewerComponent, CompoundBlockUiComponent, AsyncPipe],
 })
 export class Nfs6Ps2CarBlockUiComponent extends GuiComponent implements AfterViewInit, OnChanges, OnDestroy {
   previewPaths$: BehaviorSubject<[string, string] | null> = new BehaviorSubject<[string, string] | null>(null);

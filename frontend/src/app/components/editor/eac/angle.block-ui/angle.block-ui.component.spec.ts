@@ -13,7 +13,7 @@ describe('AngleBlockUiComponent', () => {
   beforeEach(async () => {
     appendChanges = jasmine.createSpy('appendChanges').and.returnValue(Promise.resolve());
     await TestBed.configureTestingModule({
-      declarations: [AngleBlockUiComponent],
+      imports: [AngleBlockUiComponent],
       providers: [
         { provide: MainService, useValue: { focusedResourceId$: new BehaviorSubject(null) } },
         { provide: ChangesService, useValue: { appendChanges } },

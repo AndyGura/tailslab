@@ -1,0 +1,297 @@
+@if (resourceId && resourceName && !hideName) {
+  <h2 [matTooltip]="resourceDescription || ''" matTooltipPosition="above">{{ resourceName }}</h2>
+}
+@if (!hideBlockActions) {
+  <app-block-actions
+    [resource]="{
+      id: resourceId!,
+      name: resourceName!,
+      data: resourceData,
+      schema: resourceSchema,
+    }"></app-block-actions>
+}
+
+<ng-template #sliders let-specs>
+  <div class="sliders">
+    @for (s of specs; track s[1]) {
+      <app-slider-field
+        [label]="s[1]"
+        [description]="sectionDescription(s[0], s[1])"
+        [value]="sectionValue(s[0], s[1])"
+        [spec]="s[2]"
+        [disabled]="disabled"
+        (valueChange)="setValue([s[0], s[1]], $event)"></app-slider-field>
+    }
+  </div>
+</ng-template>
+
+<ng-template #keys let-sections>
+  <app-ini-file-block-ui
+    [resourceId]="resourceId"
+    [resourceName]="resourceName"
+    [resourceSchema]="resourceSchema"
+    [resourceData]="resourceData"
+    [hideName]="true"
+    [hideBlockActions]="true"
+    [embedded]="true"
+    [sectionWhitelist]="sections"
+    [disabled]="disabled"></app-ini-file-block-ui>
+</ng-template>
+
+@if (resourceData && resourceSchema) {
+  <app-stat-tiles [tiles]="tiles" [disabled]="disabled"></app-stat-tiles>
+
+  <mat-tab-group [(selectedIndex)]="selectedTab" animationDuration="0ms" mat-stretch-tabs="false" class="tabs">
+    <mat-tab label="Engine">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-curve-editor
+            title="Torque and power"
+            [hint]="sectionDescription('engineblock', 'torqueCurve')"
+            [series]="torqueSeries"
+            [markers]="torqueMarkers"
+            [xAxis]="rpmAxis"
+            [yAxis]="torqueAxis"
+            [y2Axis]="powerAxis"
+            [height]="340"
+            [disabled]="disabled"
+            [describeX]="describeRpm"
+            (seriesChange)="onTorqueChange($event)"
+            (markerChange)="onRpmMarker($event)"></app-curve-editor>
+          <p class="note">
+            Entry i is the torque at i × 500 rpm (Engine_TorqueAtRpm 0x41fde0). The game reads 25 entries; past the last
+            non-zero one it fills the curve falling (dashed). Drag the points, or the MinRPM / RedLine / WarningLine
+            markers.
+          </p>
+          <ng-container *ngTemplateOutlet="sliders; context: { $implicit: [driveSliders[1]] }"></ng-container>
+          <ng-container *ngTemplateOutlet="keys; context: { $implicit: ['engineblock'] }"></ng-container>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Gearbox">
+      <ng-template matTabContent>
+        <div class="tab">
+          <div class="actions">
+            <mat-checkbox [checked]="automatic" (change)="onAutomaticChange($event.checked)"
+              >Automatic gearbox</mat-checkbox
+            >
+            <span class="muted">
+              The player's choice, not a key: automatic multiplies the efficiencies by 0.97, manual adds 12 steps to the
+              shift delay.
+            </span>
+          </div>
+          <div class="chart-grid">
+            <app-curve-editor
+              title="Gearing"
+              hint="Engine rpm by road speed in each forward gear, up to the red line (Gearbox_ComputeRpmPerMps 0x419550)"
+              [series]="gearSeries"
+              [xAxis]="speedAxis"
+              [yAxis]="gearRpmAxis"
+              [height]="300"
+              [describeX]="describeSpeed"></app-curve-editor>
+            <app-curve-editor
+              title="Drive force"
+              hint="Drive force at the wheels in each gear at full throttle (0x419700) against the air drag and rolling resistance of the automatic gearbox's model (0x415780); markers: its up-shift speeds"
+              [series]="forceSeries"
+              [markers]="forceMarkers"
+              [xAxis]="speedAxis"
+              [yAxis]="forceAxis"
+              [height]="300"
+              [describeX]="describeSpeed"></app-curve-editor>
+          </div>
+          <table class="gear-table">
+            <thead>
+              <tr>
+                <th>Gear</th>
+                <th [matTooltip]="sectionDescription('transmission', 'GearRatios')">GearRatios</th>
+                <th [matTooltip]="sectionDescription('transmission', 'GearEfficiency')">GearEfficiency</th>
+                <th matTooltip="ratio × max(FinalGearRatio, FrontFinalGearRatio) × 60 / rear tyre circumference">
+                  Rpm per m/s
+                </th>
+                <th matTooltip="Road speed at the red line">At red line</th>
+                <th matTooltip="Automatic up-shift speed (Gearbox_ShiftSpeed 0x415780)">Up-shift</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (g of gears; track g.index) {
+                <tr [class.muted]="!!car && g.index >= car.gears">
+                  <td class="gear-name"><span class="swatch" [style.background]="g.color"></span>{{ g.name }}</td>
+                  <td>
+                    <input
+                      type="number"
+                      step="0.01"
+                      [value]="g.ratio ?? ''"
+                      [disabled]="!!disabled"
+                      (change)="onGearInput('GearRatios', g.index, $any($event.target).value)" />
+                  </td>
+                  <td>
+                    <input
+                      type="number"
+                      step="0.01"
+                      [value]="g.efficiency ?? ''"
+                      [disabled]="!!disabled"
+                      (change)="onGearInput('GearEfficiency', g.index, $any($event.target).value)" />
+                  </td>
+                  <td class="num">{{ g.rpmPerMps ? fmt(g.rpmPerMps, 1) : '–' }}</td>
+                  <td class="num">{{ g.redlineKmh ? fmt(g.redlineKmh, 0) + ' km/h' : '–' }}</td>
+                  <td class="num">{{ g.shiftKmh !== null ? fmt(g.shiftKmh, 0) + ' km/h' : '–' }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+          <ng-container
+            *ngTemplateOutlet="sliders; context: { $implicit: [driveSliders[0], driveSliders[2]] }"></ng-container>
+          <ng-container *ngTemplateOutlet="keys; context: { $implicit: ['transmission', 'rearend'] }"></ng-container>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Tyres and brakes">
+      <ng-template matTabContent>
+        <div class="tab">
+          <table class="gear-table">
+            <thead>
+              <tr>
+                <th>Section</th>
+                <th [matTooltip]="sectionDescription('tire_front', 'attach')">Record</th>
+                <th [matTooltip]="sectionDescription('tire_front', 'TypeCode')">TypeCode</th>
+                <th>SectionWidth (mm)</th>
+                <th>AspectRatio (%)</th>
+                <th>WheelDiameter (in)</th>
+                <th matTooltip="width × aspect / 100000 + diameter × 0.0127 m (HCVehicle_SetupWheels 0x414a50)">
+                  Radius
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (t of tires; track t.section) {
+                <tr>
+                  <td>[{{ t.section }}]</td>
+                  <td>{{ t.axle }}</td>
+                  <td>
+                    <select
+                      [value]="t.typeCode ?? ''"
+                      [disabled]="!!disabled"
+                      (change)="onTireInput(t.section, 'TypeCode', $any($event.target).value)">
+                      @for (name of tireTypes; track name; let i = $index) {
+                        <option [value]="i" [selected]="i === t.typeCode">{{ i }} {{ name }}</option>
+                      }
+                    </select>
+                  </td>
+                  <td>
+                    <input
+                      type="number"
+                      [value]="t.width ?? ''"
+                      [disabled]="!!disabled"
+                      (change)="onTireInput(t.section, 'SectionWidth', $any($event.target).value)" />
+                  </td>
+                  <td>
+                    <input
+                      type="number"
+                      [value]="t.aspect ?? ''"
+                      [disabled]="!!disabled"
+                      (change)="onTireInput(t.section, 'AspectRatio', $any($event.target).value)" />
+                  </td>
+                  <td>
+                    <input
+                      type="number"
+                      [value]="t.diameter ?? ''"
+                      [disabled]="!!disabled"
+                      (change)="onTireInput(t.section, 'WheelDiameter', $any($event.target).value)" />
+                  </td>
+                  <td class="num">{{ fmt(t.radius, 3) }} m</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+          <ng-container
+            *ngTemplateOutlet="
+              keys;
+              context: { $implicit: ['tire_front', 'tire_rear', 'brake_front', 'brake_rear'] }
+            "></ng-container>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Body and suspension">
+      <ng-template matTabContent>
+        <div class="tab">
+          <p class="note">
+            AntiDive and AntiSquat are read and then overwritten by FrontAntiRoll and RearAntiRoll (CarIni_ReadBasic
+            0x420020): only their presence counts. The AntiRoll values act as anti-dive / anti-squat (0x42a310).
+          </p>
+          <ng-container *ngTemplateOutlet="sliders; context: { $implicit: bodySliders }"></ng-container>
+          <ng-container *ngTemplateOutlet="keys; context: { $implicit: ['basic'] }"></ng-container>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Aerodynamics">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-curve-editor
+            title="Aerodynamic forces"
+            hint="Air drag 0.601 × Cd × area × v² (0x424660; tyres wider than 215 mm add to Cd), downforce per axle coefficient × |v| × 9.81 (0x424530), body lift on the four wheels (0x424660)"
+            [series]="aeroSeries"
+            [xAxis]="speedAxis"
+            [yAxis]="forceAxis"
+            [height]="300"
+            [describeX]="describeSpeed"></app-curve-editor>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Steering">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-curve-editor
+            title="Speed sensitive steering"
+            [hint]="sectionDescription('basic', 'BaseDampingVelocity')"
+            [series]="steeringSeries"
+            [markers]="steeringMarkers"
+            [xAxis]="speedAxis"
+            [yAxis]="shareAxis"
+            [height]="260"
+            [disabled]="disabled"
+            [describeX]="describeSpeed"
+            (markerChange)="onSteeringMarker($event)"></app-curve-editor>
+          <p class="note">
+            Full lock {{ car ? fmt(steeringLockDeg(car), 1) : '–' }}° (atan(WheelBase / TurningCircleRadius)); centre to
+            full lock in {{ stepsToLock() }} physics steps (TurninRamp / 128 per step), lock to lock back across the
+            centre in {{ stepsAcross() }} (TurnoutRamp).
+          </p>
+          <ng-container *ngTemplateOutlet="sliders; context: { $implicit: steeringSliders }"></ng-container>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Sound and other">
+      <ng-template matTabContent>
+        <div class="tab">
+          <ng-container
+            *ngTemplateOutlet="
+              keys;
+              context: { $implicit: ['audio', 'horn', 'display_data', 'skins', 'render', 'addon'] }
+            "></ng-container>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="All fields">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-ini-file-block-ui
+            [resourceId]="resourceId"
+            [resourceName]="resourceName"
+            [resourceSchema]="resourceSchema"
+            [resourceData]="resourceData"
+            [hideName]="true"
+            [hideBlockActions]="true"
+            [embedded]="true"
+            [disabled]="disabled"></app-ini-file-block-ui>
+        </div>
+      </ng-template>
+    </mat-tab>
+  </mat-tab-group>
+}

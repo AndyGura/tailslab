@@ -11,7 +11,11 @@ import {
 import { GuiComponent } from '../../gui.component';
 import { BehaviorSubject, debounceTime, filter, Subject, takeUntil } from 'rxjs';
 import { Mesh, MeshBasicMaterial, Object3D, Texture } from 'three';
-import { ObjViewerControl, ObjViewerCustomControl } from '../../common/obj-viewer/obj-viewer.component';
+import {
+  ObjViewerControl,
+  ObjViewerCustomControl,
+  ObjViewerComponent,
+} from '../../common/obj-viewer/obj-viewer.component';
 import { setupNfs1Texture } from '../../../../../nfs-three-lib/nfs1-model-utils';
 import { steeringControl, wheelSpeedControl } from '../../common/obj-viewer/car-preview-controls';
 import {
@@ -19,6 +23,8 @@ import {
   TnfsCarMeshController,
   TnfsLightBarMode,
 } from '../../../../../nfs-three-lib/tnfs-car-mesh-controller';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
+import { AsyncPipe } from '@angular/common';
 
 // how the preview draws palette indices 250..253: as the game does on a car, on a cop (idle, in a chase), or as the PNGs
 const LIGHT_BAR_OPTIONS: Record<string, [TnfsLightBarMode, boolean]> = {
@@ -32,7 +38,7 @@ const LIGHT_BAR_OPTIONS: Record<string, [TnfsLightBarMode, boolean]> = {
   selector: 'app-orip-geometry-block-ui',
   templateUrl: './orip-geometry.block-ui.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [ObjViewerComponent, CompoundBlockUiComponent, AsyncPipe],
 })
 export class OripGeometryBlockUiComponent extends GuiComponent implements AfterViewInit, OnChanges, OnDestroy {
   previewPaths$: BehaviorSubject<[string, string] | null> = new BehaviorSubject<[string, string] | null>(null);

@@ -6,7 +6,6 @@ import { ViewMode, ViewModeController } from './view-mode.controller';
   templateUrl: './view-mode-toolbar.component.html',
   styleUrls: ['./view-mode-toolbar.component.scss'],
   changeDetection: ChangeDetectionStrategy.Eager,
-  standalone: false,
 })
 export class ViewModeToolbarComponent {
   @Input() viewModeController?: ViewModeController;

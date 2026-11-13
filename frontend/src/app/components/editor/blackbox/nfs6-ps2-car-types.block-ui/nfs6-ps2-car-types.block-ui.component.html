@@ -1,0 +1,553 @@
+@if (resourceId && resourceName && !hideName) {
+  <h2 [matTooltip]="resourceDescription || ''" matTooltipPosition="above">{{ resourceName }}</h2>
+}
+@if (!hideBlockActions) {
+  <app-block-actions
+    [resource]="{
+      id: resourceId!,
+      name: resourceName!,
+      data: resourceData,
+      schema: resourceSchema,
+    }"></app-block-actions>
+}
+
+<!-- the generic editors of some fields of a sub-block of the car type (`sub` null: the car type itself) -->
+<ng-template #fields let-sub="sub" let-names="names">
+  <app-compound-block-ui
+    [resourceId]="sub ? subId(sub) : carId"
+    [resourceName]="sub || car?.name"
+    [resourceSchema]="sub ? subSchema(sub) : carSchema"
+    [resourceData]="sub ? car?.[sub] : car"
+    [hideName]="true"
+    [hideBlockActions]="true"
+    [preferHorizontalLayout]="true"
+    [disabled]="disabled"
+    [fieldWhitelist]="names"></app-compound-block-ui>
+</ng-template>
+
+<ng-template #sliderFields let-sub="sub">
+  <div class="sliders">
+    @for (s of sliders[sub]; track s[0]) {
+      <app-slider-field
+        [label]="s[0]"
+        [description]="describe(sub, s[0])"
+        [value]="car?.[sub]?.[s[0]]"
+        [spec]="s[1]"
+        [disabled]="disabled"
+        (valueChange)="setCarField(sub, s[0], $event)"></app-slider-field>
+    }
+  </div>
+</ng-template>
+
+@if (resourceData && resourceSchema && car) {
+  <div class="layout">
+    <div class="car-list">
+      <input
+        class="filter"
+        placeholder="Filter car types"
+        [value]="filter"
+        (input)="filter = $any($event.target).value" />
+      @for (x of visibleCars; track x.index) {
+        <button
+          type="button"
+          class="car-item"
+          [class.selected]="x.index === selected"
+          [matTooltip]="x.car.manufacturer + ' · ' + (usageTypes[x.car.usage_type] ?? x.car.usage_type)"
+          matTooltipPosition="right"
+          (click)="select(x.index)">
+          <span class="index">{{ x.index }}</span>
+          <span class="name">{{ x.car.name }}</span>
+          <span class="tag" [class.cop]="x.car.usage_type === 1" [class.traffic]="x.car.usage_type === 2">
+            {{ x.car.usage_type === 2 ? 'traffic' : x.car.usage_type === 1 ? 'cop' : 'class ' + (x.car.car_class + 1) }}
+          </span>
+        </button>
+      }
+    </div>
+
+    <div class="car-editor">
+      <h3 class="car-title">
+        {{ car.name }}
+        <span class="muted">· {{ car.manufacturer }} · model {{ car.model_name }} · car type {{ selected }}</span>
+      </h3>
+      <app-stat-tiles [tiles]="tiles" [disabled]="disabled" (tileChange)="onTileChange($event)"></app-stat-tiles>
+
+      <mat-tab-group [(selectedIndex)]="selectedTab" animationDuration="0ms" mat-stretch-tabs="false" class="tabs">
+        <mat-tab label="Engine">
+          <ng-template matTabContent>
+            <div class="tab">
+              <app-curve-editor
+                title="Torque, power and engine braking"
+                [hint]="describe('engine', 'torque_curve')"
+                [series]="engineSeries"
+                [markers]="engineMarkers"
+                [xAxis]="rpmAxis"
+                [yAxis]="torqueAxis"
+                [y2Axis]="powerAxis"
+                [height]="340"
+                [disabled]="disabled"
+                [describeX]="describeRpm"
+                (seriesPreview)="onEnginePreview($event)"
+                (seriesChange)="onEngineChange($event)"
+                (markerChange)="onEngineMarker($event)"></app-curve-editor>
+              <p class="note">
+                Drag the 9 torque points or the 3 engine braking points (idle to max rpm, linear between them:
+                Table::GetValue 0x18f838), or the idle / redline / max markers. Shown in N·m: the file holds kN·m (0.62
+                = 620 N·m). From max rpm - 100 the torque turns to -15 times the curve (rev limiter). Engine braking at
+                full rpm:
+                {{ fmt(frictionAt, 0) }} N·m.
+              </p>
+              <h3>Engine parameters</h3>
+              <ng-container
+                *ngTemplateOutlet="fields; context: { sub: 'engine', names: groups['engine'] }"></ng-container>
+            </div>
+          </ng-template>
+        </mat-tab>
+
+        <mat-tab label="Gearbox">
+          <ng-template matTabContent>
+            <div class="tab">
+              <app-curve-editor
+                title="Gearing and automatic shifts"
+                hint="Engine rpm by road speed in each gear, without wheel slip: rpm = speed / wheel radius × final drive × ratio (the mean of the driven axles). Drag the end of a gear line to change its ratio. Dots: the automatic gearbox shifts up at the optimum of CalculateShiftPoints 0x18ac38 × 0.95 (the first rpm from the middle of the range where the next gear gives more wheel torque) and down at 0.95 × the shift up rpm of the gear below"
+                [series]="gearSeries"
+                [markers]="gearMarkers"
+                [xAxis]="speedAxis"
+                [yAxis]="rpmAxis"
+                [height]="340"
+                [disabled]="disabled"
+                [describeX]="describeSpeed"
+                (seriesPreview)="onGearPreview($event)"
+                (seriesChange)="onGearChange($event)"
+                (markerChange)="onLimiterMarker($event)"></app-curve-editor>
+
+              <table class="gear-table">
+                <thead>
+                  <tr>
+                    <th [matTooltip]="describe('drive_train', 'gear_ratios')">Gear</th>
+                    <th [matTooltip]="describe('drive_train', 'gear_ratios')">Ratio</th>
+                    <th matTooltip="Road speed at max rpm, no slip">At max rpm</th>
+                    <th matTooltip="Automatic gearbox (CalculateShiftPoints 0x18ac38)">Shift up / down</th>
+                    <th matTooltip="Peak torque × ratio × final drive / radius / mass: drive force per mass, no losses">
+                      Peak drive
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (g of gears; track g.index) {
+                    <tr>
+                      <td class="gear-name"><span class="swatch" [style.background]="g.color"></span>{{ g.name }}</td>
+                      <td>
+                        <input
+                          type="number"
+                          step="0.01"
+                          [value]="round(g.ratio, 3)"
+                          [disabled]="!!disabled"
+                          (change)="onCarNumber(['drive_train', 'gear_ratios', g.index], $any($event.target).value)" />
+                      </td>
+                      <td class="num">{{ g.ratio ? fmt(g.maxSpeed, 0) + ' km/h' : '–' }}</td>
+                      <td class="num">
+                        {{ g.shiftUp !== null ? fmt(g.shiftUp, 0) : '–' }} /
+                        {{ g.shiftDown !== null ? fmt(g.shiftDown, 0) : '–' }} rpm
+                      </td>
+                      <td class="num">{{ g.index === 1 ? '–' : fmt(g.peakAccel, 1) + ' m/s²' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+              <div class="final-drives">
+                <label [matTooltip]="describe('drive_train', 'front_final_drive')">
+                  Front final drive
+                  <input
+                    type="number"
+                    step="0.01"
+                    [value]="car.drive_train.front_final_drive"
+                    [disabled]="!!disabled"
+                    (change)="onCarNumber(['drive_train', 'front_final_drive'], $any($event.target).value)" />
+                </label>
+                <label [matTooltip]="describe('drive_train', 'rear_final_drive')">
+                  Rear final drive
+                  <input
+                    type="number"
+                    step="0.01"
+                    [value]="car.drive_train.rear_final_drive"
+                    [disabled]="!!disabled"
+                    (change)="onCarNumber(['drive_train', 'rear_final_drive'], $any($event.target).value)" />
+                </label>
+              </div>
+
+              <app-curve-editor
+                title="Drive acceleration and air drag"
+                hint="Full throttle: drive force of each gear (torque × ratio × final drive / wheel radius, no slip, no clutch or tyre losses) / mass, and the air drag / mass (v² × drag). Where a gear's line meets the drag line the car stops gaining speed"
+                [series]="accelSeries"
+                [xAxis]="speedAxis"
+                [yAxis]="accelAxis"
+                [height]="280"
+                [describeX]="describeSpeed"></app-curve-editor>
+
+              <h3>Drive train parameters</h3>
+              <ng-container *ngTemplateOutlet="sliderFields; context: { sub: 'drive_train' }"></ng-container>
+              <ng-container
+                *ngTemplateOutlet="
+                  fields;
+                  context: { sub: 'drive_train', names: groups['drive_train'] }
+                "></ng-container>
+            </div>
+          </ng-template>
+        </mat-tab>
+
+        <mat-tab label="Chassis & tyres">
+          <ng-template matTabContent>
+            <div class="tab">
+              <div class="chart-grid">
+                <app-curve-editor
+                  title="Top view"
+                  hint="Car coordinates (X forward, Y left): drag the wheels, the centre of gravity or the driver. The dashed box is the body's dimensions around the centre of gravity (the inertia tensor's box; the camera and the cops read them)"
+                  [series]="wheelSeries"
+                  [xAxis]="planXAxis"
+                  [yAxis]="planYAxis"
+                  [height]="340"
+                  [disabled]="disabled"
+                  (seriesChange)="onPlanChange($event)"></app-curve-editor>
+                <app-curve-editor
+                  title="Tyre grip"
+                  hint="Lateral: the friction circle radius per load (Wheel::FinalizeGroundForce 0x1a4ee0); sliding: the sliding force per load (Wheel::GuessGroundForce 0x1a4930); both x the terrain's grip and the catch-up. Drag a bar"
+                  [series]="gripSeries"
+                  [xAxis]="gripAxis"
+                  [yAxis]="gripYAxis"
+                  [height]="340"
+                  [disabled]="disabled"
+                  (seriesChange)="onGripChange($event)"></app-curve-editor>
+              </div>
+
+              <table class="gear-table">
+                <thead>
+                  <tr>
+                    <th>Wheel</th>
+                    <th [matTooltip]="describe('wheels', 'radius')">Radius (m)</th>
+                    <th [matTooltip]="describe('wheels', 'width')">Width (m)</th>
+                    <th [matTooltip]="describe('wheels', 'geometry_y_offset')">Drawn y offset (m)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (w of car.wheels; track $index) {
+                    <tr>
+                      <td class="gear-name">{{ ['Front left', 'Front right', 'Rear right', 'Rear left'][$index] }}</td>
+                      @for (f of ['radius', 'width', 'geometry_y_offset']; track f) {
+                        <td>
+                          <input
+                            type="number"
+                            step="0.001"
+                            [value]="round(w[f], 4)"
+                            [disabled]="!!disabled"
+                            (change)="onCarNumber(['wheels', $index, f], $any($event.target).value)" />
+                        </td>
+                      }
+                    </tr>
+                  }
+                </tbody>
+              </table>
+              <p class="note">
+                Wheelbase {{ fmt(wheelbase, 3) }} m (wheels[0].x - wheels[3].x, the Ackermann steering's).
+              </p>
+
+              <app-curve-editor
+                title="Spring force over the suspension travel"
+                hint="height × stiffness × (1 + progression × max(height, 0)) from full droop (min_height) to the bump stop (max_height), without damping, the static load and the sway bar (Suspension::ComputeAuxiliaries 0x1a5fc0)"
+                [series]="springSeries"
+                [xAxis]="heightAxis"
+                [yAxis]="forceAxis"
+                [height]="240"></app-curve-editor>
+              <div class="chart-grid">
+                @for (side of ['Front', 'Rear']; track side) {
+                  <div>
+                    <h3>{{ side }} suspension</h3>
+                    <app-compound-block-ui
+                      [resourceId]="subId('suspensions', $index)"
+                      [resourceName]="side"
+                      [resourceSchema]="subSchema('suspensions', 0)"
+                      [resourceData]="car.suspensions[$index]"
+                      [hideName]="true"
+                      [hideBlockActions]="true"
+                      [preferHorizontalLayout]="true"
+                      [disabled]="disabled"></app-compound-block-ui>
+                    <h3>{{ side }} tyres</h3>
+                    <app-compound-block-ui
+                      [resourceId]="subId('tires', $index)"
+                      [resourceName]="side"
+                      [resourceSchema]="subSchema('tires', 0)"
+                      [resourceData]="car.tires[$index]"
+                      [hideName]="true"
+                      [hideBlockActions]="true"
+                      [preferHorizontalLayout]="true"
+                      [disabled]="disabled"></app-compound-block-ui>
+                  </div>
+                }
+              </div>
+
+              <h3>Body</h3>
+              <ng-container
+                *ngTemplateOutlet="fields; context: { sub: 'rigid_body', names: groups['rigid_body'] }"></ng-container>
+              <ng-container *ngTemplateOutlet="fields; context: { sub: null, names: groups['body'] }"></ng-container>
+              <div class="actions">
+                <button
+                  mat-stroked-button
+                  type="button"
+                  [disabled]="!!disabled || tensorMatchesBox"
+                  (click)="applyBoxTensor()">
+                  Inertia from dimensions
+                </button>
+                <span class="muted">
+                  {{
+                    tensorMatchesBox
+                      ? 'The inertia tensor is the box formula of the dimensions and mass, as in every car type of the game'
+                      : 'The inertia tensor differs from the box formula of the dimensions and mass (every car type of the game uses it): the button makes it again'
+                  }}
+                </span>
+              </div>
+            </div>
+          </ng-template>
+        </mat-tab>
+
+        <mat-tab label="Aero & limits">
+          <ng-template matTabContent>
+            <div class="tab">
+              <app-curve-editor
+                title="Air drag and downforce"
+                hint="Drag (kN) = v² × drag × (2 - throttle), here at full throttle; downforce (kN) = coefficient × v at (±1, 0, 0) in car coordinates (Aerodynamics::ResolveForces 0x1add70, GetDownforceAtSpeed 0x1adfb8). The marker: the speed limiter"
+                [series]="aeroSeries"
+                [markers]="aeroMarkers"
+                [xAxis]="speedAxis"
+                [yAxis]="kNAxis"
+                [height]="300"
+                [disabled]="disabled"
+                [describeX]="describeSpeed"
+                (markerChange)="onLimiterMarker($event)"></app-curve-editor>
+              <h3>Aerodynamics</h3>
+              <ng-container *ngTemplateOutlet="sliderFields; context: { sub: 'aero' }"></ng-container>
+              <ng-container *ngTemplateOutlet="fields; context: { sub: 'aero', names: groups['aero'] }"></ng-container>
+            </div>
+          </ng-template>
+        </mat-tab>
+
+        <mat-tab label="Steering & brakes">
+          <ng-template matTabContent>
+            <div class="tab">
+              <div class="chart-grid">
+                <app-curve-editor
+                  title="Steering lock by speed"
+                  [hint]="describe('controls', 'steering_scale')"
+                  [series]="steerSeries"
+                  [xAxis]="speedAxis"
+                  [yAxis]="steerAxis"
+                  [height]="280"
+                  [describeX]="describeSpeed"></app-curve-editor>
+                <app-curve-editor
+                  title="Turning radius at full lock"
+                  hint="wheelbase / tan(front wheel angle): a guide, without slip"
+                  [series]="radiusSeries"
+                  [xAxis]="speedAxis"
+                  [yAxis]="radiusAxis"
+                  [height]="280"
+                  [describeX]="describeSpeed"></app-curve-editor>
+              </div>
+              <h3>Steering, brakes and limits</h3>
+              <ng-container *ngTemplateOutlet="sliderFields; context: { sub: 'controls' }"></ng-container>
+              <ng-container
+                *ngTemplateOutlet="fields; context: { sub: 'controls', names: groups['controls'] }"></ng-container>
+            </div>
+          </ng-template>
+        </mat-tab>
+
+        <mat-tab label="Engine sound">
+          <ng-template matTabContent>
+            <div class="tab">
+              @if (!car.engine_sound.region) {
+                <p class="note">No engine sound of its own (traffic): the AI engine sample AIEngine0.</p>
+              }
+              <div class="chart-grid">
+                <app-curve-editor
+                  title="Samples: pitch and volume"
+                  [hint]="
+                    describe('engine_sound', 'sample_pitches') + '. ' + describe('engine_sound', 'sample_volumes')
+                  "
+                  [series]="sampleSeries"
+                  [xAxis]="sampleAxis"
+                  [yAxis]="centsAxis"
+                  [y2Axis]="volumeAxis"
+                  [height]="280"
+                  [disabled]="disabled"
+                  (seriesChange)="onSoundChange($event)"></app-curve-editor>
+                <app-curve-editor
+                  title="Exhaust / engine balance by view"
+                  [hint]="describe('engine_sound', 'exhaust_mix')"
+                  [series]="mixSeries"
+                  [xAxis]="viewAxis"
+                  [yAxis]="mixAxis"
+                  [height]="280"
+                  [disabled]="disabled"
+                  (seriesChange)="onSoundChange($event)"></app-curve-editor>
+              </div>
+              <app-curve-editor
+                title="Sample pitch over the rpm"
+                hint="(pitch_offset + sample pitch + (rpm position - 64) × rpm_pitch / 64) / 1200 octaves, rpm position = 127 × sound rpm / max rpm (PlayerEngineSound::UpdateEngine 0x210bf8). Solid: load (throttle) samples, dashed: coast"
+                [series]="pitchSeries"
+                [xAxis]="positionAxis"
+                [yAxis]="octaveAxis"
+                [height]="280"></app-curve-editor>
+              <h3>Engine sound parameters</h3>
+              <ng-container
+                *ngTemplateOutlet="
+                  fields;
+                  context: { sub: 'engine_sound', names: groups['engine_sound'] }
+                "></ng-container>
+            </div>
+          </ng-template>
+        </mat-tab>
+
+        <mat-tab label="Camera">
+          <ng-template matTabContent>
+            <div class="tab">
+              <app-curve-editor
+                title="Camera views"
+                hint="Eye position of each view: distance behind the car and height above it (DriveCameraMover 0x15c880). Drag a view"
+                [series]="viewSeries"
+                [xAxis]="distanceAxis"
+                [yAxis]="camHeightAxis"
+                [height]="280"
+                [disabled]="disabled"
+                (seriesChange)="onViewChange($event)"></app-curve-editor>
+              @if (!car.camera.num_views || !car.camera.num_split_screen_views) {
+                <p class="note">Without views of its own the car is driven with car type 0's.</p>
+              }
+              @for (key of ['views', 'split_screen_views']; track key) {
+                <table class="gear-table">
+                  <thead>
+                    <tr>
+                      <th>{{ key === 'views' ? 'View' : 'Split screen view' }}</th>
+                      <th [matTooltip]="describe('camera', 'views', 'type')">Type</th>
+                      <th [matTooltip]="describe('camera', 'views', 'distance')">Distance (m)</th>
+                      <th [matTooltip]="describe('camera', 'views', 'height')">Height (m)</th>
+                      <th [matTooltip]="describe('camera', 'views', 'side')">Side (m)</th>
+                      <th [matTooltip]="describe('camera', 'views', 'pitch')">Pitch (°)</th>
+                      <th [matTooltip]="describe('camera', 'views', 'raised_pitch')">Raised pitch (°)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (v of car.camera[key]; track $index) {
+                      <tr
+                        [class.inactive]="
+                          $index >= (key === 'views' ? car.camera.num_views : car.camera.num_split_screen_views)
+                        ">
+                        <td class="gear-name">{{ $index }}</td>
+                        <td>
+                          <select
+                            [value]="v.type"
+                            [disabled]="!!disabled"
+                            (change)="setCar(['camera', key, $index, 'type'], $any($event.target).value)">
+                            <option value="bumper">bumper</option>
+                            <option value="in_car">in car</option>
+                            <option value="chase">chase</option>
+                          </select>
+                        </td>
+                        @for (f of ['distance', 'height', 'side']; track f) {
+                          <td>
+                            <input
+                              type="number"
+                              step="0.01"
+                              [value]="round(v[f], 3)"
+                              [disabled]="!!disabled"
+                              (change)="onCarNumber(['camera', key, $index, f], $any($event.target).value)" />
+                          </td>
+                        }
+                        @for (f of ['pitch', 'raised_pitch']; track f) {
+                          <td>
+                            <input
+                              type="number"
+                              step="0.1"
+                              [value]="pitchDeg(v[f])"
+                              [disabled]="!!disabled"
+                              (change)="setPitch(key, $index, f, $any($event.target).value)" />
+                          </td>
+                        }
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              }
+              <ng-container
+                *ngTemplateOutlet="fields; context: { sub: 'camera', names: groups['camera'] }"></ng-container>
+            </div>
+          </ng-template>
+        </mat-tab>
+
+        <mat-tab label="HUD gauges">
+          <ng-template matTabContent>
+            <div class="tab">
+              <app-curve-editor
+                title="Needle angles"
+                hint="Needle angle (degrees, clockwise) over its scale, as the HUD turns it (0x17f040): tachometer 0 rpm .. max rpm, speedometer min .. max in the player's units"
+                [series]="gaugeSeries"
+                [xAxis]="fractionAxis"
+                [yAxis]="angleAxis"
+                [height]="260"></app-curve-editor>
+              @if (!car.gauges.tach_scale_rpm) {
+                <p class="note">No gauges (traffic).</p>
+              }
+              <app-compound-block-ui
+                [resourceId]="subId('gauges')"
+                resourceName="gauges"
+                [resourceSchema]="subSchema('gauges')"
+                [resourceData]="car.gauges"
+                [hideName]="true"
+                [hideBlockActions]="true"
+                [preferHorizontalLayout]="true"
+                [disabled]="disabled"></app-compound-block-ui>
+            </div>
+          </ng-template>
+        </mat-tab>
+
+        <mat-tab label="Front end">
+          <ng-template matTabContent>
+            <div class="tab">
+              <app-curve-editor
+                title="Random car weight by location"
+                [hint]="describe('traffic_weights')"
+                [series]="weightSeries"
+                [xAxis]="locationAxis"
+                [yAxis]="weightAxis"
+                [height]="220"
+                [disabled]="disabled"
+                (seriesChange)="onWeightChange($event)"></app-curve-editor>
+              <p class="note">
+                Status until unlocked: {{ statusName(car.default_status) }}; in Be a Cop:
+                {{ statusName(car.cop_default_status) }}. Paints offered:
+                {{ car.skins.slice(0, car.num_skins).join(', ') }} (first shown: {{ car.default_skin }}).
+              </p>
+              <h3>Names and files</h3>
+              <ng-container
+                *ngTemplateOutlet="fields; context: { sub: null, names: groups['identity'] }"></ng-container>
+              <h3>Front end and unlocking</h3>
+              <ng-container
+                *ngTemplateOutlet="fields; context: { sub: null, names: groups['front_end'] }"></ng-container>
+            </div>
+          </ng-template>
+        </mat-tab>
+
+        <mat-tab label="All fields">
+          <ng-template matTabContent>
+            <div class="tab">
+              <app-compound-block-ui
+                [resourceId]="carId"
+                [resourceName]="car.name"
+                [resourceSchema]="carSchema"
+                [resourceData]="car"
+                [hideName]="true"
+                [hideBlockActions]="true"
+                [disabled]="disabled"></app-compound-block-ui>
+            </div>
+          </ng-template>
+        </mat-tab>
+      </mat-tab-group>
+    </div>
+  </div>
+}

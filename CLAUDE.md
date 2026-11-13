@@ -393,6 +393,33 @@ When you do:
   (`Nfs6CarModel`) uses it with the location `lighting.json` picks and its environment map, and reads the mesh names,
   properties and JSON files: keep them stable.
 
+## NFS Hot Pursuit 2 PC car specs (`Cars/<car>/*.ini`, `Cars/*.ini`, `Cars/cartable.viv`)
+
+- Typed INI files (`resources/eac/ini.py`): an `IniFile` subclass declares `IniSection`s and `IniSectionGroup`s
+  (numbered sections: `[skin00]`.., by a name regex) of typed keys (`IniInt`, `IniFloat`, `IniString`, `IniArray` of
+  numbered keys `torqueCurve_%d`); the block reads and writes the whole text itself (`source_text`, `usage: io`): a
+  changed number keeps the old one's style, a new key goes after the definition's previous key, a missing key is
+  None (an empty GUI input removes the line). Keys the definition lacks go to the section's `other_keys`, sections to
+  `other_sections` (repeated sections after the first too). Which line the game reads follows NFSHP2.exe's CINI
+  parser (`parse_ini`, 0x5b5180): no comment syntax (key lines starting with `'`, `//`, `#`, `;` are kept as text,
+  out of `other_keys`: no lookup can find them), a repeated key spelling replaces the value, lookups ignore case and
+  find the first section / key. All 296 car `.ini` files write back byte-exact.
+- `resources/eac/nfs6_car_specs.py`: `Nfs6CarIni` (`car.ini`; `Nfs6CarHpIni`, `Nfs6CarCopIni`, `Nfs6CarRacerIni`
+  subclass it), `Nfs6VehicleIni`, `Nfs6CarsIni`, `Nfs6BoundsIni`, `Nfs6GeomDataIni`, `Nfs6DamageIni`, `Nfs6LodIni`,
+  `Nfs6CamerasIni`, `Nfs6RearViewIni`, `Nfs6ReflectionIni` (picked by name in a `Cars` folder,
+  `nfs6_car_ini_class`), every key described from NFSHP2.exe (nfs-web `decomp/nfs6/NFSHP2.exe.gzf`: `CarIni_*`,
+  `HCVehicle_*`, `Ini_*`, `Cameras_*`...: reader, default, where it goes, users; keys the game never reads say so).
+  Each section block gets a class of its own (`Nfs6CarIniBasic`..., `NFS6_CAR_SPEC_SECTIONS`) so the docs list its
+  keys. `Nfs6EngineAudioTable` ("CRDl", the items of `cartable.viv`, also a `BigfBlock` item block): engine sound
+  slots, self-relative table offsets, 512-byte volume / pitch tables.
+- Conversion: `IniFileSerializer` writes `<file>.json` (the values, sections as objects, groups as lists; no layout)
+  and imports it back over the loaded file (layout kept) or as a new file; `BlockJsonSerializer` does the same for a
+  binary block with every field (`Nfs6EngineAudioTable`, `from_json`).
+- GUI: `Nfs6CarIniBlockUiComponent` (`frontend/.../editor/eac/nfs6-car-ini.block-ui/`; the exe's formulas in
+  `nfs6-car-specs.ts`: torque curve fill and lookup, gearing, drive force, shift speeds, aero, steering limit),
+  `IniFileBlockUiComponent` (`editor/common/ini-file.block-ui/`, every `IniFile`: sections, keys with units, defaults
+  and descriptions, groups and other keys), `Nfs6EngineAudioBlockUiComponent` (the CRDl tables on charts).
+
 ## NFS Hot Pursuit 2 PlayStation 2 (`games/nfs6_ps2`, SLUS-20362, doc `resources/NFS6_PS2.md`)
 
 - The disc keeps its files in `NFSHP2/ZZDATA.BIN`, listed by `NFSHP2/ZDIR.BIN` (12-byte entries: `bin_hash` of the path
@@ -405,7 +432,8 @@ When you do:
 - Files are Black Box chunk bundles with NFSU's chunk ids but other layouts (`resources/blackbox/{geometries,bitmaps,maps}/
   nfs6_ps2.py`): the loader picks `Nfs6Ps2ChunkBundle` for a bundle with a mesh pack 0x80034000 or a texture pack
   0xB0300001 (`is_nfs6_ps2_bundle`; NFSU's are 0x80134000 / 0xB3300000), `Nfs6Ps2TrackBundle` with sceneries too. Every
-  track and global bundle writes back byte-exact.
+  track and global bundle writes back byte-exact. The bundle blocks subclass `Nfs6Ps2ChunkBundle`: `Nfs6Ps2CompressedBlock`
+  takes the loader's class itself (`detect`), so a plain `.LZC` bundle (GLOBALB, INGAMEB, FRONTB) is no track.
 - Meshes (`nfs6_ps2_mesh`): VIF packets for the game's VU1 microprogram (layout in its docstring, strips:
   `nfs6_ps2_strip_skips`, the R register LFSR of the VU). Vertices are local: a scenery instance places them
   (`v @ rotation + position`, rotation 2.14 fixed point); the mesh header's matrix is the modelling one, not used.
@@ -460,24 +488,69 @@ When you do:
   from these files: keep the names stable.
 - Physics data (field meanings from nfs-web's port of the physics, `src/nfs6/nfs6-physics/notes/*-formats.md`; exe
   addresses in the descriptions): the car types' wheels, tyres, mass and inertia, suspensions, drive train, engine,
-  aerodynamics and controls (`Nfs6Ps2CarTypeInfo`, its sub-blocks `Nfs6Ps2Car*`; 0x80..0x110 but `is_hp`, 0x324..0x538
-  stay unknown bytes); in the track bundles the ground and wall polygons of the physics, a quad tree (0x34130 nodes and
+  aerodynamics and controls (`Nfs6Ps2CarTypeInfo`, its sub-blocks `Nfs6Ps2Car*`); in the track bundles the ground and wall polygons of the physics, a quad tree (0x34130 nodes and
   0x34131 squares, 16-byte aligned; 0x34132 polygons, 0x34133 polygon indexes, not aligned: `Nfs6Ps2TopologyTree*`), the
   start grid markers 0x34146, the routes 0x34121 (lanes and racing lines, back to back, 0x428 bytes + 0x70 per point)
   and signposts 0x34122; the collision volumes 0x80034020 (`Nfs6Ps2CollisionVolumes`: V-Clip polyhedra as memory images,
   five sub-chunks each, 16-byte aligned; a car's GEOMETRY has its hull `<model>_CV`, the tracks and INGAMEB the props').
   Records the game uses in place keep their run time fields (list pointers, slots) as read.
+- Car types table (`Nfs6Ps2CarTypeInfo`, every byte named): readers found by a register taint scan of the whole
+  disassembly (nfs-web `decomp/nfs6_ps2/port-work/car-specs/fieldscan.py`: from the table pointer 0x330868, Car+0xc,
+  CarState, PhysicsCar+0x4c, CarRenderInfo+8); a field without a reader is `unused*`, described "not read". Besides the
+  physics: dashboard model paths, manufacturer, paints (`num_skins`, `skins`, `default_skin`), `car_class` (performance
+  class 0..4: front end, racing line, records), `open_top`, `driver_position`, the engine sound (`Nfs6Ps2CarEngineSound`,
+  0x330: region, 12 samples lelo..cxhi, pitches in cents), the camera views (`Nfs6Ps2CarCamera`, 0x3c0: POVs bumper /
+  in car / chase, split screen), the HUD gauges (`Nfs6Ps2CarGauges`, 0x4d0), random car weights by location,
+  `usage_type` (0 racer, 1 police, 2 traffic), the car selector's statuses until unlocked (eCarStatus), `language_info`
+  (run time pointer). The PC game's `Cars/<car>/car.ini` is another physics model: its keys are named in the
+  descriptions where a value matches (SpeedGovernor m/s = speed limiter mph / 2.237, NumberOfGears = num_gears + 2).
+  Paints (`Nfs6Ps2CarSkin`): `color_bit` is the colour group of the cops' speech and of unique grid colours.
+- Car spec JSON: `Nfs6Ps2ChunkBundleSerializer` (`serializers/nfs6_ps2_car_specs.py`, the serializer of a plain bundle)
+  writes `car_types.json` (`{"car_types": [...]}`, every field of the 64 car types, bytes as `{"$bytes": [...]}`) and
+  `car_skins.json` (`{"skins": [...]}`) into GLOBALB's output folder, nothing for a bundle without these chunks; its
+  import (`apply_json`, the GUI's reversible import) puts their values back, unchanged files write byte-exact.
+  `Nfs6Ps2CarSerializer` adds `car_types.json` next to `car.json`: the car types of the model (CORVETTE, CORVETTEHP,
+  CORVETTECOP), the same entries.
+- GUI: `Nfs6Ps2CarTypesBlockUiComponent` (`frontend/.../editor/blackbox/nfs6-ps2-car-types.block-ui/`, on
+  `CarSpecEditorBase`, registered for `Nfs6Ps2CarTypeInfos`, the chunk in GLOBALB's chunk list): car type list, key
+  figures and tabs per subsystem (engine, gearbox with the automatic's shift points, chassis and tyres with a top view of
+  the wheels, aero, steering lock by speed, engine sound, camera views, HUD gauges, front end, all fields). The
+  executable's formulas are `nfs6-ps2-car-specs.ts` (CalculateShiftPoints, the speed limiter, the steering tables, the
+  grid order...): keep them and the field descriptions in sync.
 - Ghidra: nfs-web `decomp/nfs6_ps2/SLUS_203.62.gzf` (R5900 language of the extension `ghidra-emotionengine-reloaded`),
-  VU1 microcode: nfs-web `decomp/vu1dis.py`. Not read yet: engine sounds, speech, NIS, the 136 unnamed files.
+  VU1 microcode: nfs-web `decomp/vu1dis.py`. Not read yet: the engine sound banks, speech, NIS, the 136 unnamed
+  files; GLOBALB's DifficultyInfo 0x34b00 (AI difficulty, LoaderDifficultyInfo 0x12ff68), CharacterInfo 0x34300 /
+  0x34301 (drivers), NisInfo 0x37010.
 
-## NFS5 data files (`resources/eac/car_specs.py`, `resources/eac/maps/nfs5.py`, `resources/eac/geometries/nfs5.py`)
+## NFS5 data files (`resources/eac/car_specs.py`, `resources/eac/nfs5_career.py`, `resources/eac/maps/nfs5.py`, `resources/eac/geometries/nfs5.py`)
 
-- Field meanings from Porsche.exe (nfs-web `decomp/nfs5/Porsche.exe.gzf`, addresses in the descriptions): `.sim`
-  `Nfs5CarPhysics` (328 bytes, picked by size under `/Simulation/CarData/`), `.ais` `Nfs5CarAi` (304 bytes),
-  `nfs5.prt` `Nfs5CarParts` (360-byte records), `nfs5.car` `Nfs5Cars` (0x670-byte records starting with the car id;
-  texts are Latin-1: `Latin1Block`), `<track>.jnc` `Nfs5Junctions`, `<track>.edg` `Nfs5WallEdges`; all write back
-  byte-exact, exported as JSON. In the CRP, the track parts `DmiS` / `TmiS` (road spline slices and sections), `esaB`
-  (`CrpBasePart`: flags, bounds, object tag, levels of detail) and `fd` (vertex colours) are parsed.
+- Field meanings from Porsche.exe (nfs-web `decomp/nfs5/Porsche.exe.gzf`, addresses in the descriptions; the research
+  notes and probe scripts in nfs-web `decomp/nfs5/port-work/car-specs/`): `.sim` `Nfs5CarPhysics` (328 bytes, picked
+  by size under `/Simulation/CarData/`; torque in lb·ft), `.ais` `Nfs5CarAi` (304 bytes: corner look-ahead in 6 m
+  track slices and target speeds, read only by the AI target speed 0x40b650), `nfs5.prt` `Nfs5CarParts` (360-byte
+  records; `sort_key` is the price), `nfs5.car` `Nfs5Cars` (0x670-byte records starting with the car id, no header;
+  colours stored A, R, G, B, read as big-endian 0xAARRGGBB; texts are Latin-1: `Latin1Block`), and in
+  `nfs5_career.py` `nfs5.fac` `Nfs5FactoryMissions` (0xf0), `nfs5.trn` `Nfs5Tournaments` (0xd40), `nfs5.per`
+  `Nfs5Personalities` (0x2c), picked by name and record size; `<track>.jnc` `Nfs5Junctions`, `<track>.edg`
+  `Nfs5WallEdges`. Every byte is a named field (`padding_*` / `unused_*`: read by no code); the few values with no
+  reader whose meaning is unknown stay `is_unknown` (`unk_*`). `nfs5.trk`, `nfs5-1.hud` / `nfs5-2.hud` and the
+  `Simulation/AI` files are not parsed (what they are: the NFS5 doc). All write back byte-exact.
+- Conversion: the car data blocks use `CompleteJsonSerializer` (`serializers/complete_json.py`): `<file>.json` with
+  every field (unknown ones too), reversible: the JSON imports back and writes the file byte-exact
+  (`test/resources/eac/test_nfs5_car_data.py`, samples `test/samples/nfs5/`). nfs-web reads the raw files, not the
+  JSON; keep the existing keys stable (`sort_key`, the geometry entries' `a` / `b`).
+- GUI (`frontend/.../editor/eac/`): `nfs5-car-physics.block-ui` (`.sim`: dyno, gearing with the automatic gearbox,
+  drive against the air drag and an idealized speed run, brakes, downforce, steering lock; formulas in
+  `nfs5-car-physics.ts`), `nfs5-car-ai.block-ui` (`.ais`), and the record database editors on the shared
+  `common/record-list` (a filterable list beside one record): `nfs5-cars.block-ui` (`nfs5.car`: market with the value
+  by year, dealer price and car value, parts by name, paints as colours, dashboard), `nfs5-car-parts.block-ui`
+  (`nfs5.prt`: effects of `Cars_ProcessSpecs` 0x49cb50 in `nfs5-parts.ts`, prices with the inflation table, geometry
+  switches, the cars listing the part), `nfs5-career.block-ui` (`nfs5.fac`, `nfs5.trn`). They read `nfs5.car` /
+  `nfs5.prt` next to the opened file (`nfs5-files.ts`: `find_files` + `retrieve_value`) for names, and link to the
+  other files (`.sim`, `.ais`, a car, a part) by opening them (`nfs5PendingSelection` picks the record shown; off
+  with unsaved changes). Their derived values follow the field descriptions: keep the two in sync.
+- In the CRP, the track parts `DmiS` / `TmiS` (road spline slices and sections), `esaB` (`CrpBasePart`: flags, bounds,
+  object tag, levels of detail) and `fd` (vertex colours) are parsed.
 - CRP `pr` parts (`TrianglePartData`): the info row blocks are picked by `row_type` (`vt`, `nm`, `uv`, `fd`, `n$`),
   not by position; one index table per index row (`index_table`, `uv_index_table`), and a row's `index_stream` picks
   the table its indices come from, 0xffff = consecutive (`crp_stream_indices` in `serializers/geometries.py`, as
@@ -536,7 +609,7 @@ When you do:
   brake lights and writes 0x0008 / 0x001F to them (`tail_lights`); the cop's pure red and pure blue entries exchange
   red and blue every 16 clock units in a chase (`light_bar`, two colours; other cars keep the texture colours).
   Written only for a model with one such colour (every game file).
-- GUI: `OripGeometryBlockUiComponent` renders `OrixGeometry` too (`DATA_BLOCK_COMPONENTS_MAP`), with
+- GUI: `OripGeometryBlockUiComponent` renders `OrixGeometry` too (`LAZY_DATA_BLOCK_COMPONENTS_MAP`), with
   `TnfsCarMeshController` for a model of a `.VSM` / `.WSM` (`blackLightBar` off; brake lights and siren controls only
   when `car_colors.json` has them). It sets every texture of an ORIP / ORIX preview to nearest filtering
   (`setupNfs1Texture`): the colour replacement matches exact texel colours.
@@ -708,20 +781,32 @@ When you do:
 
 ## NFS2 SE car physics and AI (GAMEDATA/SIM/CARDATA/P*.DAT, GAMEDATA/SIM/AI/*.DAT, their copies in CARDATA.VIV)
 
-- `Nfs2CarPhysics` (`resources/eac/car_specs.py`), 356 bytes, fields from the developers' `P*.DES` and the
-  nfs2sen.exe loader (0x459970), addresses cited in the descriptions. The loader picks it by name and size
+- Field meanings, readers (nfs2sen.exe addresses), units, ranges and the model reading them (arcade / Wild /
+  simulation / AI) are in the field descriptions, from nfs-web's `decomp/nfs2/nfs2sen.exe.gzf` (readers annotated
+  there: `Physics_Sim*`, `Physics_DeriveHumanSpecs`, `Cars_LoadSimTune`, `Race_HumanGlue`...); the simulation model
+  `Physics_Sim` 0x455370 is not ported in nfs-web, its readers were traced in the exe. Fields no code reads are named
+  and described as such (`gas_increasing_curve` / `gas_decreasing_curve`, SimTune `ground_max_speed_change`, car AI
+  `speed_factor`). Reading aids: nfs-web `decomp/nfs2/port-work/car-specs/` (`scan_ptr_fields.py` lists the field reads
+  behind a car pointer such as the specs car+0x2ec in a disassembly dump; probes of the game files).
+- `Nfs2CarPhysics` (`resources/eac/car_specs.py`), 356 bytes, loaded by 0x459970 into the specs behind car+0x2ec
+  (`gas_off_factor` and `g_transfer_factor` swapped there). The loader picks it by name and size
   (`_is_nfs2_car_physics_name` + length 356 in `library/loader.py`; the VIV's `prsonal.dat` also starts with `p`:
   the size tells them apart), and `BigfBlock` lists it among its item blocks.
+- `.QDA` files (`SIM/CARDATA/P*.QDA`, `CARMODEL/PC/SIMTUNE.QDA`, NFS2's `SIM/AICARDT/<car>.QDA`) are QFS3- or
+  RefPack-compressed copies of the `.DAT` files: `EacCompressedBlock` (its possible blocks include `Nfs2CarPhysics`,
+  `Nfs2SimTune`, `Nfs2CarAi`), the inner data picked by the compressed file's name (`_nfs2_data_file_name`: a
+  `<name>.QDA__uncompressed` path counts as `<name>.DAT`). NFS2 (not SE) has no `CARDATA.VIV`: its car files are only
+  these. nfs2sen.exe reads none of them (CARDATA.VIV only).
 - GUI: `Nfs2CarPhysicsBlockUiComponent` (`frontend/.../editor/eac/nfs2-car-physics.block-ui/`, on the PBS editor's
   `CarSpecEditorBase`) edits it on charts: torque / power (`torque_curve` is 16.16 N·m, entry rpm / 256), gearing with
   the arcade automatic gearbox, arcade and simulation drive with the simulation air drag, pedal / brake ramps, braking,
-  arcade steering response with the push slide limit, steering ramp, simulation downforce. The derived curves follow
-  the field descriptions (arcade model ported in `../nfs-web/src/nfs2/nfs2-physics`, simulation model `Physics_Sim`
-  0x455370 from nfs-web's `decomp/g nfs2 nfs2sen.exe`): keep the two in sync.
+  arcade steering response with the push slide limit, steering ramp, and the simulation model (axle grip, downforce,
+  weight transfer, steering lock, slides). The derived curves follow the field descriptions (arcade model ported in
+  `../nfs-web/src/nfs2/nfs2-physics`, simulation model from the exe): keep the two in sync.
 - `Nfs2SimTune` (same module): `simtune.dat` in CARDATA.VIV (= `GAMEDATA/CARMODEL/PC/SIMTUNE.DAT`), 232 bytes, two
-  `Nfs2SimTuneRecord`s (simulation, arcade + Wild) of 21 values + 4 glue logic pairs, read by nfs2sen.exe 0x43e0a0 into
-  0x4df0a8. Picked by name (any case) and size 232 (`_file_or_archive_item_name` in `library/loader.py`), also a
-  `BigfBlock` item block.
+  `Nfs2SimTuneRecord`s (simulation, arcade + Wild) of 21 values + 4 glue logic pairs (the human catch-up), read by
+  nfs2sen.exe 0x43e0a0 into 0x4df0a8. Picked by name (any case) and size 232, also a `BigfBlock` item block. GUI:
+  `Nfs2SimTuneBlockUiComponent` (`frontend/.../editor/eac/nfs2-sim-tune.block-ui/`).
 - `Nfs2CarAi` (same module): the car AI data `<car>.dat` in CARDATA.VIV (17 racing cars, each listed twice as
   identical copies), 524 bytes, read by nfs2sen.exe 0x42b7b0 (`AI_LoadData` in the nfs-web port): shift duration,
   redline, gear top speeds, two `Nfs2CarAiLevers` (simulation, arcade: 112 x 8.8 acceleration table indexed by speed
@@ -730,8 +815,8 @@ When you do:
   GUI: `Nfs2CarAiBlockUiComponent` (`frontend/.../editor/eac/nfs2-car-ai.block-ui/`, on `CarSpecEditorBase`):
   acceleration tables with the gear top speeds, a speed run from standstill (32 AI steps/s, no drive while a shift
   lasts), the AI gearbox rpm, grip by speed, handling slowdown. The car model comes from the file name (`cala.dat` =
-  CALA, model 10 in the exe's model names 0x4c5fe0): models below 15 get the exe's table scale (0x4c4e38) and top speed
-  (0x4c54cc). Its formulas follow nfs-web's `ai.c` (`feature/nfs2-physics` branch) and the field descriptions.
+  CALA, or an NFS2 `AICARDT/CALA.QDA`: `nfs2AiCarName`; model 10 in the exe's model names 0x4c5fe0): models below 15 get the exe's table scale (0x4c4e38) and top speed
+  (0x4c54cc). Its formulas follow nfs-web's `ai.c` and the field descriptions.
 - `Nfs2TrafficConfig` (same module): `GAMEDATA/SIM/AI/TRAFCFG.DAT` (CARDATA.VIV: identical `trafcfg.dat` and
   `TRAFCFG.DAT`), 452 bytes, read by nfs2sen.exe 0x42bb60: general AI / traffic values, three `Nfs2TrafficGlue`
   tables (single race, tournament, knockout = race type 0, 1, 2) of 12 `Nfs2TrafficGluePair`s (speed glue,
@@ -741,15 +826,22 @@ When you do:
   nfs2sen.exe 0x451bd0: `Nfs2PersonalityGrid` (4 rows of 12 letters) and the personalities `car_a` .. `car_m`
   (`Nfs2Personality`, 0xe4 bytes; field descriptions carry the `.DES` chain names). Names from `PRSONAL.DES`. Picked
   by name (any case) and size 3012. Both are `BigfBlock` item blocks; the exe also has compiled-in copies of both.
-- The developers' `.DES` files (`P*.DES`, `SIMTUNE.DES`, `MCF1.DES`, `TRAFCFG.DES`, `PRSONAL.DES`) give field names,
-  types and order: a header, a copy of the `.DAT` at 0x66 (int at 0x62 = size of the records), then the records: type
-  (10 bytes), name (80 bytes; null-terminated, memory garbage after it), int size of the field's data in bytes, int n,
-  then n bytes. Fields (`Fixed` = 16.16, `Integer`, `Char` = 1 byte) have n = 0x38 (garbage; one `TRAFCFG.DES` `Fixed`
-  has 0x10); `Array` 12 (1, count, count; no element type, 4-byte elements; (2, 1, 2) for the unnamed pairs of the
-  `TRAFCFG.DES` glue factors) and `CArray` 12 (byte arrays, `P*.DES` curves); `Import` (a table, `MCF1.DES`
-  acceleration tables) 1 (0x41); `Chain` (a group: `MCF1.DES`, `TRAFCFG.DES`, `PRSONAL.DES`) n = everything below
-  it: 94 bytes of garbage, int data size, int size of the child records, a copy of the group's data, then its child
-  records.
+- Conversion: all five export to `<name>.json` with every field (`Nfs2DataJsonSerializer`,
+  `serializers/misc/nfs2_data_json.py`: JsonSerializer's output, plus import: the JSON's values over the resource,
+  `merge_json_values`); a `.QDA` converts through its compressed wrapper to `<name>.QDA.json`.
+- The developers' `.DES` files (`P*.DES`, `SIMTUNE.DES`, `MCF1.DES`, `TRAFCFG.DES`, `PRSONAL.DES`, the smackables'
+  `TRACKS/DATA/PC/SM*.DES`; NFS5 `TRAFCFG.DES` too) = `EaFieldDescriptions` (`resources/eac/field_descriptions.py`,
+  module docstring has the layout): a body (94 bytes of garbage, int data size, int records size, a copy of the data,
+  records), records of type (10 bytes) and name (80 bytes) as text up to the first zero plus garbage (`DesTextBlock` +
+  `DesTextRestBlock`, refitted on write), int field size, int n and n bytes (`Chain`: a nested body, `Array` /
+  `CArray`: shape, else garbage); bodies nest up to `DES_MAX_DEPTH`. Picked by the `.DES` extension and the body sizes
+  adding up to the file length (`is_ea_field_descriptions`). All 60 files write back byte-exact. `des_fields` flattens
+  the fields (path, type, offset, size, value), `described_block` / `block_layout` / `des_check` compare them with the
+  TailsLab block of the described `.DAT` (checked by `test/resources/eac/test_nfs2_car_specs.py`). `read` adds the GUI-only
+  keys `dat_block` / `dat_fields` (`DES_UI_KEYS`). Exported as `<name>.DES.json` (`fields` and the complete `body`, which
+  imports back byte-exact; `serializers/misc/ea_field_descriptions.py`). GUI: `EaFieldDescriptionsBlockUiComponent`
+  (`frontend/.../editor/eac/ea-field-descriptions.block-ui/`): the fields with their values and the TailsLab fields
+  at the same offsets.
 
 ## NFS3 car models (`GameData/CarModel/<car>/car.viv`: `car.fce`)
 
@@ -779,17 +871,24 @@ When you do:
   each changed number in the style of the one it replaces (decimals, `128.000000` for an integer field), fields the
   text lacks appended when they differ from the default, so all 16 files write back byte-exact
   (`test/samples/nfs3_carp/`, `test/resources/eac/test_nfs3_car_physics.py`, which also checks the values against
-  the exe parser's carp dumped by the nfs-web port). Picked by the item name `carp.txt` under a `/CarModel/` path
-  (`_is_nfs3_car_physics_path`). The block is table driven (`carp_fields`, `carp_table_index`, `carp_labels`,
+  the exe parser's carp dumped by the nfs-web port). Picked by the item name `carp.txt` under a `/CarModel/` path or
+  in the network placeholder `FeData/Plac/CAR.VIV` (`_is_nfs3_car_physics_path`; its text holds the serial number
+  only). The block is table driven (`carp_fields`, `carp_table_index`, `carp_labels`,
   `carp_exe_read`, `_value_line`): `Nfs4CarPhysics` subclasses it.
 - `Nfs3CarPhysicsSerializer` writes `carp.txt.json` (named values) and `carp.txt.bin` (the file itself), for NFS3 and
-  NFS4: nfs-web's NFS3 physics downloads `carp.txt.bin` from the CDN, keep writing it byte-identical.
+  NFS4: nfs-web's NFS3 physics downloads `carp.txt.bin` from the CDN, keep writing it byte-identical. Its JSON imports
+  back (`deserialize`): the values go over the carp loaded under the id (its text keeps labels and number styles, so
+  an unchanged JSON gives the same bytes), else over a new text.
+- "No reader identified" in the field descriptions: no instruction reads the field through the car's carp pointer
+  (NFS3 car+0x528, NFS4 car+0x474) in a linear disassembly of the whole executable (nfs-web
+  `decomp/<game>/port-work/car-specs/carp_readers.py`), AI, camera, drawing and force feedback code included.
 - GUI: `Nfs3CarPhysicsBlockUiComponent` (`frontend/.../editor/eac/nfs3-car-physics.block-ui/`, on `CarSpecEditorBase`):
   dyno (interpolated torque), gearing with the automatic gearbox and the air drag (manual / automatic gear set),
   brake and steering ramps, steering lock, yaw damping, downforce, AI acceleration table, driving aid, the menus'
   tuning sliders (Carp_TuneCar, local to the editor). Its derived curves follow the field descriptions: keep the two
-  in sync. NFS4 carp files reach it through `block_class_mro` (`isNfs4`: torque curve 21 entries 500 rpm apart,
-  `understeer_gradient`, the driving aid noted as unused).
+  in sync. NFS4 carp files reach it through `block_class_mro` (`isNfs4`: torque curve 21 entries 500 rpm apart, the
+  understeer gradient's chart, slider and tile (front / rear lateral force factors), the air brake's braking chart and
+  rear downforce (`spoiler_type` 1), the driving aid noted as unused).
 
 ## NFS4 car physics (`Data/Cars/<car>/car.viv`: `carp.txt`, `carp<n>.txt`)
 
@@ -804,8 +903,30 @@ When you do:
   All 75 files of the game (23 racers, 19 traffic and pursuit cars, `carp1`..`carp3.txt` of 11 cars: race type 4,
   game setup car +0x18) write back byte-exact and read as the port of the exe parser reads them
   (`test/samples/nfs4_carp/`, `test/resources/eac/test_nfs4_car_physics.py`). Picked by `carp.txt` / `carp<n>.txt`
-  under a `/Data/Cars/` path (`_is_nfs4_car_physics_path`; `Data/Plac.viv`'s `carp.txt` is a placeholder text and
-  stays raw). Exported like NFS3's (`carp.txt.json` + `carp.txt.bin`).
+  under a `/Data/Cars/` path or in `Data/Plac.viv`, the network placeholder (serial number only;
+  `_is_nfs4_car_physics_path`). Exported like NFS3's (`carp.txt.json` + `carp.txt.bin`).
+
+## NFS3 / NFS4 car showroom data (`car.viv`: `fedata.<lang>`, `resources/eac/fedata.py`)
+
+- `fedata.eng` / `fre` / `ger` / `ita` / `spa` / `swe` / `bri` (every car.viv, also the network placeholders
+  `FeData/Plac/CAR.VIV`, `Data/Plac.viv`): the front end's car list values, then a text table. `Nfs3CarFeData`: a
+  0x2d-byte header that nfs3.exe 0x439d90 converts field by field into its car list record; `Nfs4CarFeData`: bytes
+  2..0x3bd are nfs4.exe's car list record as it is in memory (record = file + 2, 0x473d20), run time slots zeros in
+  the files. Field readers from nfs-web's Ghidra databases (`FeCars_*` names, addresses in the descriptions).
+  `fedata.fsh` is an image; NFS4 `careng.ltb` / `careng.ctb` are engine sound tables.
+- `FeDataTextTable` (text table at 0x2d / 0x3be): u16 count, u32 offsets from the start of the file, null-terminated
+  Latin-1 texts (40 in NFS3, 41 in NFS4: `special` after the tyres); the names and sections of the texts are in its
+  schema (`text_names`, `NFS3_FEDATA_TEXTS` / `NFS4_FEDATA_TEXTS`). Every shipped file lays the texts out in order,
+  an empty one pointing at the zero ending the text before it (the first at the offset table's last byte), and
+  writing does the same: all 287 game files write back byte-exact, so the texts are a plain list in the data.
+- Picked by the item name and the format version (`_fedata_language_name`, `is_nfs3_fedata`: 9 at +4,
+  `is_nfs4_fedata`: 10 at 0x388); `BigfBlock` item blocks. `CarFeDataSerializer` writes `fedata.<lang>.json` (every
+  field) and `fedata.<lang>.bin` (the file as it is, the raw copy written before the format was parsed); the JSON
+  imports back to the same bytes.
+- GUI: `CarFeDataBlockUiComponent` (`frontend/.../editor/eac/car-fedata.block-ui/`, both games): the spec sheet in
+  the showroom's sections (labels of TEXT.ENG), history and paint names (Latin-1 only), the rating bars (NFS4 by
+  upgrade level, overall rating) and career prices, the car list values (class, engine position / driver seat,
+  interior view heading in texels of the 1280-texel panorama, flags), "All fields".
 
 ## NFS3 track data files (`GameData/Tracks/TRK<nnn>/`, nfs3.exe, `resources/eac/maps/nfs3.py`)
 
