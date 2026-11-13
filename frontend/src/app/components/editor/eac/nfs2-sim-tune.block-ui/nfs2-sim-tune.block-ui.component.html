@@ -1,0 +1,256 @@
+@if (resourceId && resourceName && !hideName) {
+  <h2 [matTooltip]="resourceDescription || ''" matTooltipPosition="above">{{ resourceName }}</h2>
+}
+@if (!hideBlockActions) {
+  <app-block-actions
+    [resource]="{
+      id: resourceId!,
+      name: resourceName!,
+      data: resourceData,
+      schema: resourceSchema,
+    }"></app-block-actions>
+}
+
+<!-- parameters of both styles side by side: the stored value and what it means -->
+<ng-template #params let-rows>
+  <table class="gear-table">
+    <thead>
+      <tr>
+        <th>Parameter</th>
+        @for (style of styles; track style) {
+          <th colspan="2">
+            <span class="swatch" [style.background]="styleColors[style]"></span>{{ styleLabels[style] }}
+          </th>
+        }
+      </tr>
+    </thead>
+    <tbody>
+      @for (row of rows; track row.field) {
+        <tr>
+          <td class="gear-name" [matTooltip]="row.hint">{{ row.label }}</td>
+          @for (cell of row.cells; track cell.style) {
+            <td class="num">
+              <input
+                type="number"
+                [step]="row.step"
+                [value]="cell.value"
+                [disabled]="!!disabled"
+                (change)="onParamInput(cell.style, row.field, $any($event.target).value, row.integer)" />{{ row.unit }}
+            </td>
+            <td class="muted">{{ cell.derived }}</td>
+          }
+        </tr>
+      }
+    </tbody>
+  </table>
+</ng-template>
+
+@if (resourceData && resourceSchema) {
+  <app-stat-tiles [tiles]="tiles" [disabled]="disabled"></app-stat-tiles>
+
+  <mat-tab-group [(selectedIndex)]="selectedTab" animationDuration="0ms" mat-stretch-tabs="false" class="tabs">
+    <mat-tab label="Flight & landing">
+      <ng-template matTabContent>
+        <div class="tab">
+          <div class="chart-grid">
+            <app-curve-editor
+              title="Landing bounce"
+              hint="A landing on the wheels (after at least 10 ticks in the air, the car tilted to the road no more than the bounce threshold) rebounds with (landing speed - bounce_shock_absorb_speed) × bounce_elasticity, at least 0. Drag a style's absorb marker to change its absorb speed, the end of its line to change its elasticity"
+              [series]="reboundSeries"
+              [markers]="reboundMarkers"
+              [xAxis]="landingAxis"
+              [yAxis]="reboundAxis"
+              [height]="280"
+              [disabled]="disabled"
+              [describeX]="describeLanding"
+              (seriesChange)="onReboundChange($event)"
+              (markerChange)="onMarker($event)"></app-curve-editor>
+            <app-curve-editor
+              title="Ground smoothing"
+              hint="The vertical speed of the ground under the car is smoothed: each step it moves toward the new value by the rise factor while the ground rises, by the fall factor while it falls (f += (target - f) × factor). Response to a step change of the ground speed over 1 s (32 steps); smaller = smoother. Drag the first step of a line to change its factor"
+              [series]="smoothingSeries"
+              [xAxis]="smoothTimeAxis"
+              [yAxis]="smoothAxis"
+              [height]="280"
+              [disabled]="disabled"
+              [describeX]="describeSmoothTime"
+              (seriesChange)="onSmoothingChange($event)"></app-curve-editor>
+          </div>
+
+          <h3>Fractions</h3>
+          <div class="sliders">
+            @for (s of flightSliders; track s.field) {
+              @for (style of styles; track style) {
+                <div>
+                  <app-slider-field
+                    [label]="styleLabels[style] + ' ' + s.field"
+                    [description]="recordDescriptions[s.field]"
+                    [value]="resourceData?.[style]?.[s.field]"
+                    [spec]="s.spec"
+                    [disabled]="disabled"
+                    (valueChange)="onSlider(style, s.field, $event)"></app-slider-field>
+                  <div class="muted">{{ sliderDerived(style, s) }}</div>
+                </div>
+              }
+            }
+          </div>
+
+          <h3>Flight</h3>
+          <ng-container *ngTemplateOutlet="params; context: { $implicit: flightRows }"></ng-container>
+          <p class="note">
+            The step a car leaves the ground its roll rate (about its forward axis) is multiplied by the initial jump
+            roll attenuate and its pitch rate (about its right axis) by the initial jump road pitch damp. Human cars
+            then also get roll -= half their lateral acceleration × jump roll due to car turn, and pitch += half their
+            forward acceleration × jump pitch due to acc and brake. In the air the car falls with 1 + extra flight
+            gravity times the gravity. Ground max speed change is stored but not read by the game: the newton limits the
+            ground speed change with half the horizontal speed, at least 16 m/s, instead.
+          </p>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Crash & reset">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-curve-editor
+            title="Wreck timer"
+            hint="After a crash above the threshold, with the car on its side or roof or off the road, the wreck timer starts at bad_collision_reset_ticks and counts down one tick per step (32 per second; dashed: 8 per step with the car on the ground, upright and no longer tumbling). At 0 the car is put back on the road. With the timer below full_gas_reset_tick_advance and the gas pedal above 200 / 255 the car is reset at once. Drag the start of a line to change the ticks, a marker to change the full gas advance"
+            [series]="wreckSeries"
+            [markers]="wreckMarkers"
+            [xAxis]="wreckTimeAxis"
+            [yAxis]="ticksAxis"
+            [height]="300"
+            [disabled]="disabled"
+            [describeX]="describeWreckTime"
+            (seriesChange)="onWreckChange($event)"
+            (markerChange)="onMarker($event)"></app-curve-editor>
+          <ng-container *ngTemplateOutlet="params; context: { $implicit: crashRows }"></ng-container>
+          <p class="note">
+            The telepole launch value is the crash threshold: a crash whose strength (6 × the speed into a wall, the
+            impulses of car hits and landings) is above it counts: the landing reaction, the yaw thrown into roll and
+            pitch near the ground and the wreck timer; a smackable object hit that hard is launched. AI racers in arcade
+            style wait 3 times the ticks, a car tumbling off a tumble wall 256 ticks. A car whose |roll rate| + |pitch
+            rate| is below the stop tumbling speed on the ground loses a quarter of them each step. The reset puts the
+            car the reset forward slices past the crash slice (backward in a backward race), the reset altitude above
+            the road (half on slices with a ceiling), moving at the reset launch speed along it; for the invincibility
+            ticks it meets no other car.
+          </p>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Walls">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-curve-editor
+            [title]="'Speed kept along a wall at ' + wallSpeed + ' m/s'"
+            hint="A car sliding along a wall keeps the part of its velocity along the road, less |the sideways part| / 2 × barrier_speed_loss_multiplier / 4 (not past 0; no loss below 5 m/s). Dashed: the part along the wall without any loss. The markers are the deflection angular ranges as angles (acos): drag them to change them"
+            [series]="wallSeries"
+            [markers]="wallMarkers"
+            [xAxis]="angleAxis"
+            [yAxis]="wallSpeedAxis"
+            [height]="300"
+            [disabled]="disabled"
+            [describeX]="describeAngle"
+            (markerChange)="onMarker($event)"></app-curve-editor>
+          <ng-container *ngTemplateOutlet="params; context: { $implicit: wallRows }"></ng-container>
+          <p class="note">
+            The deflection angular range applies to cars that are not human hitting a slice wall: when the cosine of the
+            angle between the wall's direction and the car's road forward is above it (the angle below the range in
+            degrees) the car turns toward the wall's direction, else it is steered along it. The speed loss applies to
+            every car sliding along a wall.
+          </p>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="Catch-up">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-curve-editor
+            title="Catch-up (glue logic)"
+            hint="Speed boost multiplier of a human car by its distance behind the leading race car, in slices: 1.0 below the first slice distance, then the multiplier of the last pair whose distance it reaches. Drag a step to change its pair: distance (x) and multiplier (y)"
+            [series]="glueSeries"
+            [xAxis]="behindAxis"
+            [yAxis]="boostAxis"
+            [height]="300"
+            [disabled]="disabled"
+            [describeX]="describeBehind"
+            (seriesChange)="onGlueChange($event)"></app-curve-editor>
+
+          <table class="gear-table">
+            <thead>
+              <tr>
+                <th>Pair</th>
+                @for (style of styles; track style) {
+                  <th [matTooltip]="glueDescriptions['slice_distance']">
+                    <span class="swatch" [style.background]="styleColors[style]"></span
+                    >{{ styleLabels[style] }} distance
+                  </th>
+                  <th [matTooltip]="glueDescriptions['speed_boost_multiplier']">Multiplier</th>
+                }
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of glueRows; track row.index) {
+                <tr>
+                  <td class="gear-name">{{ row.index + 1 }}</td>
+                  @for (cell of row.cells; track cell.style) {
+                    <td [class.warn]="cell.outOfOrder">
+                      <input
+                        type="number"
+                        step="1"
+                        [value]="cell.distance"
+                        [disabled]="!!disabled"
+                        (change)="onGlueInput(cell.style, row.index, 'slice_distance', $any($event.target).value)" />
+                      @if (cell.outOfOrder) {
+                        <mat-icon class="warn-icon" matTooltip="Not above the previous distance">warning</mat-icon>
+                      }
+                    </td>
+                    <td>
+                      <input
+                        type="number"
+                        step="0.005"
+                        [value]="cell.multiplier"
+                        [disabled]="!!disabled"
+                        (change)="
+                          onGlueInput(cell.style, row.index, 'speed_boost_multiplier', $any($event.target).value)
+                        " />
+                    </td>
+                  }
+                </tr>
+              }
+            </tbody>
+          </table>
+          @if (glueOutOfOrder) {
+            <p class="note warn">
+              The slice distances must increase: the game compares them one after the other, a pair below the previous
+              one takes over from it.
+            </p>
+          }
+          <p class="note">
+            The catch-up only runs with the multiplayer catch-up option (comm mode above 0): every standings update a
+            human car gets the multiplier of its distance behind the leader. The multiplier scales its velocity in the
+            position integration and its gravity; above 1.03 the ground speed change is divided by it. Car type 36
+            always keeps 1.0.
+          </p>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="All fields">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-compound-block-ui
+            [resourceId]="resourceId"
+            [resourceName]="resourceName"
+            [resourceSchema]="resourceSchema"
+            [resourceData]="resourceData"
+            [hideName]="true"
+            [hideBlockActions]="true"
+            [disabled]="disabled"></app-compound-block-ui>
+        </div>
+      </ng-template>
+    </mat-tab>
+  </mat-tab-group>
+}

@@ -15,15 +15,24 @@ def _file_or_archive_item_name(file_path: str) -> str:
     return name
 
 
+def _nfs2_data_file_name(file_path: str) -> str:
+    """Name of an NFS2 data file: a loose file, an item of CARDATA.VIV, or the uncompressed data of a compressed copy
+    `<name>.QDA` (`<path>.QDA__uncompressed`), named `<name>.DAT` then"""
+    if file_path.upper().endswith('.QDA__UNCOMPRESSED'):
+        return _file_or_archive_item_name(file_path[: -len('__uncompressed')])[:-4] + '.DAT'
+    return _file_or_archive_item_name(file_path)
+
+
 def _is_nfs2_car_physics_name(file_path: str) -> bool:
-    """NFS2 SE `p<car>.DAT`: a loose file, or an item of CARDATA.VIV"""
-    name = _file_or_archive_item_name(file_path)
+    """NFS2 SE `p<car>.DAT`: a loose file, an item of CARDATA.VIV, or a `P<car>.QDA`'s data"""
+    name = _nfs2_data_file_name(file_path)
     return name[:1] in ('p', 'P') and name.upper().endswith('.DAT')
 
 
 def _is_nfs2_car_ai_name(file_path: str) -> bool:
-    """NFS2 SE car AI data `<car>.dat` (4 letters or digits): a loose file, or an item of CARDATA.VIV"""
-    name = _file_or_archive_item_name(file_path)
+    """NFS2 SE car AI data `<car>.dat` (4 letters or digits): a loose file, an item of CARDATA.VIV, or a
+    `<car>.QDA`'s data (NFS2 `SIM/AICARDT`)"""
+    name = _nfs2_data_file_name(file_path)
     return len(name) == 8 and name[:4].isalnum() and name[:4].isascii() and name.upper().endswith('.DAT')
 
 
@@ -64,6 +73,12 @@ def _peek(buffer, n: int) -> bytes:
     data = buffer.read(n)
     buffer.seek(-len(data), SEEK_CUR)
     return data
+
+
+def _is_ea_field_descriptions(buffer, length) -> bool:
+    from resources.eac.field_descriptions import is_ea_field_descriptions
+
+    return is_ea_field_descriptions(_peek(buffer, 102), length)
 
 
 def _is_ea_audio_stream(buffer, length) -> bool:
@@ -115,7 +130,7 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.car_specs import Nfs4CarPhysics
 
             return Nfs4CarPhysics
-        elif length == 232 and _file_or_archive_item_name(file_path).upper() == 'SIMTUNE.DAT':
+        elif length == 232 and _nfs2_data_file_name(file_path).upper() == 'SIMTUNE.DAT':
             from resources.eac.car_specs import Nfs2SimTune
 
             return Nfs2SimTune
@@ -131,6 +146,10 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.car_specs import Nfs2Personalities
 
             return Nfs2Personalities
+        elif file_path.upper().endswith('.DES') and _is_ea_field_descriptions(buffer, length):
+            from resources.eac.field_descriptions import EaFieldDescriptions
+
+            return EaFieldDescriptions
         elif file_path.endswith('CONFIG.DAT'):
             from resources.eac.configs import TnfsConfigDat
 

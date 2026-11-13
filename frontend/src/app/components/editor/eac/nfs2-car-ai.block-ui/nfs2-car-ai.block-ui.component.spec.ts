@@ -1,7 +1,7 @@
 import { NO_ERRORS_SCHEMA } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { BehaviorSubject, Subject } from 'rxjs';
-import { Nfs2CarAiBlockUiComponent } from './nfs2-car-ai.block-ui.component';
+import { Nfs2CarAiBlockUiComponent, nfs2AiCarName } from './nfs2-car-ai.block-ui.component';
 import { MainService } from '../../../../services/main.service';
 import { ChangesService } from '../../../../services/changes.service';
 
@@ -146,5 +146,26 @@ describe('Nfs2CarAiBlockUiComponent', () => {
     const change = appendChanges.calls.mostRecent().args[0];
     expect(change.id).toBe(ID + '/simulation/grip');
     expect(change.newValue).toBe(41.5);
+  });
+
+  it('finds the car name in a .dat name or an AICARDT .QDA resource id', () => {
+    expect(nfs2AiCarName('cala.dat')).toBe('CALA');
+    expect(nfs2AiCarName('data', '/games/nfs2/GAMEDATA/SIM/AICARDT/CALA.QDA__data')).toBe('CALA');
+    expect(nfs2AiCarName('data', 'GAMEDATA/SIM/AICARDT/mach.qda__data/data')).toBe('MACH');
+    expect(nfs2AiCarName('data', 'CARDATA.VIV__data/children/40/item/data')).toBeNull();
+    expect(nfs2AiCarName(undefined, undefined)).toBeNull();
+  });
+
+  it('picks the car model of a compressed AICARDT file from its resource id', () => {
+    component.resourceName = 'data';
+    expect(component.model).toBeNull();
+    component.resourceId = 'GAMEDATA/SIM/AICARDT/CALA.QDA__data';
+    expect(component.model?.index).toBe(10);
+    expect(component.tiles.find(t => t.label === 'Model')!.value).toBe('CALA');
+  });
+
+  it('keeps the unread speed_factor in a group of its own', () => {
+    expect(component.groups.unread).toEqual(['speed_factor']);
+    expect(component.groups.traffic).not.toContain('speed_factor');
   });
 });

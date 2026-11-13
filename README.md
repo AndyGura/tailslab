@@ -53,7 +53,7 @@ you always see the whole file.
 | Game | Highlights |
 |---|---|
 | **The Need for Speed** (SE PC, 3DO, PlayStation) | Cars (CFM), tracks (TRI, FAM), car specs (PBS, PDN, 3DO BigSpecsFam), PSX car archives (VSM, WSM: specs, models and textures) and track props (POR.FAM), images (FSH, QFS, PSX PSH), PSX horizon settings (INF) and skies, fonts (FFN), audio (BNK, ASF, EAS), videos (TGV), replays (RPL), saved config |
-| **NFS II / II SE** | Cars (GEO), car physics and AI (SE `p<car>.DAT`, `simtune.dat`, `<car>.dat`, `TRAFCFG.DAT`, `PRSONAL.DAT`), tracks (TRK, COL), archives (VIV, MSK), images, fonts, sound banks, videos (UV) |
+| **NFS II / II SE** | Cars (GEO), car physics and AI (`p<car>.DAT`, `simtune.dat`, `<car>.dat`, `TRAFCFG.DAT`, `PRSONAL.DAT`, their compressed `.QDA` copies, the developers' field descriptions `.DES`), tracks (TRK, COL), archives (VIV, MSK), images, fonts, sound banks, videos (UV) |
 | **NFS III Hot Pursuit** | Cars (FCE in VIV), car physics (`carp.txt` in the car VIV), tracks (FRD, COL, slice ceiling heights SIMHTS.DAT, animation paths CAN), images, fonts, sound banks |
 | **NFS High Stakes** | Cars (FCE4), car physics (`carp.txt` in the car VIV), tracks (FRD, slice ceiling heights heights.sim, AI line spdFA.bin / spdRA.bin, animation paths CAN), images, fonts, sound banks |
 | **NFS Porsche Unleashed** | Cars and tracks (CRP, with the road spline), car physics and AI (`.sim`, `.ais`), car parts and car database (`nfs5.prt`, `nfs5.car`), track junctions and wall edges (`.jnc`, `.edg`), images (FSH, ENV), fonts, sound banks |

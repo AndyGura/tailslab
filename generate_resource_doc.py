@@ -16,6 +16,7 @@ from library.utils.docs import add_doc_numbers
 from resources import eac, blackbox
 from resources.eac import psx as eac_psx, psx_bitmaps as eac_psx_bitmaps
 from resources.eac import horizons as eac_horizons
+from resources.eac import field_descriptions as eac_field_descriptions
 from resources.blackbox.bitmaps import nfsu as blackbox_bitmaps_nfsu
 from resources.blackbox.maps import nfsu as blackbox_maps_nfsu
 from resources.blackbox.maps import nfsu2 as blackbox_maps_nfsu2
@@ -354,6 +355,10 @@ EXPORT_RESOURCES = {
 **GAMEDATA/SIM/AI/TRAFCFG.DAT**, `trafcfg.dat` / `TRAFCFG.DAT` in **GAMEDATA/SIM/CARDATA/CARDATA.VIV** AI and traffic configuration, glue factors. {render_type(eac.car_specs.Nfs2TrafficConfig())}
 
 **GAMEDATA/SIM/AI/PRSONAL.DAT**, `prsonal.dat` in **GAMEDATA/SIM/CARDATA/CARDATA.VIV** AI racer personalities and grid assignments. {render_type(eac.car_specs.Nfs2Personalities())}
+
+**GAMEDATA/SIM/CARDATA/P\\*.QDA**, **GAMEDATA/CARMODEL/PC/SIMTUNE.QDA** compressed copies of the `.DAT` files of the same name (QFS3 or RefPack, the `.DAT` block inside). {render_type(eac.archives.EacCompressedBlock())}
+
+**\\*.DES** (`P*.DES`, `SIMTUNE.DES`, `MCF1.DES`, `TRAFCFG.DES`, `PRSONAL.DES`, `SM*.DES`) the developers' field descriptions of the `.DAT` files. {render_type(eac_field_descriptions.EaFieldDescriptions())}
         
 **\\*.FFN** bitmap font. {render_type(eac.fonts.FfnFont())}
 
@@ -419,6 +424,10 @@ EXPORT_RESOURCES = {
                 eac.car_specs.Nfs2Personalities(),
                 eac.car_specs.Nfs2PersonalityGrid(),
                 eac.car_specs.Nfs2Personality(),
+                eac_field_descriptions.EaFieldDescriptions(),
+                eac_field_descriptions.EaFieldDescriptionBody(),
+                eac_field_descriptions.EaFieldDescriptionRecord(),
+                eac_field_descriptions.EaFieldDescriptionShape(),
             ],
             'Images': [
                 eac.bitmaps.EacImage(),

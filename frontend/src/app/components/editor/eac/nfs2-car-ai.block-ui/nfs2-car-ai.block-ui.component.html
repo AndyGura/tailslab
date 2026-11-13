@@ -62,7 +62,8 @@
             </p>
           } @else {
             <p class="note">
-              The file name is not one of the car models the game scales: the speed run uses the tables as stored.
+              The file name (<code>&lt;car&gt;.dat</code>, or <code>AICARDT/&lt;CAR&gt;.QDA</code> in NFS2) is not one
+              of the car models the game scales: the speed run uses the tables as stored.
             </p>
           }
         </div>
@@ -146,7 +147,7 @@
               (seriesChange)="onGripChange($event)"></app-curve-editor>
             <app-curve-editor
               title="Handling slowdown"
-              hint="Multiplier of the target speed by the yaw value: 1 up to low_handling_yaw, falling to 1 - handling_importance at hi_handling_yaw, both times the personality's handling_adjust. Drag the corners to change them"
+              hint="Multiplier of the target speed by the yaw value: 1 up to low_handling_yaw, falling to 1 - handling_importance at hi_handling_yaw (rising for a negative importance), the drop times the personality's handling_adjust (taken as 1 here). Drag the corners to change them"
               [series]="handlingSeries"
               [xAxis]="handlingAxis"
               [yAxis]="factorAxis"
@@ -159,7 +160,11 @@
             @for (style of styles; track style) {
               <app-slider-field
                 [label]="styleLabels[style] + ' turn_rate'"
-                [description]="'Cap of the angular acceleration of the AI steering (' + style + ' levers)'"
+                [description]="
+                  'turn_rate of the ' +
+                  style +
+                  ' levers: the cap of a steering term of the AI driving model (nfs2sen.exe 0x42d140); 0.8 in every file'
+                "
                 [value]="resourceData?.[style]?.['turn_rate']"
                 [spec]="turnRateSlider"
                 [disabled]="disabled"
@@ -169,7 +174,17 @@
           <h3>Handling parameters</h3>
           <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.handling }"></ng-container>
           <h3>Traffic (cars that are not AI racers)</h3>
+          <p class="note">
+            speed_factor_2 scales the target speed of cars that are not AI racers; lane_slack_prob is their chance of a
+            lane change at a checked slice (about 1 / value). AI racers use their personality (PRSONAL.DAT) instead.
+          </p>
           <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.traffic }"></ng-container>
+          <h3>Not read by the game</h3>
+          <p class="note">
+            speed_factor, the first of the two "Speed Factor" fields: the loader stores it, nothing in nfs2sen.exe reads
+            it (1.0 in every file). The second one, speed_factor_2, is the one the AI uses.
+          </p>
+          <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.unread }"></ng-container>
         </div>
       </ng-template>
     </mat-tab>

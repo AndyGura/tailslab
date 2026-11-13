@@ -708,20 +708,32 @@ When you do:
 
 ## NFS2 SE car physics and AI (GAMEDATA/SIM/CARDATA/P*.DAT, GAMEDATA/SIM/AI/*.DAT, their copies in CARDATA.VIV)
 
-- `Nfs2CarPhysics` (`resources/eac/car_specs.py`), 356 bytes, fields from the developers' `P*.DES` and the
-  nfs2sen.exe loader (0x459970), addresses cited in the descriptions. The loader picks it by name and size
+- Field meanings, readers (nfs2sen.exe addresses), units, ranges and the model reading them (arcade / Wild /
+  simulation / AI) are in the field descriptions, from nfs-web's `decomp/nfs2/nfs2sen.exe.gzf` (readers annotated
+  there: `Physics_Sim*`, `Physics_DeriveHumanSpecs`, `Cars_LoadSimTune`, `Race_HumanGlue`...); the simulation model
+  `Physics_Sim` 0x455370 is not ported in nfs-web, its readers were traced in the exe. Fields no code reads are named
+  and described as such (`gas_increasing_curve` / `gas_decreasing_curve`, SimTune `ground_max_speed_change`, car AI
+  `speed_factor`). Reading aids: nfs-web `decomp/nfs2/port-work/car-specs/` (`scan_ptr_fields.py` lists the field reads
+  behind a car pointer such as the specs car+0x2ec in a disassembly dump; probes of the game files).
+- `Nfs2CarPhysics` (`resources/eac/car_specs.py`), 356 bytes, loaded by 0x459970 into the specs behind car+0x2ec
+  (`gas_off_factor` and `g_transfer_factor` swapped there). The loader picks it by name and size
   (`_is_nfs2_car_physics_name` + length 356 in `library/loader.py`; the VIV's `prsonal.dat` also starts with `p`:
   the size tells them apart), and `BigfBlock` lists it among its item blocks.
+- `.QDA` files (`SIM/CARDATA/P*.QDA`, `CARMODEL/PC/SIMTUNE.QDA`, NFS2's `SIM/AICARDT/<car>.QDA`) are QFS3- or
+  RefPack-compressed copies of the `.DAT` files: `EacCompressedBlock` (its possible blocks include `Nfs2CarPhysics`,
+  `Nfs2SimTune`, `Nfs2CarAi`), the inner data picked by the compressed file's name (`_nfs2_data_file_name`: a
+  `<name>.QDA__uncompressed` path counts as `<name>.DAT`). NFS2 (not SE) has no `CARDATA.VIV`: its car files are only
+  these. nfs2sen.exe reads none of them (CARDATA.VIV only).
 - GUI: `Nfs2CarPhysicsBlockUiComponent` (`frontend/.../editor/eac/nfs2-car-physics.block-ui/`, on the PBS editor's
   `CarSpecEditorBase`) edits it on charts: torque / power (`torque_curve` is 16.16 N·m, entry rpm / 256), gearing with
   the arcade automatic gearbox, arcade and simulation drive with the simulation air drag, pedal / brake ramps, braking,
-  arcade steering response with the push slide limit, steering ramp, simulation downforce. The derived curves follow
-  the field descriptions (arcade model ported in `../nfs-web/src/nfs2/nfs2-physics`, simulation model `Physics_Sim`
-  0x455370 from nfs-web's `decomp/g nfs2 nfs2sen.exe`): keep the two in sync.
+  arcade steering response with the push slide limit, steering ramp, and the simulation model (axle grip, downforce,
+  weight transfer, steering lock, slides). The derived curves follow the field descriptions (arcade model ported in
+  `../nfs-web/src/nfs2/nfs2-physics`, simulation model from the exe): keep the two in sync.
 - `Nfs2SimTune` (same module): `simtune.dat` in CARDATA.VIV (= `GAMEDATA/CARMODEL/PC/SIMTUNE.DAT`), 232 bytes, two
-  `Nfs2SimTuneRecord`s (simulation, arcade + Wild) of 21 values + 4 glue logic pairs, read by nfs2sen.exe 0x43e0a0 into
-  0x4df0a8. Picked by name (any case) and size 232 (`_file_or_archive_item_name` in `library/loader.py`), also a
-  `BigfBlock` item block.
+  `Nfs2SimTuneRecord`s (simulation, arcade + Wild) of 21 values + 4 glue logic pairs (the human catch-up), read by
+  nfs2sen.exe 0x43e0a0 into 0x4df0a8. Picked by name (any case) and size 232, also a `BigfBlock` item block. GUI:
+  `Nfs2SimTuneBlockUiComponent` (`frontend/.../editor/eac/nfs2-sim-tune.block-ui/`).
 - `Nfs2CarAi` (same module): the car AI data `<car>.dat` in CARDATA.VIV (17 racing cars, each listed twice as
   identical copies), 524 bytes, read by nfs2sen.exe 0x42b7b0 (`AI_LoadData` in the nfs-web port): shift duration,
   redline, gear top speeds, two `Nfs2CarAiLevers` (simulation, arcade: 112 x 8.8 acceleration table indexed by speed
@@ -730,8 +742,8 @@ When you do:
   GUI: `Nfs2CarAiBlockUiComponent` (`frontend/.../editor/eac/nfs2-car-ai.block-ui/`, on `CarSpecEditorBase`):
   acceleration tables with the gear top speeds, a speed run from standstill (32 AI steps/s, no drive while a shift
   lasts), the AI gearbox rpm, grip by speed, handling slowdown. The car model comes from the file name (`cala.dat` =
-  CALA, model 10 in the exe's model names 0x4c5fe0): models below 15 get the exe's table scale (0x4c4e38) and top speed
-  (0x4c54cc). Its formulas follow nfs-web's `ai.c` (`feature/nfs2-physics` branch) and the field descriptions.
+  CALA, or an NFS2 `AICARDT/CALA.QDA`: `nfs2AiCarName`; model 10 in the exe's model names 0x4c5fe0): models below 15 get the exe's table scale (0x4c4e38) and top speed
+  (0x4c54cc). Its formulas follow nfs-web's `ai.c` and the field descriptions.
 - `Nfs2TrafficConfig` (same module): `GAMEDATA/SIM/AI/TRAFCFG.DAT` (CARDATA.VIV: identical `trafcfg.dat` and
   `TRAFCFG.DAT`), 452 bytes, read by nfs2sen.exe 0x42bb60: general AI / traffic values, three `Nfs2TrafficGlue`
   tables (single race, tournament, knockout = race type 0, 1, 2) of 12 `Nfs2TrafficGluePair`s (speed glue,
@@ -741,15 +753,22 @@ When you do:
   nfs2sen.exe 0x451bd0: `Nfs2PersonalityGrid` (4 rows of 12 letters) and the personalities `car_a` .. `car_m`
   (`Nfs2Personality`, 0xe4 bytes; field descriptions carry the `.DES` chain names). Names from `PRSONAL.DES`. Picked
   by name (any case) and size 3012. Both are `BigfBlock` item blocks; the exe also has compiled-in copies of both.
-- The developers' `.DES` files (`P*.DES`, `SIMTUNE.DES`, `MCF1.DES`, `TRAFCFG.DES`, `PRSONAL.DES`) give field names,
-  types and order: a header, a copy of the `.DAT` at 0x66 (int at 0x62 = size of the records), then the records: type
-  (10 bytes), name (80 bytes; null-terminated, memory garbage after it), int size of the field's data in bytes, int n,
-  then n bytes. Fields (`Fixed` = 16.16, `Integer`, `Char` = 1 byte) have n = 0x38 (garbage; one `TRAFCFG.DES` `Fixed`
-  has 0x10); `Array` 12 (1, count, count; no element type, 4-byte elements; (2, 1, 2) for the unnamed pairs of the
-  `TRAFCFG.DES` glue factors) and `CArray` 12 (byte arrays, `P*.DES` curves); `Import` (a table, `MCF1.DES`
-  acceleration tables) 1 (0x41); `Chain` (a group: `MCF1.DES`, `TRAFCFG.DES`, `PRSONAL.DES`) n = everything below
-  it: 94 bytes of garbage, int data size, int size of the child records, a copy of the group's data, then its child
-  records.
+- Conversion: all five export to `<name>.json` with every field (`Nfs2DataJsonSerializer`,
+  `serializers/misc/nfs2_data_json.py`: JsonSerializer's output, plus import: the JSON's values over the resource,
+  `merge_json_values`); a `.QDA` converts through its compressed wrapper to `<name>.QDA.json`.
+- The developers' `.DES` files (`P*.DES`, `SIMTUNE.DES`, `MCF1.DES`, `TRAFCFG.DES`, `PRSONAL.DES`, the smackables'
+  `TRACKS/DATA/PC/SM*.DES`; NFS5 `TRAFCFG.DES` too) = `EaFieldDescriptions` (`resources/eac/field_descriptions.py`,
+  module docstring has the layout): a body (94 bytes of garbage, int data size, int records size, a copy of the data,
+  records), records of type (10 bytes) and name (80 bytes) as text up to the first zero plus garbage (`DesTextBlock` +
+  `DesTextRestBlock`, refitted on write), int field size, int n and n bytes (`Chain`: a nested body, `Array` /
+  `CArray`: shape, else garbage); bodies nest up to `DES_MAX_DEPTH`. Picked by the `.DES` extension and the body sizes
+  adding up to the file length (`is_ea_field_descriptions`). All 60 files write back byte-exact. `des_fields` flattens
+  the fields (path, type, offset, size, value), `described_block` / `block_layout` / `des_check` compare them with the
+  TailsLab block of the described `.DAT` (checked by `test/resources/eac/test_nfs2_car_specs.py`). `read` adds the GUI-only
+  keys `dat_block` / `dat_fields` (`DES_UI_KEYS`). Exported as `<name>.DES.json` (`fields` and the complete `body`, which
+  imports back byte-exact; `serializers/misc/ea_field_descriptions.py`). GUI: `EaFieldDescriptionsBlockUiComponent`
+  (`frontend/.../editor/eac/ea-field-descriptions.block-ui/`): the fields with their values and the TailsLab fields
+  at the same offsets.
 
 ## NFS3 car models (`GameData/CarModel/<car>/car.viv`: `car.fce`)
 
