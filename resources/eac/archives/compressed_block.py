@@ -4,7 +4,7 @@ from typing import Dict, Optional
 
 from library.context import ReadContext, WriteContext
 from library.read_blocks import AutoDetectBlock, BytesBlock
-from resources.eac.car_specs import CarAiAndCrashBody, PlayerCarPhysics
+from resources.eac.car_specs import CarAiAndCrashBody, Nfs2CarAi, Nfs2CarPhysics, Nfs2SimTune, PlayerCarPhysics
 from resources.eac.psx import CRCF_FOOTER_LENGTH, PsxCrcFooter, with_crc_footer
 from .shpi_block import ShpiBlock
 
@@ -27,6 +27,10 @@ class EacCompressedBlock(AutoDetectBlock):
                 CarAiAndCrashBody(),
                 PlayerCarPhysics(),
                 CrpGeometry(),
+                # NFS2 / NFS2 SE `.QDA`: compressed `P<car>.DAT`, `SIMTUNE.DAT`, car AI `<car>.dat`
+                Nfs2CarPhysics(),
+                Nfs2SimTune(),
+                Nfs2CarAi(),
                 BytesBlock(length=(lambda ctx: ctx.read_bytes_amount)),
             ],
             **kwargs,

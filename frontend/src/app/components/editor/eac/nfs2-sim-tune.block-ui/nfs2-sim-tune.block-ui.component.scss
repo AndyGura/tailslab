@@ -1,0 +1,21 @@
+.gear-table {
+  td.muted {
+    white-space: nowrap;
+  }
+
+  td.warn input {
+    border-color: #d32f2f;
+  }
+}
+
+.warn-icon {
+  color: #d32f2f;
+  font-size: 18px;
+  width: 18px;
+  height: 18px;
+  vertical-align: -4px;
+}
+
+.note.warn {
+  color: #d32f2f;
+}

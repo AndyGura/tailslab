@@ -71,6 +71,17 @@ const MODEL_TOP_SPEED = [
   0x5ecccc, 0x49b333, 0x5de666, 0x7ae666,
 ].map(v => v / 0x10000);
 
+// the car's 4-letter name: `cala.dat` (CARDATA.VIV item, loose file) or NFS2's `GAMEDATA/SIM/AICARDT/CALA.QDA`
+// (compressed, its data block id `.../AICARDT/CALA.QDA__data...`, named `data`). The last match of the sources wins
+export function nfs2AiCarName(...sources: (string | undefined)[]): string | null {
+  for (const source of sources) {
+    if (!source) continue;
+    const matches = [...source.matchAll(/(?:^|[\\/])([a-z0-9]{4})\.(?:dat|qda)(?=$|__|[\\/])/gi)];
+    if (matches.length) return matches[matches.length - 1][1].toUpperCase();
+  }
+  return null;
+}
+
 export type Nfs2AiModel = { index: number; name: string; tableScale: [number, number]; topSpeed: number };
 
 export type Nfs2AiGearRow = {
@@ -105,17 +116,30 @@ export class Nfs2CarAiBlockUiComponent extends CarSpecEditorBase {
     return super.resourceName;
   }
 
-  // the car model, and with it the table scale and the top speed, comes from the file name
+  // the car model, and with it the table scale and the top speed, comes from the file name, or from the resource id
+  // for a compressed AICARDT/<CAR>.QDA (whose data block is named `data`)
   @Input()
   override set resourceName(value: string | undefined) {
     super.resourceName = value;
     if (this.resourceData) this.refresh();
   }
 
+  override get resourceId(): string | undefined {
+    return super.resourceId;
+  }
+
+  @Input()
+  override set resourceId(value: string | undefined) {
+    super.resourceId = value;
+    if (this.resourceData) this.refresh();
+  }
+
   readonly groups = {
     gearbox: ['ai_shift_duration'],
     handling: ['hi_handling_yaw', 'low_handling_yaw', 'handling_importance'],
-    traffic: ['speed_factor_2', 'lane_slack_prob', 'speed_factor'],
+    traffic: ['speed_factor_2', 'lane_slack_prob'],
+    // stored by the loader, never read
+    unread: ['speed_factor'],
   };
 
   readonly styles = STYLES;
@@ -165,10 +189,8 @@ export class Nfs2CarAiBlockUiComponent extends CarSpecEditorBase {
   // ---------- derived values ----------
 
   private findModel(): Nfs2AiModel | null {
-    const name = (this.resourceName || '')
-      .replace(/^.*[\\/]/, '')
-      .replace(/\.dat$/i, '')
-      .toUpperCase();
+    const name = nfs2AiCarName(this.resourceName, this.resourceId);
+    if (!name) return null;
     const index = MODEL_NAMES.indexOf(name);
     if (index < 0) return null;
     return { index, name, tableScale: MODEL_TABLE_SCALE[index] as [number, number], topSpeed: MODEL_TOP_SPEED[index] };
@@ -582,7 +604,7 @@ export class Nfs2CarAiBlockUiComponent extends CarSpecEditorBase {
         value: this.model.name,
         sub: `table × ${fmt(s, 2)} / ${fmt(a, 2)}`,
         hint:
-          `Model ${this.model.index} (by the file name): the loader scales the simulation / arcade table by these ` +
+          `Model ${this.model.index} (by the file name, <car>.dat or AICARDT/<CAR>.QDA): the loader scales the simulation / arcade table by these ` +
           `factors, and the AI drive stops above ${fmt(this.model.topSpeed * MPS_TO_KMH, 0)} km/h. The charts and ` +
           'the speed run use the scaled tables',
         tone: 'muted',

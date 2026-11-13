@@ -1,0 +1,160 @@
+@if (resourceId && resourceName && !hideName) {
+  <h2 [matTooltip]="resourceDescription || ''" matTooltipPosition="above">{{ resourceName }}</h2>
+}
+@if (!hideBlockActions) {
+  <app-block-actions
+    [resource]="{
+      id: resourceId!,
+      name: resourceName!,
+      data: resourceData,
+      schema: resourceSchema,
+    }"></app-block-actions>
+}
+
+@if (resourceData && resourceSchema) {
+  <div class="summary">
+    <span>
+      Describes:
+      @if (datBlock) {
+        <b>{{ datBlock }}</b>
+      } @else {
+        <b matTooltip="No TailsLab block parses the described data file: nothing to compare the fields with">
+          a data file not parsed
+        </b>
+      }
+    </span>
+    <span
+      >Data copy: <b>{{ dataSize }}</b> bytes</span
+    >
+    <span>
+      Fields: <b>{{ fieldCount }}</b>
+      @if (chainCount) {
+        in <b>{{ chainCount }}</b> groups
+      }
+    </span>
+    @if (datBlock) {
+      @if (problemCount) {
+        <span class="problems"
+          >Mismatches: <b>{{ problemCount }}</b></span
+        >
+      } @else {
+        <span class="fine">Every field fits the TailsLab block</span>
+      }
+      @if (uncoveredLeaves.length) {
+        <span class="problems" [matTooltip]="'Fields of the TailsLab block no description covers: ' + uncoveredText"
+          >Not described: <b>{{ uncoveredLeaves.length }}</b> TailsLab fields</span
+        >
+      }
+    }
+  </div>
+
+  <mat-tab-group [(selectedIndex)]="selectedTab" animationDuration="0ms" mat-stretch-tabs="false" class="tabs">
+    <mat-tab label="Fields">
+      <ng-template matTabContent>
+        <div class="tab">
+          <div class="toolbar">
+            <input
+              type="search"
+              placeholder="Filter by name, type or TailsLab field"
+              [value]="filterText"
+              (input)="onFilter($any($event.target).value)" />
+            @if (datBlock) {
+              <label>
+                <input
+                  type="checkbox"
+                  [checked]="problemsOnly"
+                  (change)="onProblemsOnly($any($event.target).checked)" />
+                Mismatches only
+              </label>
+            }
+            <span class="muted">{{ shownRows.length }} of {{ rows.length }} rows</span>
+          </div>
+
+          <div class="table-wrap">
+            <table class="des-table">
+              <thead>
+                <tr>
+                  <th matTooltip="Offset of the field in the described data (.DAT): the sizes of the fields before it">
+                    Offset
+                  </th>
+                  <th>Type</th>
+                  <th
+                    matTooltip="The developers' name of the field, often with a comment or a heading. Edit it in place">
+                    Name
+                  </th>
+                  <th class="num">Size</th>
+                  <th matTooltip="Array / CArray: dimensions × size 1 × size 2">Shape</th>
+                  <th matTooltip="The value in the copy of the data the .DES holds (the .DAT of the time)">Value</th>
+                  <th matTooltip="The field(s) of the TailsLab block at that offset">TailsLab field</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (row of shownRows; track row.key) {
+                  <tr [class.chain]="row.isChain" [class.problem]="row.status === 'problem'">
+                    <td class="mono">{{ row.offsetHex }}</td>
+                    <td>{{ row.type }}</td>
+                    <td>
+                      <div class="name-cell" [style.padding-left.px]="row.depth * 18">
+                        <input
+                          #nameInput
+                          type="text"
+                          maxlength="80"
+                          [value]="row.name"
+                          [disabled]="!!disabled"
+                          [matTooltip]="row.path"
+                          (keydown.enter)="nameInput.blur()"
+                          (change)="onNameInput(row, nameInput)" />
+                        @if (nameErrors[row.key]) {
+                          <span class="name-error">{{ nameErrors[row.key] }}</span>
+                        }
+                      </div>
+                    </td>
+                    <td class="num">{{ row.size }}</td>
+                    <td class="mono">{{ shapeText(row) }}</td>
+                    <td class="value" [matTooltip]="row.valueTitle">{{ row.valueText }}</td>
+                    <td class="leaf" [matTooltip]="row.leafTitle">{{ row.leafText }}</td>
+                    <td>
+                      @switch (row.status) {
+                        @case ('ok') {
+                          <mat-icon class="status ok" [matTooltip]="statusTitle(row)">check_circle</mat-icon>
+                        }
+                        @case ('problem') {
+                          <mat-icon class="status problem" [matTooltip]="statusTitle(row)">error</mat-icon>
+                        }
+                        @case ('none') {
+                          <mat-icon class="status none" [matTooltip]="statusTitle(row)">remove</mat-icon>
+                        }
+                      }
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+          <p class="note">
+            Types: Fixed = 16.16 fixed point, Integer = 32-bit int, Char = 1 byte, Array = 4-byte elements (no element
+            type; shown as ints), CArray = bytes, Import = a table imported from another file, Chain = a group of fields
+            with a copy of its own data. No game reads the .DES files: they come from EA's data editor, and their copy
+            of the data can differ from the shipped .DAT.
+          </p>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="All fields">
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-compound-block-ui
+            [resourceId]="resourceId"
+            [resourceName]="resourceName"
+            [resourceSchema]="resourceSchema"
+            [resourceData]="resourceData"
+            [hideName]="true"
+            [hideBlockActions]="true"
+            [disabled]="disabled"></app-compound-block-ui>
+        </div>
+      </ng-template>
+    </mat-tab>
+  </mat-tab-group>
+}
