@@ -46,6 +46,9 @@ import { CarAiAndCrashBodyBlockUiComponent } from './eac/car-ai-and-crash-body.b
 import { Nfs2CarPhysicsBlockUiComponent } from './eac/nfs2-car-physics.block-ui/nfs2-car-physics.block-ui.component';
 import { Nfs3CarPhysicsBlockUiComponent } from './eac/nfs3-car-physics.block-ui/nfs3-car-physics.block-ui.component';
 import { Nfs2CarAiBlockUiComponent } from './eac/nfs2-car-ai.block-ui/nfs2-car-ai.block-ui.component';
+import { IniFileBlockUiComponent } from './common/ini-file.block-ui/ini-file.block-ui.component';
+import { Nfs6CarIniBlockUiComponent } from './eac/nfs6-car-ini.block-ui/nfs6-car-ini.block-ui.component';
+import { Nfs6EngineAudioBlockUiComponent } from './eac/nfs6-engine-audio.block-ui/nfs6-engine-audio.block-ui.component';
 import { isLazyStub } from '../../utils/lazy';
 
 @Component({
@@ -123,6 +126,10 @@ export class EditorComponent implements OnDestroy {
     Nfs6AiPaths: TrackMapBlockUiComponent,
     NfsuTrackBundle: TrackMapBlockUiComponent,
     EaglModel: EaglModelBlockUiComponent,
+    // NFS HP2 PC car spec files (and any typed INI file)
+    IniFile: IniFileBlockUiComponent,
+    Nfs6CarIni: Nfs6CarIniBlockUiComponent,
+    Nfs6EngineAudioTable: Nfs6EngineAudioBlockUiComponent,
 
     // NFS6 PS2-specific blocks
     Nfs6Ps2TrackBundle: TrackMapBlockUiComponent,

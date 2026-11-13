@@ -69,6 +69,9 @@ import { CarAiAndCrashBodyBlockUiComponent } from './eac/car-ai-and-crash-body.b
 import { Nfs2CarPhysicsBlockUiComponent } from './eac/nfs2-car-physics.block-ui/nfs2-car-physics.block-ui.component';
 import { Nfs3CarPhysicsBlockUiComponent } from './eac/nfs3-car-physics.block-ui/nfs3-car-physics.block-ui.component';
 import { Nfs2CarAiBlockUiComponent } from './eac/nfs2-car-ai.block-ui/nfs2-car-ai.block-ui.component';
+import { IniFileBlockUiComponent } from './common/ini-file.block-ui/ini-file.block-ui.component';
+import { Nfs6CarIniBlockUiComponent } from './eac/nfs6-car-ini.block-ui/nfs6-car-ini.block-ui.component';
+import { Nfs6EngineAudioBlockUiComponent } from './eac/nfs6-engine-audio.block-ui/nfs6-engine-audio.block-ui.component';
 
 @NgModule({
   declarations: [
@@ -126,6 +129,9 @@ import { Nfs2CarAiBlockUiComponent } from './eac/nfs2-car-ai.block-ui/nfs2-car-a
     Nfs2CarPhysicsBlockUiComponent,
     Nfs3CarPhysicsBlockUiComponent,
     Nfs2CarAiBlockUiComponent,
+    IniFileBlockUiComponent,
+    Nfs6CarIniBlockUiComponent,
+    Nfs6EngineAudioBlockUiComponent,
   ],
   imports: [
     CommonModule,

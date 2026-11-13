@@ -37,6 +37,7 @@ from .geometries import (
 )
 from .json import JsonSerializer, TnfsPsxHorizonInfoSerializer, Nfs3CarPhysicsSerializer
 from .horizons import EacHorizonSettingsSerializer
+from .ini import IniFileSerializer, BlockJsonSerializer
 from .maps import (
     TriMapSerializer,
     TrkMapSerializer,

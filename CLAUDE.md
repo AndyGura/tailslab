@@ -393,6 +393,33 @@ When you do:
   (`Nfs6CarModel`) uses it with the location `lighting.json` picks and its environment map, and reads the mesh names,
   properties and JSON files: keep them stable.
 
+## NFS Hot Pursuit 2 PC car specs (`Cars/<car>/*.ini`, `Cars/*.ini`, `Cars/cartable.viv`)
+
+- Typed INI files (`resources/eac/ini.py`): an `IniFile` subclass declares `IniSection`s and `IniSectionGroup`s
+  (numbered sections: `[skin00]`.., by a name regex) of typed keys (`IniInt`, `IniFloat`, `IniString`, `IniArray` of
+  numbered keys `torqueCurve_%d`); the block reads and writes the whole text itself (`source_text`, `usage: io`): a
+  changed number keeps the old one's style, a new key goes after the definition's previous key, a missing key is
+  None (an empty GUI input removes the line). Keys the definition lacks go to the section's `other_keys`, sections to
+  `other_sections` (repeated sections after the first too). Which line the game reads follows NFSHP2.exe's CINI
+  parser (`parse_ini`, 0x5b5180): no comment syntax (key lines starting with `'`, `//`, `#`, `;` are kept as text,
+  out of `other_keys`: no lookup can find them), a repeated key spelling replaces the value, lookups ignore case and
+  find the first section / key. All 296 car `.ini` files write back byte-exact.
+- `resources/eac/nfs6_car_specs.py`: `Nfs6CarIni` (`car.ini`; `Nfs6CarHpIni`, `Nfs6CarCopIni`, `Nfs6CarRacerIni`
+  subclass it), `Nfs6VehicleIni`, `Nfs6CarsIni`, `Nfs6BoundsIni`, `Nfs6GeomDataIni`, `Nfs6DamageIni`, `Nfs6LodIni`,
+  `Nfs6CamerasIni`, `Nfs6RearViewIni`, `Nfs6ReflectionIni` (picked by name in a `Cars` folder,
+  `nfs6_car_ini_class`), every key described from NFSHP2.exe (nfs-web `decomp/nfs6/NFSHP2.exe.gzf`: `CarIni_*`,
+  `HCVehicle_*`, `Ini_*`, `Cameras_*`...: reader, default, where it goes, users; keys the game never reads say so).
+  Each section block gets a class of its own (`Nfs6CarIniBasic`..., `NFS6_CAR_SPEC_SECTIONS`) so the docs list its
+  keys. `Nfs6EngineAudioTable` ("CRDl", the items of `cartable.viv`, also a `BigfBlock` item block): engine sound
+  slots, self-relative table offsets, 512-byte volume / pitch tables.
+- Conversion: `IniFileSerializer` writes `<file>.json` (the values, sections as objects, groups as lists; no layout)
+  and imports it back over the loaded file (layout kept) or as a new file; `BlockJsonSerializer` does the same for a
+  binary block with every field (`Nfs6EngineAudioTable`, `from_json`).
+- GUI: `Nfs6CarIniBlockUiComponent` (`frontend/.../editor/eac/nfs6-car-ini.block-ui/`; the exe's formulas in
+  `nfs6-car-specs.ts`: torque curve fill and lookup, gearing, drive force, shift speeds, aero, steering limit),
+  `IniFileBlockUiComponent` (`editor/common/ini-file.block-ui/`, every `IniFile`: sections, keys with units, defaults
+  and descriptions, groups and other keys), `Nfs6EngineAudioBlockUiComponent` (the CRDl tables on charts).
+
 ## NFS Hot Pursuit 2 PlayStation 2 (`games/nfs6_ps2`, SLUS-20362, doc `resources/NFS6_PS2.md`)
 
 - The disc keeps its files in `NFSHP2/ZZDATA.BIN`, listed by `NFSHP2/ZDIR.BIN` (12-byte entries: `bin_hash` of the path

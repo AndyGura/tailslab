@@ -1,0 +1,64 @@
+@if (resourceId && resourceName && !hideName) {
+  <h2 [matTooltip]="resourceDescription || ''" matTooltipPosition="above">{{ resourceName }}</h2>
+}
+@if (!hideBlockActions) {
+  <app-block-actions
+    [resource]="{
+      id: resourceId!,
+      name: resourceName!,
+      data: resourceData,
+      schema: resourceSchema,
+    }"></app-block-actions>
+}
+@if (resourceData && resourceSchema) {
+  <p class="note">{{ resourceSchema.block_description }}</p>
+  <table class="gear-table">
+    <thead>
+      <tr>
+        <th>Slot</th>
+        <th matTooltip="Patch of the car's engine sound bank">Sample</th>
+        <th>Volume table</th>
+        <th>Pitch table</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (s of slots; track s.slot) {
+        <tr>
+          <td>{{ s.slot }}</td>
+          <td class="num">{{ s.patch }}</td>
+          <td class="num">{{ s.volumeTable ?? '–' }}</td>
+          <td class="num">{{ s.pitchTable ?? '–' }}</td>
+        </tr>
+      }
+    </tbody>
+  </table>
+  <div class="chart-grid">
+    <app-curve-editor
+      title="Volume by engine speed"
+      hint="Volume of each slot's sample by the engine sound index (EngineAudio_Update 0x4349e0); the game reads entries 0..127 of each 512-byte table"
+      [series]="volumeSeries"
+      [xAxis]="indexAxis"
+      [yAxis]="volumeAxis"
+      [height]="300"
+      [disabled]="disabled"
+      (seriesChange)="onTableChange($event)"></app-curve-editor>
+    <app-curve-editor
+      title="Pitch by engine speed"
+      hint="Pitch bend of each slot's sample: 64 plays it at its own pitch"
+      [series]="pitchSeries"
+      [xAxis]="indexAxis"
+      [yAxis]="pitchAxis"
+      [height]="300"
+      [disabled]="disabled"
+      (seriesChange)="onTableChange($event)"></app-curve-editor>
+  </div>
+  <h3>All fields</h3>
+  <app-compound-block-ui
+    [resourceId]="resourceId"
+    [resourceName]="resourceName"
+    [resourceSchema]="resourceSchema"
+    [resourceData]="resourceData"
+    [hideName]="true"
+    [hideBlockActions]="true"
+    [disabled]="disabled"></app-compound-block-ui>
+}
