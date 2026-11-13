@@ -37,22 +37,41 @@ def _is_nfs2_car_ai_name(file_path: str) -> bool:
 
 
 def _is_nfs3_car_physics_path(file_path: str) -> bool:
-    """NFS3 `carp.txt` of `GameData/CarModel/<car>/car.viv` (NFS4's `Data/Cars/<car>/car.viv` one is another format)"""
-    return (
-        _file_or_archive_item_name(file_path).lower() == 'carp.txt'
-        and '/CARMODEL/' in file_path.replace('\\', '/').upper()
+    """NFS3 `carp.txt` of `GameData/CarModel/<car>/car.viv` and of the network placeholder `FeData/Plac/CAR.VIV`
+    (NFS4's `Data/Cars/<car>/car.viv` one is another format)"""
+    path = file_path.replace('\\', '/').upper()
+    return _file_or_archive_item_name(file_path).lower() == 'carp.txt' and (
+        '/CARMODEL/' in path or '/FEDATA/PLAC/' in path
+    )
+
+
+def _is_nfs4_plac_item(file_path: str) -> bool:
+    """An item of NFS4's network placeholder car `Data/Plac.viv`"""
+    return '/DATA/PLAC.VIV' in '/' + file_path.replace('\\', '/').upper()
+
+
+def _fedata_language_name(file_path: str) -> bool:
+    """`fedata.<lang>` of an NFS3 / NFS4 car.viv (`fedata.fsh` is an image)"""
+    return _file_or_archive_item_name(file_path).lower() in (
+        'fedata.eng',
+        'fedata.fre',
+        'fedata.ger',
+        'fedata.ita',
+        'fedata.spa',
+        'fedata.swe',
+        'fedata.bri',
     )
 
 
 def _is_nfs4_car_physics_path(file_path: str) -> bool:
-    """NFS4 `carp.txt` / `carp<n>.txt` of `Data/Cars/<car>/car.viv` (also `traffic/...`; `Data/Plac.viv`'s `carp.txt`
-    is a placeholder text)"""
+    """NFS4 `carp.txt` / `carp<n>.txt` of `Data/Cars/<car>/car.viv` (also `traffic/...`) and of the network placeholder
+    `Data/Plac.viv` (a text with the serial number only)"""
     name = _file_or_archive_item_name(file_path).lower()
     return (
         name.startswith('carp')
         and name.endswith('.txt')
         and (name == 'carp.txt' or name[4:-4].isdigit())
-        and '/DATA/CARS/' in '/' + file_path.replace('\\', '/').upper()
+        and ('/DATA/CARS/' in '/' + file_path.replace('\\', '/').upper() or _is_nfs4_plac_item(file_path))
     )
 
 
@@ -130,6 +149,14 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.car_specs import Nfs4CarPhysics
 
             return Nfs4CarPhysics
+        elif _fedata_language_name(file_path) and _peek(buffer, 0x3C0):
+            from resources.eac.fedata import Nfs3CarFeData, Nfs4CarFeData, is_nfs3_fedata, is_nfs4_fedata
+
+            head = _peek(buffer, 0x3C0)
+            if is_nfs4_fedata(head):
+                return Nfs4CarFeData
+            if is_nfs3_fedata(head):
+                return Nfs3CarFeData
         elif length == 232 and _nfs2_data_file_name(file_path).upper() == 'SIMTUNE.DAT':
             from resources.eac.car_specs import Nfs2SimTune
 

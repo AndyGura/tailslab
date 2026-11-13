@@ -68,6 +68,7 @@ import { PlayerCarPhysicsBlockUiComponent } from './eac/player-car-physics.block
 import { CarAiAndCrashBodyBlockUiComponent } from './eac/car-ai-and-crash-body.block-ui/car-ai-and-crash-body.block-ui.component';
 import { Nfs2CarPhysicsBlockUiComponent } from './eac/nfs2-car-physics.block-ui/nfs2-car-physics.block-ui.component';
 import { Nfs3CarPhysicsBlockUiComponent } from './eac/nfs3-car-physics.block-ui/nfs3-car-physics.block-ui.component';
+import { CarFeDataBlockUiComponent } from './eac/car-fedata.block-ui/car-fedata.block-ui.component';
 import { Nfs2CarAiBlockUiComponent } from './eac/nfs2-car-ai.block-ui/nfs2-car-ai.block-ui.component';
 import { Nfs2SimTuneBlockUiComponent } from './eac/nfs2-sim-tune.block-ui/nfs2-sim-tune.block-ui.component';
 import { EaFieldDescriptionsBlockUiComponent } from './eac/ea-field-descriptions.block-ui/ea-field-descriptions.block-ui.component';
@@ -127,6 +128,7 @@ import { EaFieldDescriptionsBlockUiComponent } from './eac/ea-field-descriptions
     CarAiAndCrashBodyBlockUiComponent,
     Nfs2CarPhysicsBlockUiComponent,
     Nfs3CarPhysicsBlockUiComponent,
+    CarFeDataBlockUiComponent,
     Nfs2CarAiBlockUiComponent,
     Nfs2SimTuneBlockUiComponent,
     EaFieldDescriptionsBlockUiComponent,

@@ -366,4 +366,25 @@ describe('Nfs3CarPhysicsBlockUiComponent with NFS4 car physics', () => {
     const atMax = ((0.98 * 455 * 68.066902) / 1275) * 0.1;
     expect(component.dragAt(93.09024)).toBeCloseTo(atMax, 6);
   });
+
+  it('charts the understeer gradient and the air brake', () => {
+    expect(component.lateralFactors(1.0)).toEqual({ front: 0.8, rear: 1.4 });
+    expect(component.lateralFactors(1.09).rear).toBeCloseTo(1.4 / 1.09, 6);
+    expect(component.understeerMarkers[0].value).toBe(1.0);
+    expect(component.tiles.find(t => t.id === 'understeer_gradient')).toBeTruthy();
+    // B911 has the air brake (spoiler_type 1): + |speed| x aero_downforce, at most |speed| x 32
+    expect(component.hasAirBrake).toBeTrue();
+    expect(component.brakeDecelAt(50, true)).toBeCloseTo(11.8 + 50 * 0.002403, 6);
+    expect(component.brakeDecelAt(50, false)).toBe(11.8);
+    expect(component.brakeDecelAt(0.1, true)).toBeCloseTo(3.2, 6);
+    expect(component.downforceSeries.map(s => s.id)).toContain('rear_braking');
+  });
+
+  it('edits the understeer gradient from its marker', () => {
+    const append = spyOn(TestBed.inject(ChangesService), 'appendChanges').and.returnValue(Promise.resolve());
+    component.onUndersteerMarker({ markerId: 'understeer_gradient', value: 1.0512 });
+    const change = append.calls.mostRecent().args[0] as any;
+    expect(change.id).toBe('car.viv__data/children/0/item/data/understeer_gradient');
+    expect(change.newValue).toBe(1.051);
+  });
 });

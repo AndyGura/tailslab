@@ -17,6 +17,7 @@ from resources import eac, blackbox
 from resources.eac import psx as eac_psx, psx_bitmaps as eac_psx_bitmaps
 from resources.eac import horizons as eac_horizons
 from resources.eac import field_descriptions as eac_field_descriptions
+from resources.eac import fedata as eac_fedata
 from resources.blackbox.bitmaps import nfsu as blackbox_bitmaps_nfsu
 from resources.blackbox.maps import nfsu as blackbox_maps_nfsu
 from resources.blackbox.maps import nfsu2 as blackbox_maps_nfsu2
@@ -466,6 +467,8 @@ EXPORT_RESOURCES = {
 
 **GameData/CarModel/\\<car\\>/car.viv: carp.txt** car physics, plain text (label and value lines). {render_type(eac.car_specs.Nfs3CarPhysics())}. The converter writes it as `carp.txt.json` (named values) and `carp.txt.bin` (the file as it is)
 
+**GameData/CarModel/\\<car\\>/car.viv: fedata.\\<lang\\>** (eng, fre, ger, ita, spa, swe, bri) car showroom data: car list values and spec sheet texts. {render_type(eac_fedata.Nfs3CarFeData())}. The converter writes it as `fedata.<lang>.json` (every field; imports back to the same bytes) and `fedata.<lang>.bin` (the file as it is)
+
 **GameData/Tracks/TRK\\<nnn\\>/TR\\<nn\\>\\<k\\>.CAN**, **TR\\<nn\\>00A.CAN** animation path of knocked-away objects. {render_type(eac.maps.Nfs3CanAnimation())}
 
 **\\*.COL** track additional data. {render_type(eac.maps.Nfs3MapColFile())}
@@ -543,6 +546,7 @@ EXPORT_RESOURCES = {
             ],
             'Physics': [
                 eac.car_specs.Nfs3CarPhysics(),
+                eac_fedata.Nfs3CarFeData(),
             ],
             'Images': [
                 eac.bitmaps.EacImage(),
@@ -579,6 +583,8 @@ EXPORT_RESOURCES = {
 **Data/Tracks/\\<track\\>/Tr\\<nn\\>.can**, **Tr00a.can** animation path of knocked-away objects. {render_type(eac.maps.Nfs3CanAnimation())}
 
 **Data/Cars/\\<car\\>/car.viv: carp.txt** (**carp\\<n\\>.txt**) car physics, plain text (label and value lines). {render_type(eac.car_specs.Nfs4CarPhysics())}. The converter writes it as `carp.txt.json` (named values) and `carp.txt.bin` (the file as it is)
+
+**Data/Cars/\\<car\\>/car.viv: fedata.\\<lang\\>** (eng, fre, ger, ita, spa, swe, bri) car showroom data: the car list record and spec sheet texts. {render_type(eac_fedata.Nfs4CarFeData())}. The converter writes it as `fedata.<lang>.json` (every field; imports back to the same bytes) and `fedata.<lang>.bin` (the file as it is)
 
 **\\*.FCE** 3D model (car.fce in car.viv: car model). {render_type(eac.geometries.Fce4Geometry())}
 
@@ -632,6 +638,7 @@ EXPORT_RESOURCES = {
             ],
             'Physics': [
                 eac.car_specs.Nfs4CarPhysics(),
+                eac_fedata.Nfs4CarFeData(),
             ],
             'Images': [
                 eac.bitmaps.EacImage(),

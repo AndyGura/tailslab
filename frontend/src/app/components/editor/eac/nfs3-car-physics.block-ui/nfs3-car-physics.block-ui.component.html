@@ -281,9 +281,40 @@
             Static grip of each wheel: 9.81 × lateral_grip × front_grip_bias = {{ fmt(staticGrip, 2) }} per unit of
             surface grip (both axles get the front_grip_bias share: an exe quirk), then the load transfer (g_transfer ×
             the forward force) moves grip between the axles. The cornering force of a wheel is sin(slip angle / 2) ×
-            grip × 4 (front × 0.8, rear × 1.4), capped at 2 × min_steering_accel. lateral_grip also scales the drive /
-            brake force against that grip, without changing the acceleration.
+            grip × 4 (front × 0.8, rear × 1.4{{
+              isNfs4 ? ', NFS4: front × 0.8 × understeer_gradient, rear × 1.4 / it' : ''
+            }}), capped at 2 × min_steering_accel. lateral_grip also scales the drive / brake force against that grip,
+            without changing the acceleration.
           </p>
+          @if (isNfs4) {
+            <app-curve-editor
+              title="Understeer gradient: lateral force of the front and rear wheels"
+              hint="NFS4 (0x500f20): each front wheel's cornering force × 0.8 × understeer_gradient, each rear wheel's × 1.4 / understeer_gradient (NFS3: 0.8 and 1.4). Above 1 the front grips more and the rear less (oversteer), below 1 the other way. Drag the marker"
+              [series]="understeerSeries"
+              [markers]="understeerMarkers"
+              [xAxis]="gradientAxis"
+              [yAxis]="lateralAxis"
+              [height]="220"
+              [disabled]="disabled"
+              (markerChange)="onUndersteerMarker($event)"></app-curve-editor>
+            <app-curve-editor
+              title="Braking and the air brake"
+              [hint]="
+                'NFS4 (0x501860): full brake deceleration by speed: max_brake_decel, plus |speed| × aero_downforce with the air brake (spoiler_type 1) above ' +
+                fmt(airBrakePedal, 2) +
+                ' of the pedal, at most what stops the car in one step. With the air brake braking also raises the rear downforce factor from 1.5 to 1.75 (Downforce chart). ' +
+                (hasAirBrake
+                  ? 'This car has the air brake.'
+                  : 'This car has no air brake (spoiler_type ' + resourceData?.['spoiler_type'] + ').')
+              "
+              [series]="airBrakeSeries"
+              [xAxis]="speedAxis"
+              [yAxis]="decelAxis"
+              [height]="220"
+              [describeX]="describeSpeed"></app-curve-editor>
+            <h3>NFS4 grip</h3>
+            <ng-container *ngTemplateOutlet="sliderFields; context: { $implicit: nfs4Sliders }"></ng-container>
+          }
           <h3>Grip parameters</h3>
           <ng-container *ngTemplateOutlet="sliderFields; context: { $implicit: sliders['grip'] }"></ng-container>
           <ng-container *ngTemplateOutlet="fields; context: { $implicit: groups.grip }"></ng-container>

@@ -798,17 +798,24 @@ When you do:
   each changed number in the style of the one it replaces (decimals, `128.000000` for an integer field), fields the
   text lacks appended when they differ from the default, so all 16 files write back byte-exact
   (`test/samples/nfs3_carp/`, `test/resources/eac/test_nfs3_car_physics.py`, which also checks the values against
-  the exe parser's carp dumped by the nfs-web port). Picked by the item name `carp.txt` under a `/CarModel/` path
-  (`_is_nfs3_car_physics_path`). The block is table driven (`carp_fields`, `carp_table_index`, `carp_labels`,
+  the exe parser's carp dumped by the nfs-web port). Picked by the item name `carp.txt` under a `/CarModel/` path or
+  in the network placeholder `FeData/Plac/CAR.VIV` (`_is_nfs3_car_physics_path`; its text holds the serial number
+  only). The block is table driven (`carp_fields`, `carp_table_index`, `carp_labels`,
   `carp_exe_read`, `_value_line`): `Nfs4CarPhysics` subclasses it.
 - `Nfs3CarPhysicsSerializer` writes `carp.txt.json` (named values) and `carp.txt.bin` (the file itself), for NFS3 and
-  NFS4: nfs-web's NFS3 physics downloads `carp.txt.bin` from the CDN, keep writing it byte-identical.
+  NFS4: nfs-web's NFS3 physics downloads `carp.txt.bin` from the CDN, keep writing it byte-identical. Its JSON imports
+  back (`deserialize`): the values go over the carp loaded under the id (its text keeps labels and number styles, so
+  an unchanged JSON gives the same bytes), else over a new text.
+- "No reader identified" in the field descriptions: no instruction reads the field through the car's carp pointer
+  (NFS3 car+0x528, NFS4 car+0x474) in a linear disassembly of the whole executable (nfs-web
+  `decomp/<game>/port-work/car-specs/carp_readers.py`), AI, camera, drawing and force feedback code included.
 - GUI: `Nfs3CarPhysicsBlockUiComponent` (`frontend/.../editor/eac/nfs3-car-physics.block-ui/`, on `CarSpecEditorBase`):
   dyno (interpolated torque), gearing with the automatic gearbox and the air drag (manual / automatic gear set),
   brake and steering ramps, steering lock, yaw damping, downforce, AI acceleration table, driving aid, the menus'
   tuning sliders (Carp_TuneCar, local to the editor). Its derived curves follow the field descriptions: keep the two
-  in sync. NFS4 carp files reach it through `block_class_mro` (`isNfs4`: torque curve 21 entries 500 rpm apart,
-  `understeer_gradient`, the driving aid noted as unused).
+  in sync. NFS4 carp files reach it through `block_class_mro` (`isNfs4`: torque curve 21 entries 500 rpm apart, the
+  understeer gradient's chart, slider and tile (front / rear lateral force factors), the air brake's braking chart and
+  rear downforce (`spoiler_type` 1), the driving aid noted as unused).
 
 ## NFS4 car physics (`Data/Cars/<car>/car.viv`: `carp.txt`, `carp<n>.txt`)
 
@@ -823,8 +830,30 @@ When you do:
   All 75 files of the game (23 racers, 19 traffic and pursuit cars, `carp1`..`carp3.txt` of 11 cars: race type 4,
   game setup car +0x18) write back byte-exact and read as the port of the exe parser reads them
   (`test/samples/nfs4_carp/`, `test/resources/eac/test_nfs4_car_physics.py`). Picked by `carp.txt` / `carp<n>.txt`
-  under a `/Data/Cars/` path (`_is_nfs4_car_physics_path`; `Data/Plac.viv`'s `carp.txt` is a placeholder text and
-  stays raw). Exported like NFS3's (`carp.txt.json` + `carp.txt.bin`).
+  under a `/Data/Cars/` path or in `Data/Plac.viv`, the network placeholder (serial number only;
+  `_is_nfs4_car_physics_path`). Exported like NFS3's (`carp.txt.json` + `carp.txt.bin`).
+
+## NFS3 / NFS4 car showroom data (`car.viv`: `fedata.<lang>`, `resources/eac/fedata.py`)
+
+- `fedata.eng` / `fre` / `ger` / `ita` / `spa` / `swe` / `bri` (every car.viv, also the network placeholders
+  `FeData/Plac/CAR.VIV`, `Data/Plac.viv`): the front end's car list values, then a text table. `Nfs3CarFeData`: a
+  0x2d-byte header that nfs3.exe 0x439d90 converts field by field into its car list record; `Nfs4CarFeData`: bytes
+  2..0x3bd are nfs4.exe's car list record as it is in memory (record = file + 2, 0x473d20), run time slots zeros in
+  the files. Field readers from nfs-web's Ghidra databases (`FeCars_*` names, addresses in the descriptions).
+  `fedata.fsh` is an image; NFS4 `careng.ltb` / `careng.ctb` are engine sound tables.
+- `FeDataTextTable` (text table at 0x2d / 0x3be): u16 count, u32 offsets from the start of the file, null-terminated
+  Latin-1 texts (40 in NFS3, 41 in NFS4: `special` after the tyres); the names and sections of the texts are in its
+  schema (`text_names`, `NFS3_FEDATA_TEXTS` / `NFS4_FEDATA_TEXTS`). Every shipped file lays the texts out in order,
+  an empty one pointing at the zero ending the text before it (the first at the offset table's last byte), and
+  writing does the same: all 287 game files write back byte-exact, so the texts are a plain list in the data.
+- Picked by the item name and the format version (`_fedata_language_name`, `is_nfs3_fedata`: 9 at +4,
+  `is_nfs4_fedata`: 10 at 0x388); `BigfBlock` item blocks. `CarFeDataSerializer` writes `fedata.<lang>.json` (every
+  field) and `fedata.<lang>.bin` (the file as it is, the raw copy written before the format was parsed); the JSON
+  imports back to the same bytes.
+- GUI: `CarFeDataBlockUiComponent` (`frontend/.../editor/eac/car-fedata.block-ui/`, both games): the spec sheet in
+  the showroom's sections (labels of TEXT.ENG), history and paint names (Latin-1 only), the rating bars (NFS4 by
+  upgrade level, overall rating) and career prices, the car list values (class, engine position / driver seat,
+  interior view heading in texels of the 1280-texel panorama, flags), "All fields".
 
 ## NFS3 track data files (`GameData/Tracks/TRK<nnn>/`, nfs3.exe, `resources/eac/maps/nfs3.py`)
 
