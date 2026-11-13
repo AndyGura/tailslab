@@ -11,6 +11,11 @@ import {
   DesRow,
   filterDesRows,
 } from './ea-field-descriptions';
+import { MatTooltip } from '@angular/material/tooltip';
+import { BlockActionsComponent } from '../../common/block-actions/block-actions.component';
+import { MatTabGroup, MatTab, MatTabContent } from '@angular/material/tabs';
+import { MatIcon } from '@angular/material/icon';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
 
 export type DesRowView = DesRow & {
   offsetHex: string;
@@ -34,7 +39,7 @@ export type DesRowView = DesRow & {
     './ea-field-descriptions.block-ui.component.scss',
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [MatTooltip, BlockActionsComponent, MatTabGroup, MatTab, MatTabContent, MatIcon, CompoundBlockUiComponent],
 })
 export class EaFieldDescriptionsBlockUiComponent extends CarSpecEditorBase {
   selectedTab = 0;

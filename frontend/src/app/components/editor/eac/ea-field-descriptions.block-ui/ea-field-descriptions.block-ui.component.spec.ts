@@ -152,7 +152,7 @@ describe('EaFieldDescriptionsBlockUiComponent', () => {
   beforeEach(async () => {
     appendChanges = jasmine.createSpy('appendChanges').and.returnValue(Promise.resolve());
     await TestBed.configureTestingModule({
-      declarations: [EaFieldDescriptionsBlockUiComponent],
+      imports: [EaFieldDescriptionsBlockUiComponent],
       providers: [
         { provide: MainService, useValue: { focusedResourceId$: new BehaviorSubject(null) } },
         {

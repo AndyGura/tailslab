@@ -25,7 +25,7 @@ describe('ArrayBlockUiComponent', () => {
     };
 
     await TestBed.configureTestingModule({
-      declarations: [ArrayBlockUiComponent],
+      imports: [ArrayBlockUiComponent],
       providers: [
         { provide: MainService, useValue: mockMainService },
         { provide: ChangesService, useValue: mockChangesService },

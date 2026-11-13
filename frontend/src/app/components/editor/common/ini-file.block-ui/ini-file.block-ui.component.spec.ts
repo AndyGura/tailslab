@@ -100,7 +100,7 @@ describe('IniFileBlockUiComponent', () => {
   beforeEach(async () => {
     appendChanges = jasmine.createSpy('appendChanges').and.returnValue(Promise.resolve());
     await TestBed.configureTestingModule({
-      declarations: [IniFileBlockUiComponent],
+      imports: [IniFileBlockUiComponent],
       providers: [
         { provide: MainService, useValue: { focusedResourceId$: new BehaviorSubject(null) } },
         {

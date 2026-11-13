@@ -391,14 +391,15 @@ render any new block automatically from its `schema` — this covers the large m
 fields and even whole new formats built from existing primitives. Only add a bespoke
 `*.block-ui` component (under `frontend/.../editor/eac/` or `.../editor/common/`, e.g. for an
 image/3D-model/map/audio preview) when a rich visualization genuinely earns its keep — and note
-that registering one (`editor.module.ts` + `editor.component.ts`'s `DATA_BLOCK_COMPONENTS_MAP`) is
-the same mechanism whether generic or custom; see skill `read-block-framework` for the how-to.
+that a bespoke one is a standalone component registered in `editor.component.ts`'s
+`LAZY_DATA_BLOCK_COMPONENTS_MAP` (a dynamic import, loaded on first use); see skill `read-block-framework`
+for the how-to.
 
 ### Reusing an existing 3D map/terrain viewer for a new per-game format
 
 TNFS (`TriMap`), NFS2 (`TrkMap`), NFS3 (`FrdMap`), NFS4 (`Nfs4FrdMap`), NFS6 (`Nfs6AiPaths`), NFS6 PS2 (`Nfs6Ps2TrackBundle`) and NFSU (`NfsuTrackBundle`) tracks all render through
 one component, `TrackMapBlockUiComponent` in `frontend/.../editor/eac/track-map.block-ui/`, registered
-for each block class in `DATA_BLOCK_COMPONENTS_MAP`. Its world entity `TrackMapWorldEntity`
+for each block class in `LAZY_DATA_BLOCK_COMPONENTS_MAP`. Its world entity `TrackMapWorldEntity`
 (`track-map-world.entity.ts`) is generic chunk-graph-of-OBJs-plus-texture-archive machinery.
 Per-game differences live in a `TrackMapAdapter` (`track-map-adapters.ts`): chunk positions, the road
 spline used by the minimap and "Spline item" fly-to (with orientation), whether the track is closed,
@@ -493,7 +494,7 @@ a value.
 
 ### Shared widgets for bespoke viewers: editable curves and key figures
 
-`frontend/.../editor/common/` holds widgets any bespoke viewer can reuse (declared in `editor.module.ts`):
+`frontend/.../editor/common/` holds widgets any bespoke viewer can reuse (standalone: add them to the viewer's `imports`):
 
 - `app-curve-editor` (`curve-editor/`): an SVG chart of `CurveSeries` (line, step, bars or points; left or
   right y axis; `activeCount` dims the unused tail of a fixed-length table and keeps it out of the axis range

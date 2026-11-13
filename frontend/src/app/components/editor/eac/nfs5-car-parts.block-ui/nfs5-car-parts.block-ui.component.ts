@@ -4,9 +4,10 @@ import {
   CurvePoint,
   CurveSeries,
   CurveSeriesChange,
+  CurveEditorComponent,
 } from '../../common/curve-editor/curve-editor.component';
-import { StatTile } from '../../common/stat-tiles/stat-tiles.component';
-import { RecordListItem } from '../../common/record-list/record-list.component';
+import { StatTile, StatTilesComponent } from '../../common/stat-tiles/stat-tiles.component';
+import { RecordListItem, RecordListComponent } from '../../common/record-list/record-list.component';
 import { CarSpecEditorBase, fmt } from '../player-car-physics.block-ui/car-specs';
 import { MainService } from '../../../../services/main.service';
 import { joinId } from '../../../../utils/join-id';
@@ -35,6 +36,13 @@ import {
   nfs5PartUsedValue,
   nfs5PartWearFactor,
 } from './nfs5-parts';
+import { MatTooltip } from '@angular/material/tooltip';
+import { BlockActionsComponent } from '../../common/block-actions/block-actions.component';
+import { MatButton } from '@angular/material/button';
+import { MatIcon } from '@angular/material/icon';
+import { MatTabGroup, MatTab, MatTabContent } from '@angular/material/tabs';
+import { SliderFieldComponent } from '../../common/slider-field/slider-field.component';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
 
 // the part record's field names (Nfs5CarPart)
 export const NFS5_PART_FIELDS = {
@@ -55,7 +63,20 @@ export type Nfs5PartCarUse = { carIndex: number; carId: number; name: string; st
     './nfs5-car-parts.block-ui.component.scss',
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [
+    MatTooltip,
+    BlockActionsComponent,
+    RecordListComponent,
+    MatButton,
+    MatIcon,
+    StatTilesComponent,
+    MatTabGroup,
+    MatTab,
+    MatTabContent,
+    CurveEditorComponent,
+    SliderFieldComponent,
+    CompoundBlockUiComponent,
+  ],
 })
 export class Nfs5CarPartsBlockUiComponent extends CarSpecEditorBase implements OnInit {
   private readonly main = inject(MainService);

@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { SubscribableGuiComponent } from '../../gui.component';
+import { ImageViewerComponent } from '../../common/image-viewer/image-viewer.component';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
 
 const PSX_VRAM_ROTATED = 0x4000;
 const PSX_VRAM_COORDINATE_MASK = 0x3fff;
@@ -10,7 +12,7 @@ const PSX_VRAM_COORDINATE_MASK = 0x3fff;
   templateUrl: './psx-image.block-ui.component.html',
   styleUrls: ['./psx-image.block-ui.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [ImageViewerComponent, CompoundBlockUiComponent],
 })
 export class PsxImageBlockUiComponent extends SubscribableGuiComponent {
   // the color model decides the pixel layout: shown, not edited (no conversion between the models)

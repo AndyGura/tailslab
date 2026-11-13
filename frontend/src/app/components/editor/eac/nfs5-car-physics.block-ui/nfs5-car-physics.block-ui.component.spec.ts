@@ -128,7 +128,7 @@ describe('Nfs5CarPhysicsBlockUiComponent', () => {
   beforeEach(async () => {
     appendChanges = jasmine.createSpy('appendChanges').and.returnValue(Promise.resolve());
     await TestBed.configureTestingModule({
-      declarations: [Nfs5CarPhysicsBlockUiComponent],
+      imports: [Nfs5CarPhysicsBlockUiComponent],
       providers: [
         { provide: MainService, useValue: { focusedResourceId$: new BehaviorSubject(null) } },
         {

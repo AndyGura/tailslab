@@ -1,8 +1,19 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
-import { CurveAxis, CurveSeries, CurveSeriesChange } from '../../common/curve-editor/curve-editor.component';
-import { StatTile } from '../../common/stat-tiles/stat-tiles.component';
-import { SliderSpec } from '../../common/slider-field/slider-field.component';
+import {
+  CurveAxis,
+  CurveSeries,
+  CurveSeriesChange,
+  CurveEditorComponent,
+} from '../../common/curve-editor/curve-editor.component';
+import { StatTile, StatTilesComponent } from '../../common/stat-tiles/stat-tiles.component';
+import { SliderSpec, SliderFieldComponent } from '../../common/slider-field/slider-field.component';
 import { CarSpecEditorBase, fmt } from '../player-car-physics.block-ui/car-specs';
+import { MatTooltip } from '@angular/material/tooltip';
+import { BlockActionsComponent } from '../../common/block-actions/block-actions.component';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
+import { MatTabGroup, MatTab, MatTabContent } from '@angular/material/tabs';
+import { NgTemplateOutlet } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 
 // a text of the fedata text table, as the block's schema names it (resources/eac/fedata.py, text_names)
 export type FeDataTextName = { name: string; label: string; section: string };
@@ -47,7 +58,19 @@ export const isLatin1 = (text: string) => [...text].every(c => c.charCodeAt(0) <
     './car-fedata.block-ui.component.scss',
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [
+    MatTooltip,
+    BlockActionsComponent,
+    CompoundBlockUiComponent,
+    StatTilesComponent,
+    MatTabGroup,
+    MatTab,
+    MatTabContent,
+    NgTemplateOutlet,
+    CurveEditorComponent,
+    FormsModule,
+    SliderFieldComponent,
+  ],
 })
 export class CarFeDataBlockUiComponent extends CarSpecEditorBase {
   readonly nfs3Groups = {

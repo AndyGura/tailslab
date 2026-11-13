@@ -609,7 +609,7 @@ When you do:
   brake lights and writes 0x0008 / 0x001F to them (`tail_lights`); the cop's pure red and pure blue entries exchange
   red and blue every 16 clock units in a chase (`light_bar`, two colours; other cars keep the texture colours).
   Written only for a model with one such colour (every game file).
-- GUI: `OripGeometryBlockUiComponent` renders `OrixGeometry` too (`DATA_BLOCK_COMPONENTS_MAP`), with
+- GUI: `OripGeometryBlockUiComponent` renders `OrixGeometry` too (`LAZY_DATA_BLOCK_COMPONENTS_MAP`), with
   `TnfsCarMeshController` for a model of a `.VSM` / `.WSM` (`blackLightBar` off; brake lights and siren controls only
   when `car_colors.json` has them). It sets every texture of an ORIP / ORIX preview to nearest filtering
   (`setupNfs1Texture`): the colour replacement matches exact texel colours.

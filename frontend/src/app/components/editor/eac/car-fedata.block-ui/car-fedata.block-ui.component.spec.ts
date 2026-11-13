@@ -139,7 +139,7 @@ describe('CarFeDataBlockUiComponent', () => {
   beforeEach(async () => {
     appendChanges = jasmine.createSpy('appendChanges').and.returnValue(Promise.resolve());
     await TestBed.configureTestingModule({
-      declarations: [CarFeDataBlockUiComponent],
+      imports: [CarFeDataBlockUiComponent],
       providers: [
         { provide: MainService, useValue: { focusedResourceId$: new BehaviorSubject(null) } },
         {

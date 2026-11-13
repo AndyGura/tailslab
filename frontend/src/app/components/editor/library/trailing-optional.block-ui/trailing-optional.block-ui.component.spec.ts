@@ -24,7 +24,7 @@ describe('TrailingOptionalBlockUiComponent', () => {
     };
 
     await TestBed.configureTestingModule({
-      declarations: [TrailingOptionalBlockUiComponent],
+      imports: [TrailingOptionalBlockUiComponent],
       providers: [
         { provide: MainService, useValue: mockMainService },
         { provide: ChangesService, useValue: mockChangesService },

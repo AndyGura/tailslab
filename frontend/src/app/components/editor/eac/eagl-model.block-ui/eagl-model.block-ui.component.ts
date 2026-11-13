@@ -11,7 +11,11 @@ import {
 import { GuiComponent } from '../../gui.component';
 import { BehaviorSubject, debounceTime, filter, Subject, takeUntil } from 'rxjs';
 import { Object3D, Texture, TextureLoader } from 'three';
-import { ObjViewerCustomControl, ViewFilterOpts } from '../../common/obj-viewer/obj-viewer.component';
+import {
+  ObjViewerCustomControl,
+  ViewFilterOpts,
+  ObjViewerComponent,
+} from '../../common/obj-viewer/obj-viewer.component';
 import { steeringControl, wheelSpeedControl } from '../../common/obj-viewer/car-preview-controls';
 import {
   Nfs6CarDummy,
@@ -22,6 +26,8 @@ import {
 } from '../../../../../nfs-three-lib/nfs6-car-mesh-controller';
 import { proceduralSkySun } from '../../../../../nfs-three-lib/scene-sky';
 import { VIEWER_SKY } from '../../common/obj-viewer/viewer-sky';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
+import { AsyncPipe } from '@angular/common';
 
 // the environment map of the car: the location's staticenvmap.fsh (a race), Cars/common.fsh "refl" (the frontend)
 const ENVIRONMENT_TRACK = 'Track';
@@ -37,7 +43,7 @@ const ENVIRONMENT_SCENE = 'Scene';
   selector: 'app-eagl-model-block-ui',
   templateUrl: './eagl-model.block-ui.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [ObjViewerComponent, CompoundBlockUiComponent, AsyncPipe],
 })
 export class EaglModelBlockUiComponent extends GuiComponent implements AfterViewInit, OnChanges, OnDestroy {
   previewPaths$: BehaviorSubject<[string, string] | null> = new BehaviorSubject<[string, string] | null>(null);

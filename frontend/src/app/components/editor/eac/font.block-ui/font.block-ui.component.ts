@@ -14,6 +14,13 @@ import { joinId } from '../../../../utils/join-id';
 import { SubscribableGuiComponent } from '../../gui.component';
 import { ChangeEntry } from '../../../../services/changes.service';
 import { numberRange } from '../../value-validators';
+import { MatTabGroup, MatTab } from '@angular/material/tabs';
+import { FormsModule } from '@angular/forms';
+import { MatButton } from '@angular/material/button';
+import { MatIcon } from '@angular/material/icon';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
+import { ImageBlockUiComponent } from '../image.block-ui/image.block-ui.component';
+import { AsyncPipe } from '@angular/common';
 
 // index of an item with `key` = `value` in `items` without the item at `excludeIndex`: after all items with a key
 // <= value, so a sorted array stays sorted and equal keys keep their order
@@ -31,7 +38,17 @@ export function sortedPosition(items: any[], key: string, value: number, exclude
   styleUrls: ['./font.block-ui.component.scss'],
   host: { class: 'full-screen-editor' },
   changeDetection: ChangeDetectionStrategy.Eager,
-  standalone: false,
+  imports: [
+    MatTabGroup,
+    MatTab,
+    FormsModule,
+    MatButton,
+    MatIcon,
+    DataTableComponent,
+    CompoundBlockUiComponent,
+    ImageBlockUiComponent,
+    AsyncPipe,
+  ],
 })
 export class FontBlockUiComponent extends SubscribableGuiComponent implements AfterViewInit {
   @ViewChild('fullBitmapCanvas') fullBitmapCanvas?: ElementRef<HTMLCanvasElement>;

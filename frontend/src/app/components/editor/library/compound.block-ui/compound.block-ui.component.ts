@@ -1,16 +1,21 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, inject, Input, Output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, inject, Input, Output, forwardRef } from '@angular/core';
 import { SubscribableGuiComponent } from '../../gui.component';
 import { MainService } from '../../../../services/main.service';
 import { BehaviorSubject } from 'rxjs';
 import { joinId } from '../../../../utils/join-id';
 import { BlockData, BlockSchema } from '../../types';
+import { MatTooltip } from '@angular/material/tooltip';
+import { BlockActionsComponent } from '../../common/block-actions/block-actions.component';
+import { EditorComponent } from '../../editor.component';
+import { AsyncPipe } from '@angular/common';
 
+// forwardRef: EditorComponent imports this component back
 @Component({
   selector: 'app-compound-block-ui',
   templateUrl: './compound.block-ui.component.html',
   styleUrls: ['./compound.block-ui.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [MatTooltip, BlockActionsComponent, forwardRef(() => EditorComponent), AsyncPipe],
 })
 export class CompoundBlockUiComponent extends SubscribableGuiComponent<{ [key: string]: BlockData }> {
   override get resourceSchema(): BlockSchema | undefined {

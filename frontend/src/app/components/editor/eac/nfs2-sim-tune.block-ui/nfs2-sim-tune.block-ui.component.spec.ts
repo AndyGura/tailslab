@@ -161,7 +161,7 @@ describe('Nfs2SimTuneBlockUiComponent', () => {
   beforeEach(async () => {
     appendChanges = jasmine.createSpy('appendChanges').and.returnValue(Promise.resolve());
     await TestBed.configureTestingModule({
-      declarations: [Nfs2SimTuneBlockUiComponent],
+      imports: [Nfs2SimTuneBlockUiComponent],
       providers: [
         { provide: MainService, useValue: { focusedResourceId$: new BehaviorSubject(null) } },
         {

@@ -8,7 +8,7 @@ describe('MinimapComponent', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      declarations: [MinimapComponent],
+      imports: [MinimapComponent],
       schemas: [NO_ERRORS_SCHEMA],
     }).compileComponents();
     fixture = TestBed.createComponent(MinimapComponent);

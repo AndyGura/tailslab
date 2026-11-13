@@ -14,6 +14,11 @@ import { Subject, takeUntil, merge } from 'rxjs';
 import { Euler, MathUtils, Quaternion, Vector3 } from 'three';
 import { GizmoMode, SpatialEditController, SpatialSnap } from '../spatial-edit.controller';
 import { SpatialEditKind, SpatialHandle } from '../spatial-edit.types';
+import { MatTooltip } from '@angular/material/tooltip';
+import { MatIcon } from '@angular/material/icon';
+import { MatProgressSpinner } from '@angular/material/progress-spinner';
+import { FormsModule } from '@angular/forms';
+import { UpperCasePipe } from '@angular/common';
 
 // Material icons of the known kinds, others get a generic one
 const KIND_ICONS: { [kind: string]: string } = {
@@ -30,7 +35,7 @@ const KIND_ICONS: { [kind: string]: string } = {
   templateUrl: './spatial-edit-panel.component.html',
   styleUrls: ['./spatial-edit-panel.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [MatTooltip, MatIcon, MatProgressSpinner, FormsModule, UpperCasePipe],
 })
 export class SpatialEditPanelComponent implements OnChanges, OnDestroy {
   @Input() kinds: SpatialEditKind[] = [];

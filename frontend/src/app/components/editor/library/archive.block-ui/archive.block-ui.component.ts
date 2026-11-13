@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject, ViewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, ViewChild, forwardRef } from '@angular/core';
 import { BlockData, BlockSchema } from '../../types';
 import { joinId } from '../../../../utils/join-id';
 import { fileFormatIcon } from '../../../../utils/file-format-icon';
@@ -8,9 +8,17 @@ import { ArchiveItemEditDialogComponent } from '../../common/archive-item-edit.d
 import { ArchiveDelegateItemTypeDialogComponent } from '../../common/archive-delegate-item-type.dialog/archive-delegate-item-type.dialog.component';
 import { filter, firstValueFrom, Subject, takeUntil } from 'rxjs';
 import { blockClassStr } from '../../../../utils/block_class_str';
-import { MatSelectionList } from '@angular/material/list';
+import { MatSelectionList, MatListOption, MatListItemIcon } from '@angular/material/list';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { isLazyStub } from '../../../../utils/lazy';
+import { MatTooltip } from '@angular/material/tooltip';
+import { BlockActionsComponent } from '../../common/block-actions/block-actions.component';
+import { MatIcon } from '@angular/material/icon';
+import { MatIconButton, MatButton } from '@angular/material/button';
+import { MatCard } from '@angular/material/card';
+import { CompoundBlockUiComponent } from '../compound.block-ui/compound.block-ui.component';
+import { MatProgressSpinner } from '@angular/material/progress-spinner';
+import { EditorComponent } from '../../editor.component';
 
 // an unloaded entry (`isLazyStub`) has `alias` only, until it is selected
 type ArchiveChildData = {
@@ -19,13 +27,27 @@ type ArchiveChildData = {
   post_offset_payload: number[];
 };
 
+// forwardRef: EditorComponent imports this component back
 @Component({
   selector: 'app-archive-block-ui',
   templateUrl: './archive.block-ui.component.html',
   styleUrls: ['./archive.block-ui.component.scss'],
   host: { class: 'full-screen-editor' },
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [
+    MatSelectionList,
+    MatListOption,
+    MatTooltip,
+    BlockActionsComponent,
+    MatIcon,
+    MatListItemIcon,
+    MatIconButton,
+    MatButton,
+    MatCard,
+    CompoundBlockUiComponent,
+    MatProgressSpinner,
+    forwardRef(() => EditorComponent),
+  ],
 })
 export class ArchiveBlockUiComponent extends SubscribableGuiComponent<{
   [key: string]: BlockData;

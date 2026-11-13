@@ -6,10 +6,18 @@ import {
   CurvePoint,
   CurveSeries,
   CurveSeriesChange,
+  CurveEditorComponent,
 } from '../../common/curve-editor/curve-editor.component';
-import { StatTile } from '../../common/stat-tiles/stat-tiles.component';
-import { SliderSpec } from '../../common/slider-field/slider-field.component';
+import { StatTile, StatTilesComponent } from '../../common/stat-tiles/stat-tiles.component';
+import { SliderSpec, SliderFieldComponent } from '../../common/slider-field/slider-field.component';
 import { CarSpecEditorBase, fmt, G, GEAR_COLORS, MPS_TO_KMH, ordinal } from '../player-car-physics.block-ui/car-specs';
+import { MatTooltip } from '@angular/material/tooltip';
+import { BlockActionsComponent } from '../../common/block-actions/block-actions.component';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
+import { MatTabGroup, MatTab, MatTabContent } from '@angular/material/tabs';
+import { MatButton } from '@angular/material/button';
+import { MatIcon } from '@angular/material/icon';
+import { NgTemplateOutlet } from '@angular/common';
 
 // acceleration table: one entry per m/s (nfs2sen.exe 0x42e7d0 reads entry abs(speed) >> 16, clamped to 0..111)
 const TABLE_LENGTH = 112;
@@ -109,7 +117,20 @@ export type Nfs2AiRun = {
   templateUrl: './nfs2-car-ai.block-ui.component.html',
   styleUrls: ['../player-car-physics.block-ui/player-car-physics.block-ui.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [
+    MatTooltip,
+    BlockActionsComponent,
+    CompoundBlockUiComponent,
+    StatTilesComponent,
+    MatTabGroup,
+    MatTab,
+    MatTabContent,
+    CurveEditorComponent,
+    MatButton,
+    MatIcon,
+    NgTemplateOutlet,
+    SliderFieldComponent,
+  ],
 })
 export class Nfs2CarAiBlockUiComponent extends CarSpecEditorBase {
   override get resourceName(): string | undefined {

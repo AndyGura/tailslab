@@ -57,7 +57,16 @@ import { TrackProp } from './track-props-controller';
 import { SpatialEditController, SpatialEditHost, SpatialMove } from '../../common/spatial-edit/spatial-edit.controller';
 import { SpatialEditKind, SpatialHandle, spatialEditKinds } from '../../common/spatial-edit/spatial-edit.types';
 import { SelectionOrbit } from '../../common/spatial-edit/selection-orbit';
-import { MinimapRoad } from '../../common/minimap/minimap.component';
+import { MinimapRoad, MinimapComponent } from '../../common/minimap/minimap.component';
+import { MatFormField, MatLabel, MatSelect, MatOption, MatHint } from '@angular/material/select';
+import { MatButton } from '@angular/material/button';
+import { MatProgressSpinner } from '@angular/material/progress-spinner';
+import { ViewModeToolbarComponent } from '../../common/obj-viewer/view-mode-toolbar/view-mode-toolbar.component';
+import { SpatialEditPanelComponent } from '../../common/spatial-edit/spatial-edit-panel/spatial-edit-panel.component';
+import { MatInput } from '@angular/material/input';
+import { FormsModule } from '@angular/forms';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
+import { AsyncPipe } from '@angular/common';
 
 // Focus brings the camera this close to the selection
 const FOCUS_DISTANCE = 15;
@@ -85,7 +94,22 @@ function toViewer(p: Point3): Point3 {
   templateUrl: './track-map.block-ui.component.html',
   styleUrls: ['./track-map.block-ui.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [
+    MatFormField,
+    MatLabel,
+    MatSelect,
+    MatOption,
+    MatHint,
+    MatButton,
+    MatProgressSpinner,
+    ViewModeToolbarComponent,
+    SpatialEditPanelComponent,
+    MatInput,
+    FormsModule,
+    MinimapComponent,
+    CompoundBlockUiComponent,
+    AsyncPipe,
+  ],
 })
 export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewInit, OnChanges, OnDestroy {
   @ViewChild('previewCanvasContainer') previewCanvasContainer!: ElementRef<HTMLDivElement>;

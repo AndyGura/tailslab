@@ -2,6 +2,20 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 import { BlockSchema } from '../../types';
 import { CarSpecEditorBase } from '../../eac/player-car-physics.block-ui/car-specs';
 import { joinId } from '../../../../utils/join-id';
+import { MatTooltip } from '@angular/material/tooltip';
+import { BlockActionsComponent } from '../block-actions/block-actions.component';
+import { MatIconButton, MatButton } from '@angular/material/button';
+import { MatIcon } from '@angular/material/icon';
+import { NgTemplateOutlet } from '@angular/common';
+import { MatCheckbox } from '@angular/material/checkbox';
+import { FormsModule } from '@angular/forms';
+import {
+  MatExpansionPanel,
+  MatExpansionPanelHeader,
+  MatExpansionPanelTitle,
+  MatExpansionPanelDescription,
+  MatExpansionPanelContent,
+} from '@angular/material/expansion';
 
 export type IniKeyKind = 'int' | 'float' | 'string';
 
@@ -85,7 +99,21 @@ export const parseIniInput = (raw: string, kind: IniKeyKind): any => {
   templateUrl: './ini-file.block-ui.component.html',
   styleUrls: ['./ini-file.block-ui.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [
+    MatTooltip,
+    BlockActionsComponent,
+    MatIconButton,
+    MatIcon,
+    NgTemplateOutlet,
+    MatButton,
+    MatCheckbox,
+    FormsModule,
+    MatExpansionPanel,
+    MatExpansionPanelHeader,
+    MatExpansionPanelTitle,
+    MatExpansionPanelDescription,
+    MatExpansionPanelContent,
+  ],
 })
 export class IniFileBlockUiComponent extends CarSpecEditorBase {
   private _sectionWhitelist?: string[];

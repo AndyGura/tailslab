@@ -6,9 +6,10 @@ import {
   CurvePoint,
   CurveSeries,
   CurveSeriesChange,
+  CurveEditorComponent,
 } from '../../common/curve-editor/curve-editor.component';
-import { StatTile } from '../../common/stat-tiles/stat-tiles.component';
-import { SliderSpec } from '../../common/slider-field/slider-field.component';
+import { StatTile, StatTilesComponent } from '../../common/stat-tiles/stat-tiles.component';
+import { SliderSpec, SliderFieldComponent } from '../../common/slider-field/slider-field.component';
 import {
   CarSpecEditorBase,
   fmt,
@@ -48,6 +49,13 @@ import {
   topSpeedEstimate,
   turningRadius,
 } from './nfs6-ps2-car-specs';
+import { MatTooltip } from '@angular/material/tooltip';
+import { BlockActionsComponent } from '../../common/block-actions/block-actions.component';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
+import { MatTabGroup, MatTab, MatTabContent } from '@angular/material/tabs';
+import { NgTemplateOutlet } from '@angular/common';
+import { MatButton } from '@angular/material/button';
+import { FormsModule } from '@angular/forms';
 
 export const USAGE_TYPES = ['Racer', 'Police', 'Traffic'];
 export const CAR_STATUSES: { [v: number]: string } = {
@@ -81,7 +89,20 @@ export const gearName = (g: number) => (g === 0 ? 'R' : g === 1 ? 'N' : `${g - 1
     './nfs6-ps2-car-types.block-ui.component.scss',
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [
+    MatTooltip,
+    BlockActionsComponent,
+    CompoundBlockUiComponent,
+    SliderFieldComponent,
+    StatTilesComponent,
+    MatTabGroup,
+    MatTab,
+    MatTabContent,
+    CurveEditorComponent,
+    NgTemplateOutlet,
+    MatButton,
+    FormsModule,
+  ],
 })
 export class Nfs6Ps2CarTypesBlockUiComponent extends CarSpecEditorBase {
   selected = 0;

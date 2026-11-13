@@ -75,7 +75,7 @@ describe('Nfs5CarsBlockUiComponent', () => {
   beforeEach(async () => {
     appendChanges = jasmine.createSpy('appendChanges').and.returnValue(Promise.resolve());
     await TestBed.configureTestingModule({
-      declarations: [Nfs5CarsBlockUiComponent],
+      imports: [Nfs5CarsBlockUiComponent],
       providers: [
         {
           provide: MainService,

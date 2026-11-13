@@ -6,9 +6,10 @@ import {
   CurvePoint,
   CurveSeries,
   CurveSeriesChange,
+  CurveEditorComponent,
 } from '../../common/curve-editor/curve-editor.component';
-import { StatTile } from '../../common/stat-tiles/stat-tiles.component';
-import { SliderSpec } from '../../common/slider-field/slider-field.component';
+import { StatTile, StatTilesComponent } from '../../common/stat-tiles/stat-tiles.component';
+import { SliderSpec, SliderFieldComponent } from '../../common/slider-field/slider-field.component';
 import {
   CarSpecEditorBase,
   fmt,
@@ -19,6 +20,11 @@ import {
   powerKw,
 } from '../player-car-physics.block-ui/car-specs';
 import { gearName } from '../player-car-physics.block-ui/player-car-physics.block-ui.component';
+import { MatTooltip } from '@angular/material/tooltip';
+import { BlockActionsComponent } from '../../common/block-actions/block-actions.component';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
+import { MatTabGroup, MatTab, MatTabContent } from '@angular/material/tabs';
+import { NgTemplateOutlet } from '@angular/common';
 
 // the game reads torque entry rpm / 256, clamped to the 41 entries (nfs2sen.exe 0x4590e0)
 const TORQUE_RPM_STEP = 256;
@@ -117,7 +123,18 @@ export const SLIDE_CASES: Nfs2SlideCase[] = [
   templateUrl: './nfs2-car-physics.block-ui.component.html',
   styleUrls: ['../player-car-physics.block-ui/player-car-physics.block-ui.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [
+    MatTooltip,
+    BlockActionsComponent,
+    SliderFieldComponent,
+    CompoundBlockUiComponent,
+    StatTilesComponent,
+    MatTabGroup,
+    MatTab,
+    MatTabContent,
+    CurveEditorComponent,
+    NgTemplateOutlet,
+  ],
 })
 export class Nfs2CarPhysicsBlockUiComponent extends CarSpecEditorBase {
   readonly groups = {

@@ -10,7 +10,11 @@ import {
 } from '@angular/core';
 import { GuiComponent } from '../../gui.component';
 import { BehaviorSubject, debounceTime, filter, Subject, takeUntil } from 'rxjs';
-import { ObjViewerCustomControl, ViewFilterOpts } from '../../common/obj-viewer/obj-viewer.component';
+import {
+  ObjViewerCustomControl,
+  ViewFilterOpts,
+  ObjViewerComponent,
+} from '../../common/obj-viewer/obj-viewer.component';
 import { steeringControl, wheelSpeedControl } from '../../common/obj-viewer/car-preview-controls';
 import { Object3D } from 'three';
 import {
@@ -22,6 +26,8 @@ import {
   FceVersion,
   rgbToFceColor,
 } from '../../../../../nfs-three-lib/fce-car-mesh-controller';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
+import { AsyncPipe } from '@angular/common';
 
 const rgbOf = ([r, g, b]: [number, number, number]): number => (r << 16) | (g << 8) | b;
 
@@ -29,7 +35,7 @@ const rgbOf = ([r, g, b]: [number, number, number]): number => (r << 16) | (g <<
   selector: 'app-fce-geometry-block-ui',
   templateUrl: './fce-geometry.block-ui.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [ObjViewerComponent, CompoundBlockUiComponent, AsyncPipe],
 })
 export class FceGeometryBlockUiComponent extends GuiComponent implements AfterViewInit, OnChanges, OnDestroy {
   customControls: ObjViewerCustomControl[] = [];

@@ -14,6 +14,12 @@ import {
 } from '@angular/core';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { clampToRange, NumberRange, numberRange } from '../../value-validators';
+import { MatTooltip } from '@angular/material/tooltip';
+import { NgTemplateOutlet } from '@angular/common';
+import { MatIconButton, MatButton } from '@angular/material/button';
+import { MatIcon } from '@angular/material/icon';
+import { MatPaginator } from '@angular/material/paginator';
+import { FormsModule } from '@angular/forms';
 
 export interface ArrayTableColumn {
   key: string;
@@ -29,7 +35,7 @@ export interface ArrayTableColumn {
   templateUrl: './data-table.component.html',
   styleUrls: ['./data-table.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [MatTooltip, NgTemplateOutlet, MatIconButton, MatIcon, MatButton, MatPaginator, FormsModule],
 })
 export class DataTableComponent implements DoCheck {
   private _columns: ArrayTableColumn[] | null = null;

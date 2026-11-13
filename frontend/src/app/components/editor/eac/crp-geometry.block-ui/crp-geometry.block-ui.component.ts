@@ -10,17 +10,24 @@ import {
 } from '@angular/core';
 import { GuiComponent } from '../../gui.component';
 import { BehaviorSubject, debounceTime, filter, Subject, takeUntil } from 'rxjs';
-import { ObjViewerCustomControl, ViewFilterOpts } from '../../common/obj-viewer/obj-viewer.component';
+import {
+  ObjViewerCustomControl,
+  ViewFilterOpts,
+  ObjViewerComponent,
+} from '../../common/obj-viewer/obj-viewer.component';
 import { steeringControl, wheelSpeedControl } from '../../common/obj-viewer/car-preview-controls';
 import { Object3D } from 'three';
 import { Nfs5CarMeshController } from './nfs5-car-mesh-controller';
+import { TrackMapBlockUiComponent } from '../track-map.block-ui/track-map.block-ui.component';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
+import { AsyncPipe } from '@angular/common';
 
 // NFS5 CRP geometry: cars open in the 3D model viewer, tracks ("karT") in the shared track viewer
 @Component({
   selector: 'app-crp-geometry-block-ui',
   templateUrl: './crp-geometry.block-ui.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [TrackMapBlockUiComponent, ObjViewerComponent, CompoundBlockUiComponent, AsyncPipe],
 })
 export class CrpGeometryBlockUiComponent extends GuiComponent implements AfterViewInit, OnChanges, OnDestroy {
   previewPaths$: BehaviorSubject<[string, string] | null> = new BehaviorSubject<[string, string] | null>(null);

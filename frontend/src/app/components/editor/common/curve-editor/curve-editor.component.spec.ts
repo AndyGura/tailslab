@@ -23,7 +23,7 @@ describe('CurveEditorComponent', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      declarations: [CurveEditorComponent],
+      imports: [CurveEditorComponent],
       schemas: [NO_ERRORS_SCHEMA],
     }).compileComponents();
     fixture = TestBed.createComponent(CurveEditorComponent);

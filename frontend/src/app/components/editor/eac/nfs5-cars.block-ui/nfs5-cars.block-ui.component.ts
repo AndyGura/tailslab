@@ -4,9 +4,10 @@ import {
   CurvePoint,
   CurveSeries,
   CurveSeriesChange,
+  CurveEditorComponent,
 } from '../../common/curve-editor/curve-editor.component';
-import { StatTile } from '../../common/stat-tiles/stat-tiles.component';
-import { RecordListItem } from '../../common/record-list/record-list.component';
+import { StatTile, StatTilesComponent } from '../../common/stat-tiles/stat-tiles.component';
+import { RecordListItem, RecordListComponent } from '../../common/record-list/record-list.component';
 import { CarSpecEditorBase, fmt } from '../player-car-physics.block-ui/car-specs';
 import { MainService } from '../../../../services/main.service';
 import { joinId } from '../../../../utils/join-id';
@@ -37,6 +38,14 @@ import {
   nfs5DealerPrice,
 } from './nfs5-cars';
 import { nfs5PartPrice } from '../nfs5-car-parts.block-ui/nfs5-parts';
+import { MatTooltip } from '@angular/material/tooltip';
+import { BlockActionsComponent } from '../../common/block-actions/block-actions.component';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
+import { MatIconButton, MatButton } from '@angular/material/button';
+import { MatIcon } from '@angular/material/icon';
+import { MatTabGroup, MatTab, MatTabContent } from '@angular/material/tabs';
+import { NgTemplateOutlet } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 
 export type Nfs5PartRow = {
   slot: number;
@@ -74,7 +83,22 @@ const PART_TYPES: { [t: number]: string } = {
     '../nfs5-car-parts.block-ui/nfs5-car-parts.block-ui.component.scss',
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [
+    MatTooltip,
+    BlockActionsComponent,
+    CompoundBlockUiComponent,
+    MatIconButton,
+    MatIcon,
+    RecordListComponent,
+    MatButton,
+    StatTilesComponent,
+    MatTabGroup,
+    MatTab,
+    MatTabContent,
+    NgTemplateOutlet,
+    CurveEditorComponent,
+    FormsModule,
+  ],
 })
 export class Nfs5CarsBlockUiComponent extends CarSpecEditorBase implements OnInit {
   private readonly main = inject(MainService);

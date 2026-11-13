@@ -1,8 +1,17 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
-import { CurveAxis, CurveSeries, CurveSeriesChange } from '../../common/curve-editor/curve-editor.component';
-import { StatTile } from '../../common/stat-tiles/stat-tiles.component';
-import { SliderSpec } from '../../common/slider-field/slider-field.component';
+import {
+  CurveAxis,
+  CurveSeries,
+  CurveSeriesChange,
+  CurveEditorComponent,
+} from '../../common/curve-editor/curve-editor.component';
+import { StatTile, StatTilesComponent } from '../../common/stat-tiles/stat-tiles.component';
+import { SliderSpec, SliderFieldComponent } from '../../common/slider-field/slider-field.component';
 import { CarSpecEditorBase, fmt, MPS_TO_KMH } from '../player-car-physics.block-ui/car-specs';
+import { MatTooltip } from '@angular/material/tooltip';
+import { BlockActionsComponent } from '../../common/block-actions/block-actions.component';
+import { MatTabGroup, MatTab, MatTabContent } from '@angular/material/tabs';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
 
 // track spline slices are 6 m apart on every NFS5 track
 export const NFS5_SLICE_LENGTH = 6;
@@ -27,7 +36,17 @@ export function nfs5AiRescale(speeds: number[], gripRatio: number, trackFactor: 
   templateUrl: './nfs5-car-ai.block-ui.component.html',
   styleUrls: ['../player-car-physics.block-ui/player-car-physics.block-ui.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [
+    MatTooltip,
+    BlockActionsComponent,
+    StatTilesComponent,
+    MatTabGroup,
+    MatTab,
+    MatTabContent,
+    CurveEditorComponent,
+    SliderFieldComponent,
+    CompoundBlockUiComponent,
+  ],
 })
 export class Nfs5CarAiBlockUiComponent extends CarSpecEditorBase {
   selectedTab = 0;

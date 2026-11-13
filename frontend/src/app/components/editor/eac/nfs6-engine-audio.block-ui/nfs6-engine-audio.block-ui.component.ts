@@ -1,6 +1,14 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
-import { CurveAxis, CurveSeries, CurveSeriesChange } from '../../common/curve-editor/curve-editor.component';
+import {
+  CurveAxis,
+  CurveSeries,
+  CurveSeriesChange,
+  CurveEditorComponent,
+} from '../../common/curve-editor/curve-editor.component';
 import { CarSpecEditorBase, GEAR_COLORS } from '../player-car-physics.block-ui/car-specs';
+import { MatTooltip } from '@angular/material/tooltip';
+import { BlockActionsComponent } from '../../common/block-actions/block-actions.component';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
 
 // CRDl layout (Nfs6EngineAudioTable, resources/eac/nfs6_car_specs.py): the offsets at 0x128 / 0x148 count from their
 // own entry, the tables start at 0x168, 512 bytes each
@@ -24,7 +32,7 @@ export type CrdlSlot = { slot: number; patch: number; volumeTable: number | null
   templateUrl: './nfs6-engine-audio.block-ui.component.html',
   styleUrls: ['../player-car-physics.block-ui/player-car-physics.block-ui.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [MatTooltip, BlockActionsComponent, CurveEditorComponent, CompoundBlockUiComponent],
 })
 export class Nfs6EngineAudioBlockUiComponent extends CarSpecEditorBase {
   slots: CrdlSlot[] = [];

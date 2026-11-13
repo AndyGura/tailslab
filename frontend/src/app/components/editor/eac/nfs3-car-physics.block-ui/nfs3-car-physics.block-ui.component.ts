@@ -6,9 +6,10 @@ import {
   CurvePoint,
   CurveSeries,
   CurveSeriesChange,
+  CurveEditorComponent,
 } from '../../common/curve-editor/curve-editor.component';
-import { StatTile } from '../../common/stat-tiles/stat-tiles.component';
-import { SliderSpec } from '../../common/slider-field/slider-field.component';
+import { StatTile, StatTilesComponent } from '../../common/stat-tiles/stat-tiles.component';
+import { SliderSpec, SliderFieldComponent } from '../../common/slider-field/slider-field.component';
 import {
   CarSpecEditorBase,
   fmt,
@@ -19,6 +20,13 @@ import {
   powerKw,
 } from '../player-car-physics.block-ui/car-specs';
 import { gearName } from '../player-car-physics.block-ui/player-car-physics.block-ui.component';
+import { MatTooltip } from '@angular/material/tooltip';
+import { BlockActionsComponent } from '../../common/block-actions/block-actions.component';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
+import { MatTabGroup, MatTab, MatTabContent } from '@angular/material/tabs';
+import { NgTemplateOutlet } from '@angular/common';
+import { MatCheckbox } from '@angular/material/checkbox';
+import { MatButton } from '@angular/material/button';
 
 // nfs3.exe, as ported in nfs-web (src/nfs3/nfs3-physics): the torque curve has 41 entries 256 rpm apart, read
 // interpolated at rpm / 256 (0x4a8a99); nfs4.exe (Nfs4CarPhysics, src/nfs4/nfs4-physics): 21 entries 500 rpm apart,
@@ -124,7 +132,20 @@ export type Nfs3TunedRow = { label: string; field: string; file: string; tuned: 
   templateUrl: './nfs3-car-physics.block-ui.component.html',
   styleUrls: ['../player-car-physics.block-ui/player-car-physics.block-ui.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [
+    MatTooltip,
+    BlockActionsComponent,
+    SliderFieldComponent,
+    CompoundBlockUiComponent,
+    StatTilesComponent,
+    MatTabGroup,
+    MatTab,
+    MatTabContent,
+    CurveEditorComponent,
+    NgTemplateOutlet,
+    MatCheckbox,
+    MatButton,
+  ],
 })
 export class Nfs3CarPhysicsBlockUiComponent extends CarSpecEditorBase {
   readonly groups = {

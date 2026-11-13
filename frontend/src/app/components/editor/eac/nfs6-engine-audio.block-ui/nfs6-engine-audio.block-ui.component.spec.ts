@@ -23,7 +23,7 @@ describe('Nfs6EngineAudioBlockUiComponent', () => {
   beforeEach(async () => {
     appendChanges = jasmine.createSpy('appendChanges').and.returnValue(Promise.resolve());
     await TestBed.configureTestingModule({
-      declarations: [Nfs6EngineAudioBlockUiComponent],
+      imports: [Nfs6EngineAudioBlockUiComponent],
       providers: [
         { provide: MainService, useValue: { focusedResourceId$: new BehaviorSubject(null) } },
         {

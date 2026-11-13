@@ -6,9 +6,10 @@ import {
   CurvePoint,
   CurveSeries,
   CurveSeriesChange,
+  CurveEditorComponent,
 } from '../../common/curve-editor/curve-editor.component';
-import { StatTile } from '../../common/stat-tiles/stat-tiles.component';
-import { SliderSpec } from '../../common/slider-field/slider-field.component';
+import { StatTile, StatTilesComponent } from '../../common/stat-tiles/stat-tiles.component';
+import { SliderSpec, SliderFieldComponent } from '../../common/slider-field/slider-field.component';
 import { CarSpecEditorBase, fmt, G, GEAR_COLORS, MPS_TO_KMH } from '../player-car-physics.block-ui/car-specs';
 import {
   LBFT_TO_NM,
@@ -40,6 +41,12 @@ import {
   nfs5TorqueActiveCount,
   nfs5TorqueAt,
 } from './nfs5-car-physics';
+import { MatTooltip } from '@angular/material/tooltip';
+import { BlockActionsComponent } from '../../common/block-actions/block-actions.component';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
+import { MatTabGroup, MatTab, MatTabContent } from '@angular/material/tabs';
+import { NgTemplateOutlet } from '@angular/common';
+import { MatCheckbox } from '@angular/material/checkbox';
 
 const MPH_TO_KMH = NFS5_MPH_TO_MPS * MPS_TO_KMH;
 
@@ -68,7 +75,19 @@ export type Nfs5GearRow = {
   templateUrl: './nfs5-car-physics.block-ui.component.html',
   styleUrls: ['../player-car-physics.block-ui/player-car-physics.block-ui.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [
+    MatTooltip,
+    BlockActionsComponent,
+    SliderFieldComponent,
+    CompoundBlockUiComponent,
+    StatTilesComponent,
+    MatTabGroup,
+    MatTab,
+    MatTabContent,
+    CurveEditorComponent,
+    NgTemplateOutlet,
+    MatCheckbox,
+  ],
 })
 export class Nfs5CarPhysicsBlockUiComponent extends CarSpecEditorBase {
   readonly groups = {

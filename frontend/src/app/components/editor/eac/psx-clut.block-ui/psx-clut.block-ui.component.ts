@@ -1,6 +1,8 @@
 import { ChangeDetectionStrategy, Component, ElementRef, ViewChild } from '@angular/core';
 import { SubscribableGuiComponent } from '../../gui.component';
 import { hexToPsxColor, psxColorToHex, PSX_STP_BIT } from '../../../../utils/psx-color';
+import { MatTooltip } from '@angular/material/tooltip';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
 
 // The CLUT of a PSX image (`PsxClut`): its PSX 16-bit colors as swatches, a click changes one
 @Component({
@@ -8,7 +10,7 @@ import { hexToPsxColor, psxColorToHex, PSX_STP_BIT } from '../../../../utils/psx
   templateUrl: './psx-clut.block-ui.component.html',
   styleUrls: ['./psx-clut.block-ui.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [MatTooltip, CompoundBlockUiComponent],
 })
 export class PsxClutBlockUiComponent extends SubscribableGuiComponent {
   @ViewChild('colorInput') colorInput!: ElementRef<HTMLInputElement>;

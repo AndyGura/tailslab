@@ -5,9 +5,10 @@ import {
   CurveMarkerChange,
   CurveSeries,
   CurveSeriesChange,
+  CurveEditorComponent,
 } from '../../common/curve-editor/curve-editor.component';
-import { StatTile } from '../../common/stat-tiles/stat-tiles.component';
-import { SliderSpec } from '../../common/slider-field/slider-field.component';
+import { StatTile, StatTilesComponent } from '../../common/stat-tiles/stat-tiles.component';
+import { SliderSpec, SliderFieldComponent } from '../../common/slider-field/slider-field.component';
 import { CarSpecEditorBase, fmt, GEAR_COLORS, MPS_TO_KMH } from '../player-car-physics.block-ui/car-specs';
 import {
   aeroDrag,
@@ -36,6 +37,13 @@ import {
   TORQUE_ENTRIES,
   TORQUE_STEP_RPM,
 } from './nfs6-car-specs';
+import { MatTooltip } from '@angular/material/tooltip';
+import { BlockActionsComponent } from '../../common/block-actions/block-actions.component';
+import { IniFileBlockUiComponent } from '../../common/ini-file.block-ui/ini-file.block-ui.component';
+import { MatTabGroup, MatTab, MatTabContent } from '@angular/material/tabs';
+import { NgTemplateOutlet } from '@angular/common';
+import { MatCheckbox } from '@angular/material/checkbox';
+import { FormsModule } from '@angular/forms';
 
 export type Nfs6GearRow = {
   index: number;
@@ -68,7 +76,20 @@ const gearName = (i: number) => (i === 0 ? 'R' : i === 1 ? 'N' : String(i - 1));
   templateUrl: './nfs6-car-ini.block-ui.component.html',
   styleUrls: ['../player-car-physics.block-ui/player-car-physics.block-ui.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [
+    MatTooltip,
+    BlockActionsComponent,
+    SliderFieldComponent,
+    IniFileBlockUiComponent,
+    StatTilesComponent,
+    MatTabGroup,
+    MatTab,
+    MatTabContent,
+    CurveEditorComponent,
+    NgTemplateOutlet,
+    MatCheckbox,
+    FormsModule,
+  ],
 })
 export class Nfs6CarIniBlockUiComponent extends CarSpecEditorBase {
   readonly tireTypes = TIRE_TYPES;

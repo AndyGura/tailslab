@@ -23,7 +23,6 @@ export type RecordListGroup = { name: string; items: RecordListItem[] };
   templateUrl: './record-list.component.html',
   styleUrls: ['./record-list.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
 })
 export class RecordListComponent {
   private _items: RecordListItem[] = [];

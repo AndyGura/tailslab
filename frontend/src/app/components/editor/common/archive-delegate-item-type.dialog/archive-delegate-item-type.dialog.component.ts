@@ -1,14 +1,35 @@
 import { Component, ChangeDetectionStrategy, Inject } from '@angular/core';
-import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
+import {
+  MAT_DIALOG_DATA,
+  MatDialogRef,
+  MatDialogTitle,
+  MatDialogContent,
+  MatDialogActions,
+} from '@angular/material/dialog';
 import { BlockSchema } from '../../types';
 import { fileFormatIcon } from '../../../../utils/file-format-icon';
+import { CdkScrollable } from '@angular/cdk/scrolling';
+import { MatSelectionList, MatListOption, MatListItemIcon, MatListItemTitle } from '@angular/material/list';
+import { MatIcon } from '@angular/material/icon';
+import { MatButton } from '@angular/material/button';
 
 @Component({
   selector: 'app-archive-delegate-item-type.dialog',
   templateUrl: './archive-delegate-item-type.dialog.component.html',
   styleUrls: ['./archive-delegate-item-type.dialog.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [
+    MatDialogTitle,
+    CdkScrollable,
+    MatDialogContent,
+    MatSelectionList,
+    MatListOption,
+    MatIcon,
+    MatListItemIcon,
+    MatListItemTitle,
+    MatDialogActions,
+    MatButton,
+  ],
 })
 export class ArchiveDelegateItemTypeDialogComponent {
   public selectedIndex = 0;

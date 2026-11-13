@@ -1,4 +1,6 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
+import { MatTooltip } from '@angular/material/tooltip';
+import { MatIcon } from '@angular/material/icon';
 
 export type StatTileEdit = {
   value: number;
@@ -28,7 +30,7 @@ export type StatTile = {
   templateUrl: './stat-tiles.component.html',
   styleUrls: ['./stat-tiles.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [MatTooltip, MatIcon],
 })
 export class StatTilesComponent {
   @Input() tiles: StatTile[] = [];

@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, OnChanges, SimpleChanges } from '@a
 import { GuiComponent } from '../../gui.component';
 import { joinId } from '../../../../utils/join-id';
 import { BlockSchema, Resource } from '../../types';
+import { SidenavResListComponent } from '../../common/sidenav-res-list/sidenav-res-list.component';
 
 // TNFS race sound bank samples, as the game uses them (decoded by tnfs-1995). All banks of a race (car *SW, opponent
 // O*MB*, collision COL*, NFS_FMMB) share one sample id table, so an id means the same in every one of them
@@ -39,7 +40,7 @@ const RACE_BANK_SAMPLES: { [index: number]: string } = {
   selector: 'app-soundbank-block-ui',
   templateUrl: './soundbank.block-ui.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [SidenavResListComponent],
 })
 export class SoundbankBlockUiComponent extends GuiComponent implements OnChanges {
   resourceMap: { [key: string]: Resource } = {};

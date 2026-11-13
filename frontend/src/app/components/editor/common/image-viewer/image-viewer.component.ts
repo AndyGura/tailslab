@@ -16,6 +16,15 @@ import { BehaviorSubject, debounceTime, filter, Subject, takeUntil } from 'rxjs'
 import { MainService } from '../../../../services/main.service';
 import { ChangesService } from '../../../../services/changes.service';
 import { BlockData, BlockSchema } from '../../types';
+import { MatLabel } from '@angular/material/select';
+import { MatTooltip } from '@angular/material/tooltip';
+import { MatIconButton, MatButton } from '@angular/material/button';
+import { MatIcon } from '@angular/material/icon';
+import { MatSlider, MatSliderThumb } from '@angular/material/slider';
+import { FormsModule } from '@angular/forms';
+import { MatProgressSpinner } from '@angular/material/progress-spinner';
+import { BlockActionsComponent } from '../block-actions/block-actions.component';
+import { AsyncPipe } from '@angular/common';
 
 // A point drawn over the main image, in image pixels from its top left corner
 export interface ImageMarker {
@@ -53,7 +62,19 @@ export interface ImageMarkerMove {
   templateUrl: './image-viewer.component.html',
   styleUrls: ['./image-viewer.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [
+    MatLabel,
+    MatTooltip,
+    MatIconButton,
+    MatIcon,
+    MatSlider,
+    MatSliderThumb,
+    FormsModule,
+    MatButton,
+    MatProgressSpinner,
+    BlockActionsComponent,
+    AsyncPipe,
+  ],
 })
 export class ImageViewerComponent implements AfterViewInit, OnDestroy {
   private readonly mainService = inject(MainService);

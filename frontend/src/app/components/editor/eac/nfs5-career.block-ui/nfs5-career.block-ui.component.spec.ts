@@ -55,7 +55,7 @@ describe('Nfs5FactoryMissionsBlockUiComponent', () => {
   beforeEach(async () => {
     appendChanges = jasmine.createSpy('appendChanges').and.returnValue(Promise.resolve());
     await TestBed.configureTestingModule({
-      declarations: [Nfs5FactoryMissionsBlockUiComponent],
+      imports: [Nfs5FactoryMissionsBlockUiComponent],
       providers: providers(appendChanges),
       schemas: [NO_ERRORS_SCHEMA],
     }).compileComponents();
@@ -91,7 +91,7 @@ describe('Nfs5TournamentsBlockUiComponent', () => {
   beforeEach(async () => {
     appendChanges = jasmine.createSpy('appendChanges').and.returnValue(Promise.resolve());
     await TestBed.configureTestingModule({
-      declarations: [Nfs5TournamentsBlockUiComponent],
+      imports: [Nfs5TournamentsBlockUiComponent],
       providers: providers(appendChanges),
       schemas: [NO_ERRORS_SCHEMA],
     }).compileComponents();

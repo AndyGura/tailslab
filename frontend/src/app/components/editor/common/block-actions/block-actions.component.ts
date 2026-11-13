@@ -13,13 +13,18 @@ import {
   ImportGuideDialogData,
   ImportGuideDialogResult,
 } from '../import-guide.dialog/import-guide.dialog.component';
+import { MatIconButton } from '@angular/material/button';
+import { MatTooltip } from '@angular/material/tooltip';
+import { MatIcon } from '@angular/material/icon';
+import { MatProgressSpinner } from '@angular/material/progress-spinner';
+import { MatMenuTrigger, MatMenu, MatMenuItem } from '@angular/material/menu';
 
 @Component({
   selector: 'app-block-actions',
   templateUrl: './block-actions.component.html',
   styleUrls: ['./block-actions.component.scss'],
   changeDetection: ChangeDetectionStrategy.Eager,
-  standalone: false,
+  imports: [MatIconButton, MatTooltip, MatIcon, MatProgressSpinner, MatMenuTrigger, MatMenu, MatMenuItem],
 })
 export class BlockActionsComponent {
   @Input()

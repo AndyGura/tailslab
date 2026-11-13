@@ -11,6 +11,7 @@ import {
 import { BehaviorSubject, combineLatest, fromEvent, Observable, Subject } from 'rxjs';
 import { map, takeUntil } from 'rxjs/operators';
 import { Pnt2, Pnt3, Point2, Point3 } from '@gg-web-engine/core';
+import { NgStyle, AsyncPipe } from '@angular/common';
 
 type Projection = 'x' | 'nx' | 'y' | 'ny' | 'z' | 'nz';
 
@@ -25,7 +26,7 @@ export interface MinimapRoad {
   templateUrl: './minimap.component.html',
   styleUrls: ['./minimap.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [NgStyle, AsyncPipe],
 })
 export class MinimapComponent implements AfterViewInit, OnDestroy {
   _roadSpline$: BehaviorSubject<Point3[]> = new BehaviorSubject<Point3[]>([]);

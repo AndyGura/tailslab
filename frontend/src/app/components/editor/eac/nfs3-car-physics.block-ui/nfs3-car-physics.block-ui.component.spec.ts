@@ -123,7 +123,7 @@ describe('Nfs3CarPhysicsBlockUiComponent', () => {
   beforeEach(async () => {
     appendChanges = jasmine.createSpy('appendChanges').and.returnValue(Promise.resolve());
     await TestBed.configureTestingModule({
-      declarations: [Nfs3CarPhysicsBlockUiComponent],
+      imports: [Nfs3CarPhysicsBlockUiComponent],
       providers: [
         { provide: MainService, useValue: { focusedResourceId$: new BehaviorSubject(null) } },
         {
@@ -330,7 +330,7 @@ describe('Nfs3CarPhysicsBlockUiComponent with NFS4 car physics', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      declarations: [Nfs3CarPhysicsBlockUiComponent],
+      imports: [Nfs3CarPhysicsBlockUiComponent],
       providers: [
         { provide: MainService, useValue: { focusedResourceId$: new BehaviorSubject(null) } },
         {

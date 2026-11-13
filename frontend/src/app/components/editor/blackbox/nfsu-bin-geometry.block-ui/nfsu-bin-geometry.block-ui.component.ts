@@ -1,13 +1,15 @@
 import { AfterViewInit, ChangeDetectionStrategy, Component, OnChanges, OnDestroy, SimpleChanges } from '@angular/core';
 import { GuiComponent } from '../../gui.component';
 import { BehaviorSubject, debounceTime, filter, Subject, takeUntil } from 'rxjs';
-import { ViewFilterOpts } from '../../common/obj-viewer/obj-viewer.component';
+import { ViewFilterOpts, ObjViewerComponent } from '../../common/obj-viewer/obj-viewer.component';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
+import { AsyncPipe } from '@angular/common';
 
 @Component({
   selector: 'app-nfsu-bin-geometry-block-ui',
   templateUrl: './nfsu-bin-geometry.block-ui.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [ObjViewerComponent, CompoundBlockUiComponent, AsyncPipe],
 })
 export class NfsuBinGeometryBlockUiComponent extends GuiComponent implements AfterViewInit, OnChanges, OnDestroy {
   previewPaths$: BehaviorSubject<[string, string] | null> = new BehaviorSubject<[string, string] | null>(null);

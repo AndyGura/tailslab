@@ -2,13 +2,17 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 import { Resource, ResourceError } from '../../types';
 import { joinId } from '../../../../utils/join-id';
 import { fileFormatIcon } from '../../../../utils/file-format-icon';
+import { MatSelectionList, MatListOption, MatListItemIcon } from '@angular/material/list';
+import { MatIcon } from '@angular/material/icon';
+import { MatCard } from '@angular/material/card';
+import { EditorComponent } from '../../editor.component';
 
 @Component({
   selector: 'app-sidenav-res-list',
   templateUrl: './sidenav-res-list.component.html',
   styleUrls: ['./sidenav-res-list.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [MatSelectionList, MatListOption, MatIcon, MatListItemIcon, MatCard, EditorComponent],
 })
 export class SidenavResListComponent {
   _resources: { [key: string]: Resource | ResourceError } = {};

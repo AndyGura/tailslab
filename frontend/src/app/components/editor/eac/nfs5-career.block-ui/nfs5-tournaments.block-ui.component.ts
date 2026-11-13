@@ -1,9 +1,22 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
-import { CurveAxis, CurveSeries, CurveSeriesChange } from '../../common/curve-editor/curve-editor.component';
-import { StatTile } from '../../common/stat-tiles/stat-tiles.component';
-import { RecordListItem } from '../../common/record-list/record-list.component';
+import {
+  CurveAxis,
+  CurveSeries,
+  CurveSeriesChange,
+  CurveEditorComponent,
+} from '../../common/curve-editor/curve-editor.component';
+import { StatTile, StatTilesComponent } from '../../common/stat-tiles/stat-tiles.component';
+import { RecordListItem, RecordListComponent } from '../../common/record-list/record-list.component';
 import { joinId } from '../../../../utils/join-id';
 import { Nfs5CareerEditorBase, Nfs5IdRow } from './nfs5-career-base';
+import { MatTooltip } from '@angular/material/tooltip';
+import { BlockActionsComponent } from '../../common/block-actions/block-actions.component';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
+import { MatTabGroup, MatTab, MatTabContent } from '@angular/material/tabs';
+import { NgTemplateOutlet } from '@angular/common';
+import { MatIconButton, MatButton } from '@angular/material/button';
+import { MatIcon } from '@angular/material/icon';
+import { FormsModule } from '@angular/forms';
 
 export const NFS5_TOURNAMENT_ERAS: { [id: number]: string } = {
   521: 'Classic era (1950-69)',
@@ -27,7 +40,22 @@ const POSITIONS = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'];
     '../nfs5-car-parts.block-ui/nfs5-car-parts.block-ui.component.scss',
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [
+    MatTooltip,
+    BlockActionsComponent,
+    CompoundBlockUiComponent,
+    RecordListComponent,
+    StatTilesComponent,
+    MatTabGroup,
+    MatTab,
+    MatTabContent,
+    CurveEditorComponent,
+    NgTemplateOutlet,
+    MatIconButton,
+    MatIcon,
+    FormsModule,
+    MatButton,
+  ],
 })
 export class Nfs5TournamentsBlockUiComponent extends Nfs5CareerEditorBase {
   readonly groups = {

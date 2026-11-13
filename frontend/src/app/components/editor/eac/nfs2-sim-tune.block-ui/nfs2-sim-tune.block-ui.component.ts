@@ -6,9 +6,10 @@ import {
   CurvePoint,
   CurveSeries,
   CurveSeriesChange,
+  CurveEditorComponent,
 } from '../../common/curve-editor/curve-editor.component';
-import { StatTile } from '../../common/stat-tiles/stat-tiles.component';
-import { SliderSpec } from '../../common/slider-field/slider-field.component';
+import { StatTile, StatTilesComponent } from '../../common/stat-tiles/stat-tiles.component';
+import { SliderSpec, SliderFieldComponent } from '../../common/slider-field/slider-field.component';
 import { BlockSchema } from '../../types';
 import { joinId } from '../../../../utils/join-id';
 import { CarSpecEditorBase, fmt, MPS_TO_KMH } from '../player-car-physics.block-ui/car-specs';
@@ -37,6 +38,12 @@ import {
   wallStopAngle,
   wreckTimeline,
 } from './nfs2-sim-tune';
+import { MatTooltip } from '@angular/material/tooltip';
+import { BlockActionsComponent } from '../../common/block-actions/block-actions.component';
+import { MatTabGroup, MatTab, MatTabContent } from '@angular/material/tabs';
+import { NgTemplateOutlet } from '@angular/common';
+import { MatIcon } from '@angular/material/icon';
+import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
 
 export type SimTuneField = Exclude<keyof SimTuneRecord, 'glue_logic'>;
 
@@ -243,7 +250,19 @@ const stepsText = (n: number | null) => (n === null ? 'never' : `${n} steps (${f
     './nfs2-sim-tune.block-ui.component.scss',
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [
+    MatTooltip,
+    BlockActionsComponent,
+    StatTilesComponent,
+    MatTabGroup,
+    MatTab,
+    MatTabContent,
+    CurveEditorComponent,
+    SliderFieldComponent,
+    NgTemplateOutlet,
+    MatIcon,
+    CompoundBlockUiComponent,
+  ],
 })
 export class Nfs2SimTuneBlockUiComponent extends CarSpecEditorBase {
   override get resourceSchema(): BlockSchema | undefined {

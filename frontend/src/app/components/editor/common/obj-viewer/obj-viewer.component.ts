@@ -35,6 +35,9 @@ import { ViewMode, ViewModeController } from './view-mode-toolbar/view-mode.cont
 import { setViewerSky } from './viewer-sky';
 import { parseColorInputValue } from '../../../../utils/parse-color-input-value';
 import { setupNfs1Texture } from '../../../../../nfs-three-lib/nfs1-model-utils';
+import { ViewModeToolbarComponent } from './view-mode-toolbar/view-mode-toolbar.component';
+import { MatProgressSpinner } from '@angular/material/progress-spinner';
+import { KeyValuePipe } from '@angular/common';
 
 export type ViewFilterOpts = {
   name: string;
@@ -161,7 +164,7 @@ const setupMaterialAlphaMode = (m: Material, alphaMode: string | undefined) => {
   templateUrl: './obj-viewer.component.html',
   styleUrls: ['./obj-viewer.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [ViewModeToolbarComponent, MatProgressSpinner, KeyValuePipe],
 })
 export class ObjViewerComponent implements AfterViewInit, OnDestroy {
   private _cameraControl: 'orbit' | 'free' = 'orbit';

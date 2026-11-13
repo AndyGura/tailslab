@@ -28,7 +28,7 @@ describe('CarAiAndCrashBodyBlockUiComponent', () => {
   beforeEach(async () => {
     appendChanges = jasmine.createSpy('appendChanges').and.returnValue(Promise.resolve());
     await TestBed.configureTestingModule({
-      declarations: [CarAiAndCrashBodyBlockUiComponent],
+      imports: [CarAiAndCrashBodyBlockUiComponent],
       providers: [
         { provide: MainService, useValue: { focusedResourceId$: new BehaviorSubject(null) } },
         {

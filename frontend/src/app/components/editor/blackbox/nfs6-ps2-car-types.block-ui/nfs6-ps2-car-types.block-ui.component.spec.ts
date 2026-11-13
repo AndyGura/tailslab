@@ -86,7 +86,7 @@ describe('Nfs6Ps2CarTypesBlockUiComponent', () => {
   beforeEach(async () => {
     appendChanges = jasmine.createSpy('appendChanges').and.returnValue(Promise.resolve());
     await TestBed.configureTestingModule({
-      declarations: [Nfs6Ps2CarTypesBlockUiComponent],
+      imports: [Nfs6Ps2CarTypesBlockUiComponent],
       providers: [
         { provide: MainService, useValue: { focusedResourceId$: new BehaviorSubject(null) } },
         {
