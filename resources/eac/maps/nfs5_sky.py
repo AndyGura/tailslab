@@ -28,12 +28,14 @@ class Nfs5SkyBin(DeclarativeCompoundBlock):
         version = (IntegerBlock(length=4), {'description': '9, 7 in `Monaco.bin` and `default.bin` (the old ones)'})
         horizon_rotation = (
             DecimalBlock(length=4),
-            {'description': 'Heading of the horizon cylinder\'s point 0, turns clockwise from +Z (0..1)'},
+            {'description': "Heading of the horizon cylinder's point 0, turns clockwise from +Z (0..1)"},
         )
         horizon_colour_start = (
             IntegerBlock(length=4),
-            {'description': 'Column of `hzcl` that colours point 0 of the horizon (0 or 5); point k takes column '
-             '(start + k) % 16'},
+            {
+                'description': 'Column of `hzcl` that colours point 0 of the horizon (0 or 5); point k takes column '
+                '(start + k) % 16'
+            },
         )
         horizon_cell_columns = (
             IntegerBlock(length=4),
@@ -45,8 +47,10 @@ class Nfs5SkyBin(DeclarativeCompoundBlock):
         )
         horizon_bottom = (
             DecimalBlock(length=4),
-            {'description': 'Height of the bottom of the horizon band relative to the eye, on the cylinder of radius '
-             '400 (-182..-28)'},
+            {
+                'description': 'Height of the bottom of the horizon band relative to the eye, on the cylinder of radius '
+                '400 (-182..-28)'
+            },
         )
         horizon_height = (
             DecimalBlock(length=4),
@@ -70,8 +74,10 @@ class Nfs5SkyBin(DeclarativeCompoundBlock):
         )
         dome_curvature = (
             DecimalBlock(length=4),
-            {'description': 'k of the dome height h - k (a^2 + b^2) at grid position (a, b) (0.0002, 0.0004 in '
-             '`default.bin`)'},
+            {
+                'description': 'k of the dome height h - k (a^2 + b^2) at grid position (a, b) (0.0002, 0.0004 in '
+                '`default.bin`)'
+            },
         )
         dome_height = (
             DecimalBlock(length=4),
@@ -89,7 +95,7 @@ class Nfs5SkyBin(DeclarativeCompoundBlock):
         )
         water_dome_rotation = (
             DecimalBlock(length=4),
-            {'description': 'Like `dome_rotation`, for the `...water` sky level types (none in the game\'s files)'},
+            {'description': "Like `dome_rotation`, for the `...water` sky level types (none in the game's files)"},
         )
         water_dome_size = (DecimalBlock(length=4), {'description': 'Like `dome_size`, water levels'})
         water_dome_curvature = (
@@ -100,8 +106,10 @@ class Nfs5SkyBin(DeclarativeCompoundBlock):
         unk2 = (BytesBlock(length=0xCE4 - 0xB4C), {'is_unknown': True, 'description': 'Not decoded'})
         dome_scale = (
             DecimalBlock(length=4),
-            {'description': 'Scale of the whole dome mesh (0.1..1.5; the water dome has 1): changes no direction '
-             'from the eye'},
+            {
+                'description': 'Scale of the whole dome mesh (0.1..1.5; the water dome has 1): changes no direction '
+                'from the eye'
+            },
         )
         rest = (
             BytesBlock(length=(lambda ctx: ctx.read_bytes_remaining, 'up to end of file')),

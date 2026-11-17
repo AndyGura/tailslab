@@ -87,8 +87,16 @@ def settings(cells=CELLS, rotation=0.0, colour_start=0, columns=4, rows=2, dome=
 
 def sky_bin(s=None, size=3544):
     s = s or settings()
-    data = struct.pack('<IfIIIff', 9, s.horizon_rotation, s.horizon_colour_start, s.horizon_cell_columns,
-                       s.horizon_cell_rows, s.horizon_bottom, s.horizon_height)
+    data = struct.pack(
+        '<IfIIIff',
+        9,
+        s.horizon_rotation,
+        s.horizon_colour_start,
+        s.horizon_cell_columns,
+        s.horizon_cell_rows,
+        s.horizon_bottom,
+        s.horizon_height,
+    )
     data += struct.pack('<16H', *s.horizon_cells)
     data += struct.pack('<4f', s.dome_rotation, s.dome_size, s.dome_curvature, s.dome_height)
     return data + bytes(8) + b'\xcb' * (size - len(data) - 8)
@@ -148,7 +156,9 @@ class TestNfs5Dome(unittest.TestCase):
 
     def test_rotation_quarter_turn(self):
         # R = 0.25: x = a, z = -b
-        fi, fj, hit = dome_hits(np.array([[math.cos(0.3), math.sin(0.3), 0.0]]), settings(dome=(0.25, 1000.0, 0.000244140625, 100.0)))
+        fi, fj, hit = dome_hits(
+            np.array([[math.cos(0.3), math.sin(0.3), 0.0]]), settings(dome=(0.25, 1000.0, 0.000244140625, 100.0))
+        )
         self.assertGreater(fi[0], 7.5)
         self.assertAlmostEqual(fj[0], 7.5)
 
@@ -184,7 +194,9 @@ class TestNfs5SkyToSpherical(unittest.TestCase):
         sky[..., 3] = 255
         sky[..., 0] = 16 * np.arange(16)[:, None]
         sky[..., 1] = 16 * np.arange(16)[None, :]
-        out = nfs5_sky_to_spherical([Nfs5SkyLayer('sky', None, 1, 1)], {'sky': sky}, settings(), width=self.W, height=self.H)
+        out = nfs5_sky_to_spherical(
+            [Nfs5SkyLayer('sky', None, 1, 1)], {'sky': sky}, settings(), width=self.W, height=self.H
+        )
         for direction in ((0, 0.4, 1), (1, 0.4, 0), (-0.3, 0.6, -1)):
             col, row = direction_to_pixel(direction, self.W, self.H)
             col, row = int(col) % self.W, int(row)
