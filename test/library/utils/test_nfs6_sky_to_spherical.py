@@ -31,18 +31,18 @@ def solid(color, alpha=255, size=4):
 
 
 class TestOutputLayout(unittest.TestCase):
-    def test_centre_is_plus_x_and_right_is_minus_z(self):
+    def test_centre_is_plus_z_and_right_is_plus_x(self):
         directions = output_directions(W, H)
         centre = directions[H // 2, W // 2]
-        self.assertGreater(centre[0], 0.99)
+        self.assertGreater(centre[2], 0.99)
         quarter_right = directions[H // 2, W // 2 + W // 4]
-        self.assertLess(quarter_right[2], -0.99)
+        self.assertGreater(quarter_right[0], 0.99)
         quarter_left = directions[H // 2, W // 2 - W // 4]
-        self.assertGreater(quarter_left[2], 0.99)
+        self.assertLess(quarter_left[0], -0.99)
         self.assertGreater(directions[0, 0][1], 0.99)
 
     def test_direction_to_pixel(self):
-        col, row = direction_to_pixel((0, 0, -1))
+        col, row = direction_to_pixel((1, 0, 0))
         self.assertAlmostEqual(col, OUT_WIDTH * 0.75)
         self.assertAlmostEqual(row, OUT_HEIGHT / 2)
 
@@ -77,10 +77,10 @@ class TestNfs6Sky(unittest.TestCase):
             width=W,
             height=H,
         )
-        # u grows with the angle from +X towards +Z: +Z (a quarter left of the centre) is red, -Z is green
-        self.assertEqual(out[H // 2 - 10, W // 4, 0], 255)
-        self.assertEqual(out[H // 2 - 10, 3 * W // 4, 1], 255)
-        blended = out[H // 2, W // 4]
+        # u grows with the angle from +X towards +Z: +Z (the centre) is red, -Z (the edges) is green
+        self.assertEqual(out[H // 2 - 10, W // 2, 0], 255)
+        self.assertEqual(out[H // 2 - 10, 10, 1], 255)
+        blended = out[H // 2, W // 2]
         self.assertAlmostEqual(blended[2], 255 * 128 / 255, delta=1)
         self.assertAlmostEqual(blended[0], 255 * 127 / 255, delta=1)
 

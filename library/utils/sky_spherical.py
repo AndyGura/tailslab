@@ -1,9 +1,12 @@
 """
 Shared helpers for the sky sphere textures `spherical.png` of NFS5 and NFS6 (same layout as the TNFS one, see
 `nfs1_panorama_to_spherical.py`): 2048x1024 RGBA equirectangular image, eye level on the middle row, top row straight
-up, bottom row straight down. The centre column looks along the game's +X axis, a quarter width right of it along -Z,
-a quarter width left of it along +Z (game axes X right, Y up, Z forward, the axes of the track data). Columns run left
-to right as a viewer standing in the game world sees the panorama.
+up, bottom row straight down. The centre column looks along the game's +Z axis, a quarter width right of it along +X,
+a quarter width left of it along -X (game axes X right, Y up, Z forward, the axes of the track data): column u looks
+at the heading 360 u - 180 degrees clockwise from +Z seen from above (`atan2(x, z)`). Columns run left to right as a
+viewer standing in the game world sees the panorama. nfs-web shows column u at its azimuth 270 - 360 u
+(counterclockwise from +X, Z up) and puts the game's (x, y, z) at its (x, z, y): the picture lands where the game
+draws it (verified 2026-11-16; the centre column was +X before, a quarter turn off).
 """
 
 import math
@@ -14,8 +17,8 @@ OUT_HEIGHT = 1024
 
 
 def output_angles(width: int = OUT_WIDTH, height: int = OUT_HEIGHT):
-    """(heading, elevation) in radians of the output pixel centres: heading 0 at the centre column, growing to the
-    right (towards -Z), elevation +pi/2 at the top"""
+    """(heading, elevation) in radians of the output pixel centres: heading 0 (+Z) at the centre column, growing to the
+    right (towards +X), elevation +pi/2 at the top"""
     import numpy as np
 
     heading = ((np.arange(width) + 0.5) / width - 0.5) * 2 * math.pi
@@ -29,13 +32,13 @@ def output_directions(width: int = OUT_WIDTH, height: int = OUT_HEIGHT):
 
     heading, elevation = output_angles(width, height)
     h, e = np.meshgrid(heading, elevation)
-    return np.stack([np.cos(h) * np.cos(e), np.sin(e), -np.sin(h) * np.cos(e)], axis=-1)
+    return np.stack([np.sin(h) * np.cos(e), np.sin(e), np.cos(h) * np.cos(e)], axis=-1)
 
 
 def direction_to_pixel(direction: Tuple[float, float, float], width: int = OUT_WIDTH, height: int = OUT_HEIGHT):
     """Output pixel (column, row, fractional) a game direction falls on"""
     x, y, z = direction
-    heading = math.atan2(-z, x)
+    heading = math.atan2(x, z)
     elevation = math.atan2(y, math.hypot(x, z))
     return (heading / (2 * math.pi) + 0.5) * width, (0.5 - elevation / math.pi) * height
 

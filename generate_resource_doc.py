@@ -15,6 +15,9 @@ from library.read_blocks.strings import LengthPrefixedUtf8Block, UTF8Block
 from library.utils.docs import add_doc_numbers
 from resources import eac, blackbox
 from resources.eac import psx as eac_psx, psx_bitmaps as eac_psx_bitmaps
+from resources.eac import tnfs_saturn as eac_tnfs_saturn
+from resources.common import audios as common_audios
+from resources.common import bitmaps as common_bitmaps
 from resources.eac import horizons as eac_horizons
 from resources.eac import field_descriptions as eac_field_descriptions
 from resources.eac import fedata as eac_fedata
@@ -249,6 +252,60 @@ EXPORT_RESOURCES = {
             ],
         },
     },
+    'tnfs_saturn_gtr': {
+        'file_name': 'TNFS_SATURN_GTR.md',
+        'title': "Over Drivin' GT-R (Sega Saturn TNFS) file specs",
+        'file_list': f"""The Japanese Sega Saturn port of TNFS with 8 Nissans in place of the 8 cars, which keep the PC cars' file names (SUPRA = Skyline GT-R PGC10, DIABLO = Skyline GT-R BCNR33, PORSCHE = Fairlady Z 240ZG, VETTE = Skyline GT-R KPGC110, TESTA = Fairlady Z 300ZX, VIPER = Skyline GT-R BNR32, NSX = 180SX Type X, RX7 = Silvia K's). Everything is big-endian (SH-2). The folder `games/tnfs_saturn_gtr` holds the car files of the disc and the car models sliced from the executable
+
+**0** the executable (loaded at 0x06010000), with the car models and the car AI records. {render_type(eac_tnfs_saturn.TnfsSaturnGtrExecutable())}. The converter writes the car AI records as PC PDN JSON, `<car>.PDN.json` (and `WARRIOR.PDN.json`)
+
+**CARS/\\<car\\>.ALL**, **CAR2/\\<car\\>.ALL** car bundle: physics, the textures of the two models, the cockpit pictures (`CARS` only). `CAR2` is the car's second paint. {render_type(eac_tnfs_saturn.TnfsSaturnCarBundle())}
+
+**MODELS/\\<car\\>/high.orix**, **low.orix** car models, slices of the executable. {render_type(eac.geometries.TnfsSaturnOrixGeometry())}
+
+**SOUNDS/\\<bank\\>.BIN** engine sounds, Sega sound driver tone banks. {render_type(common_audios.SaturnToneBank())}
+
+**UIDATA/\\<car\\>GEN.DAT**, **MEC.DAT**, **PER.DAT** car showcase pages. {render_type(eac_tnfs_saturn.TnfsSaturnPcxList())}
+
+**UIDATA/\\<maker\\>/MAIN.PCX** car card. {render_type(common_bitmaps.PcxImage())}
+
+**DASH/\\*** the race HUD (not parsed). **PARAMETERS/\\*** copies of the physics at the start of the car bundles (not converted)""",
+        'blocks': {
+            'Physics': [
+                eac_tnfs_saturn.TnfsSaturnCarPhysics(),
+                eac_tnfs_saturn.TnfsSaturnCarAiAndCrashBody(),
+            ],
+            'Geometries': [
+                eac.geometries.TnfsSaturnOrixGeometry(),
+                eac.geometries.OrixPolygonTexture(),
+                eac.geometries.TnfsSaturnOrixPolygon(),
+                eac.geometries.OripVertexUV(),
+                eac.geometries.TnfsSaturnOrixMaterial(),
+                eac.geometries.OripMorph(),
+                eac.geometries.OripPartition(),
+                eac.geometries.NamedIndex(),
+            ],
+            'Car bundles': [
+                eac_tnfs_saturn.TnfsSaturnCarBundle(),
+                eac_tnfs_saturn.TnfsSaturnTextureBank(),
+                eac_tnfs_saturn.TnfsSaturnTextureEntry(),
+                eac_tnfs_saturn.TnfsSaturnCockpit(),
+                eac_tnfs_saturn.TnfsSaturnRleImage(data_length=None),
+            ],
+            'Images': [
+                eac_tnfs_saturn.TnfsSaturnPcxList(),
+                eac_tnfs_saturn.TnfsSaturnPcxListEntry(),
+            ],
+            'Audio': [
+                common_audios.SaturnToneBank(),
+                common_audios.SaturnToneVoice(),
+                common_audios.SaturnToneLayer(),
+            ],
+            'Misc': [
+                eac_tnfs_saturn.TnfsSaturnGtrExecutable(),
+            ],
+        },
+    },
     'nfs2': {
         'file_name': 'NFS2.md',
         'title': 'NFS2 file specs',
@@ -305,7 +362,7 @@ EXPORT_RESOURCES = {
                 eac.maps.SpecialPropPosition(),
                 eac.maps.PropExtraDataRecord(),
                 eac.maps.PropDescriptionExtraDataRecord(),
-                eac.maps.LanesExtraDataRecord(),
+                eac.maps.RoadLineExtraDataRecord(),
                 eac.maps.TrackObjectExtraDataRecord(),
                 eac.maps.RoadVectorsExtraDataRecord(),
                 eac.maps.CollisionExtraDataRecord(),
@@ -406,7 +463,7 @@ EXPORT_RESOURCES = {
                 eac.maps.SpecialPropPosition(),
                 eac.maps.PropExtraDataRecord(),
                 eac.maps.PropDescriptionExtraDataRecord(),
-                eac.maps.LanesExtraDataRecord(),
+                eac.maps.RoadLineExtraDataRecord(),
                 eac.maps.TrackObjectExtraDataRecord(),
                 eac.maps.RoadVectorsExtraDataRecord(),
                 eac.maps.CollisionExtraDataRecord(),
@@ -536,7 +593,7 @@ EXPORT_RESOURCES = {
                 eac.maps.SpecialPropPosition(),
                 eac.maps.PropExtraDataRecord(),
                 eac.maps.PropDescriptionExtraDataRecord(),
-                eac.maps.LanesExtraDataRecord(),
+                eac.maps.RoadLineExtraDataRecord(),
                 eac.maps.TrackObjectExtraDataRecord(),
                 eac.maps.RoadVectorsExtraDataRecord(),
                 eac.maps.Nfs3CollisionExtraDataRecord(),
@@ -701,7 +758,7 @@ EXPORT_RESOURCES = {
 
 **\\*.ENV** image archive. {render_type(eac.archives.ShpiBlock())}
 
-**GameData/Track/Sky/\\<track\\>.fsh**, **.txt**, **.bin** the sky of the track of that name (alps.crp: Alps.\\*), unverified (encrypted executable): sky maps (`st1a`...: 16x16 ARGB top-down maps of the whole dome, centre at the zenith, edges on the horizon), layer textures (`cc1a`...: clouds, repeated over the dome), the horizon bitmap `horz` (strips around the camera; `hor0`, `hor1`... are copies with other details), `hzcl` (two colours, role unknown). The **.txt** lists sky levels `BEGIN`..`END` by computer capability (HIGH, MEDIUM, LOW) with `#` comments: capability, sky level type (`MULTINORMAL` or `basic`), "does this layer block the sun", then weather regions A and B (MULTINORMAL: 3 sky maps (ARGB, `none`), 3 X scale factors, 3 Y scale factors, move ratio (0 still, 50 fast, 400 slow), 3 wind speeds (0..10), 3 wind directions (degrees, north 0, east 90), warp speed, warp amount (0..1 of the UV); basic: sky map, sky map alpha (`none`, `noise`, `speed`), texture, X and Y scale factor, move ratio, wind speed, wind direction, warp speed, warp amount), then (MULTINORMAL) 3 textures: "the number of textures determines how many layers you have" (`flat` = an untextured layer, `none` = no layer; layer i is texture i coloured by sky map i, the scale factors repeat the texture). The **.bin**: {render_type(eac.maps.Nfs5SkyBin())}. See `library/utils/nfs5_sky_to_spherical.py`.
+**GameData/Track/Sky/\\<track\\>.fsh**, **.txt**, **.bin** the sky of the track of that name (alps.crp: Alps.\\*), checked against the unprotected Porsche.exe: sky maps (`st1a`...: 16x16 ARGB, pixel (column j, row i) is the colour of vertex (i, j) of the sky dome, a 16x16 grid curved down from its centre), layer textures (`cc1a`...: clouds, their UV (j, i) times the scale factors), the horizon bitmap `horz` (cut into cells, one per quad of the 16 around the camera; `hor0`, `hor1`... are copies with other details), `hzcl` (16x2: the horizon quads' top and bottom vertex colours). The **.txt** lists sky levels `BEGIN`..`END` by computer capability (HIGH, MEDIUM, LOW) with `#` comments: capability, sky level type (`MULTINORMAL` or `basic`), "does this layer block the sun", then weather regions A and B (MULTINORMAL: 3 sky maps (ARGB, `none`), 3 X scale factors, 3 Y scale factors, move ratio (0 still, 50 fast, 400 slow), 3 wind speeds (0..10), 3 wind directions (degrees, north 0, east 90), warp speed, warp amount (0..1 of the UV); basic: sky map, sky map alpha (`none`, `noise`, `speed`), texture, X and Y scale factor, move ratio, wind speed, wind direction, warp speed, warp amount), then (MULTINORMAL) 3 textures: "the number of textures determines how many layers you have" (`flat` = an untextured layer, `none` = no layer; layer i is texture i coloured by sky map i). The **.bin**: {render_type(eac.maps.Nfs5SkyBin())}. See `library/utils/nfs5_sky_to_spherical.py`.
 
 **\\*.VIV** archive with some data. {render_type(eac.archives.BigfBlock())}""",
         'blocks': {

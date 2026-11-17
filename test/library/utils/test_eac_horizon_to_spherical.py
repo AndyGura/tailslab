@@ -30,8 +30,8 @@ def read_sample(name):
 
 
 def column(heading_turns):
-    """Output column of a heading (turns clockwise from +Z): +X (0.25) at the centre"""
-    return int(((heading_turns + 0.25) % 1.0) * WIDTH)
+    """Output column of a heading (turns clockwise from +Z): +Z (0) at the centre"""
+    return int(((heading_turns + 0.5) % 1.0) * WIDTH)
 
 
 def row(elevation):

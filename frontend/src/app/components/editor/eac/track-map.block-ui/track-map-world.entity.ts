@@ -374,6 +374,9 @@ export class TrackMapWorldEntity extends MapGraph3dEntity<TypeDocOf<ThreeGgWorld
       if (this.textureArchivePath) {
         this.textureLoader
           .loadAsync(`${this.textureArchivePath}/${matId}.png`)
+          // textures the track serializer adds to the archive's (the NFS2 road lines' lin<n>) are in "textures/"
+          // next to the chunks
+          .catch(() => this.textureLoader.loadAsync(`${this.chunksLocation}textures/${matId}.png`))
           .then(texture => {
             this.setupTerrainTexture(texture);
             applyTexture(texture);

@@ -6,7 +6,6 @@ from typing import Dict
 
 from library.read_blocks import (
     BytesBlock,
-    DataBlock,
     DeclarativeCompoundBlock,
     IntegerBlock,
     ArrayBlock,
@@ -16,6 +15,7 @@ from library.read_blocks import (
     DecimalBlock,
 )
 from library.read_blocks.misc.value_validators import Eq, Lte
+from resources.eac.fields.byte_order import big_endian_copy
 from resources.eac.fields.numbers import IntegerAngleBlock
 
 
@@ -640,20 +640,6 @@ class CarAiAndCrashBody(DeclarativeCompoundBlock):
 _TNFS_3DO_MISSING_FIELDS = {'max_brake_force_2', 'gear_efficiency', 'checksum'}
 
 
-def _big_endian_copy(block: DataBlock) -> DataBlock:
-    block = deepcopy(block)
-    stack = [block]
-    while stack:
-        current = stack.pop()
-        if isinstance(current, IntegerBlock):
-            current.byte_order = 'big'
-        elif isinstance(current, ArrayBlock):
-            stack.append(current.child)
-        elif isinstance(current, CompoundBlock):
-            stack.extend(child for _, child in current.field_blocks)
-    return block
-
-
 def _tnfs_3do_car_physics_fields():
     # same layout as PBS: big-endian copies of its blocks, with the 3DO meaning in the descriptions
     fields = {}
@@ -663,7 +649,7 @@ def _tnfs_3do_car_physics_fields():
         if name in _TNFS_3DO_REPLACED_FIELDS:
             (name, block) = _TNFS_3DO_REPLACED_FIELDS[name]
         else:
-            block = _big_endian_copy(block)
+            block = big_endian_copy(block)
         if name == 'torques':
             block.child.inline_description = 'Two 32bit unsigned integers (big-endian): rpm and torque (N*m)'
         fields[name] = (block, {'description': _TNFS_3DO_DESCRIPTIONS[name]})

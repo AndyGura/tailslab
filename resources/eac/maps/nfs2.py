@@ -21,12 +21,15 @@ class TrkBlock(DeclarativeCompoundBlock):
         return {
             **super().schema,
             'block_description': 'Track block (NFS2, NFS2 SE): a segment of the track (8 slices of the COL '
-            'collision data) with terrain mesh at 3 resolutions, the road polygons the physics uses and '
-            'extrablocks (props, lanes, road vectors etc.). Vertex coordinates are relative '
-            'to the block position, defined in `block_positions` of the track file. The polygon records '
-            'after the vertices are 6 consecutive sets: `polygons` (3 levels of detail), `extra_polygons`, '
-            '`road_polygons` and `unk_polygons`. NFS2 SE keeps the raw block bytes in memory (track reader '
-            'nfs2sen.exe 0x461b00..)',
+            'collision data) with its terrain at 3 levels of detail and extrablocks (props, road lines, road vectors '
+            'etc.). Vertex coordinates are relative to the block position, defined in `block_positions` of the '
+            'track file. The polygon records after the vertices are 6 consecutive sets, a main and an extra set '
+            '(rails, fences) per level of detail: `low_polygons`, `low_extra_polygons`, `medium_polygons`, '
+            '`medium_extra_polygons`, `high_polygons` (also the road surface of the physics), '
+            '`high_extra_polygons` (the NFS2 SE slot loader 0x437420 sets their pointers one after the other, '
+            'slot +0x484..+0x498). The block drawing (0x4361a0) picks the level by distance (0x437ee0: 2 the '
+            'nearest, 0 the farthest) and draws its main set, then its extra set. NFS2 SE keeps the raw block '
+            'bytes in memory (track reader nfs2sen.exe 0x461b00..)',
         }
 
     class Fields(DeclarativeCompoundBlock.Fields):
@@ -68,32 +71,58 @@ class TrkBlock(DeclarativeCompoundBlock):
             IntegerBlock(length=2, is_signed=False),
             {
                 'description': 'Number of stick-to-next vertices: vertices shared with the next block, stored '
-                'relative to the position of the next block'
+                'relative to the position of the next block. Every level of detail uses them'
             },
         )
-        nv4 = (IntegerBlock(length=2, is_signed=False), {'description': 'Number of own vertices for 1/4 resolution'})
-        nv2 = (IntegerBlock(length=2, is_signed=False), {'description': 'Number of own vertices for 1/2 resolution'})
+        nv4 = (
+            IntegerBlock(length=2, is_signed=False),
+            {
+                'description': 'Number of own vertices of the low level of detail: `low_polygons` and '
+                "`low_extra_polygons` use the vertices below nv8 + nv4 (vertex count of level 0 in nfs2sen.exe's "
+                'level table 0x4c515c; a few polygons of the NFS2 tracks use one or more past it, none in NFS2 SE)'
+            },
+        )
+        nv2 = (
+            IntegerBlock(length=2, is_signed=False),
+            {
+                'description': 'Number of own vertices of the medium level of detail: `medium_polygons` and '
+                '`medium_extra_polygons` use the vertices below nv8 + nv2 (level 1 of the table 0x4c515c)'
+            },
+        )
         nv1 = (
             IntegerBlock(length=2, is_signed=False),
             {
-                'description': 'Number of own vertices for full resolution. Vertex sets of lower resolutions are '
-                'subsets of it: nv4 <= nv2 <= nv1'
+                'description': 'Number of own vertices of the high level of detail: `high_polygons` and '
+                '`high_extra_polygons` use every vertex (level 2 of the table 0x4c515c). The vertices of lower '
+                'levels come first: nv4 <= nv2 <= nv1'
             },
         )
-        np4 = (IntegerBlock(length=2, is_signed=False), {'description': 'Number of polygons for 1/4 resolution'})
-        np2 = (IntegerBlock(length=2, is_signed=False), {'description': 'Number of polygons for 1/2 resolution'})
-        np1 = (IntegerBlock(length=2, is_signed=False), {'description': 'Number of polygons for full resolution'})
-        num_extra_polygons = (
+        num_low_polygons = (
             IntegerBlock(length=2, is_signed=False),
-            {'description': 'Number of polygons in `extra_polygons`'},
+            {'description': 'Number of polygons in `low_polygons` (polygon set 0)'},
         )
-        num_road_polygons = (
+        num_low_extra_polygons = (
             IntegerBlock(length=2, is_signed=False),
-            {'description': 'Number of polygons in `road_polygons`'},
+            {'description': 'Number of polygons in `low_extra_polygons` (polygon set 1)'},
         )
-        num_unk_polygons = (
+        num_medium_polygons = (
             IntegerBlock(length=2, is_signed=False),
-            {'description': 'Number of polygons in `unk_polygons` (0..16 in the NFS2 and NFS2 SE tracks)'},
+            {'description': 'Number of polygons in `medium_polygons` (polygon set 2)'},
+        )
+        num_medium_extra_polygons = (
+            IntegerBlock(length=2, is_signed=False),
+            {'description': 'Number of polygons in `medium_extra_polygons` (polygon set 3)'},
+        )
+        num_high_polygons = (
+            IntegerBlock(length=2, is_signed=False),
+            {'description': 'Number of polygons in `high_polygons` (polygon set 4)'},
+        )
+        num_high_extra_polygons = (
+            IntegerBlock(length=2, is_signed=False),
+            {
+                'description': 'Number of polygons in `high_extra_polygons` (polygon set 5; 0..16 in the NFS2 and '
+                'NFS2 SE tracks)'
+            },
         )
         vertices = (
             ArrayBlock(
@@ -106,39 +135,54 @@ class TrkBlock(DeclarativeCompoundBlock):
                 'remaining nv1 items are relative to the position of this block'
             },
         )
-        polygons = (
-            ArrayBlock(child=ColPolygon(), length=lambda ctx: ctx.data('np4') + ctx.data('np2') + ctx.data('np1')),
+        low_polygons = (
+            ArrayBlock(child=ColPolygon(), length=lambda ctx: ctx.data('num_low_polygons')),
             {
-                'description': 'Polygons: np4 polygons of the 1/4 resolution mesh, then np2 polygons of the 1/2 '
-                'resolution mesh, then np1 polygons of the full resolution mesh. The three sets '
-                'are alternative levels of detail of the same terrain; the converter exports the '
-                'full resolution one. Vertex indexes point to `vertices`'
+                'description': 'Polygon set 0: the terrain of the low level of detail (level 0, the farthest blocks), '
+                'drawn with `low_extra_polygons` (block drawing nfs2sen.exe 0x4361a0: set 2 * level, then set 2 * '
+                'level + 1, through BWorld_AddTrackPolys 0x436ba0). Vertex indexes point to `vertices`, below nv8 '
+                '+ nv4 (see `nv4`)'
             },
         )
-        extra_polygons = (
-            ArrayBlock(child=ColPolygon(), length=lambda ctx: ctx.data('num_extra_polygons')),
+        low_extra_polygons = (
+            ArrayBlock(child=ColPolygon(), length=lambda ctx: ctx.data('num_low_extra_polygons')),
             {
-                'description': 'A 4th polygon set, purpose unknown. NFS2 SE keeps a pointer to it per loaded block '
-                '(slot loader nfs2sen.exe 0x437420)',
-                'is_unknown': True,
+                'description': 'Polygon set 1: what the low level of detail draws over its terrain: guard rails, '
+                'trusses, fences (textures such as RGRA, TRUS, FENC), about a tenth of `low_polygons`. Vertex '
+                'indexes below nv8 + nv4'
             },
         )
-        road_polygons = (
-            ArrayBlock(child=ColPolygon(), length=lambda ctx: ctx.data('num_road_polygons')),
+        medium_polygons = (
+            ArrayBlock(child=ColPolygon(), length=lambda ctx: ctx.data('num_medium_polygons')),
             {
-                'description': 'The road surface polygons the physics searches for the polygon under a car (NFS2 SE: '
-                'nfs2sen.exe 0x4384c0, pointer set by the slot loader 0x437420). `median_polygons` records point '
-                'to runs of them per slice, `polygon_map` has one record per polygon of this set (road vector and '
-                'surface). Vertex indexes point to `vertices`, so indexes below nv8 are vertices of the next block'
+                'description': 'Polygon set 2: the terrain of the medium level of detail (level 1), twice as many '
+                'polygons as `low_polygons`, drawn with `medium_extra_polygons`. Vertex indexes below nv8 + nv2'
             },
         )
-        unk_polygons = (
-            ArrayBlock(child=ColPolygon(), length=lambda ctx: ctx.data('num_unk_polygons')),
+        medium_extra_polygons = (
+            ArrayBlock(child=ColPolygon(), length=lambda ctx: ctx.data('num_medium_extra_polygons')),
             {
-                'description': 'A 6th set of polygon records (vertex indexes within `vertices`), purpose unknown. '
-                'The NFS2 SE slot loader (nfs2sen.exe 0x437420) only computes where it starts (the end of '
-                '`road_polygons`)',
-                'is_unknown': True,
+                'description': 'Polygon set 3: rails, trusses and fences of the medium level of detail, like '
+                '`low_extra_polygons`. Vertex indexes below nv8 + nv2'
+            },
+        )
+        high_polygons = (
+            ArrayBlock(child=ColPolygon(), length=lambda ctx: ctx.data('num_high_polygons')),
+            {
+                'description': 'Polygon set 4: the terrain of the high level of detail (level 2, the nearest '
+                'blocks, full detail), twice as many polygons as `medium_polygons`, drawn with '
+                '`high_extra_polygons` and the road lines of the `road_lines` extrablock (0x436d70). It is also the road '
+                'surface the physics searches for the polygon under a car (NFS2 SE: nfs2sen.exe 0x4384c0): '
+                '`median_polygons` records point to runs of them per slice, `polygon_map` has one record per '
+                'polygon of this set (road vector and surface). Vertex indexes point to `vertices`, so indexes '
+                'below nv8 are vertices of the next block'
+            },
+        )
+        high_extra_polygons = (
+            ArrayBlock(child=ColPolygon(), length=lambda ctx: ctx.data('num_high_extra_polygons')),
+            {
+                'description': 'Polygon set 5: rails, trusses and fences of the high level of detail, like '
+                '`low_extra_polygons`'
             },
         )
         padding = (
@@ -157,7 +201,7 @@ class TrkBlock(DeclarativeCompoundBlock):
             {
                 'description': 'Extrablocks of the block. Typically: polygon_map, block_numbers, '
                 'prop_descriptions + props_18 (props placed in this block), median_polygons, '
-                'road_vectors, lanes. The NFS2 SE slot loader (nfs2sen.exe 0x437420) looks up the types 5, 6, 7, '
+                'road_vectors, road_lines. The NFS2 SE slot loader (nfs2sen.exe 0x437420) looks up the types 5, 6, 7, '
                 '8, 10, 11, 13, 17, 18 and 19',
                 'usage': 'ui',
             },

@@ -45,12 +45,17 @@ class ShpiArchiveSerializer(BaseFileSerializer):
             },
         }
 
-    def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
-        super().serialize(data, path)
-        items = [
+    @staticmethod
+    def items(data: dict, block) -> list:
+        """(alias, data, block) of every item of SHPI `data`, in order"""
+        return [
             (x['alias'], x['item']['data'], block.item_block.possible_blocks[x['item']['choice_index']])
             for x in data['children']
         ]
+
+    def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
+        super().serialize(data, path)
+        items = self.items(data, block)
         skipped_resources = []
         output = []
         # textures of a TNFS car model: !xxx (often typed as a bitmap) goes to car_colors.json only
@@ -166,7 +171,8 @@ class ShpiArchiveSerializer(BaseFileSerializer):
     def export_file_names(items, save_palettes: bool, is_tnfs_car: bool = False) -> Dict[int, str]:
         """File name (without extension) of every exported item by its index: the escaped item name, with 0, 1...
         appended to a name already taken, ignoring case (Windows and macOS file systems: "AUDI" and "audi" are one
-        file). Palettes are exported only with `save_palettes`"""
+        file). Palettes are exported only with `save_palettes`. The NFS2-NFS4 track serializers name the textures of
+        their polygons with it (`shpi_texture_names`, serializers/maps.py): the polygons pick images by index"""
         names = {}
         taken = set()
         for i, (name, item_data, item_block) in enumerate(items):
@@ -204,10 +210,7 @@ class ShpiArchiveSerializer(BaseFileSerializer):
         current = self._current_shpi(id)
         shpi = dict(current) if current is not None else block.new_data()
         children = list(shpi['children'])
-        items = [
-            (x['alias'], x['item']['data'], block.item_block.possible_blocks[x['item']['choice_index']])
-            for x in children
-        ]
+        items = self.items(shpi, block)
         image_files = {
             name: i for i, name in self.export_file_names(items, False).items() if isinstance(items[i][2], EacImage)
         }
@@ -294,12 +297,8 @@ class ShppArchiveSerializer(ShpiArchiveSerializer):
             # textures of a car model
             from serializers.misc.tnfs_psx_car_colors import tnfs_psx_car_colors
 
-            items = [
-                (x['alias'], x['item']['data'], block.item_block.possible_blocks[x['item']['choice_index']])
-                for x in data['children']
-            ]
             with open(path_join(path, 'car_colors.json'), 'w') as f:
-                json.dump(tnfs_psx_car_colors(items), f, indent=2)
+                json.dump(tnfs_psx_car_colors(self.items(data, block)), f, indent=2)
             output.append(path_join(path, 'car_colors.json'))
         return output
 

@@ -14,10 +14,12 @@ from .audios import (
     EaAudioStreamsSerializer,
     Nfs6Ps2JukeboxSerializer,
     Nfs6Ps2JukeboxTrackSerializer,
+    SaturnToneBankSerializer,
 )
 from .bitmaps import (
     ImageSerializer,
     TargaImageSerializer,
+    PcxImageSerializer,
     PsxImageSerializer,
     PaletteSerializer,
     ShpiTextSerializer,
@@ -34,6 +36,7 @@ from .geometries import (
     Fce4GeometrySerializer,
     EaglModelSerializer,
     Nfs6Ps2CarSerializer,
+    TnfsSaturnOrixGeometrySerializer,
 )
 from .json import JsonSerializer, TnfsPsxHorizonInfoSerializer, Nfs3CarPhysicsSerializer, CarFeDataSerializer
 from .complete_json import CompleteJsonSerializer
@@ -50,6 +53,11 @@ from .maps import (
     Nfs6Ps2TrackBundleSerializer,
 )
 from .videos import FfmpegSupportedVideoSerializer
+from .tnfs_saturn import (
+    TnfsSaturnCarBundleSerializer,
+    TnfsSaturnGtrExecutableSerializer,
+    TnfsSaturnPcxListSerializer,
+)
 
 
 def get_serializer(block: DataBlock, data) -> BaseFileSerializer:

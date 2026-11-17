@@ -87,4 +87,4 @@ def convert_all(path, out_path, preset=None):
                     f.write('%s\t\t%s\n' % item)
 
     print(f'Finished. Execution time: {time.time() - start_time} seconds')
-    print(f'Support me :) >>>  https://www.buymeacoffee.com/andygura <<<')
+    print(f'Support me :) >>>  https://ko-fi.com/andygura <<<')

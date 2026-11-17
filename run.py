@@ -152,6 +152,6 @@ if __name__ == '__main__':
         try:
             f.write(block.pack(resource))
             print('Finished!')
-            print(f'Support me :) >>>  https://www.buymeacoffee.com/andygura <<<')
+            print(f'Support me :) >>>  https://ko-fi.com/andygura <<<')
         finally:
             f.close()

@@ -219,6 +219,147 @@ class TestEacTrackSerializers(unittest.TestCase):
             self.assertTrue(objects)
             self.assertTrue(all(json.loads(o['animation'])['delay'] == 44 for o in objects.values()))
 
+    def _obj_faces_by_mesh(self, path):
+        faces, name = {}, None
+        with open(path) as f:
+            for line in f:
+                if line.startswith('o '):
+                    name = line[2:].strip()
+                    faces.setdefault(name, 0)
+                elif line.startswith('f '):
+                    faces[name] += 1
+        return faces
+
+    def test_trk_should_export_the_nearest_level_of_detail_with_its_extra_set_and_road_lines(self):
+        import os
+        import tempfile
+
+        from library import require_file
+        from serializers.maps import nfs2_road_lines
+
+        _, _, data = require_file('test/golden_corpus/TR02.TRK')
+        _, _, col = require_file('test/golden_corpus/TR02.COL')
+        slices = next(eb['data_records']['data'] for eb in col['extrablocks'] if eb['type'] == 'collision_data')
+        blocks = [b for sb in data['superblocks'] for b in sb['blocks']]
+
+        def road_lines(b):
+            records = [r for eb in b['extrablocks'] if eb['type'] == 'road_lines' for r in eb['data_records']['data']]
+            vertices = [[v['x'], v['y'], v['z']] for v in b['vertices']]
+            return nfs2_road_lines(records, vertices, b['vertices'], slices, b['first_slice'])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, 'tr02')
+            self._serialize(
+                'test/golden_corpus/TR02.TRK', out, maps__save_as_chunked=True, maps__add_props_to_obj=False
+            )
+            for i in [0, 18, 100]:
+                faces = self._obj_faces_by_mesh(os.path.join(out, f'terrain_chunk_{i}.obj'))
+                terrain = sum(n for name, n in faces.items() if '__lin' not in name)
+                lines = {name.split('__')[1]: n for name, n in faces.items() if '__lin' in name}
+                # nfs2sen.exe draws the nearest blocks with polygon sets 4 and 5 (0x4361a0), then the road lines
+                self.assertEqual(terrain, blocks[i]['num_high_polygons'] + blocks[i]['num_high_extra_polygons'], i)
+                expected = {}
+                for texture, _ in road_lines(blocks[i]):
+                    expected[texture] = expected.get(texture, 0) + 1
+                self.assertEqual(lines, expected, i)
+                self.assertTrue(lines, i)
+            self.assertTrue(any(b['num_high_extra_polygons'] for b in blocks))
+            out = os.path.join(tmp, 'tr02_lods')
+            self._serialize(
+                'test/golden_corpus/TR02.TRK',
+                out,
+                maps__save_as_chunked=True,
+                maps__add_props_to_obj=False,
+                maps__save_all_lods=True,
+            )
+            faces = self._obj_faces_by_mesh(os.path.join(out, 'terrain_chunk_18.obj'))
+        faces_by_lod = [0, 0, 0]
+        for name, n in faces.items():
+            if '_lod' in name and '__lin' not in name:
+                faces_by_lod[int(name.split('_lod')[1][0])] += n
+        b = blocks[18]
+        self.assertEqual(
+            faces_by_lod,
+            [
+                b['num_high_polygons'] + b['num_high_extra_polygons'],
+                b['num_medium_polygons'] + b['num_medium_extra_polygons'],
+                b['num_low_polygons'] + b['num_low_extra_polygons'],
+            ],
+        )
+        # the road lines belong to the highest level
+        self.assertTrue(all(name.startswith('block_18_lod0__') for name in faces if '__lin' in name))
+
+    def test_nfs2_road_line_shapes_should_follow_nfs2sen(self):
+        from serializers.maps import nfs2_road_line_quads
+
+        # a strip quad 16 units wide (p1 on the side of the right vector) and 32 long: record A at z 0, B at z 32
+        p0, p1, p2, p3 = [16, 0, 0], [0, 0, 0], [16, 0, 32], [0, 0, 32]
+        full_right = [[0, 0, 0], [5, 0, 0], [5, 0, 32], [0, 0, 32]]
+        full_left = [[11, 0, 0], [16, 0, 0], [16, 0, 32], [11, 0, 32]]
+        # handlers 0x44bb00, 0x44b6e0, 0x44b250, 0x44a760, 0x44ace0, corners in slot order
+        expected = {
+            0: [('lin2', [[5, 0, 0], [11, 0, 0], [11, 0, 32], [5, 0, 32]])],
+            1: [('lin2', [[5, 0, 16], [11, 0, 16], [11, 0, 32], [5, 0, 32]])],
+            2: [('lin2', full_right), ('lin6', full_left)],
+            3: [('lin2', full_right), ('lin6', [[11, 0, 16], [16, 0, 16], [16, 0, 32], [11, 0, 32]])],
+            4: [('lin2', [[0, 0, 16], [5, 0, 16], [5, 0, 32], [0, 0, 32]]), ('lin6', full_left)],
+        }
+        for line_type, quads in expected.items():
+            self.assertEqual(nfs2_road_line_quads(line_type, 0, p0, p1, p2, p3), quads, line_type)
+            # 5..9: the same shapes, white
+            white = [(t[:3] + str(int(t[3]) + 1), corners) for t, corners in quads]
+            self.assertEqual(nfs2_road_line_quads(line_type + 5, 0, p0, p1, p2, p3), white, line_type)
+        # the texture by sort key & 6 (table 0x4c6318), the second line's by [first + 2]
+        for key, first, second in [
+            (2, 'lin4', 'lin4'),
+            (4, 'lin6', 'lin2'),
+            (6, 'lin4', 'lin4'),
+            (-6, 'lin4', 'lin4'),
+            (-7, 'lin2', 'lin6'),
+        ]:
+            self.assertEqual([t for t, _ in nfs2_road_line_quads(2, key, p0, p1, p2, p3)], [first, second], key)
+        self.assertEqual([t for t, _ in nfs2_road_line_quads(7, 4, p0, p1, p2, p3)], ['lin7', 'lin3'])
+        self.assertEqual(nfs2_road_line_quads(10, 0, p0, p1, p2, p3), [])
+
+    def test_nfs2_road_lines_should_place_strips_by_slices(self):
+        from serializers.maps import nfs2_road_lines
+
+        def vector(x, y, z):
+            return {'x': x / 128, 'y': y / 128, 'z': z / 128}
+
+        slices = [
+            {'normal': vector(0, 127, 0), 'forward': vector(-3, 0, 100), 'right': vector(-100, 0, 0)},
+            {'normal': vector(0, 127, 0), 'forward': vector(0, 0, 127), 'right': vector(-120, 0, 4)},
+        ]
+        vertices = [[1, 0, 2], [1, 0, 6], [9, 9, 9]]
+        raw_vertices = [{'x': 0.5, 'y': 0, 'z': 0.25}, {'x': 1, 'y': 0, 'z': 6}, {'x': 9, 'y': 9, 'z': 9}]
+        records = [
+            {'vertex_idx': 0, 'slice': 0, 'line_type': 5, 'polygon_idx': 0},
+            {'vertex_idx': 1, 'slice': 1, 'line_type': 0xFF, 'polygon_idx': 0},
+            {'vertex_idx': 2, 'slice': 1, 'line_type': 5, 'polygon_idx': 0},
+        ]
+        lines = nfs2_road_lines(records, vertices, raw_vertices, slices, 0)
+        # record 1 ends the strip, record 2 is the last one: one quad from records 0 and 1
+        self.assertEqual(len(lines), 1)
+        texture, corners = lines[0]
+        # sort key 0.5 * 256 + 0.25 * 256 = 192: & 6 = 0, white: lin3
+        self.assertEqual(texture, 'lin3')
+        # P0 = vA - fA, P1 = vA + rA - fA, P2 = vB + fA, P3 = vB + rB + fA, fA = A's forward bytes >> 1 (-3 >> 1 = -2),
+        # vertex units 1/256
+        f = [-2 / 256, 0, 50 / 256]
+        p0 = [1 - f[0], 0, 2 - f[2]]
+        p1 = [1 - 100 / 256 - f[0], 0, 2 - f[2]]
+        p2 = [1 + f[0], 0, 6 + f[2]]
+        p3 = [1 - 120 / 256 + f[0], 0, 6 + 4 / 256 + f[2]]
+        edge = lambda a, b: [a[k] + (b[k] - a[k]) * 5 / 16 for k in range(3)]
+        expected = [edge(p1, p0), edge(p0, p1), edge(p2, p3), edge(p3, p2)]
+        for corner, expected_corner in zip(corners, expected):
+            for a, b in zip(corner, expected_corner):
+                self.assertAlmostEqual(a, b)
+        # a lift moves the points along the slices' normals
+        lifted = nfs2_road_lines(records, vertices, raw_vertices, slices, 0, lift=0.02)[0][1]
+        self.assertAlmostEqual(lifted[0][1], 0.02 * 127 / 128)
+
     def test_nfs4_frd_extra_objects_should_be_exported_as_dummies(self):
         import json
         import os
@@ -350,6 +491,112 @@ class TestEacTrackSerializers(unittest.TestCase):
                     with open(os.path.join(out, name)) as f:
                         dummies += json.load(f)['dummies']
             self.assertEqual(sum(1 for d in dummies if d['properties'].get('billboard')), 350)
+
+    def test_nfs2_texture_uvs_should_follow_nfs2sen(self):
+        import struct
+
+        from resources.eac.maps import TexturesMapExtraDataRecord
+        from serializers.maps import nfs2_texture_uvs
+
+        # UVs (image space, v down) of the polygon vertices [v0, v1, v2, v3] as nfs2sen.exe gives them
+        # (BWorld_SetupTextureOrders 0x4356e0, Tex_OrientCorners 0x475164, BWorld_AddTrackPolys 0x436ba0) for the
+        # alignment values of the NFS2 and NFS2 SE tracks
+        expected = {
+            1: [[1, 0], [0, 0], [0, 1], [1, 1]],
+            3: [[0, 0], [0, 1], [1, 1], [1, 0]],
+            5: [[0, 1], [1, 1], [1, 0], [0, 0]],
+            9: [[1, 1], [1, 0], [0, 0], [0, 1]],
+            16: [[0, 0], [1, 0], [1, 1], [0, 1]],
+            18: [[1, 0], [1, 1], [0, 1], [0, 0]],
+            20: [[1, 1], [0, 1], [0, 0], [1, 0]],
+            24: [[0, 1], [0, 0], [1, 0], [1, 1]],
+        }
+        block = TexturesMapExtraDataRecord()
+        for value, uvs in expected.items():
+            self.assertEqual(nfs2_texture_uvs(value), uvs, value)
+            # the parsed bit field gives the same UVs and is written back as read
+            raw = struct.pack('<HBB3B3B', 7, 0x30, value, 178, 178, 178, 4, 7, 0)
+            record = block.unpack_from_bytes(raw)
+            self.assertEqual(nfs2_texture_uvs(record['alignment']), uvs, value)
+            self.assertEqual(block.pack(record), raw)
+        # bits 0x01, 0x20, 0x80 change nothing; 0x40 mirrors top to bottom unless 0x10 is set
+        self.assertEqual(nfs2_texture_uvs(0xA0), nfs2_texture_uvs(0))
+        self.assertEqual(nfs2_texture_uvs(0x40), [[1, 1], [0, 1], [0, 0], [1, 0]])
+        self.assertEqual(nfs2_texture_uvs(0x50), nfs2_texture_uvs(0x10))
+        record = block.unpack_from_bytes(struct.pack('<HBB3B3B', 7, 0x34, 1, 0, 0, 0, 4, 7, 0))
+        self.assertTrue(
+            record['flags']['animated'] and record['flags']['color_keyed'] and record['flags']['double_sided']
+        )
+        self.assertEqual((record['animation_frames'], record['animation_delay'], record['unk']), (4, 7, 0))
+
+    def test_shpi_texture_names_should_be_the_exported_file_names(self):
+        from resources.eac.archives import ShpiBlock
+        from serializers.maps import shpi_texture_names
+
+        block = ShpiBlock()
+        image = block.item_block.get_choice_index_by_class_name('EacImage')
+        palette = next(
+            i for i, b in enumerate(block.item_block.possible_blocks) if b.__class__.__name__ == 'EacPalette'
+        )
+
+        def child(alias, choice_index, data=None):
+            return {'alias': alias, 'item': {'choice_index': choice_index, 'data': data or {}}}
+
+        data = {
+            'children': [
+                child('CLIF', image),
+                child('ROAD', image),
+                child('CLIF', image),
+                child('clif', image),
+                child('!pal', palette),
+                child('BAD!', image, Exception('not read')),
+                child('CLIF', image),
+            ]
+        }
+        # by SHPI index, as the polygons pick them: names repeat, case is ignored, palettes and items that could not
+        # be read are not exported
+        self.assertEqual(
+            shpi_texture_names(block, data, False), ['CLIF', 'ROAD', 'CLIF0', 'clif1', None, None, 'CLIF2']
+        )
+        self.assertEqual(shpi_texture_names(block, data, True)[4], '!pal')
+
+    def test_trk_textures_should_be_picked_by_qfs_index(self):
+        import os
+        import tempfile
+        from copy import deepcopy
+
+        from library import require_file
+        from serializers import maps
+
+        _, _, col = require_file('test/golden_corpus/TR02.COL')
+        numbers = sorted({r['texture_number'] for r in col['extrablocks'][0]['data_records']['data']})[:3]
+        require_sibling = maps._require_track_sibling
+
+        def sibling_with_repeated_names(id, file_name, sub_id=''):
+            # the track QFS with three images used by the track named alike, as in NFS2 SE TR060.QFS
+            (qfs_id, qfs_block, qfs_data), rest = require_sibling(id, file_name, sub_id)
+            if not file_name.upper().endswith('.QFS'):
+                return (qfs_id, qfs_block, qfs_data), rest
+            qfs_data = deepcopy(qfs_data)
+            for i, number in enumerate(numbers):
+                qfs_data['children'][number]['alias'] = ['DUPE', 'DUPE', 'dupe'][i]
+            return (qfs_id, qfs_block, qfs_data), rest
+
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch.object(maps, '_require_track_sibling', sibling_with_repeated_names),
+        ):
+            out = os.path.join(tmp, 'tr02')
+            self._serialize(
+                'test/golden_corpus/TR02.TRK', out, maps__save_as_chunked=False, maps__add_props_to_obj=True
+            )
+            textures = {os.path.splitext(x)[0] for x in os.listdir(os.path.join(out, 'textures'))}
+            mesh_textures = {n.split('__', 1)[1] for n in self._obj_mesh_names(os.path.join(out, 'map.obj'))}
+        self.assertTrue({'DUPE', 'DUPE0', 'dupe1'} <= textures)
+        self.assertTrue({'DUPE', 'DUPE0', 'dupe1'} <= mesh_textures)
+        # every textured mesh has its image (the road lines' lin<n> come from the game's RENDER/PC/DTEXTURE.FSH, which
+        # the golden corpus does not have)
+        self.assertEqual({t for t in mesh_textures - textures if not t.startswith('lin')}, set())
 
     def test_nfs4_polygon_uvs_should_follow_tex_flags(self):
         from serializers.maps import nfs4_polygon_uvs

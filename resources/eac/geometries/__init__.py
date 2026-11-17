@@ -36,4 +36,7 @@ from .tnfs import (
     OrixPolygonTexture,
     OrixMaterial,
     OrixGeometry,
+    TnfsSaturnOrixPolygon,
+    TnfsSaturnOrixMaterial,
+    TnfsSaturnOrixGeometry,
 )

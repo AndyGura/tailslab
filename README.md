@@ -53,6 +53,7 @@ you always see the whole file.
 | Game | Highlights |
 |---|---|
 | **The Need for Speed** (SE PC, 3DO, PlayStation) | Cars (CFM), tracks (TRI, FAM), car specs (PBS, PDN, 3DO BigSpecsFam), PSX car archives (VSM, WSM: specs, models and textures) and track props (POR.FAM), images (FSH, QFS, PSX PSH), PSX horizon settings (INF) and skies, fonts (FFN), audio (BNK, ASF, EAS), videos (TGV), replays (RPL), saved config |
+| **Over Drivin' GT-R** (Sega Saturn TNFS port) | Car bundles (ALL: physics, textures, cockpit pictures), car models (ORIX, sliced from the executable), car AI records (in the executable), engine sound tone banks (BIN), car showcase pictures (DAT, PCX) |
 | **NFS II / II SE** | Cars (GEO), car physics and AI (`p<car>.DAT`, `simtune.dat`, `<car>.dat`, `TRAFCFG.DAT`, `PRSONAL.DAT`, their compressed `.QDA` copies, the developers' field descriptions `.DES`), tracks (TRK, COL), archives (VIV, MSK), images, fonts, sound banks, videos (UV) |
 | **NFS III Hot Pursuit** | Cars (FCE in VIV), car physics (`carp.txt` in the car VIV), showroom data (`fedata.<lang>`), tracks (FRD, COL, slice ceiling heights SIMHTS.DAT, animation paths CAN), images, fonts, sound banks |
 | **NFS High Stakes** | Cars (FCE4), car physics (`carp.txt` in the car VIV), showroom data (`fedata.<lang>`), tracks (FRD, slice ceiling heights heights.sim, AI line spdFA.bin / spdRA.bin, animation paths CAN), images, fonts, sound banks |
@@ -202,4 +203,4 @@ backend on port `8000`: open `http://localhost:4200` in a normal browser tab and
 - Feedback, bug reports, feature requests and anything you know about these formats:
   [Issues](https://github.com/AndyGura/nfs-resources-converter/issues)
 - Fork and send a [Pull Request](https://github.com/AndyGura/nfs-resources-converter/pulls)
-- [!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/andygura)
+- [!["Support me on Ko-fi"](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/andygura)

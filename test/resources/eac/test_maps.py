@@ -338,23 +338,25 @@ class TestTrkMap(unittest.TestCase):
         self.assertEqual(len(special), 34)
         self.assertEqual(special[0]['position']['data']['special_idx'], 0)
 
-    def test_trk_road_polygons_should_match_polygon_map_and_medians(self):
+    def test_trk_high_polygons_should_match_polygon_map_and_medians(self):
         (_, _, data) = require_file('test/golden_corpus/TR02.TRK')
         blocks = [b for sb in data['superblocks'] for b in sb['blocks']]
         for b in blocks:
             self.assertEqual(b['first_slice'], b['block_idx'] * 8)
             self.assertIn(len(b['padding']), (0, 2))
             records = {eb['type']: eb['data_records']['data'] for eb in b['extrablocks']}
-            self.assertEqual(len(records['polygon_map']), b['num_road_polygons'])
+            self.assertEqual(len(records['polygon_map']), b['num_high_polygons'])
             for median in records['median_polygons']:
-                self.assertLessEqual(median['first_polygon'] + median['num_polygons'], b['num_road_polygons'])
+                self.assertLessEqual(median['first_polygon'] + median['num_polygons'], b['num_high_polygons'])
         b = blocks[18]
         self.assertEqual(
-            (b['num_extra_polygons'], b['num_road_polygons'], b['num_unk_polygons']),
+            (b['num_medium_extra_polygons'], b['num_high_polygons'], b['num_high_extra_polygons']),
             (4, 72, 8),
         )
-        self.assertEqual((len(b['extra_polygons']), len(b['road_polygons']), len(b['unk_polygons'])), (4, 72, 8))
-        self.assertEqual(b['road_polygons'][0]['vertices'], [65, 66, 45, 43])
+        self.assertEqual(
+            (len(b['medium_extra_polygons']), len(b['high_polygons']), len(b['high_extra_polygons'])), (4, 72, 8)
+        )
+        self.assertEqual(b['high_polygons'][0]['vertices'], [65, 66, 45, 43])
 
     def test_trk_track_objects_should_match_special_props(self):
         (_, _, data) = require_file('test/golden_corpus/TR02.TRK')

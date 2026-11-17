@@ -313,6 +313,21 @@ class TargaImageSerializer(BaseFileSerializer):
         return tga_buffer.getvalue()
 
 
+class PcxImageSerializer(TargaImageSerializer):
+    """A PCX file (`PcxImage`) to PNG (RGBA) and back (an image saved as PCX by Pillow: 8-bit with a palette, or
+    24-bit)"""
+
+    def deserialize(self, file_paths: List[str], id=None, block=None, **kwargs):
+        if len(file_paths) != 1:
+            raise Exception('PcxImageSerializer takes one image file')
+        image = Image.open(file_paths[0])
+        if image.mode not in ('P', 'L', '1', 'RGB'):
+            image = image.convert('RGB')
+        buffer = BytesIO()
+        image.save(buffer, format='PCX')
+        return buffer.getvalue()
+
+
 class PsxImageSerializer(BaseFileSerializer):
     """PNG of a PSX image (`PsxImage`) as the game shows it: a rotated image is turned back, 4-bit and 8-bit images are
     indexed PNGs with their CLUT colors (like PC 8Bit images, `ImageSerializer.indexed_image`), 16-bit ones RGBA. The

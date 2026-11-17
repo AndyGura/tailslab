@@ -16,44 +16,139 @@ from library.read_blocks.misc.value_validators import Eq
 from resources.eac.fields.misc import RGBBlock, Point3D, Quaternion
 
 
+# Bits of the NFS2 COL textures_map `alignment` byte (record byte +3), most significant first, as nfs2sen.exe's
+# BWorld_SetupTextureOrders (0x4356e0) reads them: a mirror (`mirror_u`, else `mirror_v`), then a turn (`rotate_90`,
+# else `rotate_180`, else `rotate_270`) of the texture corners, Tex_OrientCorners (0x475164) ops 0 .. 4.
+# The serializer computes the UVs from it (`nfs2_texture_uvs`, serializers/maps.py)
+NFS2_TEXTURE_ALIGNMENT_BITS = [
+    (0x80, 'unk_80', 'Unknown, not read by nfs2sen.exe (BWorld_SetupTextureOrders 0x4356e0)'),
+    (
+        0x40,
+        'mirror_v',
+        'Texture mirrored top to bottom (Tex_OrientCorners 0x475164 op 1: corner order [o3, o2, o1, o0]), unless '
+        '`mirror_u` is set. Not set in the NFS2 and NFS2 SE tracks',
+    ),
+    (0x20, 'unk_20', 'Unknown, not read by nfs2sen.exe (BWorld_SetupTextureOrders 0x4356e0)'),
+    (
+        0x10,
+        'mirror_u',
+        'Texture mirrored left to right (Tex_OrientCorners 0x475164 op 0: corner order [o1, o0, o3, o2])',
+    ),
+    (
+        0x08,
+        'rotate_270',
+        'Texture turned a quarter turn counterclockwise after the mirror (Tex_OrientCorners 0x475164 op 4), unless '
+        '`rotate_90` or `rotate_180` is set',
+    ),
+    (
+        0x04,
+        'rotate_180',
+        'Texture turned a half turn after the mirror (Tex_OrientCorners 0x475164 op 3: corner order [o2, o3, o0, '
+        'o1]), unless `rotate_90` is set',
+    ),
+    (
+        0x02,
+        'rotate_90',
+        'Texture turned a quarter turn clockwise after the mirror (Tex_OrientCorners 0x475164 op 2)',
+    ),
+    (0x01, 'unk_01', 'Unknown, set in most records, not read by nfs2sen.exe (BWorld_SetupTextureOrders 0x4356e0)'),
+]
+
+
 class TexturesMapExtraDataRecord(DeclarativeCompoundBlock):
     @property
     def schema(self):
         return {
             **super().schema,
-            'block_description': 'Texture reference. Polygons of the track (TRK) and of props refer to items of '
-            'this table by index, the item defines the actual texture in the QFS archive '
-            'and its orientation on the polygon',
+            'block_description': 'Texture reference of the NFS2 / NFS2 SE COL file (10 bytes). Polygons of the track '
+            '(TRK) and of the props refer to items of this table by index; the item names the image in the track '
+            'QFS archive and its orientation on the polygon. nfs2sen.exe reads the table at 0x4358c0 '
+            '(BWorld_ReadTextureMap: count u16 at extrablock +6, records from +8), makes the texture entries of '
+            'every record and animation frame at 0x4356e0 (BWorld_SetupTextureOrders) and draws the polygons with '
+            'them (BWorld_AddTrackPolys 0x436ba0: road blocks of every level of detail and the props)',
         }
 
     class Fields(DeclarativeCompoundBlock.Fields):
         texture_number = (
             IntegerBlock(length=2, is_signed=False),
-            {'description': 'Index of the texture in the track QFS file (<track>0.QFS)'},
+            {
+                'description': 'Index of the image in the track QFS file (<track>0.QFS): an index into the SHPI '
+                'items, whose names repeat (NFS2 SE TR060.QFS has 16 images named `CLIF`, ignoring case). An '
+                'animated texture is this image and the next `animation_frames` - 1 ones'
+            },
         )
-        unk = (IntegerBlock(length=1), {'is_unknown': True})
-        alignment = (
-            EnumByteBlock(
-                enum_names=[
-                    (1, 'rotate_180'),
-                    (3, 'rotate_270'),
-                    (5, 'normal'),
-                    (9, 'rotate_90'),
-                    (16, 'flip_v'),
-                    (18, 'rotate_270_2'),
-                    (20, 'flip_h'),
-                    (24, 'rotate_90_2'),
-                ]
+        flags = (
+            SubByteCompoundBlock(
+                length=1,
+                schema=[
+                    (1, 'unk_80', 'boolean', [], 'Unknown, not set in the NFS2 and NFS2 SE tracks'),
+                    (
+                        1,
+                        'cull_mode_0',
+                        'boolean',
+                        [],
+                        'Draw record field +0xa = 0 instead of 1 (meaning not verified), unless `double_sided` is set',
+                    ),
+                    (1, 'color_keyed', 'boolean', [], 'Drawn color keyed (polygon type 9 instead of 8)'),
+                    (
+                        1,
+                        'double_sided',
+                        'boolean',
+                        [],
+                        'Drawn without back face culling (draw record field +0xa = 2)',
+                    ),
+                    (1, 'unk_08', 'boolean', [], 'Unknown, not set in the NFS2 and NFS2 SE tracks'),
+                    (
+                        1,
+                        'animated',
+                        'boolean',
+                        [],
+                        'Animated: frame (simulation tick / `animation_delay`) % `animation_frames`',
+                    ),
+                    (1, 'unk_02', 'boolean', [], 'Unknown, not set in the NFS2 and NFS2 SE tracks'),
+                    (1, 'unk_01', 'boolean', [], 'Unknown, not set in the NFS2 and NFS2 SE tracks'),
+                ],
             ),
             {
-                'description': 'Orientation of the texture on the polygon, which game uses instead of UV-s. '
-                'The converter uses base UV-s (0,1), (1,1), (1,0), (0,0) for the 4 polygon '
-                'vertices and modifies them according to the enum value: rotate_* shift them '
-                'by 1, 2 or 3 vertices, flip_h/flip_v mirror them'
+                'description': 'Drawing flags, as nfs2sen.exe reads them (BWorld_AddTrackPolys 0x436ba0): 0x04 '
+                '`animated`, 0x10 `double_sided` (draw record +0xa = 2: no back face culling), else 0x40 '
+                '`cull_mode_0` (+0xa = 0), otherwise +0xa = 1; 0x20 `color_keyed` (polygon type 9 instead of 8)'
+            },
+        )
+        alignment = (
+            SubByteCompoundBlock(
+                length=1,
+                schema=[(1, name, 'boolean', [], description) for _, name, description in NFS2_TEXTURE_ALIGNMENT_BITS],
+            ),
+            {
+                'description': 'Orientation of the texture on the polygon (the game has no UVs), as nfs2sen.exe '
+                'reads it (BWorld_SetupTextureOrders 0x4356e0): without any bit of 0x5e the texture corners k0 (0, 0), '
+                'k1 (1, 0), k2 (1, 1), k3 (0, 1) (image space, v down) go to the polygon slots in order o = [0, 1, 2, '
+                '3], else the order is first mirrored (0x10 `mirror_u`, else 0x40 `mirror_v`), then turned (0x02 '
+                '`rotate_90`, else 0x04 `rotate_180`, else 0x08 `rotate_270`) by Tex_OrientCorners (0x475164). Slot '
+                'o[k] gets corner k (renderer 0x472290, 0x471540, 0x471710); slots 0..3 are the polygon vertices [v1, '
+                'v0, v3, v2] (BWorld_AddTrackPolys 0x436ba0), so polygon vertex j gets corner k where o[k] = j ^ 1. '
+                'Bits 0x01, 0x20, 0x80 are not read there',
             },
         )
         luminosity = (RGBBlock(), {'description': 'Luminosity color'})
-        black = (RGBBlock(), {'description': 'Unknown, usually black', 'is_unknown': True})
+        animation_frames = (
+            IntegerBlock(length=1, is_signed=False),
+            {
+                'description': 'Frame count of an animated texture (`flags.animated`): the images `texture_number` '
+                '.. `texture_number` + this - 1. nfs2sen.exe makes the texture entries of at least one frame '
+                '(BWorld_SetupTextureOrders 0x4356e0). 0 when not animated, 2..12 in the NFS2 and NFS2 SE tracks'
+            },
+        )
+        animation_delay = (
+            IntegerBlock(length=1, is_signed=False),
+            {
+                'description': 'Duration of a frame of an animated texture in simulation ticks (NFS2 simulates 64 '
+                'ticks per second): frame = (tick / this) % `animation_frames` (BWorld_AddTrackPolys 0x436ba0). 0 '
+                'when not animated, 1..20 in the NFS2 and NFS2 SE tracks'
+            },
+        )
+        unk = (IntegerBlock(length=1, is_signed=False), {'description': 'Always 0', 'is_unknown': True})
 
 
 class PolygonMapExtraDataRecord(DeclarativeCompoundBlock):
@@ -62,7 +157,7 @@ class PolygonMapExtraDataRecord(DeclarativeCompoundBlock):
         return {
             **super().schema,
             'block_description': 'A record of the polygon_map extrablock (NFS2, NFS2 SE TRK blocks): road vector and '
-            "surface of a polygon of the block's `road_polygons`, one record per polygon (in every block of the NFS2 "
+            "surface of a polygon of the block's `high_polygons`, one record per polygon (in every block of the NFS2 "
             'and NFS2 SE tracks)',
         }
 
@@ -104,18 +199,18 @@ class MedianExtraDataRecord(DeclarativeCompoundBlock):
             **super().schema,
             'block_description': 'A record of the median_polygons extrablock (NFS2, NFS2 SE TRK blocks): the road '
             "polygons of a slice, one record per slice of the block (record index = slice - the block's "
-            '`first_slice`). NFS2 SE searches the run of `road_polygons` for the polygon under a car (nfs2sen.exe '
+            '`first_slice`). NFS2 SE searches the run of `high_polygons` for the polygon under a car (nfs2sen.exe '
             '0x4384c0)',
         }
 
     class Fields(DeclarativeCompoundBlock.Fields):
         first_polygon = (
             IntegerBlock(length=2, is_signed=False),
-            {'description': "Index of the slice's first polygon in the block's `road_polygons`"},
+            {'description': "Index of the slice's first polygon in the block's `high_polygons`"},
         )
         num_polygons = (
             IntegerBlock(length=1, is_signed=False),
-            {'description': "Number of the slice's polygons in `road_polygons`, from `first_polygon` on"},
+            {'description': "Number of the slice's polygons in `high_polygons`, from `first_polygon` on"},
         )
         unk = (
             IntegerBlock(length=1, is_signed=False),
@@ -324,31 +419,57 @@ class PropDescriptionExtraDataRecord(DeclarativeCompoundBlock):
         )
 
 
-class LanesExtraDataRecord(DeclarativeCompoundBlock):
+class RoadLineExtraDataRecord(DeclarativeCompoundBlock):
     @property
     def schema(self):
         return {
             **super().schema,
-            'block_description': 'A lane marker: ties a vertex and a polygon of the block terrain to a position '
-            'on a lane',
+            'block_description': 'A record of the road_lines extrablock (type 9, NFS2, NFS2 SE TRK blocks): a point '
+            'of the road lines (lane and edge lines) nfs2sen.exe paints over the road of the nearest blocks '
+            '(BWorld_AddExtrablock9Strips 0x436d70, called by the block drawing 0x4361a0 at the highest level of '
+            "detail only). Record k and record k + 1 make the strip quad k, unless record k's `line_type` is 0xff: "
+            "from the slices' vectors (COL collision_data, units 1/128) the game places P0 = vertex A - forward A / "
+            '2, P1 = vertex A + right A - forward A / 2, P2 = vertex B + forward A / 2, P3 = vertex B + right B + '
+            'forward A / 2 (vertex units 1/256: the forward bytes are halved, the right bytes taken as they are), '
+            'and the line drawing (0x44a510) cuts the quad into the shapes of the line type. The converter exports '
+            'them with the track (`nfs2_road_lines`, serializers/maps.py)',
         }
 
     class Fields(DeclarativeCompoundBlock.Fields):
         vertex_idx = (
             IntegerBlock(length=1, is_signed=False),
-            {'description': 'Vertex number (inside background 3D structure : 0 to nv1+nv8)'},
+            {
+                'description': "Index of a vertex of the block's `vertices` (0 .. nv8 + nv1 - 1; one below nv8 is "
+                'relative to the next block, as for the polygons)'
+            },
         )
-        track_pos = (
+        slice = (
             IntegerBlock(length=1, is_signed=False),
-            {'description': 'Position along track inside block (0 to 7)'},
+            {
+                'description': "Slice of the point, relative to the block's `first_slice` (0 to 7): its forward and "
+                'right vectors place the strip'
+            },
         )
-        lat_pos = (
+        line_type = (
             IntegerBlock(length=1, is_signed=False),
-            {'description': 'Lateral position ? (constant in each lane), -1 at the end)'},
+            {
+                'description': 'Line of the strip quad from this record to the next one, 0xff for none (ends a '
+                'strip). nfs2sen.exe 0x44a510 draws types 0..4 yellow (lin2, lin4, lin6 of RENDER/PC/DTEXTURE.FSH) '
+                'and 5..9 white (lin3, lin5, lin7) with the shape of type % 5: 0 a line in the middle 6/16 of the '
+                'strip, 1 its second half only (dashes), 2 two lines on the outer 5/16 of each side, 3 the right '
+                "line whole and the left one's second half, 4 the left whole and the right one's second half (handlers "
+                "0x44bb00, 0x44b6e0, 0x44b250, 0x44a760, 0x44ace0; right = the side of the slice's right vector). "
+                'All ten in the NFS2 and NFS2 SE tracks (TR04, TR06, TR07, TR08 have no road lines). Far from the '
+                'camera a single quad of the whole strip (lin0 / lin1)'
+            },
         )
         polygon_idx = (
             IntegerBlock(length=1, is_signed=False),
-            {'description': 'Polygon number (inside full-res background 3D structure : 0 to np1)'},
+            {
+                'description': "Index of a polygon of the block's `high_polygons`: nfs2sen.exe copies its `texture2` "
+                'into the strip record (+4, 0x436d70), which the line drawing (0x44a510 and its handlers) does not '
+                'read. Some records of the NFS2 SE tracks point past the set'
+            },
         )
 
 
@@ -556,7 +677,11 @@ class Nfs3TexturesMapExtraDataRecord(DeclarativeCompoundBlock):
         unk0 = (IntegerBlock(length=2, is_signed=False), {'description': 'Always 0', 'is_unknown': True})
         unk1 = (
             IntegerBlock(length=1, is_signed=False),
-            {'description': '0 mostly, else 4, 16, 32, 48, 64, 80 or 96', 'is_unknown': True},
+            {
+                'description': '0 mostly, else 4, 16, 32, 48, 64, 80 or 96: the values of the NFS2 textures_map '
+                '`flags` (not verified in nfs3.exe)',
+                'is_unknown': True,
+            },
         )
         alignment = (
             EnumByteBlock(
@@ -572,19 +697,31 @@ class Nfs3TexturesMapExtraDataRecord(DeclarativeCompoundBlock):
                 ]
             ),
             {
-                'description': 'Orientation of the texture on the polygon, the values of the NFS2 textures_map '
-                '`alignment` (also 64, 68, 72: 0x40 with 0, 4, 8). The converter reads it as in NFS2, not verified '
-                'in the NFS3 code',
+                'description': 'Orientation of the texture on the polygon, not verified in nfs3.exe. The values are '
+                'those of the NFS2 textures_map `alignment` (a bit field in nfs2sen.exe, see the NFS2 '
+                '`TexturesMapExtraDataRecord`), also 64, 66, 68, 72, 82 (0x40 with 0, 2, '
+                '4, 8, 0x12). The converter keeps these names and gives the COL props the UVs (0,1), (1,1), (1,0), '
+                '(0,0) for the 4 polygon vertices shifted by 1, 2 or 3 vertices for rotate_* or mirrored for '
+                'flip_h / flip_v, the identity for other values: for 1, 3, 5, 9, 16, 20 the UVs nfs2sen.exe gives '
+                'these values, for 18 and 24 not (no mirror)',
                 'is_unknown': True,
             },
         )
         unk2 = (
             IntegerBlock(length=1, is_signed=False),
-            {'description': 'Mostly 0; nfs3.exe makes 0 a 1 at load (0x41dcc0)', 'is_unknown': True},
+            {
+                'description': 'Mostly 0; nfs3.exe makes 0 a 1 at load (0x41dcc0). Possibly the animation frame '
+                'count, like NFS2 textures_map `animation_frames` (not verified)',
+                'is_unknown': True,
+            },
         )
         unk3 = (
             IntegerBlock(length=1, is_signed=False),
-            {'description': 'Mostly 0; nfs3.exe makes 0 a 0x1f at load (0x41dcc0)', 'is_unknown': True},
+            {
+                'description': 'Mostly 0; nfs3.exe makes 0 a 0x1f at load (0x41dcc0). Possibly the animation frame '
+                'delay, like NFS2 textures_map `animation_delay` (not verified)',
+                'is_unknown': True,
+            },
         )
 
 
@@ -702,7 +839,7 @@ class ColExtraBlock(DeclarativeCompoundBlock):
                     (6, 'median_polygons'),
                     (7, 'props_7'),
                     (8, 'prop_descriptions'),
-                    (9, 'lanes'),
+                    (9, 'road_lines'),
                     (11, 'track_objects'),
                     (13, 'road_vectors'),
                     (15, 'collision_data'),
@@ -713,7 +850,7 @@ class ColExtraBlock(DeclarativeCompoundBlock):
             {
                 'description': 'Type of the data records. textures_map, props_7, prop_descriptions and '
                 'collision_data are found in COL file; polygon_map, block_numbers, median_polygons, '
-                'props_18, prop_descriptions, lanes, track_objects and road_vectors in TRK blocks. NFS2 and NFS2 SE '
+                'props_18, prop_descriptions, road_lines, track_objects and road_vectors in TRK blocks. NFS2 and NFS2 SE '
                 'TRK blocks also have types 10, 14 and 17 (meaning unknown, kept as raw bytes)'
             },
         )
@@ -732,7 +869,7 @@ class ColExtraBlock(DeclarativeCompoundBlock):
                     ArrayBlock(child=MedianExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
                     ArrayBlock(child=PropExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
                     ArrayBlock(child=PropDescriptionExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
-                    ArrayBlock(child=LanesExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
+                    ArrayBlock(child=RoadLineExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
                     ArrayBlock(child=TrackObjectExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
                     ArrayBlock(child=RoadVectorsExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
                     ArrayBlock(child=CollisionExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
@@ -839,7 +976,7 @@ class Nfs3ColExtraBlock(ColExtraBlock):
                     ArrayBlock(child=MedianExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
                     ArrayBlock(child=PropExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
                     ArrayBlock(child=PropDescriptionExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
-                    ArrayBlock(child=LanesExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
+                    ArrayBlock(child=RoadLineExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
                     ArrayBlock(child=TrackObjectExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
                     ArrayBlock(child=RoadVectorsExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
                     ArrayBlock(child=Nfs3CollisionExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),

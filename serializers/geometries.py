@@ -2943,3 +2943,121 @@ def _nfsmw_mesh(header: dict, texture_ids: list, container: dict, faces_chunk, m
         )
         start = end
     return mesh
+
+
+# the wheel labels the game looks up (TNFS PC, PSX, Saturn)
+TNFS_WHEEL_LABELS = ('lt_frnt', 'rt_frnt', 'lt_rear', 'rt_rear')
+
+
+def tnfs_saturn_orix_polygon_textures(data: dict, bank_names=None) -> List[Optional[str]]:
+    """Exported texture name (`tnfs_saturn_texture_file_name`) of each polygon of a Saturn ORIX, assigned as the PSX
+    game does (`orix_polygon_textures`): a material with `per_polygon_textures` gives its `polygon_textures` items, another
+    one its `file_name`; the wheel materials `frntires` / `rertires` (no texture of their own) get `tyr4`, the export of
+    `tire4`'s `Tir4` (the PSX game puts `tire4`'s texture on them at load). None for a polygon without a texture of the
+    bank (`bank_names`, exported names; None to take every name as found)"""
+    from serializers.tnfs_saturn import tnfs_saturn_texture_file_name
+
+    names = [tnfs_saturn_texture_file_name(x) if x else None for x in orix_polygon_textures(data)]
+    return [x if x and (bank_names is None or x in bank_names) else None for x in names]
+
+
+def tnfs_wheel_labels_by_position(data: dict) -> Tuple[dict, List[Tuple[int, str, str]]]:
+    """The model with its wheel labels (`TNFS_WHEEL_LABELS`) named by where their polygons are: left / right by the side
+    of the left wheel points `fl*` (else negative x), front / rear by the side of the front ones (else positive z).
+    Returns (data, [(polygon, label in the file, new label)] of the labels it renamed); data is the given dict when
+    nothing changes"""
+    vertices = data['vertices']['data']
+    front_left = [vertices[x['index']] for x in data['fx_polys'] if x['name'].lower() in ('fl0', 'fl1')]
+    left_sign = -1 if not front_left or front_left[0]['x'] < 0 else 1
+    front_sign = 1 if not front_left or front_left[0]['z'] >= 0 else -1
+    renamed = []
+    labels = []
+    for label in data['labels']:
+        name = label['name']
+        if name in TNFS_WHEEL_LABELS and label['index'] < len(data['polygons']):
+            polygon = data['polygons'][label['index']]
+            corners = [vertices[data['vmap'][polygon['offset_3d'] + k]] for k in range(polygon['polygon_type'] & 7)]
+            x = sum(c['x'] for c in corners) / len(corners)
+            z = sum(c['z'] for c in corners) / len(corners)
+            side = 'lt' if (x < 0) == (left_sign < 0) else 'rt'
+            end = 'frnt' if (z >= 0) == (front_sign > 0) else 'rear'
+            new_name = f'{side}_{end}'
+            if new_name != name:
+                renamed.append((label['index'], name, new_name))
+                label = {**label, 'name': new_name}
+        labels.append(label)
+    if not renamed:
+        return data, []
+    return {**data, 'labels': labels}, renamed
+
+
+class TnfsSaturnOrixGeometrySerializer(OrixGeometrySerializer):
+    """Sega Saturn TNFS (Over Drivin' GT-R) car model (`TnfsSaturnOrixGeometry`, `MODELS/<car>/high.orix` /
+    `low.orix`), exported like the PC and PSX models (mesh names by label, texture and partition, fx dummies, steering
+    morphs, no normals), so nfs-web's TnfsCarMeshController takes it as a PC car: textures from the first (high-poly) or
+    second (low-poly) texture bank of `CARS/<car>.ALL`, the tyre textures named `tyr1`..`tyr4`, wheel labels named by
+    the position of their polygons (`tnfs_wheel_labels_by_position`: the PGC10 labels its left front wheel `rt_frnt`),
+    `car_colors.json` with the brake light marker next to the PNGs in `assets/`"""
+
+    def require_shpi(self, id):
+        """(bank id, texture bank block, {'children': [{'alias': exported name, 'item': {'data': {width, height}}}]})
+        of the model's textures"""
+        from library import require_file
+        from library.loader import id_to_path
+        from resources.eac.tnfs_saturn import tnfs_saturn_texture_name
+        from serializers.tnfs_saturn import tnfs_saturn_car_bundle_path, tnfs_saturn_texture_file_name
+
+        orix_path = id_to_path(id)
+        bundle_path = tnfs_saturn_car_bundle_path(orix_path)
+        if bundle_path is None:
+            raise DataIntegrityException(f'Cannot find the car bundle CARS/<car>.ALL of {orix_path}')
+        bundle_id, bundle_block, bundle_data = require_file(bundle_path)
+        bank_name = 'low_poly_textures' if os.path.basename(orix_path).lower().startswith('low') else 'textures'
+        bank = bundle_data[bank_name]
+        self.texture_bank = bank
+        children = [
+            {
+                'alias': tnfs_saturn_texture_file_name(tnfs_saturn_texture_name(entry)),
+                'item': {'data': {'width': entry['width_8'] * 8, 'height': entry['height']}},
+            }
+            for entry in bank['textures']
+        ]
+        return join_id(bundle_id, bank_name), bundle_block.field_blocks_map[bank_name], {'children': children}
+
+    def _texture_size(self, image_data: dict) -> Tuple[int, int]:
+        return image_data['width'], image_data['height']
+
+    def _material_names(self, data: dict, texture_names: List[str]) -> List[str]:
+        # a polygon without a texture (none in the game files) gets a black material
+        return [
+            x or f'{ORIP_FLAT_MATERIAL_PREFIX}000000' for x in tnfs_saturn_orix_polygon_textures(data, texture_names)
+        ]
+
+    def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
+        from serializers.tnfs_saturn import export_tnfs_saturn_texture_bank
+
+        BaseFileSerializer.serialize(self, data, path)
+        data, renamed = tnfs_wheel_labels_by_position(data)
+        for polygon, old, new in renamed:
+            logging.info(f'{id}: wheel label "{old}" of polygon {polygon} exported as "{new}" (its position)')
+        bank_id, bank_block, bank_data, sub_models = self.build_mesh(data, id)
+
+        scene = Scene()
+        scene.sub_meshes = [sm for sm in sub_models.values()]
+        scene.dummies = orip_fx_dummies(data)
+        scene.object_properties = {name: {'partition': p} for name, p in self.mesh_partitions.items()}
+        scene.name = 'body'
+        scene.obj_name = 'geometry'
+        scene.mtl_name = 'material'
+        for c in bank_data['children']:
+            scene.mtl_texture_names.append(c['alias'])
+            # colour index 0 of some textures is not drawn, every other texel is opaque
+            scene.mtl_texture_alpha_modes[c['alias']] = 'cutout'
+        scene.mtl_texture_path_func = lambda name: f'assets/{name}.png'
+        for sub_model in sub_models.values():
+            if (sub_model.texture_id or '').startswith(ORIP_FLAT_MATERIAL_PREFIX):
+                scene.mtl_flat_colors[sub_model.texture_id] = (0, 0, 0)
+        # as the PC models: nfs-web draws TNFS models unlit
+        scene.export_normals = False
+        export_tnfs_saturn_texture_bank(self.texture_bank, path_join(path, 'assets'))
+        return export_scenes([scene], path, self.settings)

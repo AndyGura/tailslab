@@ -1,9 +1,9 @@
 """
 The skies of NFS2 SE (3D accelerated version), NFS3 and NFS4 on an equirectangular sky sphere texture `spherical.png`,
 placed as the games draw them. Same output as `nfs1_panorama_to_spherical` (TNFS): 2048x1024 RGBA, eye level on the
-middle row, top row straight up, bottom row straight down; the centre column looks along the game's +X axis, a quarter
-width right of it along -Z, a quarter width left of it along +Z (game axes X right, Y up, Z forward); columns run left
-to right as a viewer standing in the game world sees the panorama. Headings below are turns clockwise from +Z seen from
+middle row, top row straight up, bottom row straight down; the centre column looks along the game's +Z axis, a quarter
+width right of it along +X, a quarter width left of it along -X (game axes X right, Y up, Z forward; `sky_spherical.py`,
+the centre column was +X before 2026-11-16, a quarter turn off in nfs-web); columns run left to right as a viewer standing in the game world sees the panorama. Headings below are turns clockwise from +Z seen from
 above (+X at 0.25), as the games measure them (`atan2(x, z)`).
 
 All three games draw the sky with the same horizon code (`hrzsku.c`, settings `resources/eac/horizons.py`), in this
@@ -181,10 +181,10 @@ def _sample(texture, u, v, wrap: bool):
 
 
 def output_headings(width: int = OUT_WIDTH):
-    """Heading (turns clockwise from +Z) of the output columns: +X (0.25) at the centre, growing to the right"""
+    """Heading (turns clockwise from +Z) of the output columns: +Z (0) at the centre, growing to the right"""
     import numpy as np
 
-    return (np.arange(width) + 0.5) / width - 0.25
+    return (np.arange(width) + 0.5) / width - 0.5
 
 
 def output_elevations(height: int = OUT_HEIGHT):

@@ -450,3 +450,144 @@ class Nfs6Ps2JukeboxSerializer(BaseFileSerializer):
                     f.write('%s\t\t%s\n' % item)
             output.append(path_join(path, 'skipped.txt'))
         return output
+
+
+# sample names of the Over Drivin' GT-R tone banks by the notes of their layers (roles from the data, see
+# `SaturnToneBank`): player car banks, opponent banks
+SATURN_CAR_BANK_NOTE_NAMES = {50: 'engine_on', 51: 'engine_off', 52: 'honk', 53: 'gear'}
+SATURN_OPPONENT_BANK_NOTE_NAMES = {40: 'honk', 41: 'engine_on'}
+# meta values the tone banks don't have, by sample name: those of the PC TNFS car banks (`VIPERSW.BNK`; the opponent
+# horn: `OVIPMB.BNK` 0x41)
+SATURN_PC_BANK_META = {
+    'engine_on': {'priority': 50, 'random_range': 0, 'unknown_0x16': 0},
+    'engine_off': {'priority': 50, 'random_range': 0, 'unknown_0x16': 0},
+    'honk': {'priority': 50, 'random_range': 0, 'unknown_0x16': 0},
+    'gear': {'priority': 30, 'random_range': 200, 'unknown_0x16': 0},
+}
+SATURN_PC_OPPONENT_HONK_PRIORITY = 35
+
+
+def saturn_tone_layer_volume(layer: dict) -> int:
+    """Volume 0..127 (the PC banks' scale, linear) of a layer: its direct output level DISDL (7 = 0 dB, 6 dB steps) and
+    total level TL (0.375 dB steps)"""
+    level = layer['direct_level_pan']['direct_level']
+    if level == 0:
+        return 0
+    decibels = 6 * (7 - level) + 0.375 * layer['total_level']['level']
+    return round(127 * 10 ** (-decibels / 20))
+
+
+def saturn_tone_layer_pan(layer: dict) -> int:
+    """Pan 0..127 (the PC banks' scale, 64 = centre, 0 = left) of a layer: DIPAN bits 0-3 attenuate the right side (bit
+    4 set) or the left one, 3 dB steps, 0xF = off"""
+    pan = layer['direct_level_pan']['direct_pan']
+    attenuation = pan & 0xF
+    if attenuation == 0:
+        return 64
+    gain = 0 if attenuation == 0xF else 10 ** (-3 * attenuation / 20)
+    offset = round(64 * (1 - gain))
+    return max(0, 64 - offset) if pan & 0x10 else min(127, 64 + offset)
+
+
+def saturn_tone_stereo_pair(layers: List[dict]) -> bool:
+    """Two layers playing the left and the right channel of one sound: the same sample format, length and loop, one
+    panned fully to each side"""
+    if len(layers) != 2:
+        return False
+    a, b = layers
+    same = all(
+        a[key] == b[key] for key in ('loop_start', 'loop_end', 'start_note', 'end_note', 'base_note', 'fine_tune')
+    ) and all(a['sample_control'][k] == b['sample_control'][k] for k in ('loop_control', 'pcm_8bit'))
+    pans = {a['direct_level_pan']['direct_pan'], b['direct_level_pan']['direct_pan']}
+    return same and pans == {0x0F, 0x1F}
+
+
+class SaturnToneBankSerializer(BaseFileSerializer):
+    """A Sega Saturn tone bank (`SaturnToneBank`) to a folder of WAVs (16-bit; 8-bit samples x 256) + `.meta.json`
+    with the keys of the TNFS PC car banks' export. One WAV per note range of a voice: two layers panned to the left
+    and the right side are one stereo WAV (left channel first), other layers more WAVs (`_layer_<n>`). Names: the PC car
+    bank names `engine_on`, `engine_off`, `honk`, `gear` for player car banks (notes 50..53), `honk` / `engine_on` for
+    opponent banks (notes 40, 41), `note_<n>` otherwise. Sample rate: 44100 Hz x 2^((note - base note) / 12), what the
+    SCSP plays a layer at for its note (rounded to whole Hz). Meta: `loop` (LPCTL), `loop_start_time_ms` /
+    `loop_end_time_ms` (LSA / LEA: the SCSP goes back to the start at LEA), `bend_range_semitones` (the voice's),
+    `volume` (DISDL, TL), `pan` (DIPAN: 64 for a stereo pair) from the bank; `priority`, `random_range`, `unknown_0x16`
+    are the PC banks' values for the sample (`SATURN_PC_BANK_META`, not in the tone bank)"""
+
+    def __init__(self):
+        super().__init__(is_dir=True)
+
+    def ui_serialization(self):
+        return {
+            'file_type': 'directory',
+            'is_directory': True,
+            'output_file_name_suffix': None,
+            'reversible': False,
+            'reversible_settings_patch': {},
+        }
+
+    def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
+        import struct
+
+        from resources.common.audios.saturn_tone_bank import (
+            saturn_tone_layer_sample_rate,
+            saturn_tone_layer_samples,
+        )
+
+        super().serialize(data, path)
+        groups = []
+        for voice_index, voice in enumerate(data['voices']):
+            by_notes = {}
+            for layer in voice['layers']:
+                by_notes.setdefault((layer['start_note'], layer['end_note']), []).append(layer)
+            for (start_note, _), layers in by_notes.items():
+                groups.append((voice_index, voice, start_note, layers))
+        notes = {start_note for _, _, start_note, _ in groups}
+        if len(data['voices']) == 1 and notes == set(SATURN_CAR_BANK_NOTE_NAMES):
+            note_names, is_opponent = SATURN_CAR_BANK_NOTE_NAMES, False
+        elif len(data['voices']) == 1 and notes == set(SATURN_OPPONENT_BANK_NOTE_NAMES):
+            note_names, is_opponent = SATURN_OPPONENT_BANK_NOTE_NAMES, True
+        else:
+            note_names, is_opponent = {}, False
+        output = []
+        for voice_index, voice, start_note, layers in groups:
+            name = note_names.get(start_note) or (
+                f'note_{start_note}' if len(data['voices']) == 1 else f'voice_{voice_index}_note_{start_note}'
+            )
+            if saturn_tone_stereo_pair(layers):
+                # left: bit 4 of DIPAN set (the right side attenuated)
+                left, right = sorted(layers, key=lambda x: not x['direct_level_pan']['direct_pan'] & 0x10)
+                channels = [saturn_tone_layer_samples(data, left), saturn_tone_layer_samples(data, right)]
+                outputs = [(name, left, channels, 64)]
+            else:
+                outputs = [
+                    (
+                        name if i == 0 else f'{name}_layer_{i}',
+                        layer,
+                        [saturn_tone_layer_samples(data, layer)],
+                        saturn_tone_layer_pan(layer),
+                    )
+                    for i, layer in enumerate(layers)
+                ]
+            for file_name, layer, channels, pan in outputs:
+                rate = round(saturn_tone_layer_sample_rate(layer))
+                count = min(len(c) for c in channels)
+                pcm = struct.pack(f'<{count * len(channels)}h', *[c[i] for i in range(count) for c in channels])
+                wav_path = path_join(path, f'{file_name}.wav')
+                _save_wav(wav_path, pcm, len(channels), rate)
+                pc_meta = dict(SATURN_PC_BANK_META.get(note_names.get(start_note), SATURN_PC_BANK_META['engine_on']))
+                if is_opponent and note_names.get(start_note) == 'honk':
+                    pc_meta['priority'] = SATURN_PC_OPPONENT_HONK_PRIORITY
+                meta = {
+                    'loop': layer['sample_control']['loop_control'] != 'no_loop',
+                    'loop_start_time_ms': 1000 * layer['loop_start'] / rate,
+                    'loop_end_time_ms': 1000 * layer['loop_end'] / rate,
+                    'bend_range_semitones': voice['mode']['bend_range'],
+                    'volume': saturn_tone_layer_volume(layer),
+                    'pan': pan,
+                    **pc_meta,
+                }
+                meta_path = path_join(path, f'{file_name}.meta.json')
+                with open(meta_path, 'w') as file:
+                    file.write(json.dumps(meta, indent=4))
+                output += [wav_path, meta_path]
+        return output

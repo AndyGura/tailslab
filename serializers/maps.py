@@ -804,9 +804,170 @@ def _quaternion_to_export_axes(q: Optional[tuple]) -> list:
     return [w, -x, -z, -y]
 
 
-def _alignment_uvs(alignment) -> List[List[float]]:
-    # NFS2 COL texture alignment: base UVs for the 4 polygon vertices, rotated or flipped
-    uvs = [[0, 1], [1, 1], [1, 0], [0, 0]]
+# Texture corners k0..k3 of nfs2sen.exe's track renderer (0x472290, 0x471540, 0x471710) in image space (u right, v
+# down, as `Mesh.vertex_uvs`)
+NFS2_TEXTURE_CORNER_UVS = [[0, 0], [1, 0], [1, 1], [0, 1]]
+
+
+def nfs2_texture_corner_order(alignment: int) -> List[int]:
+    """Corner order o of a NFS2 COL textures_map record by its `alignment` byte, as nfs2sen.exe's
+    BWorld_SetupTextureOrders (0x4356e0) makes it with Tex_OrientCorners (0x475164): polygon slot o[k] gets texture
+    corner k. Identity without any bit of 0x5e, else mirrored (0x10, else 0x40), then turned (0x02, else 0x04, else
+    0x08)"""
+    o = [0, 1, 2, 3]
+    if not alignment & 0x5E:
+        return o
+    if alignment & 0x10:
+        o = [o[1], o[0], o[3], o[2]]
+    elif alignment & 0x40:
+        o = [o[3], o[2], o[1], o[0]]
+    if alignment & 0x02:
+        o = [o[1], o[2], o[3], o[0]] if o[1] >= o[0] else [o[3], o[0], o[1], o[2]]
+    elif alignment & 0x04:
+        o = [o[2], o[3], o[0], o[1]]
+    elif alignment & 0x08:
+        o = [o[3], o[0], o[1], o[2]] if o[0] <= o[1] else [o[1], o[2], o[3], o[0]]
+    return o
+
+
+def nfs2_alignment_value(alignment) -> int:
+    """The raw byte of a NFS2 textures_map `alignment`: its bit field data (a dict of flags) or an integer"""
+    if isinstance(alignment, dict):
+        from resources.eac.maps.nfs_common import NFS2_TEXTURE_ALIGNMENT_BITS
+
+        return sum(bit for bit, name, _ in NFS2_TEXTURE_ALIGNMENT_BITS if alignment.get(name))
+    return int(alignment)
+
+
+def nfs2_texture_uvs(alignment) -> List[List[float]]:
+    """UVs of the 4 vertices of a NFS2 TRK / prop polygon (in the order of its `vertices`) textured by a COL
+    textures_map record with this `alignment` (bit field data or the raw byte). nfs2sen.exe's BWorld_AddTrackPolys
+    (0x436ba0) gives the slots 0..3 the polygon vertices [v1, v0, v3, v2], so vertex j is slot j ^ 1 and gets the
+    corner k where o[k] = j ^ 1 (`nfs2_texture_corner_order`)"""
+    order = nfs2_texture_corner_order(nfs2_alignment_value(alignment))
+    return [list(NFS2_TEXTURE_CORNER_UVS[order.index(j ^ 1)]) for j in range(4)]
+
+
+# nfs2sen.exe's table 0x4c6318: the number of the lin texture (RENDER/PC/DTEXTURE.FSH) of a road line by (strip
+# sort key & 6) | (line type >= 5), and of a type's second line by [first + 2]
+NFS2_ROAD_LINE_TEXTURES = [2, 3, 4, 5, 6, 7, 4, 5, 2, 3]
+# Lift of the exported road lines along the slices' normals in meters: they lie in the road surface, which the game
+# draws first (no depth test between them), a depth-tested renderer would let them fight with the road
+NFS2_ROAD_LINE_LIFT = 0.02
+
+
+def _nfs2_line_edge(a: list, b: list) -> list:
+    # the part of the edge a -> b nfs2sen.exe's line handlers cut off: (b - a) >> 4 + (b - a) >> 2, i.e. 5/16
+    return [(b[k] - a[k]) * 5 / 16 for k in range(3)]
+
+
+def _nfs2_mid(a: list, b: list) -> list:
+    return [(a[k] + b[k]) / 2 for k in range(3)]
+
+
+def nfs2_road_line_quads(
+    line_type: int, key: int, p0: list, p1: list, p2: list, p3: list
+) -> List[Tuple[str, List[list]]]:
+    """Polygons of one NFS2 road line strip quad as nfs2sen.exe paints it near the camera (line drawing 0x44a510):
+    (lin texture name, the 4 corners in slot order: slot k gets texture corner k, (0,0), (1,0), (1,1), (0,1)). p0..p3
+    are the strip quad's points (BWorld_AddExtrablock9Strips 0x436d70: p0, p1 at record A, p1 on the side of the
+    slice's right vector, p2, p3 at record B), key the strip's sort key (vertex A's raw x + z). Types 0..4 (yellow:
+    lin2, lin4, lin6) and 5..9 (white: lin3, lin5, lin7) have the shape of type % 5 (handlers 0x44bb00, 0x44b6e0,
+    0x44b250, 0x44a760, 0x44ace0): the middle 6/16 of the strip, its second half, both outer 5/16, the right whole and
+    the left's second half, the left whole and the right's second half. Other types: nothing"""
+    if not 0 <= line_type <= 9:
+        return []
+    shape, white = (line_type, 0) if line_type <= 4 else (line_type - 5, 1)
+    texture = NFS2_ROAD_LINE_TEXTURES[(key & 6) | white]
+    second_texture = NFS2_ROAD_LINE_TEXTURES[texture + 2]
+    d = _nfs2_line_edge(p1, p0)
+    e = _nfs2_line_edge(p3, p2)
+    # A's edge (p1 .. p0) and B's edge (p3 .. p2) without their outer 5/16
+    a_right, a_left = [p1[k] + d[k] for k in range(3)], [p0[k] - d[k] for k in range(3)]
+    b_right, b_left = [p3[k] + e[k] for k in range(3)], [p2[k] - e[k] for k in range(3)]
+    if shape == 0:
+        quads = [(texture, [a_right, a_left, b_left, b_right])]
+    elif shape == 1:
+        quads = [(texture, [_nfs2_mid(a_right, b_right), _nfs2_mid(a_left, b_left), b_left, b_right])]
+    elif shape == 2:
+        quads = [(texture, [p1, a_right, b_right, p3]), (second_texture, [a_left, p0, p2, b_left])]
+    elif shape == 3:
+        quads = [
+            (texture, [p1, a_right, b_right, p3]),
+            (second_texture, [_nfs2_mid(a_left, b_left), _nfs2_mid(p0, p2), p2, b_left]),
+        ]
+    else:
+        quads = [
+            (texture, [_nfs2_mid(p1, p3), _nfs2_mid(a_right, b_right), b_right, p3]),
+            (second_texture, [a_left, p0, p2, b_left]),
+        ]
+    return [(f'lin{t}', [list(c) for c in corners]) for t, corners in quads]
+
+
+def _col_byte(value: float) -> int:
+    # a COL slice vector component (FixedPointBlock, 1/128) as its signed byte
+    return int(round(value * 128))
+
+
+def nfs2_road_lines(
+    records: list, vertices: list, raw_vertices: list, slices: list, first_slice: int, lift: float = 0
+) -> List[Tuple[str, List[list]]]:
+    """Road lines (lane and edge lines) of a NFS2 TRK block from its road_lines extrablock records, as nfs2sen.exe
+    paints them over the nearest blocks (BWorld_AddExtrablock9Strips 0x436d70, then 0x44a510): (lin texture name,
+    the 4 corners in slot order) per polygon, see `nfs2_road_line_quads`. vertices: the block's vertices in meters
+    (game axes, those below nv8 moved to this block's position as the terrain's), raw_vertices: the parsed ones
+    (Point3D dicts, the sort key), slices: the COL collision_data records. Record k and k + 1 make strip quad k when
+    record k's line_type is not 0xff: P0 = vA - fA, P1 = vA + rA - fA, P2 = vB + fA, P3 = vB + rB + fA with fA the
+    forward bytes of A's slice >> 1 and rA, rB the right bytes of A's and B's slice, in vertex units (1/256 m).
+    `lift` moves every point along its slice's normal (export only)"""
+    result = []
+    for k in range(len(records) - 1):
+        a, b = records[k], records[k + 1]
+        if a['line_type'] == 0xFF:
+            continue
+        slice_a, slice_b = first_slice + a['slice'], first_slice + b['slice']
+        if not (0 <= slice_a < len(slices) and 0 <= slice_b < len(slices)):
+            continue
+        if a['vertex_idx'] >= len(vertices) or b['vertex_idx'] >= len(vertices):
+            continue
+        sa, sb = slices[slice_a], slices[slice_b]
+        forward = [(_col_byte(sa['forward'][c]) >> 1) / 256 for c in 'xyz']
+        right_a = [_col_byte(sa['right'][c]) / 256 for c in 'xyz']
+        right_b = [_col_byte(sb['right'][c]) / 256 for c in 'xyz']
+        up_a = [sa['normal'][c] * lift for c in 'xyz']
+        up_b = [sb['normal'][c] * lift for c in 'xyz']
+        va, vb = vertices[a['vertex_idx']], vertices[b['vertex_idx']]
+        p0 = [va[c] - forward[c] + up_a[c] for c in range(3)]
+        p1 = [va[c] + right_a[c] - forward[c] + up_a[c] for c in range(3)]
+        p2 = [vb[c] + forward[c] + up_b[c] for c in range(3)]
+        p3 = [vb[c] + right_b[c] + forward[c] + up_b[c] for c in range(3)]
+        raw = raw_vertices[a['vertex_idx']]
+        key = int(round(raw['x'] * 256)) + int(round(raw['z'] * 256))
+        result += nfs2_road_line_quads(a['line_type'], key, p0, p1, p2, p3)
+    return result
+
+
+def _add_slot_quads(model: Mesh, quads: List[Tuple[str, List[list]]]):
+    """Adds polygons given by their corners in nfs2sen.exe's slot order (slot k gets texture corner k) to the model,
+    in the vertex order of the track polygons (vertex j = slot j ^ 1, see `nfs2_texture_uvs`)"""
+    for texture_name, corners in quads:
+        base_idx = len(model.vertices)
+        for j in range(4):
+            model.vertices.append(list(corners[j ^ 1]))
+            model.vertex_uvs.append(list(NFS2_TEXTURE_CORNER_UVS[j ^ 1]))
+        model.polygons.append([base_idx, base_idx + 1, base_idx + 2, base_idx + 3])
+        model.texture_ids.append(texture_name)
+
+
+# UVs of a track polygon whose texture is not known
+DEFAULT_QUAD_UVS = [[0, 1], [1, 1], [1, 0], [0, 0]]
+
+
+def nfs3_col_alignment_uvs(alignment) -> List[List[float]]:
+    """UVs of the 4 polygon vertices of a NFS3 COL prop by its textures_map `alignment` (enum name, or the value
+    when it has none), not verified in nfs3.exe: (0,1), (1,1), (1,0), (0,0) shifted by 1, 2 or 3 vertices for
+    rotate_*, mirrored for flip_h / flip_v, unchanged for other values"""
+    uvs = DEFAULT_QUAD_UVS
     if str(alignment).startswith('rotate_90'):
         uvs = rotate_list(uvs, 1)
     elif str(alignment).startswith('rotate_180'):
@@ -817,7 +978,7 @@ def _alignment_uvs(alignment) -> List[List[float]]:
         uvs = [uvs[1], uvs[0], uvs[3], uvs[2]]
     elif alignment == 'flip_v':
         uvs = [uvs[3], uvs[2], uvs[1], uvs[0]]
-    return uvs
+    return [list(uv) for uv in uvs]
 
 
 def _add_quads(model: Mesh, polygons: list, vertices: list, get_texture):
@@ -828,7 +989,7 @@ def _add_quads(model: Mesh, polygons: list, vertices: list, get_texture):
         base_idx = len(model.vertices)
         for i, v_index in enumerate(p['vertices']):
             model.vertices.append(list(vertices[v_index]))
-            model.vertex_uvs.append(uvs[i])
+            model.vertex_uvs.append(list(uvs[i]))
         model.polygons.append([base_idx, base_idx + 1, base_idx + 2, base_idx + 3])
         model.texture_ids.append(texture_name)
 
@@ -844,13 +1005,21 @@ def _require_track_sibling(id: str, file_name: str, sub_id: str = ''):
     return require_resource(path + sub_id)
 
 
-def _shpi_aliases(qfs_data: dict) -> List[str]:
-    return [x['alias'] for x in qfs_data['children'] if x['alias']]
+def shpi_texture_names(shpi_block, shpi_data: dict, save_palettes: bool) -> List[Optional[str]]:
+    """Texture names of a track's QFS by SHPI item index: the file names (without extension) the items get in the
+    track's "textures/" folder (`ShpiArchiveSerializer.export_file_names`: the escaped alias, with 0, 1... appended
+    to a name taken before, ignoring case, so the 16 `CLIF` / `clif` images of NFS2 SE TR060.QFS are CLIF, CLIF0 ..
+    CLIF14), None for an item not exported. NFS2-NFS4 polygons pick their image by this index, not by alias. Raises
+    for an item without alias, as the export does"""
+    from serializers.archives import ShpiArchiveSerializer
+
+    names = ShpiArchiveSerializer.export_file_names(ShpiArchiveSerializer.items(shpi_data, shpi_block), save_palettes)
+    return [names.get(i) for i in range(len(shpi_data['children']))]
 
 
 def col_props(col_data: dict, get_texture) -> Tuple[List[TrackProp], Dict[str, Mesh]]:
     """Track-wide props of a NFS2/NFS3 COL file: models from its prop_descriptions extrablock, placed by props_7.
-    get_texture(texture map index) returns (texture name, alignment)"""
+    get_texture(texture map index) returns (texture name, UVs of the 4 polygon vertices)"""
     descriptions = next(
         (x['data_records']['data'] for x in col_data['extrablocks'] if x['type'] == 'prop_descriptions'), []
     )
@@ -876,12 +1045,12 @@ def _deduplicate_models(models: Dict[str, Mesh]) -> Dict[str, str]:
 
 def _prop_description_mesh(description: dict, get_texture) -> Mesh:
     model = Mesh()
-
-    def polygon_texture(p):
-        texture_name, alignment = get_texture(p['texture'])
-        return texture_name, _alignment_uvs(alignment)
-
-    _add_quads(model, description['polygons'], [_point(v) for v in description['vertices']], polygon_texture)
+    _add_quads(
+        model,
+        description['polygons'],
+        [_point(v) for v in description['vertices']],
+        lambda p: get_texture(p['texture']),
+    )
     return model
 
 
@@ -1096,6 +1265,10 @@ class EacTrackSerializer(BaseFileSerializer):
         return export_scenes(scenes, path, self.settings) + exported_files
 
 
+# Levels of detail of a NFS2 TRK block, highest first: polygon sets <level>_polygons + <level>_extra_polygons
+TRK_LODS = ['high', 'medium', 'low']
+
+
 class TrkMapSerializer(EacTrackSerializer):
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
         super().serialize(data, path, id, block, **kwargs)
@@ -1110,21 +1283,23 @@ class TrkMapSerializer(EacTrackSerializer):
         def texture_archive():
             return _require_track_sibling(id, f'{track_name}0.QFS', '__data')
 
+        # polygons and props refer to the COL textures_map, whose records pick the QFS image by index
+        texture_map, texture_names = [], []
         try:
             texture_map = col_data['extrablocks'][0]['data_records']['data']
-            (_, _, qfs_data), _ = texture_archive()
-            shpi_aliases = _shpi_aliases(qfs_data)
-
-            def get_texture(tex):
-                try:
-                    return shpi_aliases[texture_map[tex]['texture_number']], texture_map[tex]['alignment']
-                except IndexError:
-                    return f'{tex:04}', 0
+            (_, qfs_block, qfs_data), _ = texture_archive()
+            texture_names = shpi_texture_names(qfs_block, qfs_data, self.settings.images__save_palettes)
         except Exception:
             traceback.print_exc()
 
-            def get_texture(tex):
-                return f'{tex:04}', 0
+        def get_texture(tex):
+            """Texture name and UVs of the 4 polygon vertices by textures_map index"""
+            if tex < len(texture_map):
+                record = texture_map[tex]
+                number = record['texture_number']
+                if number < len(texture_names) and texture_names[number] is not None:
+                    return texture_names[number], nfs2_texture_uvs(record['alignment'])
+            return f'{tex:04}', DEFAULT_QUAD_UVS
 
         blocks = []
         for sb in data['superblocks']:
@@ -1148,8 +1323,18 @@ class TrkMapSerializer(EacTrackSerializer):
         map_scene.curves.append(curve)
 
         def polygon_texture(p):
-            texture_name, alignment = get_texture(p['texture'])
-            return texture_name, _alignment_uvs(alignment)
+            return get_texture(p['texture'])
+
+        # COL slices: the road lines are placed by their vectors
+        slices = next(
+            (
+                eb['data_records']['data']
+                for eb in (col_data or {}).get('extrablocks', [])
+                if eb['type'] == 'collision_data'
+            ),
+            [],
+        )
+        line_textures = set()
 
         chunks = []
         props = []
@@ -1162,12 +1347,26 @@ class TrkMapSerializer(EacTrackSerializer):
                 v[0] += next_pivot['x'] - pivot['x']
                 v[1] += next_pivot['y'] - pivot['y']
                 v[2] += next_pivot['z'] - pivot['z']
-            # np4 polygons of the 1/4 resolution mesh, np2 of the 1/2 one, then the full resolution one
-            polygons, np4, np2 = block['polygons'], block['np4'], block['np2']
-            lods = [[polygons[np4 + np2 :]], [polygons[np4 : np4 + np2]], [polygons[:np4]]]
+            # each level of detail is its terrain and its extra set (rails, fences), as nfs2sen.exe draws a block
+            # (0x4361a0), the highest first
+            lods = [[block[f'{level}_polygons'], block[f'{level}_extra_polygons']] for level in TRK_LODS]
             meshes = self._terrain_meshes(
                 f'block_{block_i}', lods, vertices, polygon_texture, (-pivot['x'], -pivot['y'], -pivot['z'])
             )
+            # road lines, painted over the highest level of detail
+            line_records = [
+                r for eb in block['extrablocks'] if eb['type'] == 'road_lines' for r in eb['data_records']['data']
+            ]
+            lines = nfs2_road_lines(
+                line_records, vertices, block['vertices'], slices, block['first_slice'], NFS2_ROAD_LINE_LIFT
+            )
+            if lines:
+                line_model = Mesh()
+                line_model.name = f'block_{block_i}_lod0' if self.settings.maps__save_all_lods else f'block_{block_i}'
+                line_model.pivot_offset = (-pivot['x'], -pivot['y'], -pivot['z'])
+                _add_slot_quads(line_model, lines)
+                meshes += [m for m, _, _ in line_model.split_by_texture_ids()]
+                line_textures.update(texture for texture, _ in lines)
             chunks.append((meshes, _point(pivot)))
 
             descriptions = next(
@@ -1188,7 +1387,46 @@ class TrkMapSerializer(EacTrackSerializer):
             props += col_track_props
             prop_models.update(col_models)
 
-        return self._export_track(path, map_scene, chunks, props, prop_models, texture_archive)
+        files = self._export_track(path, map_scene, chunks, props, prop_models, texture_archive)
+        return files + _export_nfs2_line_textures(id, path, sorted(line_textures))
+
+
+def _export_nfs2_line_textures(id: str, path: str, names: List[str]) -> List[str]:
+    """Saves the lin images the road lines use (`names`) from the game's RENDER/PC/DTEXTURE.FSH (two folders up from
+    the track, next to TRACKS) to "<path>/textures/<name>.png", next to the track's own textures, so the lines' meshes
+    `block_<i>__lin<n>` find them like the terrain's. Nothing when the file is not found"""
+    from library import require_resource
+    from library.loader import id_to_path, path_to_name
+    from library.utils.file_utils import find_files_case_insensitive
+    from library.utils.id import join_id
+    from resources.eac.archives import ShpiBlock
+    from resources.eac.bitmaps import EacImage
+    from serializers import ImageSerializer
+
+    if not names or not id:
+        return []
+    track_dir = os.path.dirname(id_to_path(id))
+    fsh_path = os.path.join(os.path.dirname(os.path.dirname(track_dir)), 'RENDER', 'PC', 'DTEXTURE.FSH')
+    fsh_path = next(iter(find_files_case_insensitive([fsh_path])), None)
+    if not fsh_path:
+        return []
+    output = []
+    try:
+        (fsh_id, shpi_block, shpi_data), _ = require_resource(path_to_name(fsh_path.replace('\\', '/')))
+        while not isinstance(shpi_block, ShpiBlock) and isinstance(shpi_data, dict) and 'choice_index' in shpi_data:
+            (fsh_id, shpi_block, shpi_data), _ = require_resource(join_id(fsh_id, 'data'))
+        os.makedirs(path_join(path, 'textures'), exist_ok=True)
+        for i, child in enumerate(shpi_data['children']):
+            item_block = shpi_block.item_block.possible_blocks[child['item']['choice_index']]
+            if child['alias'] not in names or not isinstance(item_block, EacImage):
+                continue
+            image_id = join_id(fsh_id, 'children', str(i), 'item', 'data')
+            image = ImageSerializer().to_png_image(child['item']['data'], item_block, image_id)
+            ImageSerializer.save_png(image, path_join(path, f'textures/{child["alias"]}.png'))
+            output.append(path_join(path, f'textures/{child["alias"]}.png'))
+    except Exception:
+        traceback.print_exc()
+    return output
 
 
 # Polygon chunks of a NFS3 FRD track block, which make the visible terrain, by level of detail (highest first): track
@@ -1256,19 +1494,22 @@ class FrdMapSerializer(EacTrackSerializer):
         # texture map: it directly indexes the FRD file's own "texture_blocks" table, which in
         # turn stores the real index of the texture in the QFS/SHPI archive and UV-s of polygon corners
         texture_blocks = data['texture_blocks']
-        shpi_aliases = []
+        texture_names = []
         try:
-            (_, _, qfs_data), _ = texture_archive()
-            shpi_aliases = _shpi_aliases(qfs_data)
+            (_, qfs_block, qfs_data), _ = texture_archive()
+            texture_names = shpi_texture_names(qfs_block, qfs_data, self.settings.images__save_palettes)
         except Exception:
             traceback.print_exc()
 
         def texture_name(texture_id):
-            return shpi_aliases[texture_id] if texture_id < len(shpi_aliases) else f'{texture_id:04}'
+            # the QFS image by index
+            if texture_id < len(texture_names) and texture_names[texture_id] is not None:
+                return texture_names[texture_id]
+            return f'{texture_id:04}'
 
         def polygon_texture(p):
             if p['tex_id'] >= len(texture_blocks):
-                return f'{p["tex_id"]:04}', [[0, 1], [1, 1], [1, 0], [0, 0]]
+                return f'{p["tex_id"]:04}', DEFAULT_QUAD_UVS
             texture_block = texture_blocks[p['tex_id']]
             corners = texture_block['corners']
             return texture_name(texture_block['texture_id']), [[corners[i * 2], corners[i * 2 + 1]] for i in range(4)]
@@ -1347,8 +1588,9 @@ class FrdMapSerializer(EacTrackSerializer):
 
             def col_texture(tex):
                 if tex >= len(texture_map):
-                    return f'{tex:04}', 0
-                return texture_name(texture_map[tex]['texture_number']), texture_map[tex]['alignment']
+                    return f'{tex:04}', DEFAULT_QUAD_UVS
+                record = texture_map[tex]
+                return texture_name(record['texture_number']), nfs3_col_alignment_uvs(record['alignment'])
 
             col_track_props, col_models = col_props(col_data, col_texture)
             # Texture numbers of COL models don't match the track QFS in NFS3 (e.g. TR00.COL has an airliner, which
@@ -1465,15 +1707,19 @@ class Nfs4FrdMapSerializer(EacTrackSerializer):
         # (no local texture table in the FRD itself), and no per-polygon UV corners are
         # stored anywhere: the polygon flags pick them from a table of the executable
         try:
-            (_, _, qfs_data), _ = texture_archive()
-            shpi_aliases = [x['alias'] for x in qfs_data['children'] if x['alias'] and not _is_mirrored_copy(x)]
+            (_, qfs_block, qfs_data), _ = texture_archive()
+            names = shpi_texture_names(qfs_block, qfs_data, self.settings.images__save_palettes)
+            # the polygons' texture numbers don't count the mirrored copies
+            texture_names = [names[i] for i, x in enumerate(qfs_data['children']) if not _is_mirrored_copy(x)]
         except Exception:
             traceback.print_exc()
-            shpi_aliases = []
+            texture_names = []
 
         def polygon_texture(p):
             tex = p['texture']
-            return (shpi_aliases[tex] if tex < len(shpi_aliases) else f'{tex:04}'), nfs4_polygon_uvs(p['tex_flags'])
+            if tex < len(texture_names) and texture_names[tex] is not None:
+                return texture_names[tex], nfs4_polygon_uvs(p['tex_flags'])
+            return f'{tex:04}', nfs4_polygon_uvs(p['tex_flags'])
 
         map_scene = Scene(
             name='map',

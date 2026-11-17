@@ -114,6 +114,43 @@ def _is_ea_audio_stream(buffer, length) -> bool:
 
 # this looks like a mess, but it is intended to be like that: by using local imports we dramatically increase
 # performance, because we spawn process per file, and it doesn't need to load all those classes every time
+def _tnfs_saturn_block_class(buffer, file_path: str, length):
+    """Block class of a file of the Sega Saturn TNFS port Over Drivin' GT-R, None for another file: the executable
+    `0`, car bundles `*.ALL`, tone banks `*.BIN`, car showcase pictures `*.DAT` and `*.PCX`"""
+    if length is None:
+        return None
+    name = _file_or_archive_item_name(file_path).upper()
+    if name == '0':
+        from resources.eac.tnfs_saturn import (
+            TNFS_SATURN_GTR_EXECUTABLE_LENGTH,
+            TnfsSaturnGtrExecutable,
+            is_tnfs_saturn_gtr_executable,
+        )
+
+        if length == TNFS_SATURN_GTR_EXECUTABLE_LENGTH and is_tnfs_saturn_gtr_executable(_peek(buffer, 0x86100)):
+            return TnfsSaturnGtrExecutable
+    elif name.endswith('.ALL') and length >= 1912:
+        from resources.eac.tnfs_saturn import TnfsSaturnCarBundle, is_tnfs_saturn_car_bundle
+
+        if is_tnfs_saturn_car_bundle(_peek(buffer, 1912)):
+            return TnfsSaturnCarBundle
+    elif name.endswith('.BIN') and length >= 64:
+        from resources.common.audios.saturn_tone_bank import SaturnToneBank, is_saturn_tone_bank
+
+        if is_saturn_tone_bank(_peek(buffer, 1024), length):
+            return SaturnToneBank
+    elif name.endswith('.DAT') and length >= 8 and _peek(buffer, 7)[4:7] == b'\x0a\x05\x01':
+        from resources.eac.tnfs_saturn import TnfsSaturnPcxList, is_tnfs_saturn_pcx_list
+
+        if is_tnfs_saturn_pcx_list(buffer, length):
+            return TnfsSaturnPcxList
+    elif name.endswith('.PCX') and _peek(buffer, 1) == b'\x0a':
+        from resources.common.bitmaps import PcxImage
+
+        return PcxImage
+    return None
+
+
 def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=None):
     header_bytes = buffer.read(4)
     buffer.seek(-len(header_bytes), SEEK_CUR)
@@ -123,7 +160,9 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
         header_str = None
 
     if file_path:
-        if file_path.endswith('.BNK') and header_bytes != b'BNKl':
+        if saturn_block_class := _tnfs_saturn_block_class(buffer, file_path, length):
+            return saturn_block_class
+        elif file_path.endswith('.BNK') and header_bytes != b'BNKl':
             from resources.eac.archives import SoundBank
 
             return SoundBank
@@ -429,6 +468,11 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
 
             return OripGeometry
         elif header_str == 'ORIX':
+            if _peek(buffer, 12)[8:12] == (800).to_bytes(4, 'big'):
+                # Sega Saturn (Over Drivin' GT-R): big-endian
+                from resources.eac.geometries import TnfsSaturnOrixGeometry
+
+                return TnfsSaturnOrixGeometry
             from resources.eac.geometries import OrixGeometry
 
             return OrixGeometry

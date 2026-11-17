@@ -56,7 +56,7 @@ def uncompress_file(file_path: str):
 
         print(f'Successfully uncompressed {file_path} to {output_path}')
         print(f'Original size: {file_size} bytes, Uncompressed size: {len(uncompressed_bytes)} bytes')
-        print(f'Support me :) >>>  https://www.buymeacoffee.com/andygura <<<')
+        print(f'Support me :) >>>  https://ko-fi.com/andygura <<<')
 
     except Exception as ex:
         print(f'Error uncompressing {file_path}: {ex}')

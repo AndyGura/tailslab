@@ -20,6 +20,7 @@ from library.read_blocks import (
 from library.read_blocks.archives import ArchiveBlock
 from library.read_blocks.misc.value_validators import Eq
 from library.read_blocks.strings import NullTerminatedUTF8Block
+from resources.eac.fields.byte_order import big_endian_copy
 from resources.eac.fields.misc import Point3D
 from resources.eac.psx import CRCF_FOOTER_LENGTH, PsxCrcFooter, with_crc_footer
 
@@ -994,3 +995,242 @@ class OrixGeometry(DeclarativeCompoundBlock):
         from serializers import OrixGeometrySerializer
 
         return OrixGeometrySerializer
+
+
+# "Checked" in the Saturn descriptions below: against every ORIX of Over Drivin' GT-R (the 8 cars' high and low-poly
+# models, `games/tnfs_saturn_gtr/MODELS`, sliced from the executable). The field meanings are the PSX ORIX's, verified
+# in the PSX executable; the Saturn executable is not disassembled
+
+
+class TnfsSaturnOrixPolygon(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'A polygon of a Sega Saturn geometry: the PSX ORIX polygon, its first 8 bytes in reverse '
+            'order (the GPU primitive word first, then the bytes `unk`, `material_index`, `mapping`, `polygon_type`), '
+            'the offsets big-endian',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        draw_type = (
+            IntegerBlock(length=4, byte_order='big'),
+            {
+                'description': 'The PSX GPU primitive of the polygon (`OrixPolygon.draw_type`): 12 in every file (checked)'
+            },
+        )
+        unk = (IntegerBlock(length=1), {'description': 'Always 0 (checked)', 'is_unknown': True})
+        material_index = (
+            IntegerBlock(length=1),
+            {'description': "Index of the polygon's material in `materials`"},
+        )
+        mapping = (
+            OripPolygon.Fields.mapping[0],
+            {
+                'description': 'Polygon flags, as in ORIP / ORIX: `two_sided`, `flip_normal`, `use_uv`... Values 0..3 '
+                'in the files (checked)'
+            },
+        )
+        polygon_type = (
+            IntegerBlock(length=1),
+            {
+                'description': 'Polygon type, as in ORIP / ORIX: bits 0-2 number of vertices, bit 0x08 colour-keyed, bit '
+                '0x80 textured. 0x84 and 0x8C (quads) in the files (checked)'
+            },
+        )
+        offset_3d = (IntegerBlock(length=4, byte_order='big'), OripPolygon.Fields.offset_3d[1])
+        offset_2d = (IntegerBlock(length=4, byte_order='big'), OripPolygon.Fields.offset_2d[1])
+
+
+class TnfsSaturnOrixMaterial(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'A material of a Sega Saturn geometry: the PSX ORIX material, big-endian',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        name = (
+            OrixMaterial.Fields.name[0],
+            {
+                'description': 'Material name, 8 bytes, NUL-padded when shorter: `frntires` and `rertires` (the wheel '
+                'quads), `tire1`..`tire4` (their textures `Tir1`..`Tir4`, `Tyr1`..`Tyr4` in the PGC10), part names of '
+                'the body (`side`, `top`, `front`, `rear`, `bottom`, `Circ`, `Shad`, `Topp`, `Wing`, `Numb`...) or '
+                'empty (low-poly). The executable holds the names `frntires`, `rertires` and `tire1`..`tire4` next '
+                'to the model loader strings (0x223e4, 0x222c4..0x222d4): the names it looks up'
+            },
+        )
+        file_name = (
+            OrixMaterial.Fields.file_name[0],
+            {
+                'description': 'Name of the texture in the texture bank of the car (`CARS/<car>.ALL`: the first bank for '
+                'the high-poly model, the second for the low-poly one), used when `per_polygon_textures` is off: '
+                '`Tir1`..`Tir4` for `tire1`..`tire4`. With it on: a part name (`Side`, `Topp`, `Undr`...). Empty in '
+                '`frntires` / `rertires`: the wheels get a tyre texture at run time'
+            },
+        )
+        textures = (
+            big_endian_copy(OrixMaterial.Fields.textures[0]),
+            {'description': 'Where the textures of the polygons come from, as in the PSX ORIX (big-endian bit field)'},
+        )
+        unknown_0x10 = (
+            IntegerBlock(length=4, byte_order='big'),
+            {
+                'description': 'A colour 0x00RRGGBB per material, different in most materials of a model (grey `Shad`, '
+                'red `front`, green `rear`, yellow `top`...; 0 in the tyre and the low-poly materials): the colour '
+                'of the PC ORIP material, it seems. Not known whether the Saturn game reads it (0 in every PSX ORIX)',
+                'is_unknown': True,
+            },
+        )
+        unknown_0x14 = (
+            IntegerBlock(length=4, byte_order='big'),
+            {
+                'description': 'Values 0..0xF3, mostly different per material (one value per model in the PSX ORIX)',
+                'is_unknown': True,
+            },
+        )
+
+
+def _tnfs_saturn_orix_fields():
+    # PSX ORIX layout, big-endian: own polygons, materials and descriptions, 32:7 vertices, no CRC footer
+    replaced = {
+        'version': (
+            IntegerBlock(length=4, byte_order='big', value_validator=Eq(800)),
+            {'description': 'Format version: 800 (0x320), as on PSX'},
+        ),
+        'instance_counter': (
+            IntegerBlock(length=4, byte_order='big'),
+            {
+                'description': 'Number of instances of the model at run time (as on PSX). The files have leftovers of a '
+                'text here (`RAC_`, `NIT\\`, `LIS\\`, `003\\`)'
+            },
+        ),
+        'name': (
+            UTF8Block(length=12),
+            {
+                'description': 'Model name: "_KBNR32B", "_BCNR33W", "_PGC10S"... (high-poly), "_T" + a short name '
+                '("_TBCNRW", "_T180SXR") for the low-poly ones'
+            },
+        ),
+        'polygon_textures': (
+            ArrayBlock(
+                child=big_endian_copy(OrixPolygonTexture()), length=lambda ctx: ctx.data('num_polygon_textures')
+            ),
+            {
+                'description': 'Textures of single polygons, grouped by material, as in the PSX ORIX: a material with '
+                '`per_polygon_textures` has `num_polygon_textures` items from `first_polygon_texture` on. The names '
+                '(`J000`, `J001`...) are textures of the texture bank of the car (`CARS/<car>.ALL`: the first bank for '
+                'the high-poly model, the second for the low-poly one); polygons of the left and right side share a '
+                'texture'
+            },
+        ),
+        'polygons': (
+            ArrayBlock(child=TnfsSaturnOrixPolygon(), length=lambda ctx: ctx.data('num_polygons')),
+            {'description': 'A block with polygons of the geometry'},
+        ),
+        'vertex_uvs': (
+            big_endian_copy(OrixGeometry.Fields.vertex_uvs[0]),
+            {'description': 'A table of texture coordinates, as in the PSX ORIX. Empty in every file (checked)'},
+        ),
+        'materials': (
+            ArrayBlock(child=TnfsSaturnOrixMaterial(), length=lambda ctx: ctx.data('num_materials')),
+            {'description': 'A table of materials. Items are retrieved by index, located in polygon item'},
+        ),
+        'morphs': (
+            big_endian_copy(OrixGeometry.Fields.morphs[0]),
+            {
+                'description': 'Morphs, as in ORIP / ORIX: `left_turn` and `right_turn` (the files hold `left_tur` and '
+                '`right_tu`; the executable has the strings `left_turn` / `right_turn`, 0x22410) of the high-poly '
+                'models, each moving 8 vertices: the front wheel steering. None in the low-poly models'
+            },
+        ),
+        'partitions': (
+            big_endian_copy(OrixGeometry.Fields.partitions[0]),
+            {
+                'description': 'Partitions, as in ORIP / ORIX: high-poly models have `NON-SORT` (empty), `inside`, '
+                '`surface` and `outside` (the 4 wheel quads and a few body parts), low-poly models `NON-SORT` with every '
+                'polygon (checked). The executable has the names `inside`, `surface`, `outside`, `convex` (0x223ac)'
+            },
+        ),
+        'fx_polys': (
+            big_endian_copy(OrixGeometry.Fields.fx_polys[0]),
+            {
+                'description': 'Named vertices, as in ORIP / ORIX: the wheel ground points `fl0`..`rr1` (lower case) '
+                'and the engine point `smok` of the high-poly models (checked; the executable has these names, '
+                '0x222fc..0x2231c and 0x22428, and the message "!!! error not Found wheel points")'
+            },
+        ),
+        'labels': (
+            big_endian_copy(OrixGeometry.Fields.labels[0]),
+            {
+                'description': 'Named polygons, as in ORIP / ORIX: the wheel quads `lt_frnt`, `rt_frnt`, `lt_rear`, '
+                '`rt_rear` (names the executable holds, 0x222dc..0x222f4), the rear lights `bkll` / `bklr` (not in '
+                'the executable: the game does not look them up) and in some models one part name per body polygon '
+                '(`Side`, `Topp`, `Undr`, `Circ`, `Shad`, `Frnt`, `Rear`, `Nmbr`, `Pnl1`, `Pnl2`, `Wing`, `Mark`, '
+                '`Numb`, `Bmpf`; the low-poly models of some cars too). Faults in the files (checked): the PGC10 '
+                '(`SUPRA`) labels its left front wheel `rt_frnt` too (two `rt_frnt`, no `lt_frnt`); the BCNR33 '
+                '(`DIABLO`) has a garbage name (bytes e0 01) on polygon 29, `bklr` in the BNR32. The gg-web-engine '
+                'export names each wheel by its position (see `TnfsSaturnOrixGeometrySerializer`)'
+            },
+        ),
+        'vertices': (
+            DelegateBlock(
+                choice_index=lambda ctx, **_: 0,
+                possible_blocks=[
+                    ArrayBlock(
+                        child=Point3D(
+                            child=FixedPointBlock(length=4, fraction_bits=7, is_signed=True, byte_order='big')
+                        ),
+                        length=lambda ctx: ctx.data('num_vrtx'),
+                    ),
+                ],
+            ),
+            {
+                'description': 'A table of mesh vertices 3D coordinates: 32:7 points (1/128 m units, the BNR32 is 584 '
+                'units = 4.56 m long), big-endian. The first `num_shape_vrtx` items are the vertices of the model, the '
+                'others are the delta vectors of the morphs. X right, Y up, Z forward (the wheel points `fl*` at '
+                'negative x and positive z)'
+            },
+        ),
+    }
+    fields = {}
+    for name, (block, extras) in OrixGeometry.Fields.fields:
+        if name == 'crc_footer':
+            continue
+        if name in replaced:
+            fields[name] = replaced[name]
+        else:
+            fields[name] = (big_endian_copy(block), extras)
+    return type('Fields', (DeclarativeCompoundBlock.Fields,), fields)
+
+
+class TnfsSaturnOrixGeometry(OrixGeometry):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': "Car model of the Sega Saturn TNFS port Over Drivin' GT-R: the PSX ORIX, big-endian (SH-2), "
+            'version 800, without the CRC footer, with its own polygon and material layouts (`TnfsSaturnOrixPolygon`, '
+            '`TnfsSaturnOrixMaterial`). The models are not files of the disc: the executable `0` holds them (pointer '
+            'table at 0x84f14: 9 high-poly models, the 8 cars and the Warrior, 13 zeros, the 9 low-poly ones; car '
+            'model ids 0..7 = the PC car order SUPRA, DIABLO, PORSCHE, VETTE, TESTA, VIPER, NSX, RX7), sliced to '
+            "`MODELS/<car>/high.orix` / `low.orix`. Textures: the texture banks of the car's `CARS/<car>.ALL` "
+            '(`TnfsSaturnCarBundle`). Exported to OBJ + MTL / gg-web-engine GLB as the PC and PSX models',
+        }
+
+    Fields = _tnfs_saturn_orix_fields()
+
+    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
+        return DeclarativeCompoundBlock.read(self, ctx, name, read_bytes_amount)
+
+    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
+        return DeclarativeCompoundBlock.write(self, data, ctx, name)
+
+    def estimate_packed_size(self, data, ctx: WriteContext = None):
+        return DeclarativeCompoundBlock.estimate_packed_size(self, data, ctx)
+
+    def serializer_class(self):
+        from serializers import TnfsSaturnOrixGeometrySerializer
+
+        return TnfsSaturnOrixGeometrySerializer

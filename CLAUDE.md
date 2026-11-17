@@ -51,7 +51,7 @@ docs and a working GUI editor for free.
 | `library/utils/asm_runner.py` | 32-bit x86 snippet interpreter (IDA syntax) used to execute and progressively port disassembled game routines; production code never uses it, the ASM-driven decompressor twins in `test/resources/eac/archives/test_compressed_block.py` do. |
 | `resources/eac/` | EA Canada format definitions built from `read_blocks` primitives (bitmaps, archives, fonts, audio, geometries, maps, car specs, TNFS replays). Shared across many NFS titles. `compressions/` holds the pure-Python decompressors and compressors (RefPack, QFS2, QFS3, NFSU's JDLZ, NFSU2's HUFF = QFS3 behind a 16-byte header, NFS HP2 PS2's COMP) behind `EacCompressedBlock`, which writes a resource back with the algorithm it was read with (`compression_flags` in its data, new data gets RefPack). Formats, game addresses and compressor notes: `resources/eac_compressions.md`. Compressor output is checked with the games' ASM decoders in `test_compressed_block.py`. |
 | `resources/eac/maps/`, `resources/eac/geometries/` | Per-game specializations (`tnfs.py`, `nfs2.py`, `nfs3.py`, `nfs5.py`, ...). |
-| `resources/common/` | Vendor-neutral formats reused as fallbacks (e.g. Targa image). |
+| `resources/common/` | Vendor-neutral formats: Targa image (also a fallback), PCX image, Sega Saturn sound driver tone banks. |
 | `resources/blackbox/` | Blackbox-studio (later NFS titles) formats, NFS Underground 1, 2 and Most Wanted, NFS Hot Pursuit 2 PS2 (`nfs6_ps2.py` modules, see its section below): `chunks.py` (generic id+length chunk dispatch helpers), `geometries/` (car and world geometry packs), `bitmaps/` (texture packs, TPK), `maps/` (chunk bundles, scenery, streaming sections; `NfsuTrackBundle` is a race's `TRACKBnnnn.lzc` or an NFSU2/NFSMW location bundle `LxRA.BUN`), `audios/` (NFS HP2 PS2 music `JUKEBOXM.JBC`), `archives.py` (JDLZ-compressed files). |
 | `resources/eac/fields/` | Small reusable domain blocks: `Point2D`/`Point3D`/`RGBBlock`, angle/time fields. |
 | `resources/*.md` | **Auto-generated** per-game docs (`generate_resource_doc.py`). Never hand-edit — edit the block definitions/descriptions and regenerate. |
@@ -166,7 +166,21 @@ When you do:
   with the setting `maps__save_all_lods`, the mesh names then carrying `_lod<n>_` (`block_<i>_lod<n>__<texture>`,
   NFS5 `terrain_chunk_<i>_<j>_lod<n>_<texture>`; meshes drawn at every level have none). The GUI's track viewer
   exports with it and shows one level at a time (LOD radio group in its viewport, `meshLod` in
-  `track-map-world.entity.ts`).
+  `track-map-world.entity.ts`). An NFS2 TRK block's level is its main set and its extra set (rails, trusses, fences),
+  as nfs2sen.exe draws it (0x4361a0): `high_polygons` + `high_extra_polygons`, then `medium_*`, `low_*` (`TRK_LODS`).
+  The highest level also carries the road lines of the block's `road_lines` extrablock (type 9), ported from
+  0x436d70 / 0x44a510 and its five shape handlers (`nfs2_road_lines`, `nfs2_road_line_quads`): meshes
+  `block_<i>__lin<n>`, lifted `NFS2_ROAD_LINE_LIFT` (2 cm) along the slice normals; the `lin<n>` images come from the
+  game's `RENDER/PC/DTEXTURE.FSH` (two folders up from the track) into the track's `textures/`. The GUI's track viewer
+  falls back to that folder for a texture its QFS archive lacks.
+- Track textures (NFS2 TRK, NFS3 / NFS4 FRD): polygons pick the image of the track QFS by SHPI index, and the names
+  repeat (NFS2 SE TR060.QFS has 16 `CLIF` images): mesh names `<block>__<texture>` carry the file name the image gets
+  in `textures/` (`shpi_texture_names` = `ShpiArchiveSerializer.export_file_names`: `CLIF`, `CLIF0` .. `CLIF14`),
+  never the raw alias; an index past the archive gets `<index:04>`. NFS4's indexes skip the `<mirrored>` copies.
+  NFS2 UVs come from the COL textures_map `alignment` bit field as nfs2sen.exe computes them (`nfs2_texture_uvs`:
+  mirror, then turn, Tex_OrientCorners 0x475164); NFS3 COL props keep the enum reading (`nfs3_col_alignment_uvs`,
+  not verified in nfs3.exe). Animated textures (`flags.animated`, `animation_frames` / `animation_delay`) are exported
+  with their first frame only.
 - Conversion settings presets (`config.py`): "No preset" is the `[Conversion]` section, a user-defined preset is a
   `[Conversion: <name>]` section with the conversion settings and input / output paths (everything but
   `selected_preset`, see `CONVERSION_NON_PRESET_KEYS`); a setting missing in a preset takes the built-in default.
@@ -283,7 +297,7 @@ When you do:
 ## NFS6 sky (`tracks/<location>/persist.viv`: `skyg.o` + `sky.fsh`)
 
 - `serialize_sky` writes `persist.viv/sky.fsh/spherical.png` (same layout as TNFS; `library/utils/sky_spherical.py`
-  has the shared layout: centre column = +X, a quarter right = -Z, axes of the track data) with
+  has the shared layout: centre column = +Z, a quarter right = +X, axes of the track data; +X until 2026-11-16, a quarter turn off in nfs-web) with
   `library/utils/nfs6_sky_to_spherical.py`: every pixel casts a ray from the eye against the triangles of the
   `skyg.o` meshes (`read_eagl_meshes`), perspective-correct UVs, texture repeated, times the vertex colour, meshes
   alpha blended in render method order. Verified in NFSHP2.exe (nfs-web `decomp/nfs6/NFSHP2.exe.gzf`, names there):
@@ -297,13 +311,17 @@ When you do:
 
 - `serialize_sky` writes `Sky/<Track>.fsh/spherical.png` with `library/utils/nfs5_sky_to_spherical.py` (the track
   picks the files by its name, any case: `alps.crp` -> `Alps.*`, `monaco1.crp` -> `Monaco1.*`; `Monaco.*` and
-  `default.*` belong to no track). Unverified (the retail Porsche.exe is SafeDisc encrypted; an unprotected one is in nfs-web's `decomp/nfs5/`, the sky renderer not checked there yet): `.txt` layers (HIGH level, weather
-  region A; one layer per texture, `flat` = untextured, coloured by its sky map) on a hemisphere, the 16x16 sky map
-  spanning the dome once by orthographic projection (centre at the zenith, edge on the horizon), the texture
-  repeated by the scale factors; the `horz` strips on a cylinder whose radius, heights, segments and strip table come
-  from the `.bin` header (`Nfs5SkyBin`, `resources/eac/maps/nfs5_sky.py`, exported as `<name>.bin.json`). The last
-  texel row of each strip is transparent padding. Below the horizon one flat colour (mean of the band's lowest drawn
-  row). `hzcl`, `hor0`.., region B, wind and warp are not used.
+  `default.*` belong to no track). Checked against the unprotected Porsche.exe (nfs-web `decomp/nfs5`, addresses in
+  the module docstring): `.txt` layers (HIGH level, weather region A; one layer per texture, `flat` = untextured) on
+  the dome, a 16x16 vertex grid of side `dome_size` curved down (`dome_height` - `dome_curvature` (a^2 + b^2)),
+  turned by `dome_rotation`, centred on the eye; sky map pixel (j, i) = vertex (i, j) colour, texture UV (j, i) times
+  the scale factors; each ray is cast against the paraboloid (nothing beyond the grid square). Horizon: 16 flat quads
+  on a cylinder of radius 400 from `horizon_rotation`, between `horizon_bottom` and + `horizon_height`, quad i
+  showing cell `horizon_cells[i]` of `horz` (`horizon_cell_columns` x `horizon_cell_rows`, v 0.01..0.98 of the cell,
+  high byte = mirrored), tinted by `hzcl` (row 0 top, row 1 bottom vertices, from column `horizon_colour_start`).
+  Fields: `Nfs5SkyBin`, `resources/eac/maps/nfs5_sky.py`, exported as `<name>.bin.json`. Not traced: layer blend
+  states (alpha blending in file order), the hzcl blend (modulate), region B mixing, wind, warp, sun. Below the
+  horizon one flat colour (mean of the band's bottom edge).
 
 ## NFS Underground race paths (`TRACKS/TRACKBnnnn.lzc`, `resources/blackbox/maps/nfsu.py`)
 
@@ -623,6 +641,40 @@ When you do:
   mirror, 160 px focal length, colour top / gradient above, faded `hrz0` texel below). Converter choice, not the game
   (it draws nothing there): the fade goes to the average color of the ring's bottom line (texel row H - 2 of the 8
   sectors, `bottom_line_average`) instead of black, and everything further down is that average.
+
+## Over Drivin' GT-R (Sega Saturn TNFS, `games/tnfs_saturn_gtr`, doc `resources/TNFS_SATURN_GTR.md`)
+
+- The Japanese Saturn TNFS port with 8 Nissans; files keep the PC cars' names (SUPRA = PGC10, DIABLO = BCNR33, PORSCHE =
+  240ZG, VETTE = KPGC110, TESTA = 300ZX, VIPER = BNR32, NSX = 180SX, RX7 = Silvia). Big-endian (SH-2) everywhere. Blocks:
+  `resources/eac/tnfs_saturn.py` (bundles, executable, picture lists), `TnfsSaturnOrix*` in `geometries/tnfs.py`, the
+  Sega sound driver tone bank in `resources/common/audios/saturn_tone_bank.py`, `PcxImage` in `resources/common/bitmaps`.
+  The loader picks them in `_tnfs_saturn_block_class` (by name and content; ORIX by version 800 stored big-endian).
+  Big-endian copies of PC layouts are made with `big_endian_copy` (`resources/eac/fields/byte_order.py`). The Saturn
+  executable is not disassembled: descriptions say what the files show ("checked") and keep the PC / PSX meanings.
+- `CARS/<car>.ALL` / `CAR2/<car>.ALL` (`TnfsSaturnCarBundle`, second paint in CAR2): PBS (`TnfsSaturnCarPhysics`, PC
+  layout big-endian), two texture banks (high / low-poly: 12-byte entries made of VDP1 command fields, 4-bit pixels high
+  nibble first, 16 RGB555 colours per texture; draw mode bit 0x40 (SPD) clear = colour index 0 transparent), then in
+  CARS the cockpit (`u32 size` (counting itself) + RLE picture, twice: dashboard 352x240, steering wheel 176x176; PCX-style
+  RLE, zero padding to 4 bytes). `TnfsSaturnCarBundleSerializer` writes `physics.PBS.json`, `textures/` and
+  `low_poly_textures/` (PNGs named as the GLB images, `Tir1`/`Tyr1`.. exported `tyr1`.., `car_colors.json`),
+  `dashboard.png`, `steering_wheel.png`.
+- `MODELS/<car>/high.orix` / `low.orix` (sliced from the executable, pointer table 0x84f14): `TnfsSaturnOrixGeometry`, the
+  PSX ORIX big-endian without CRC footer; the polygon's first 8 bytes are reversed (draw type word first) and the
+  material colour slot holds an RGB value. `TnfsSaturnOrixGeometrySerializer` exports them as the PC / PSX models
+  (nfs-web's `TnfsCarMeshController` works unchanged): textures from the car's `CARS/<car>.ALL` bank (high: first,
+  low: second), `frntires` / `rertires` get `tyr4`, wheel labels renamed by their polygon's position
+  (`tnfs_wheel_labels_by_position`: the PGC10 labels its left front wheel `rt_frnt`). `car_colors.json`
+  (`serializers/misc/tnfs_saturn_car_colors.py`): pure green (green >= 29) colours = brake light marker (5 cars, colour 0
+  of the rear light texture), off / on colours of the PSX game; not verified in the Saturn code.
+- `0` (`TnfsSaturnGtrExecutable`): model pointers, 9 car AI records (`TnfsSaturnCarAiAndCrashBody`: PDN big-endian, top
+  speeds in whole mph 16.16, `gear_count` 16.16) and their pointer table (entry 13 + model id, 21 = Warrior). Exported
+  as PC PDN JSON per car slot (`pc_data`: PC raw top speed = mph x 29124); the Warrior's equals PC TRAFFC.PDN.json.
+- `SOUNDS/*.BIN` (`SaturnToneBank`): one voice; player banks notes 50 (stereo engine on, two layers panned L/R), 51
+  (engine off), 52 (horn loop), 53 (gear one-shot); opponent banks 40 (horn, half rate) and 41 (engine). Roles from the
+  data only. `SaturnToneBankSerializer` writes the PC car bank names, 16-bit WAVs at 44100 x 2^((note - base note) / 12)
+  Hz, loop times from LSA / LEA; priority / random range / unknown_0x16 are the PC banks' values.
+- `UIDATA/*.DAT` (`TnfsSaturnPcxList`: big-endian size + PCX, to `<index>.png`), `UIDATA/<maker>/MAIN.PCX` (`PcxImage`).
+  `DASH/*` and `PARAMETERS/*` are not parsed.
 
 ## SHPI images (`EacImage`, `resources/eac/bitmaps.py`, all games up to NFS6)
 

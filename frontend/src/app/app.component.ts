@@ -221,8 +221,8 @@ export class AppComponent implements OnInit {
     this.api.openUrl('https://github.com/AndyGura/nfs-resources-converter/blob/main/resources/README.md').then();
   }
 
-  openBmac() {
-    this.api.openUrl('https://www.buymeacoffee.com/andygura').then();
+  openKofi() {
+    this.api.openUrl('https://ko-fi.com/andygura').then();
   }
 
   reportBug() {
