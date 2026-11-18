@@ -8,7 +8,7 @@ from PIL import Image
 
 from library import require_resource
 from serializers import OrixGeometrySerializer, ShppArchiveSerializer
-from serializers.geometries import orix_polygon_textures
+from serializers.geometries import orix_polygon_textures, orix_wheel_labels_on_tyres, tnfs_tyre_texture_file_name
 from serializers.misc.tnfs_psx_car_colors import tnfs_psx_car_colors
 
 SAMPLES = os.path.join(os.path.dirname(__file__), '..', 'samples')
@@ -111,6 +111,82 @@ class TestOrixGeometrySerializer(unittest.TestCase):
             for texture in textures:
                 self.assertTrue(os.path.isfile(path + texture), texture)
             self.assertFalse(os.path.exists(path + 'assets/car_colors.json'))
+
+    def test_japanese_car_model_export(self):
+        # ZKHGC.VSM of the Japanese disc (SLPS-01024): a C0FB archive in another order (KHGCL.POR, KHGC.PBS, KHGC.PDN,
+        # KHGC.POR, KHGC.PSH, KHGCL.PSH, KHGC.GRO), tyre images Tir1..Tir4, untextured windows coloured by KHGC.GRO
+        (_, _, data), _ = require_resource(ITEM_ID.format(os.path.join(SAMPLES, 'ZKHGC.VSM'), 3))
+        wheels = {
+            x['name']: orix_polygon_textures(data)[x['index']]
+            for x in data['labels']
+            if x['name'][3:] in ('frnt', 'rear')
+        }
+        # the texture of material tire4
+        self.assertEqual(set(wheels.values()), {'Tir4'})
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'model') + '/'
+            data, files = export('ZKHGC.VSM', 3, path)
+            with open(path + 'geometry.obj') as f:
+                obj = f.read()
+            with open(path + 'material.mtl') as f:
+                mtl = f.read()
+            meshes = set(re.findall(r'^o (.+)$', obj, re.M))
+            for name in ('lbl__lt_frnt__tyr4', 'lbl__rt_frnt__tyr4', 'lbl__lt_rear__tyr4', 'lbl__rt_rear__tyr4'):
+                self.assertIn(name, meshes)
+            # the tyre images under the names nfs-web loads
+            for i in range(1, 5):
+                self.assertTrue(os.path.isfile(f'{path}assets/tyr{i}.png'))
+                self.assertFalse(os.path.isfile(f'{path}assets/Tir{i}.png'))
+            for texture in re.findall(r'^map_Kd (.+)$', mtl, re.M):
+                self.assertTrue(os.path.isfile(path + texture), texture)
+            # the windows: the mean of their corner colours in KHGC.GRO (#314974 #788cbe #788cbe #242b34)
+            self.assertIn('newmtl flat_516389', mtl)
+            self.assertIn('newmtl flat_2a3a54', mtl)
+            self.assertNotIn('flat_000000', mtl)
+            with open(path + 'assets/car_colors.json') as f:
+                self.assertEqual(json.load(f)['tail_lights']['textures'], ['J027'])
+
+    def test_japanese_low_poly_model_finds_its_psh_by_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'model') + '/'
+            # KHGCL.POR is followed by KHGC.PBS: its textures are KHGCL.PSH, the 6th item
+            export('ZKHGC.VSM', 0, path)
+            with open(path + 'geometry.obj') as f:
+                obj = f.read()
+            self.assertEqual(set(re.findall(r'^o (.+)$', obj, re.M)), {'Frnt', 'Rear', 'Side', 'Topp'})
+
+    def test_tyre_texture_file_names(self):
+        self.assertEqual(
+            [tnfs_tyre_texture_file_name(x) for x in ['Tir1', 'Tyr2', 'tyr3', 'TIR4', 'Tir5', 'Circ', 'tire1']],
+            ['tyr1', 'tyr2', 'tyr3', 'tyr4', 'Tir5', 'Circ', 'tire1'],
+        )
+
+    def test_wheel_label_moves_to_the_tyre_polygon(self):
+        # the KDR30 labels the inner circ quad of its left rear wheel lt_rear, its tyre quad is the next polygon
+        square = [
+            {'x': 0, 'y': 0, 'z': 0},
+            {'x': 0, 'y': 1, 'z': 0},
+            {'x': 0, 'y': 1, 'z': 1},
+            {'x': 0, 'y': 0, 'z': 1},
+        ]
+        vertices = [{**v, 'x': x} for x in (-0.5, -0.8, 0.8) for v in square]
+        data = {
+            'materials': [{'name': b'circ\0\0\0\0'}, {'name': b'rertires'}],
+            'polygons': [
+                {'material_index': 0, 'polygon_type': 0x84, 'offset_3d': 0},
+                {'material_index': 1, 'polygon_type': 0x84, 'offset_3d': 4},
+                {'material_index': 1, 'polygon_type': 0x84, 'offset_3d': 8},
+            ],
+            'vertices': {'data': vertices},
+            'vmap': list(range(12)),
+            'labels': [{'name': 'lt_rear', 'index': 0}, {'name': 'rt_rear', 'index': 2}, {'name': 'bkll', 'index': 0}],
+        }
+        moved, changes = orix_wheel_labels_on_tyres(data)
+        self.assertEqual(changes, [('lt_rear', 0, 1)])
+        self.assertEqual([x['index'] for x in moved['labels']], [1, 2, 0])
+        self.assertEqual([x['index'] for x in data['labels']], [0, 2, 0])
+        # nothing to move: the same dict
+        self.assertIs(orix_wheel_labels_on_tyres(moved)[0], moved)
 
     def test_import_is_not_supported(self):
         serializer = OrixGeometrySerializer()

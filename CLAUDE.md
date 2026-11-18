@@ -592,14 +592,16 @@ When you do:
   16-bit words, 4-bit low nibble first, `next_offset` to the attached CLUT `PsxClut` 0x23, 4-byte aligned). Bit 0x4000
   of `vram_x` = stored rotated (PSX loader FUN_80044330): `PsxImageSerializer` turns it back (PIL `ROTATE_270`), so
   PNGs are as shown. Color 0x0000 is transparent, all others opaque (STP not applied). Also an item of `WwwwBlock`
-  (`Z<track>_PSH.FAM`) and `BigfBlock` (car archives). PNG / folder import is not supported (`reversible` False).
+  (`Z<track>_PSH.FAM`) and `BigfBlock` / `C0fbBlock` (car archives). PNG / folder import is not supported (`reversible`
+  False).
   GUI: `PsxImageBlockUiComponent` (`frontend/.../editor/eac/psx-image.block-ui/`: the image as shown, its color
   model, CLUT size, rotation and VRAM position in the viewer toolbar; `resource_id` read-only, no conversion) and
   `PsxClutBlockUiComponent` (swatches, a click changes a color keeping its STP bit; black is written 0x8000).
   `frontend/src/app/utils/psx-color.ts` converts like `psx_color_to_rgba`: keep the two the same.
 - Most PSX files end with a 12-byte `CRCF` footer (`PsxCrcFooter`, `resources/eac/psx.py`): CRC-16 (reflected 0x8005,
   init 0xFBEA) of the bytes before it, recomputed on save (`with_crc_footer`). `ShppBlock` reads it as a file of its
-  own and as a BIGF item, not in a FAM (`_in_wwww_archive`): there it stays in the last entry's `post_offset_payload`.
+  own and as a BIGF / C0FB item, not in a FAM (`_in_wwww_archive`): there it stays in the last entry's
+  `post_offset_payload`.
 - `Z<car>.VSM` (every car) / `Z<car>.WSM` (the 8 racers and `TRAFFC`: the car in another color, loaded for racers in
   odd car slots, `tnfs_carobj` 0x80039604; `TRAFFC`'s is identical) = `BigfBlock` of `<car>.pbs`, `<car>.pdn` (QFS3-compressed PC PBS / PDN layouts; traffic and cop cars
   have a 16-byte `HI\r\n` placeholder `.pbs`), `<car>.por` / `<car>l.por` (high / low-poly model, `OrixGeometry`),
@@ -609,17 +611,18 @@ When you do:
   byte-exact.
 - `OrixGeometry` (`resources/eac/geometries/tnfs.py`, magic `ORIX`, version 800): the PSX ORIP. Header 120 bytes
   (ORIP's + count and offset of `polygon_textures`), 16-byte polygons (`draw_type` = GPU primitive, always 12 = textured
-  quad), 24-byte materials (`textures` bit field instead of the colour), then morphs, partitions, fx points, labels,
+  quad in the US files), 24-byte materials (`textures` bit field instead of the colour), then morphs, partitions, fx points, labels,
   vertices and vmap as in ORIP (their blocks are shared). Cars (buffer name `.VSM` / `.WSM` / `.POR`) have 32:7
   vertices, props (`Z<track>_POR.FAM`, a `WwwwBlock` item) 32:4. Ends with its own CRC footer in a BIGF item, not in
   a FAM. Most polygons have an image of their own (`J000`..): a material with `per_polygon_textures` owns a run of
   `polygon_textures` (polygon index, PSH image name), other materials give `file_name` to their polygons, `frntires`
-  / `rertires` without one get `tyr4` at run time (`orix_polygon_textures`, as `orisetdefaulmaterialtextures`
-  0x80081e28). UVs are texels of the image as shown (a rotated image has width / height exchanged); without `use_uv`
+  / `rertires` without one get the image of material `tire4` (`tyr4`) at run time (`orix_polygon_textures`, as
+  `orisetdefaulmaterialtextures` 0x80081e28 and the car setup 0x8004ea54). UVs are texels of the image as shown (a rotated image has width / height exchanged); without `use_uv`
   the image covers the quad. All 62 car models and 39 props write back byte-exact.
 - `OrixGeometrySerializer` (subclass of `OripGeometrySerializer`: same mesh names `lbl__<label>__<image>`, partitions
-  in the extras, fx dummies, steering morphs, no normals) takes the PSH after the model in the car archive, or the
-  item of the same index of `Z<track>_PSH.FAM` for a prop, writes its PNGs to `assets/` and every texture as
+  in the extras, fx dummies, steering morphs, no normals) takes the PSH of the model's name in the car archive
+  (`<car>.psh`, any case, `_archive_sibling_id`; else the item after the model), or the item of the same index of
+  `Z<track>_PSH.FAM` for a prop, writes its PNGs to `assets/` and every texture as
   `alpha_mode cutout`. No import (`reversible` False).
 - `car_colors.json` of a car PSH (`ShppArchiveSerializer` for a PSH inside a `.VSM` / `.WSM`,
   `serializers/misc/tnfs_psx_car_colors.py`), keys of the PC one: the PSX game (texture upload 0x8004e72c) takes the
@@ -641,6 +644,33 @@ When you do:
   mirror, 160 px focal length, colour top / gradient above, faded `hrz0` texel below). Converter choice, not the game
   (it draws nothing there): the fade goes to the average color of the ring's bottom line (texel row H - 2 of the 8
   sectors, `bottom_line_average`) instead of black, and everything further down is that average.
+
+### Over Drivin' Skyline Memorial (Japanese PSX disc, `games/tnfs_skyline_memorial`, SLPS-01024)
+
+- The Japanese PSX TNFS (Aug 1997, executable `SLPS_010.24`, no Ghidra project; its archive reader is the US one,
+  SLUS_002.04 0x800aee94 / 0x800aef04 / 0x800aef68), preset `nfs-web-assets-tnfs-skyline-memorial`, documented in
+  `resources/TNFS_PSX.md`. 416 of its 578 files are the US disc's. Its cars replace the US ones: KPGC (KPGC110), BCNR
+  (R33, Skyline GT-R BCNR33), KHGC (KHGC211), EHR (HR31), KBNR (R32, Skyline GT-R BNR32), KDR (KDR30), PGC (PGC10),
+  S54B (S54B) and TRAFFC (R390: the Nissan R390, a model of its own, in the Warrior's slot), as `ZSTATS.ENG` names them.
+- Their `Z<car>.VSM` / `Z<car>.WSM` and `SPEECH.VIV` are `C0fbBlock` archives (`resources/eac/archives/__init__.py`, a
+  `BigfBlock` subclass; the loader checks the magic `C0 FB` before the compressed blocks' `xx FB`): u16 BE magic, u16
+  BE header length (= first item offset - 4), u16 BE count, per item u24 BE offset, u24 BE length, NUL-terminated
+  name; items 4-aligned with zero padding (none after the last). NFS5's `GameData/Track/Data/tr<nn>a.viv` are C0FB too.
+  The items are in no particular order (`KHGCL.POR`, `KHGC.PBS`...) and mostly upper case (`KBNR.PBS`, `bcnr.psh`):
+  the game finds them by name, ignoring case, and so does `OrixGeometrySerializer` the PSH of a model. Every item ends
+  with its own CRC footer.
+- `<car>.GRO` (`TnfsPsxGouraudColors`, `resources/eac/psx.py`, exported as JSON): 14-byte records (u16 polygon index of
+  the high-poly model, 4 RGB corner colours, 0x80 = the texture as it is) up to a record of index 0xFFFF. The Japanese
+  `oriload` (FUN_8007f358) makes every polygon with `mapping` bit 0x40 or draw type 10 Gouraud-shaded (draw type 8 /
+  15 / 16); FUN_80084944 gives it the colours of its record. The export applies no vertex colours, but the untextured
+  windows (material `window`, draw types 10 and 3; black otherwise) get a `flat_<rrggbb>` material of the mean of their
+  corner colours.
+- Export choices for nfs-web: the tyre images `Tir1`..`Tir4` are exported as `tyr1`..`tyr4`, the names
+  `TnfsCarMeshController` loads (`tnfs_tyre_texture_file_name`: PSH PNGs, GLB images, mesh names; the Saturn export
+  too); a wheel label on a polygon which is no tyre moves to the nearest tyre polygon of its axle
+  (`orix_wheel_labels_on_tyres`: the KDR30's `lt_rear` labels its inner `circ` quad); a PSX image without pixels (the
+  BNR32's `J018`, 0 x 0, CLUT all 0x0000) is a transparent 1 x 1 PNG. Not parsed, as on the US disc: `.VB` / `.VH`
+  sound banks, `.LGS` / `.LGT`, the executable.
 
 ## Over Drivin' GT-R (Sega Saturn TNFS, `games/tnfs_saturn_gtr`, doc `resources/TNFS_SATURN_GTR.md`)
 

@@ -231,6 +231,16 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.psx import TnfsPsxHorizonInfo
 
             return TnfsPsxHorizonInfo
+        elif (
+            length is not None
+            and _file_or_archive_item_name(file_path).upper().endswith('.GRO')
+            and length % 14 in (0, 12)
+        ):
+            # Gouraud colours <car>.GRO of the PSX TNFS car archives of the Japanese disc (SLPS-01024): 14-byte records
+            # (a CRC footer of 12 bytes after them)
+            from resources.eac.psx import TnfsPsxGouraudColors
+
+            return TnfsPsxGouraudColors
         elif file_path.lower().endswith('.ini') and _nfs6_car_ini_class(file_path):
             # NFS HP2 PC car spec files Cars/<car>/car.ini, vehicle.ini... and Cars/Cars.ini, Cameras.ini...
             return _nfs6_car_ini_class(file_path)
@@ -536,6 +546,11 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
         # TODO Bitmap32Bit1010102
         # elif resource_id == 0x6A:
         #     pass
+        elif header_bytes[:2] == b'\xc0\xfb':
+            # EA's compact BIGF, "C0FB" (not a compression algorithm)
+            from resources.eac.archives import C0fbBlock
+
+            return C0fbBlock
         elif header_bytes[1] == 0xFB:
             from resources.eac.archives import EacCompressedBlock
 

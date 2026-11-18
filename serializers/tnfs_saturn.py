@@ -2,22 +2,19 @@
 
 import json
 import os
-import re
 from io import BytesIO
 from typing import Dict, List, Optional
 
 from library.utils import path_join
 from serializers import BaseFileSerializer
 
-# tyre textures `Tir1`..`Tir4` (`Tyr1`..`Tyr4` in the PGC10) are exported as `tyr1`..`tyr4`, the names of the PC and PSX
-# exports, which nfs-web's TnfsCarMeshController loads
-_TYRE_TEXTURE_NAME = re.compile(r'^t[iy]r([1-4])$', re.IGNORECASE)
-
 
 def tnfs_saturn_texture_file_name(name: str) -> str:
-    """Exported (PNG, GLB image) name of a texture of a Saturn texture bank"""
-    match = _TYRE_TEXTURE_NAME.match(name)
-    return f'tyr{match.group(1)}' if match else name
+    """Exported (PNG, GLB image) name of a texture of a Saturn texture bank: the tyre textures `Tir1`..`Tir4`
+    (`Tyr1`..`Tyr4` in the PGC10) as `tyr1`..`tyr4` (`tnfs_tyre_texture_file_name`)"""
+    from serializers.geometries import tnfs_tyre_texture_file_name
+
+    return tnfs_tyre_texture_file_name(name)
 
 
 def tnfs_saturn_bank_textures(bank: dict) -> Dict[str, tuple]:

@@ -216,10 +216,15 @@ class BigfBlock(ArchiveBlock):
             **super().schema,
             'block_description': 'A block-container with various data: image archives, GEO geometries, sound banks, '
             'other BIGF blocks... In the PSX TNFS car archives (`.VSM` / `.WSM`) every item ends with its own CRC '
-            'footer, counted in the item length',
+            'footer, counted in the item length. The PSX TNFS archive reader (SLUS_002.04 0x800aee94, 0x800aef68) '
+            'takes BIGF and C0FB (its compact form) archives alike and finds an item by its name, ignoring case',
         }
         delattr(self, 'schema_call_recv')
         return schema
+
+    # bytes of the header before the item descriptions, and of an item description without its name
+    HEADER_FIELDS_LENGTH = 16
+    DESCRIPTION_FIELDS_LENGTH = 8
 
     def __init__(self, **kwargs):
         from resources.eac.geometries import GeoGeometry, Fce3Geometry, Fce4Geometry, EaglModel, OrixGeometry
@@ -234,6 +239,7 @@ class BigfBlock(ArchiveBlock):
         )
         from resources.eac.fedata import Nfs3CarFeData, Nfs4CarFeData
         from resources.eac.nfs6_car_specs import Nfs6EngineAudioTable
+        from resources.eac.psx import TnfsPsxGouraudColors
 
         super().__init__(
             item_block=AutoDetectBlock(
@@ -259,6 +265,7 @@ class BigfBlock(ArchiveBlock):
                     Nfs3CarFeData(),
                     Nfs4CarFeData(),
                     Nfs6EngineAudioTable(),
+                    TnfsPsxGouraudColors(),
                     self,
                     BytesBlock(
                         length=(
@@ -291,7 +298,18 @@ class BigfBlock(ArchiveBlock):
             IntegerBlock(length=4, byte_order='big', programmatic_value=lambda ctx: len(ctx.data('items_descr'))),
             {'description': 'An amount of items'},
         )
-        unk0 = (IntegerBlock(length=4), {'is_unknown': True})
+        header_length = (
+            IntegerBlock(
+                length=4,
+                byte_order='big',
+                programmatic_value=lambda ctx: ctx.block.header_length_field_value(ctx.get_full_data()),
+            ),
+            {
+                'description': 'The length of the header: the offset of the first item, or (some files with '
+                'padding after `items_descr`) of the end of `items_descr`. The PSX TNFS archive reader (SLUS_002.04 '
+                '0x800aef04) reads item descriptions up to it. Written the same of the two ways as read'
+            },
+        )
         items_descr = (
             ArrayBlock(length=lambda ctx: ctx.data('num_items'), child=BigfItemDescriptionBlock()),
             {'usage': 'io,doc', 'description': 'Descriptions of items: offset, length and name of each of them'},
@@ -336,12 +354,29 @@ class BigfBlock(ArchiveBlock):
         unpadded = size - padding
         return unpadded if data.get('length') == unpadded else size
 
+    def descriptions_end(self, data) -> int:
+        """Offset of the end of the item descriptions when packed"""
+        return self.HEADER_FIELDS_LENGTH + sum(
+            self.DESCRIPTION_FIELDS_LENGTH + len(child['alias']) + 1 for child in data['children']
+        )
+
+    def header_length_field_value(self, data) -> int:
+        """Value of "header_length" field: the offset of the first item, or the end of the item descriptions when
+        the field read from file has it"""
+        descriptions_end = self.descriptions_end(data)
+        if data.get('header_length') == descriptions_end:
+            return descriptions_end
+        return descriptions_end + len(data.get('pre_items_payload', b''))
+
     def estimate_packed_size(self, data, ctx: WriteContext = None):
-        total_length = 16 + len(data.get('pre_items_payload', b''))
+        total_length = self.descriptions_end(data) + len(data.get('pre_items_payload', b''))
         for i, child in enumerate(data['children']):
             total_length += sum(self.entry_sizes(child, ctx))
-            total_length += 9 + len(child['alias'])
         return total_length
+
+    def last_slot_end(self, res, block_start: int, end_pos: int, last_item_end: int) -> int:
+        """Where the slot of the last item ends: at the block length from the header (NFS6 has it without padding)"""
+        return min(end_pos, max(block_start + (res.get('length') or 0), last_item_end))
 
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
         block_start = ctx.buffer.tell()
@@ -352,9 +387,8 @@ class BigfBlock(ArchiveBlock):
         offsets = [block_start + x['offset'] for _, x in entries]
         lengths = []
         if entries:
-            # the last item owns bytes up to the block length from the header (NFS6 has it without padding)
             last_item_end = offsets[-1] + entries[-1][1]['length']
-            lengths = slot_lengths(offsets, min(end_pos, max(block_start + (res.get('length') or 0), last_item_end)))
+            lengths = slot_lengths(offsets, self.last_slot_end(res, block_start, end_pos, last_item_end))
         # entries are parsed later in lazy mode: keep header (with io-only fields) for their contexts
         entry_ctx = self_ctx.detached(ctx.buffer, data=dict(res)) if self_ctx.lazy else self_ctx
         children = [None] * len(entries)
@@ -385,9 +419,9 @@ class BigfBlock(ArchiveBlock):
             for (name, offset, length) in children
             if name is not None
         ]
-        heap_offset = 16 + len(data.get('pre_items_payload', b''))
+        heap_offset = self.HEADER_FIELDS_LENGTH + len(data.get('pre_items_payload', b''))
         for x in data['items_descr']:
-            heap_offset += 9 + len(x['name'])
+            heap_offset += self.DESCRIPTION_FIELDS_LENGTH + len(x['name']) + 1
         for x in data['items_descr']:
             x['offset'] += heap_offset
         ret = super().write(data=data, ctx=ctx, name=name)
@@ -399,6 +433,105 @@ class BigfBlock(ArchiveBlock):
         from serializers import BigfArchiveSerializer
 
         return BigfArchiveSerializer
+
+
+class C0fbItemDescriptionBlock(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {**super().schema, 'block_description': 'Description of a single item of C0FB archive'}
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        offset = (
+            IntegerBlock(length=3, byte_order='big'),
+            {'description': 'Offset of item data, relative to C0FB block start'},
+        )
+        length = (IntegerBlock(length=3, byte_order='big'), {'description': 'Length of item data in bytes'})
+        name = (
+            NullTerminatedUTF8Block(length=8),
+            {'description': 'Item name (file name). Used as file name when the archive is unpacked'},
+        )
+
+
+class C0fbBlock(BigfBlock):
+    """EA's compact BIGF: the same archive with a shorter header, 24-bit offsets and lengths"""
+
+    @property
+    def schema(self) -> Dict:
+        schema = super().schema
+        if schema.get('is_recursive_ref'):
+            return schema
+        return {
+            **schema,
+            'block_description': 'EA\'s compact [BigfBlock](#bigfblock) ("C0FB"): the same container with a '
+            'shorter header and 24-bit offsets and lengths. Items start at 4-byte aligned offsets (zero padding), '
+            'in no particular order: the game looks them up by name. In PSX TNFS it is read like a BIGF archive '
+            '(SLUS_002.04 0x800aee94: magic C0 FB; 0x800aef68: an item by its name, ignoring case); the Japanese '
+            "disc Over Drivin' Skyline Memorial (SLPS-01024) has its car archives `Z<car>.VSM` / `Z<car>.WSM` and "
+            '`SPEECH.VIV` in it, every item ending with its own CRC footer (counted in the item length). NFS5 '
+            '`GameData/Track/Data/tr<nn>a.viv` are C0FB archives too',
+        }
+
+    HEADER_FIELDS_LENGTH = 6
+    DESCRIPTION_FIELDS_LENGTH = 6
+
+    class Fields(ArchiveBlock.Fields):
+        resource_id = (
+            IntegerBlock(length=2, byte_order='big', value_validator=Eq(0xC0FB)),
+            {'description': 'Resource ID, bytes C0 FB'},
+        )
+        header_length = (
+            IntegerBlock(
+                length=2,
+                byte_order='big',
+                programmatic_value=lambda ctx: ctx.block.header_length_field_value(ctx.get_full_data()),
+            ),
+            {
+                'description': 'The length of the header after these first 4 bytes (`num_items`, `items_descr` and '
+                'the padding up to the first item): the first item is at this value + 4. The PSX TNFS archive reader '
+                '(SLUS_002.04 0x800aef04) reads item descriptions up to there'
+            },
+        )
+        num_items = (
+            IntegerBlock(length=2, byte_order='big', programmatic_value=lambda ctx: len(ctx.data('items_descr'))),
+            {'description': 'An amount of items'},
+        )
+        items_descr = (
+            ArrayBlock(length=lambda ctx: ctx.data('num_items'), child=C0fbItemDescriptionBlock()),
+            {'usage': 'io,doc', 'description': 'Descriptions of items: offset, length and name of each of them'},
+        )
+        pre_items_payload = (
+            BytesBlock(
+                length=(
+                    lambda ctx: pre_items_payload_length(ctx, [x['offset'] for x in ctx.data('items_descr')]),
+                    'up to the first item offset',
+                )
+            ),
+            {'description': 'Bytes between the end of `items_descr` and the first item: zero padding to 4 bytes'},
+        )
+        data_bytes = (
+            BytesBlock(length=lambda ctx: ctx.read_bytes_remaining),
+            {
+                'usage': 'io,doc',
+                'description': 'A part of block, where items data is located, each item padded with zeros to 4 '
+                'bytes but the last one. Offsets and lengths are defined in previous block. Possible item types:'
+                '<br/>- [PlayerCarPhysics](#playercarphysics), [compressed](eac_compressions.md) (`KBNR.PBS`)'
+                '<br/>- [CarAiAndCrashBody](#caraiandcrashbody), [compressed](eac_compressions.md) (`KBNR.PDN`)'
+                '<br/>- [OrixGeometry](#orixgeometry) (`KBNR.POR`, `KBNRL.POR`)'
+                '<br/>- [ShppBlock](#shppblock) (`KBNR.PSH`, `KBNRL.PSH`)'
+                '<br/>- [TnfsPsxGouraudColors](#tnfspsxgouraudcolors) (`KBNR.GRO`)'
+                '<br/>- PSX VAG sound (`SPEECH.VIV`, not parsed)'
+                '<br/>- NFS5 `.can` files (`tr<nn>a.viv`, not parsed)',
+            },
+        )
+        children = (ArrayBlock(child=None, length=None), {'usage': 'ui'})
+
+    def header_length_field_value(self, data) -> int:
+        """Value of "header_length" field: the offset of the first item minus 4"""
+        return self.descriptions_end(data) + len(data.get('pre_items_payload', b'')) - 4
+
+    def last_slot_end(self, res, block_start: int, end_pos: int, last_item_end: int) -> int:
+        # no block length in the header: the last item owns the rest of the block
+        return end_pos
 
 
 class SoundBank(DeclarativeCompoundBlock):

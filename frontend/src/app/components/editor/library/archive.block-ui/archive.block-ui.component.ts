@@ -312,6 +312,7 @@ export class ArchiveBlockUiComponent extends SubscribableGuiComponent<{
     ShpiBlock: 'SHPI images',
     WwwwBlock: 'WWWW archive',
     BigfBlock: 'BIGF archive',
+    C0fbBlock: 'C0FB archive',
   };
 
   get archiveTitle(): string {

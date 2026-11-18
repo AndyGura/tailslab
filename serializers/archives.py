@@ -286,10 +286,21 @@ class ShppArchiveSerializer(ShpiArchiveSerializer):
     """PSX SHPP (`.PSH`): a PNG per image (`PsxImageSerializer`), `car_colors.json` for the textures of a car model
     (a PSH of a `.VSM` / `.WSM` car archive, `tnfs_psx_car_colors`), and for the track textures of a time of day
     (`Z<track><time>.PSH` with `hrz0`..`hrz7` and the `.INF` next to it) the sky sphere texture `spherical.png`, as
-    the PC FAM export makes it"""
+    the PC FAM export makes it. The tyre images of the Japanese disc's cars (SLPS-01024), `Tir1`..`Tir4`, are named
+    `tyr1`..`tyr4`, as the US disc's (`tnfs_tyre_texture_file_name`)"""
 
     def ui_serialization(self):
         return {**super().ui_serialization(), 'reversible': False, 'reversible_settings_patch': {}}
+
+    @staticmethod
+    def items(data: dict, block) -> list:
+        """(exported name, data, block) of every item of SHPP `data`, in order"""
+        from serializers.geometries import tnfs_tyre_texture_file_name
+
+        return [
+            (tnfs_tyre_texture_file_name(name) if name else name, item_data, item_block)
+            for name, item_data, item_block in ShpiArchiveSerializer.items(data, block)
+        ]
 
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
         output = super().serialize(data, path, id=id, block=block, **kwargs)
