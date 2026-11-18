@@ -741,12 +741,10 @@ class OrixGeometrySerializer(OripGeometrySerializer):
         return colors
 
     def _texture_size(self, image_data: dict) -> Tuple[int, int]:
-        from resources.eac.psx_bitmaps import psx_image_is_rotated
+        from resources.eac.psx_bitmaps import psx_image_shown_size
 
-        # UVs are in texels of the image as shown: one stored rotated has width and height exchanged
-        if psx_image_is_rotated(image_data):
-            return image_data['height'], image_data['width']
-        return image_data['width'], image_data['height']
+        # UVs are in texels of the image as shown: one stored rotated or transposed has width and height exchanged
+        return psx_image_shown_size(image_data)
 
     def _material_names(self, data: dict, texture_names: List[str]) -> List[str]:
         """The image of each polygon (`orix_polygon_textures`); a polygon the game draws untextured with Gouraud colours

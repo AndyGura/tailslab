@@ -8,7 +8,7 @@ UVs of a POLY_FT4 for it.
 """
 
 from io import SEEK_CUR
-from typing import Dict
+from typing import Dict, Tuple
 
 from library.context import ReadContext
 from library.read_blocks import (
@@ -26,8 +26,9 @@ from resources.eac.fields.misc import Point2D
 PSX_IMAGE_IDS = [(0x40, '4Bit PSX'), (0x41, '8Bit PSX'), (0x42, '16Bit PSX')]
 PSX_CLUT_ID = 0x23
 PSX_BITS_PER_PIXEL = {'4Bit PSX': 4, '8Bit PSX': 8, '16Bit PSX': 16}
-# bit of `vram_x` (and `vram_y`): the image is stored rotated (`PsxImage.vram_x`)
+# bits of `vram_x` (`PsxImage.vram_x`): the image is stored rotated, or (without the rotated bit) transposed
 PSX_VRAM_ROTATED = 0x4000
+PSX_VRAM_TRANSPOSED = 0x8000
 PSX_VRAM_COORDINATE_MASK = 0x3FFF
 
 
@@ -51,6 +52,18 @@ def psx_color_to_rgba(color: int) -> int:
 
 def psx_image_is_rotated(data: dict) -> bool:
     return bool(data['vram_x'] & PSX_VRAM_ROTATED)
+
+
+def psx_image_is_transposed(data: dict) -> bool:
+    """Stored transposed: the transposed bit without the rotated one (the loader checks the rotated bit first)"""
+    return not psx_image_is_rotated(data) and bool(data['vram_x'] & PSX_VRAM_TRANSPOSED)
+
+
+def psx_image_shown_size(data: dict) -> Tuple[int, int]:
+    """Width and height of the image as the game shows it: a rotated or transposed one has them exchanged"""
+    if psx_image_is_rotated(data) or psx_image_is_transposed(data):
+        return data['height'], data['width']
+    return data['width'], data['height']
 
 
 class PsxClut(DeclarativeCompoundBlock):
@@ -133,7 +146,8 @@ class PsxImage(DeclarativeCompoundBlock):
             'PSX colors. The rows are stored as uploaded to VRAM (whole 16-bit words, 4-bit pixels low nibble '
             'first). An image with the rotated flag in `vram_x` is stored rotated by 90 degrees: the game maps it so '
             'that it shows `height` texels wide and `width` texels high (stored left column, bottom to top = shown '
-            'top row, left to right). The converter exports images as they are shown',
+            'top row, left to right); one with the transposed flag is stored transposed (shown pixel (x, y) = stored '
+            'pixel (y, x), also `height` wide). The converter exports images as they are shown',
         }
 
     class Fields(DeclarativeCompoundBlock.Fields):
@@ -153,11 +167,11 @@ class PsxImage(DeclarativeCompoundBlock):
         )
         width = (
             IntegerBlock(length=2),
-            {'usage': 'io,doc', 'description': 'Width in pixels, as stored (shown height when rotated)'},
+            {'usage': 'io,doc', 'description': 'Width in pixels, as stored (shown height when rotated or transposed)'},
         )
         height = (
             IntegerBlock(length=2),
-            {'usage': 'io,doc', 'description': 'Height in pixels, as stored (shown width when rotated)'},
+            {'usage': 'io,doc', 'description': 'Height in pixels, as stored (shown width when rotated or transposed)'},
         )
         pivot = (
             Point2D(child=IntegerBlock(length=2, is_signed=True)),
@@ -172,14 +186,17 @@ class PsxImage(DeclarativeCompoundBlock):
             {
                 'description': 'Bits 0-13: x of the image in VRAM in 16-bit words, where the tool that made the '
                 'file packed it (the loader uploads it there, FUN_800b5628; the UVs are its offset in the 64-word '
-                'texture page). Bit 14: the image is stored rotated (FUN_80044330 swaps its UVs)'
+                'texture page). Bit 14: the image is stored rotated (the sprite loader FUN_80044330, Japanese '
+                'SLPS_010.24 0x80043b54, maps its UVs turned). Bit 15 (only read by the Japanese executable, only set '
+                'in its `ZDS54B.PSH`, the S54B dashboard: 46 images): without bit 14, the image is stored transposed '
+                '(0x80043b54 maps it with u and v exchanged, `Tex_SpriteSize` 0x80043744 gives `height` x `width`)'
             },
         )
         vram_y = (
             IntegerBlock(length=2),
             {
                 'description': 'Bits 0-13: y of the image in VRAM. Bit 14 is set together with the rotated bit of '
-                '`vram_x`, the loader does not read it'
+                "`vram_x` in the US files (not in the Japanese disc's own track textures), the loader does not read it"
             },
         )
         bitmap = (

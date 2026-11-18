@@ -12,6 +12,7 @@ from library.loader import clear_file_cache
 from resources.eac.archives import BigfBlock, ShppBlock, WwwwBlock
 from resources.eac.archives.compressed_block import EacCompressedBlock
 from resources.eac.car_specs import CarAiAndCrashBody
+from resources.eac.psx_bitmaps import psx_image_is_rotated, psx_image_is_transposed, psx_image_shown_size
 from resources.eac.psx import (
     PsxHorizonSettings,
     TnfsPsxGouraudColors,
@@ -258,6 +259,24 @@ class TestPsxImageSerializer(unittest.TestCase):
         red, green, blue, clear = [255, 0, 0, 255], [0, 255, 0, 255], [0, 0, 255, 255], [0, 0, 0, 0]
         self.assertEqual(pixels[0].tolist(), [clear, green, clear])
         self.assertEqual(pixels[1].tolist(), [red, blue, red])
+
+    def test_transposed_image_is_shown_transposed_back(self):
+        # stored 2x3 [[0, 1], [2, 3], [0, 1]] with the transposed bit (ZDS54B.PSH of the Japanese disc)
+        raw = psx_image(0x41, 2, 3, [bytes([0, 1]), bytes([2, 3]), bytes([0, 1])], clut=[0, 1, 2, 3], vram_x=0x8100)
+        data = ShppBlock().unpack_from_bytes(shpp([('pila', raw)]))
+        item = data['children'][0]['item']['data']
+        self.assertTrue(psx_image_is_transposed(item))
+        self.assertEqual(psx_image_shown_size(item), (3, 2))
+        image = PsxImageSerializer().to_png_image(item)
+        # shown pixel (x, y) = stored pixel (y, x): the left column top to bottom is the top row
+        self.assertEqual(image.size, (3, 2))
+        self.assertEqual(list(image.getdata()), [0, 2, 0, 1, 3, 1])
+        self.assertEqual(ShppBlock().pack(data), shpp([('pila', raw)]))
+
+    def test_rotated_bit_wins_over_the_transposed_one(self):
+        # the loader checks the rotated bit first
+        self.assertFalse(psx_image_is_transposed({'vram_x': 0xC000}))
+        self.assertTrue(psx_image_is_rotated({'vram_x': 0xC000}))
 
     def test_16bit_stp_black_red_is_opaque(self):
         image = PsxImageSerializer().to_png_image(self.sixteen)

@@ -591,12 +591,14 @@ When you do:
 - `.PSH` = `ShppBlock` (`resources/eac/archives/shpp_block.py`): SHPI header and directory with magic `SHPP` (dir id
   `GIMX`), items `PsxImage` (`resources/eac/psx_bitmaps.py`: id 0x40 / 0x41 / 0x42 = 4 / 8 / 16-bit, rows padded to
   16-bit words, 4-bit low nibble first, `next_offset` to the attached CLUT `PsxClut` 0x23, 4-byte aligned). Bit 0x4000
-  of `vram_x` = stored rotated (PSX loader FUN_80044330): `PsxImageSerializer` turns it back (PIL `ROTATE_270`), so
-  PNGs are as shown. Color 0x0000 is transparent, all others opaque (STP not applied). Also an item of `WwwwBlock`
-  (`Z<track>_PSH.FAM`) and `BigfBlock` / `C0fbBlock` (car archives). PNG / folder import is not supported (`reversible`
-  False).
+  of `vram_x` = stored rotated (PSX loader FUN_80044330): `PsxImageSerializer` turns it back (PIL `ROTATE_270`); bit
+  0x8000 without 0x4000 = stored transposed (only the Japanese loader 0x80043b54 knows it, only its `ZDS54B.PSH` uses
+  it): transposed back (PIL `TRANSPOSE`), so PNGs are as shown (`psx_image_shown_size` for UVs). Color 0x0000 is
+  transparent, all others opaque (STP not applied). Also an item of `WwwwBlock` (`Z<track>_PSH.FAM`) and `BigfBlock` /
+  `C0fbBlock` (car archives). PNG / folder import is not supported (`reversible` False).
   GUI: `PsxImageBlockUiComponent` (`frontend/.../editor/eac/psx-image.block-ui/`: the image as shown, its color
-  model, CLUT size, rotation and VRAM position in the viewer toolbar; `resource_id` read-only, no conversion) and
+  model, CLUT size, rotation / transposition and VRAM position in the viewer toolbar; `resource_id` read-only, no
+  conversion) and
   `PsxClutBlockUiComponent` (swatches, a click changes a color keeping its STP bit; black is written 0x8000).
   `frontend/src/app/utils/psx-color.ts` converts like `psx_color_to_rgba`: keep the two the same.
 - Most PSX files end with a 12-byte `CRCF` footer (`PsxCrcFooter`, `resources/eac/psx.py`): CRC-16 (reflected 0x8005,
@@ -645,6 +647,29 @@ When you do:
   mirror, 160 px focal length, colour top / gradient above, faded `hrz0` texel below). Converter choice, not the game
   (it draws nothing there): the fade goes to the average color of the ring's bottom line (texel row H - 2 of the 8
   sectors, `bottom_line_average`) instead of black, and everything further down is that average.
+- Sound banks `Z<bank>.VH` + `Z<bank>.VB` (`resources/eac/psx_audios.py`): EA's PSX sound library format, not Sony's
+  VAB. `.VH` = `TnfsPsxPatchBank` ("BXSP", the game's "PatchBank": sample id -> patch table, 24-byte `TnfsPsxPatch`es:
+  `.VB` offsets of the left / right "VAGp", SPU pitch (0x1000 = 44100 Hz), random pitch in cents, channels, volume,
+  pan, bend range, reverb), reversible JSON (`CompleteJsonSerializer`). `.VB` = `TnfsPsxVagBank` ("Bgav") of
+  `TnfsPsxVagSample`s ("VAGp" header + SPU ADPCM, also a file of its own: `ZSFXLEVL.VAG`): a sample runs up to the next
+  "VAGp" header (`leftovers` after its data, never uploaded; `wave_data` cut there when `data_size` runs past it:
+  ZCOLLISN `CarHorn`). All 120 bank files of both discs and `ZSFXLEVL.VAG` write back byte-exact. Verified in
+  SLUS_002.04 (the same library in SLPS_010.24): a voice plays at patch pitch x 2^(((v - 64) x bend x 100 / 64 + random
+  cents) / 1200), v the game's pitch value 0..127 (the engine loops: rpm x 127 / (redline + 2000)), the PC banks' rule;
+  the SPU tops out at pitch 0x4000 (176.4 kHz).
+- `TnfsPsxVagBankSerializer` (folder `Z<bank>.VB/`, needs the `.VH` next to it, any case; without it each sample at its
+  header's rate): a WAV per sample id at pitch x 44100 / 4096 Hz, the samples untouched (nfs-web bends them by
+  `bend_range_semitones` as the PC banks), two-channel patches as stereo WAVs; loops from the ADPCM flags
+  (`decode_spu_sample`: up to and including the first loop end frame; the loop decoded with the filter history of its
+  own end, as the SPU replays it: a plain decode clicks at every loop). Meta: the PC banks' keys (`random_range` = the
+  random pitch in cents, no `priority`) plus `random_volume_range`, `random_pan_range`, `reverb`, `pitch`,
+  `max_playback_rate` (the SPU limit over the WAV's rate) and `name`. Names (`serializers/misc/tnfs_psx_car_sounds.py`,
+  verified in both executables, details in its docstring): car banks `Z<car>` (ids 1, 2, 3, 0x20) and split screen
+  banks `ZS<car>` (1, 2, 3) `engine_on`, `engine_off`, `honk`, `gear`; on the Japanese disc (its executable
+  `SLPS_010.24` next to the bank, else a Japanese car's name) `engine_low`, `engine_mid`, `engine_high`, `gear`: its
+  engine crossfades three rpm layers (no throttle crossfade) and its player car has no horn, the layers' meta carries
+  `volume_by_pitch_value` (the executable's per-car volume tables, 128 values); other banks `0x<id>` (`hex`, the PC
+  banks' names). nfs-web reads these file names and keys: keep them stable.
 
 ### Over Drivin' Skyline Memorial (Japanese PSX disc, `games/tnfs_skyline_memorial`, SLPS-01024)
 
@@ -686,8 +711,12 @@ When you do:
   `TnfsCarMeshController` loads (`tnfs_tyre_texture_file_name`: PSH PNGs, GLB images, mesh names; the Saturn export
   too); a wheel label on a polygon which is no tyre moves to the nearest tyre polygon of its axle
   (`orix_wheel_labels_on_tyres`: the KDR30's `lt_rear` labels its inner `circ` quad); a PSX image without pixels (the
-  BNR32's `J018`, 0 x 0, CLUT all 0x0000) is a transparent 1 x 1 PNG. Not parsed, as on the US disc: `.VB` / `.VH`
-  sound banks, `.LGS` / `.LGT`, the executable.
+  BNR32's `J018`, 0 x 0, CLUT all 0x0000) is a transparent 1 x 1 PNG. Not parsed, as on the US disc: `.LGS` /
+  `.LGT`, the executable.
+- Sound banks (see above): its own car banks `Z<car>` / `ZS<car>` (three engine rpm layers, a gear shift, no horn),
+  `ZCOLLISN` (no cop siren: patch 23 is empty, ids 0x62 / 0x64 gone); its opponent banks `ZO<car>` are the US disc's
+  byte for byte under the Japanese names (`ZOBCNR` = `ZODIABLO`, `ZOKPGC` = `ZOSUPRA`...), `ZCOLLIS0` (named by no
+  executable) and `ZOWAR` too.
 
 ## Over Drivin' GT-R (Sega Saturn TNFS, `games/tnfs_saturn_gtr`, doc `resources/TNFS_SATURN_GTR.md`)
 
@@ -1115,8 +1144,7 @@ When you do:
   leftovers), 0x1c `flags` (bit 0: stereo pair, the next sample is the other channel). 0x15 (`unk3`, 0x80 everywhere)
   is copied to voice+0x14 by DOS and the demo and never read; 0x16 (`unk4`, meta `unknown_0x16`) is read by no binary
   (DOS, demo, SE), probably an authoring transpose.
-- PSX TNFS has its own sound patch format, which the converter does not read: 0x08 base pitch, 0x0e ushort random
-  range in cents (max 1200), 0x13 bend range, 0x17 reverb flag (voices with it get the SPU reverb in tunnels).
+- PSX TNFS banks (`.VH` / `.VB`, same sample ids): "TNFS PlayStation" section.
 
 ## EA sound banks of NFS2-NFS6 (BNKl)
 

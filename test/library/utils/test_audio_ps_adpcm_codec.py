@@ -1,6 +1,6 @@
 import unittest
 
-from library.utils.audio_ps_adpcm_codec import decode, decode_interleaved, deinterleave
+from library.utils.audio_ps_adpcm_codec import decode, decode_interleaved, decode_spu_sample, deinterleave
 
 END_FRAME = bytes([0x0C, 0x01]) + bytes(14)
 TERMINATOR = bytes([0x00, 0x07]) + b'\x77' * 14
@@ -46,3 +46,18 @@ class TestPsAdpcmCodec(unittest.TestCase):
         data = left[:32] + right[:32] + left[32:] + right[32:]
         pcm = decode_interleaved(data, 2, 32, len(data))
         self.assertEqual(pcm, (b'\x01\x00\x02\x00') * 56)
+
+    def test_spu_sample_should_play_the_end_frame(self):
+        played = decode_spu_sample(frame(0, 12, 1, flags=4) + frame(0, 12, 2, flags=1) + TERMINATOR)
+        self.assertEqual(played.samples.tolist(), [1] * 28 + [2] * 28)
+        self.assertIsNone(played.loop_start)
+
+    def test_spu_sample_should_loop_from_the_last_loop_start(self):
+        data = frame(0, 12, 0) + frame(0, 12, 1, flags=6) + frame(0, 12, 2, flags=6) + frame(0, 12, 3, flags=3)
+        played = decode_spu_sample(data + frame(0, 12, 4))
+        self.assertEqual(played.loop_start, 2 * 28)
+        self.assertEqual(len(played.samples), 4 * 28)
+
+    def test_spu_sample_without_end_flag_should_play_every_frame(self):
+        played = decode_spu_sample(frame(0, 12, 1) * 3)
+        self.assertEqual((len(played.samples), played.loop_start), (3 * 28, None))

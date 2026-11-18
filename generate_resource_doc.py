@@ -14,7 +14,7 @@ from library.read_blocks import (
 from library.read_blocks.strings import LengthPrefixedUtf8Block, UTF8Block
 from library.utils.docs import add_doc_numbers
 from resources import eac, blackbox
-from resources.eac import psx as eac_psx, psx_bitmaps as eac_psx_bitmaps
+from resources.eac import psx as eac_psx, psx_audios as eac_psx_audios, psx_bitmaps as eac_psx_bitmaps
 from resources.eac import tnfs_saturn as eac_tnfs_saturn
 from resources.common import audios as common_audios
 from resources.common import bitmaps as common_bitmaps
@@ -223,7 +223,11 @@ EXPORT_RESOURCES = {
 
 **Z<car>.VSM**, **Z<car>.WSM** car archive. {render_type(eac.archives.BigfBlock())} of the car's files, every one ending with its own CRC footer (counted in the item length): `<car>.pbs` player car physics, {render_type(eac.car_specs.PlayerCarPhysics())}, [compressed](eac_compressions.md) (QFS3; traffic and cop cars have a 16-byte placeholder `HI\\r\\n` + CRC footer instead), `<car>.pdn` car AI and crash body, {render_type(eac.car_specs.CarAiAndCrashBody())}, [compressed](eac_compressions.md), `<car>.por` / `<car>l.por` high-poly / low-poly 3D model, {render_type(eac.geometries.OrixGeometry())}, `<car>.psh` / `<car>l.psh` their textures, {render_type(eac.archives.ShppBlock())} (high-poly: pieces `J000`.., a few named ones like the wheels `tyr1`..`tyr4` and the shadow `shad`; low-poly: `frnt`, `rear`, `side`). Every car has a VSM; the 8 racers and the Warrior (`TRAFFC`) also have a WSM: the same `.pbs` / `.pdn`, the car in another color (red / yellow F512TR, black / purple LDIABL...; the Warrior's is identical), with slightly different models. The game loads the WSM for the racers in odd car slots (`tnfs_carobj` 0x80039604: slot < number of racers and odd), so a second car of the same model (the opponent in a head-to-head race, player 2 in split screen) looks different
 
-**Over Drivin' Skyline Memorial**, the Japanese disc (SLPS-01024, executable SLPS_010.24): most files are the US disc's. Its 8 Nissan Skylines and the bonus car in the Warrior's slot (the Nissan R390, a model of its own) replace the US cars: KPGC (KPGC110), BCNR (R33, Skyline GT-R BCNR33), KHGC (KHGC211), EHR (HR31), KBNR (R32, Skyline GT-R BNR32), KDR (KDR30), PGC (PGC10), S54B (S54B), TRAFFC (R390), the names `ZSTATS.ENG` shows. Their car archives `Z<car>.VSM` / `Z<car>.WSM` and **SPEECH.VIV** are {render_type(eac.archives.C0fbBlock())} archives, the items in no particular order, mostly upper case (`KBNR.PBS`, `KBNRL.POR`, `bcnr.psh`), each ending with its own CRC footer, one more item in the car archives: `<car>.GRO` the Gouraud colours of the high-poly model, {render_type(eac_psx.TnfsPsxGouraudColors())}. The high-poly models have Gouraud-shaded polygons (bit 0x40 of `mapping` in [OrixPolygon](#orixpolygon)) and untextured windows, the tyre images are `Tir1`..`Tir4` (exported as `tyr1`..`tyr4`, the US names)""",
+**Over Drivin' Skyline Memorial**, the Japanese disc (SLPS-01024, executable SLPS_010.24): most files are the US disc's. Its 8 Nissan Skylines and the bonus car in the Warrior's slot (the Nissan R390, a model of its own) replace the US cars: KPGC (KPGC110), BCNR (R33, Skyline GT-R BCNR33), KHGC (KHGC211), EHR (HR31), KBNR (R32, Skyline GT-R BNR32), KDR (KDR30), PGC (PGC10), S54B (S54B), TRAFFC (R390), the names `ZSTATS.ENG` shows. Their car archives `Z<car>.VSM` / `Z<car>.WSM` and **SPEECH.VIV** are {render_type(eac.archives.C0fbBlock())} archives, the items in no particular order, mostly upper case (`KBNR.PBS`, `KBNRL.POR`, `bcnr.psh`), each ending with its own CRC footer, one more item in the car archives: `<car>.GRO` the Gouraud colours of the high-poly model, {render_type(eac_psx.TnfsPsxGouraudColors())}. The high-poly models have Gouraud-shaded polygons (bit 0x40 of `mapping` in [OrixPolygon](#orixpolygon)) and untextured windows, the tyre images are `Tir1`..`Tir4` (exported as `tyr1`..`tyr4`, the US names)
+
+**Z<bank>.VH**, **Z<bank>.VB** sound bank: EA's PlayStation sound library format (not Sony's VAB), the patches {render_type(eac_psx_audios.TnfsPsxPatchBank())} and the samples {render_type(eac_psx_audios.TnfsPsxVagBank())}. Banks: `Z<car>` the player's car (sample ids 1 / 2 engine loops, 3 horn, 0x20 gear shift), `ZS<car>` the car in split screen (1, 2, 3 in one channel), `ZO<car>` the car as an opponent (0x41 horn, 0x43 / 0x45 engine), `ZCOLLISN` (`ZCOLLIS0` another version of it, which no executable names) the collision bank, `ZFRNTEND` the front end. On the Japanese disc 1, 2 and 3 of a car bank are a low, a mid and a high rpm layer of the engine and the player car has no horn; its `ZO<car>` banks are the US disc's (`ZOBCNR` = `ZODIABLO`...). The converter writes a folder per `.VB` with a WAV per sample id of its `.VH` at the rate the game plays it (car banks: `engine_on`, `engine_off`, `honk`, `gear`; the Japanese disc `engine_low`, `engine_mid`, `engine_high`, `gear`; other banks `0x<id>`)
+
+**ZSFXLEVL.VAG** (Japanese disc) a sample of its own, {render_type(eac_psx_audios.TnfsPsxVagSample())} with a CRC footer""",
         'blocks': {
             'Archives': [
                 eac.archives.ShppBlock(),
@@ -249,6 +253,12 @@ EXPORT_RESOURCES = {
             'Images': [
                 eac_psx_bitmaps.PsxImage(),
                 eac_psx_bitmaps.PsxClut(),
+            ],
+            'Sounds': [
+                eac_psx_audios.TnfsPsxPatchBank(),
+                eac_psx_audios.TnfsPsxPatch(),
+                eac_psx_audios.TnfsPsxVagBank(),
+                eac_psx_audios.TnfsPsxVagSample(),
             ],
             'Misc': [
                 eac_psx.TnfsPsxHorizonInfo(),

@@ -15,6 +15,8 @@ from .audios import (
     Nfs6Ps2JukeboxSerializer,
     Nfs6Ps2JukeboxTrackSerializer,
     SaturnToneBankSerializer,
+    TnfsPsxVagBankSerializer,
+    TnfsPsxVagSampleSerializer,
 )
 from .bitmaps import (
     ImageSerializer,

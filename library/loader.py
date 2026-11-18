@@ -426,6 +426,21 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.archives import EaSoundBank
 
             return EaSoundBank
+        elif header_str == 'BXSP':
+            # PSX TNFS sound bank header Z<bank>.VH
+            from resources.eac.psx_audios import TnfsPsxPatchBank
+
+            return TnfsPsxPatchBank
+        elif header_str == 'Bgav':
+            # PSX TNFS sound bank samples Z<bank>.VB
+            from resources.eac.psx_audios import TnfsPsxVagBank
+
+            return TnfsPsxVagBank
+        elif header_str == 'VAGp':
+            # a PlayStation SPU ADPCM sample (ZSFXLEVL.VAG of the Japanese PSX TNFS)
+            from resources.eac.psx_audios import TnfsPsxVagSample
+
+            return TnfsPsxVagSample
         elif header_str == '1SNh':
             from resources.eac.audios import AsfAudio
 
