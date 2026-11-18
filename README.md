@@ -90,6 +90,11 @@ Download the installer (`tailslab-windows-setup-<version>.exe` or `tailslab-maco
 [Releases page](https://github.com/AndyGura/nfs-resources-converter/releases). The Windows installer also sets up
 file associations (`*.fsh`, `*.qfs`, `*.ffn`, `*.pbs`, `*.pdn`...).
 
+Windows also has a portable build, `tailslab-windows-portable-<version>.exe`: one file that runs from anywhere without
+installing (it unpacks itself to a temporary folder on every start, so it starts a few seconds slower). It sets up no
+file associations, needs the Edge WebView2 Runtime (part of Windows 10 and 11) and keeps its settings and log in your
+user folder, like the installed app. On macOS the app in the `.dmg` is already portable: copy `TailsLab.app` anywhere.
+
 The builds are unsigned, so the system warns you the first time:
 
 - **Windows (SmartScreen)**: click **More info**, then **Run anyway**.

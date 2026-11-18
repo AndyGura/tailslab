@@ -107,6 +107,7 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
+          # Builds the installer's folder and the portable one-file exe (dist/tailslab-windows-portable-*.exe)
           pyinstaller tailslab.spec
           Invoke-WebRequest -Uri https://go.microsoft.com/fwlink/p/?LinkId=2124703 -OutFile MicrosoftEdgeWebview2Setup.exe
           iscc windows-installer.iss /DAppVersion=${{ needs.release.outputs.version }}

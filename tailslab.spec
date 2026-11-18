@@ -58,6 +58,30 @@ exe = EXE(
     entitlements_file=None,
     icon='icons/tailslab.ico',
 )
+if sys.platform == 'win32':
+    # Portable build: the whole app in one .exe, unpacked to a temporary folder on every start. Same Analysis as the
+    # installer's folder build. Settings and logs stay in the user's home folder; no file associations.
+    portable_exe = EXE(
+        pyz,
+        a.scripts,
+        a.binaries,
+        a.zipfiles,
+        a.datas,
+        [],
+        name=f'tailslab-windows-portable-{__version__}',
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=True,
+        upx_exclude=[],
+        runtime_tmpdir=None,
+        console=False,
+        disable_windowed_traceback=False,
+        target_arch=None,
+        codesign_identity=None,
+        entitlements_file=None,
+        icon='icons/tailslab.ico',
+    )
 coll = COLLECT(
     exe,
     a.binaries,
