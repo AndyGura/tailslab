@@ -8,7 +8,12 @@ from PIL import Image
 
 from library import require_resource
 from serializers import OrixGeometrySerializer, ShppArchiveSerializer
-from serializers.geometries import orix_polygon_textures, orix_wheel_labels_on_tyres, tnfs_tyre_texture_file_name
+from serializers.geometries import (
+    orix_gouraud_polygons,
+    orix_polygon_textures,
+    orix_wheel_labels_on_tyres,
+    tnfs_tyre_texture_file_name,
+)
 from serializers.misc.tnfs_psx_car_colors import tnfs_psx_car_colors
 
 SAMPLES = os.path.join(os.path.dirname(__file__), '..', 'samples')
@@ -145,6 +150,65 @@ class TestOrixGeometrySerializer(unittest.TestCase):
             self.assertNotIn('flat_000000', mtl)
             with open(path + 'assets/car_colors.json') as f:
                 self.assertEqual(json.load(f)['tail_lights']['textures'], ['J027'])
+
+    def test_gouraud_polygons_as_the_japanese_game_draws_them(self):
+        (_, _, data), _ = require_resource(ITEM_ID.format(os.path.join(SAMPLES, 'ZKHGC.VSM'), 3))
+        (_, _, gro), _ = require_resource(ITEM_ID.format(os.path.join(SAMPLES, 'ZKHGC.VSM'), 6))
+        records = {}
+        for record in gro['records']:
+            records.setdefault(record['polygon_index'], record['colors'])
+        shading = orix_gouraud_polygons(data, records)
+        # flag 0x40 or draw type 10: 75 polygons, the windows (draw type 10) untextured
+        self.assertEqual(sum(1 for x in shading if x), 75)
+        # a window: its record's colours in the order of the polygon's vertices
+        self.assertEqual(
+            shading[6],
+            {
+                'colors': [(0x31, 0x49, 0x74), (0x78, 0x8C, 0xBE), (0x78, 0x8C, 0xBE), (0x24, 0x2B, 0x34)],
+                'textured': False,
+            },
+        )
+        self.assertTrue(shading[1]['textured'])
+        # a record of a polygon drawn without Gouraud colours is not used
+        self.assertIsNone(shading[0])
+        self.assertIn(0, records)
+        # without a record: the material's colour (`Number` 0, `fbumper` 0x19194c)
+        self.assertEqual(shading[12]['colors'], [(0, 0, 0)] * 4)
+        self.assertEqual(shading[17]['colors'], [(0x19, 0x19, 0x4C)] * 4)
+        # no GRO: the US disc's loader draws none
+        self.assertEqual(set(map(bool, orix_gouraud_polygons(data, None))), {False})
+
+    def test_japanese_export_has_the_gouraud_colours_by_corner(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'model') + '/'
+            export('ZKHGC.VSM', 3, path)
+            with open(path + 'geometry.obj') as f:
+                obj = f.read()
+            with open(path + 'geometry_extra.json') as f:
+                colors = json.load(f)['psx_gouraud']
+        # per corner of the triangles three.js OBJLoader makes of each mesh's faces, 4 bytes each
+        corners, mesh = {}, None
+        for line in obj.splitlines():
+            if line.startswith('o '):
+                mesh = line[2:]
+                corners[mesh] = 0
+            elif line.startswith('f '):
+                corners[mesh] += 3 * (len(line.split()) - 3)
+        self.assertTrue(colors)
+        for name, values in colors.items():
+            self.assertEqual(len(values), 8 * corners[name], name)
+        # the window quads: their colours, alpha 255
+        window = next(v for k, v in colors.items() if k.startswith('flat_'))
+        self.assertIn('314974ff', window)
+        # the wheels and other meshes without Gouraud polygons have none
+        self.assertNotIn('lbl__lt_frnt__tyr4', colors)
+
+    def test_us_export_has_no_gouraud_colours(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'model') + '/'
+            export('ZTSUPRA.VSM', 2, path)
+            with open(path + 'geometry_extra.json') as f:
+                self.assertNotIn('psx_gouraud', json.load(f))
 
     def test_japanese_low_poly_model_finds_its_psh_by_name(self):
         with tempfile.TemporaryDirectory() as tmp:

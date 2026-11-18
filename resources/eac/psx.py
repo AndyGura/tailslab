@@ -238,9 +238,11 @@ class TnfsPsxGouraudRecord(DeclarativeCompoundBlock):
         colors = (
             ArrayBlock(child=RGBBlock(), length=4),
             {
-                'description': 'The colours of the corners: 0x80 draws the texture as it is, more brightens it, less '
-                'darkens it (the GPU multiplies texel and colour / 128). In the order of the GPU packet vertices 0, 1, '
-                '3, 2 of a quad (draw type 16 / 15), 0, 1, 2 of a triangle (draw type 8, the fourth colour unused)'
+                'description': "The colours of the corners, in the order of the polygon's vertices (verified: the draw "
+                "routines FUN_80082498 / FUN_80082690 put the polygon's vertices 2 and 3 in the GPU packet's vertices "
+                '3 and 2, FUN_80084944 its colours 2 and 3 alike; a triangle leaves the fourth unused). Textured '
+                '(POLY_GT4): 0x80 draws the texel as it is, more brightens it, less darkens it (the GPU multiplies '
+                'texel and colour / 128, clamped); untextured (POLY_G3 / POLY_G4, the windows): the colour itself'
             },
         )
 
@@ -252,10 +254,12 @@ class TnfsPsxGouraudColors(DeclarativeCompoundBlock):
             **super().schema,
             'block_description': "Gouraud colours of a car's polygons, `<car>.GRO` in the car archives of the "
             "Japanese disc Over Drivin' Skyline Memorial (SLPS-01024; the US disc has none). The game "
-            '(SLPS_010.24 FUN_80038cb8 loads it with the car, FUN_80084944 fills the GPU packets of a model) gives a '
-            'polygon of draw type 16 (Gouraud-shaded textured quad), 15 or 8 the colours of the record of its '
-            'index, looked up from the start of the list; one without a record gets the colour the game draws the '
-            'model with. The other draw types get no colours from it',
+            '(SLPS_010.24 FUN_80038cb8 loads it with the car, FUN_80038b40 frees it once both models are set up, '
+            'FUN_80084944 fills the GPU packets of a model) gives a polygon of draw type 16 (POLY_GT4), 15 (POLY_G4) '
+            'or 8 (POLY_G3), the polygons its `oriload` makes Gouraud-shaded (`mapping` bit 0x40 or draw type 10 of '
+            '[OrixPolygon](#orixpolygon)), the colours of the first record of its index; one without a record gets '
+            "its material's `color` on every corner. A record of another polygon is not used (the KHGC211's "
+            'polygon 0). None of these polygons is semi-transparent. Only the high-poly models have such polygons',
         }
 
     class Fields(DeclarativeCompoundBlock.Fields):

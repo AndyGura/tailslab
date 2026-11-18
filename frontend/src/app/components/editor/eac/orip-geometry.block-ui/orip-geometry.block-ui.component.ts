@@ -10,7 +10,7 @@ import {
 } from '@angular/core';
 import { GuiComponent } from '../../gui.component';
 import { BehaviorSubject, debounceTime, filter, Subject, takeUntil } from 'rxjs';
-import { Mesh, MeshBasicMaterial, Object3D, Texture } from 'three';
+import { BufferAttribute, Mesh, MeshBasicMaterial, Object3D, Texture } from 'three';
 import {
   ObjViewerControl,
   ObjViewerCustomControl,
@@ -23,6 +23,10 @@ import {
   TnfsCarMeshController,
   TnfsLightBarMode,
 } from '../../../../../nfs-three-lib/tnfs-car-mesh-controller';
+import {
+  createTnfsCarMeshController,
+  PSX_GOURAUD_ATTRIBUTE,
+} from '../../../../../nfs-three-lib/tnfs-skyline-memorial-car-mesh-controller';
 import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
 import { AsyncPipe } from '@angular/common';
 
@@ -33,6 +37,35 @@ const LIGHT_BAR_OPTIONS: Record<string, [TnfsLightBarMode, boolean]> = {
   'Siren flashing': ['siren', true],
   Texture: ['texture', false],
 };
+
+/**
+ * The Gouraud colours of a Japanese PSX car model (Over Drivin' Skyline Memorial), which an OBJ cannot hold: the
+ * converter writes them by mesh to `geometry_extra.json` (`psx_gouraud`: hex, 4 bytes per corner of the triangles
+ * OBJLoader makes, in their order), the GLB has them as the vertex attribute `_PSX_GOURAUD`
+ */
+export async function addPsxGouraudColors(obj: Object3D, extraPath: string): Promise<void> {
+  let colors: Record<string, string> | undefined;
+  try {
+    const response = await fetch(extraPath);
+    colors = response.ok ? (await response.json())['psx_gouraud'] : undefined;
+  } catch {
+    colors = undefined;
+  }
+  if (!colors) {
+    return;
+  }
+  obj.traverse(o => {
+    const hex = o instanceof Mesh ? colors![o.name] : undefined;
+    if (!hex || !(o instanceof Mesh) || hex.length / 8 !== o.geometry.getAttribute('position')?.count) {
+      return;
+    }
+    const bytes = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < bytes.length; i++) {
+      bytes[i] = parseInt(hex.substring(2 * i, 2 * i + 2), 16);
+    }
+    o.geometry.setAttribute(PSX_GOURAUD_ATTRIBUTE, new BufferAttribute(bytes, 4, true));
+  });
+}
 
 @Component({
   selector: 'app-orip-geometry-block-ui',
@@ -102,9 +135,12 @@ export class OripGeometryBlockUiComponent extends GuiComponent implements AfterV
         } catch {
           carColors = null;
         }
+        if (isPsxCar) {
+          await addPsxGouraudColors(obj, objPath.substring(0, objPath.lastIndexOf('/')) + '/geometry_extra.json');
+        }
         this.disposeMeshController();
         // the preview shows indices 250..253 black, as the game draws them on cars (PSX: as in the textures)
-        const meshController = new TnfsCarMeshController(obj, carColors, assetsPath, !isPsxCar);
+        const meshController = createTnfsCarMeshController(obj, carColors, assetsPath, !isPsxCar);
         this.meshController = meshController;
         // the tyre textures animate as if the car drove along x at the wheel speed, as nfs-web's /car-tex-debug
         let speed = 0;

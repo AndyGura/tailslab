@@ -293,6 +293,29 @@ class TestAddGlbMorphTargets(unittest.TestCase):
         )
         self.assertEqual(gltf['buffers'][0]['byteLength'], len(binary))
 
+    def test_adds_byte_attributes_matched_by_position(self):
+        mesh = SubMesh()
+        mesh.name = 'wheel'
+        mesh.vertices = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]]
+        mesh.vertex_uvs = [[0, 0], [1, 0], [1, 1], [0, 1]]
+        mesh.vertex_byte_attributes = {
+            '_PSX_GOURAUD': [[0x24, 0x2B, 0x34, 255], [0x78, 0x8C, 0xBE, 255], [1, 2, 3, 255], [0x80, 0x80, 0x80, 0]]
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, 'body.glb')
+            self._write_quad_glb(path)
+            add_glb_vertex_attributes(path, [mesh])
+            gltf, binary = read_glb(path)
+        index = gltf['meshes'][0]['primitives'][0]['attributes']['_PSX_GOURAUD']
+        accessor = gltf['accessors'][index]
+        self.assertEqual((accessor['componentType'], accessor['normalized'], accessor['type']), (5121, True, 'VEC4'))
+        self.assertEqual(gltf['bufferViews'][accessor['bufferView']]['byteOffset'] % 4, 0)
+        self.assertEqual(
+            read_accessor(gltf, binary, index),
+            [(0x78, 0x8C, 0xBE, 255), (0x24, 0x2B, 0x34, 255), (1, 2, 3, 255), (0x80, 0x80, 0x80, 0)],
+        )
+        self.assertNotIn('_GAME_NORMAL', gltf['meshes'][0]['primitives'][0]['attributes'])
+
     def test_missing_node_is_an_error(self):
         mesh = SubMesh()
         mesh.name = 'other'

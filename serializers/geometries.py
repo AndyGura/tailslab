@@ -35,9 +35,12 @@ class OripGeometrySerializer(BaseFileSerializer):
         index_in_polygon,
         textures_shpi_data,
         back_face=False,
+        polygon_index=None,
     ):
         # the back face of a two-sided polygon gets vertices of its own: Blender drops a face on the vertices of another
-        key = (index_3D, back_face)
+        values = self._vertex_values(polygon_index, index_in_polygon) if polygon_index is not None else None
+        # corners with other values of the vertex attributes are other vertices
+        key = (index_3D, back_face) if values is None else (index_3D, back_face, tuple(sorted(values.items())))
         try:
             return vertices_file_indices_map[model][key]
         except KeyError:
@@ -46,6 +49,8 @@ class OripGeometrySerializer(BaseFileSerializer):
         vertex = block_data['vertices']['data'][block_data['vmap'][index_3D]]
         model.vertices.append([vertex['x'], vertex['y'], vertex['z']])
         vertices_file_indices_map[model][key] = len(model.vertices) - 1
+        for name, value in (values or {}).items():
+            model.vertex_byte_attributes.setdefault(name, []).append(list(value))
         # setup texture coordinate
         if index_2D is None:
             model.vertex_uvs.append([self.default_uvs[index_in_polygon][0], self.default_uvs[index_in_polygon][1]])
@@ -73,6 +78,11 @@ class OripGeometrySerializer(BaseFileSerializer):
     def _texture_size(self, image_data: dict) -> Tuple[int, int]:
         """Width and height in texels of a texture of the archive next to the model, as the UVs count them"""
         return image_data['width'], image_data['height']
+
+    def _vertex_values(self, polygon_index: int, index_in_polygon: int) -> Optional[Dict[str, tuple]]:
+        """Values of the vertex attributes of a polygon corner (`SubMesh.vertex_byte_attributes`: glTF attribute name
+        -> unsigned bytes), None without any: given for every corner or none"""
+        return None
 
     def _material_names(self, data: dict, texture_names: List[str]) -> List[str]:
         """Exported material name of each polygon"""
@@ -138,6 +148,7 @@ class OripGeometrySerializer(BaseFileSerializer):
                             offset,
                             textures_shpi_data,
                             back_face=not first_face,
+                            polygon_index=pi,
                         )
                         for offset in offsets
                     ]
@@ -165,8 +176,8 @@ class OripGeometrySerializer(BaseFileSerializer):
         morph_deltas = orip_morph_deltas(data)
         for sub_model in sub_models.values():
             vertex_indices = [None] * len(sub_model.vertices)
-            for (index_3D, _), index in vertices_file_indices_map[sub_model].items():
-                vertex_indices[index] = data['vmap'][index_3D]
+            for key, index in vertices_file_indices_map[sub_model].items():
+                vertex_indices[index] = data['vmap'][key[0]]
             for name, deltas in morph_deltas.items():
                 if any(i in deltas for i in vertex_indices):
                     sub_model.morph_targets[name] = [deltas.get(i, [0, 0, 0]) for i in vertex_indices]
@@ -604,6 +615,50 @@ def orix_wheel_labels_on_tyres(data: dict) -> Tuple[dict, List[Tuple[str, int, i
     return {**data, 'labels': labels}, moved
 
 
+# the corner colour of a PSX polygon drawn with its texture as it is (the GPU multiplies texel and colour / 128)
+PSX_NEUTRAL_COLOR = 0x80
+# GLB vertex attribute of the corner colours of a model with Gouraud colours (three.js: `_psx_gouraud`), see
+# `OrixGeometrySerializer._vertex_values`
+PSX_GOURAUD_ATTRIBUTE = '_PSX_GOURAUD'
+
+
+def orix_obj_corner_values(sub_mesh: SubMesh, values: List[list]) -> str:
+    """The vertex values of a sub-mesh per corner of the triangles three.js OBJLoader makes of its OBJ faces (a fan from
+    the first corner, in face order: its geometry attributes), as hex (the bytes of each corner one after the other)"""
+    result = bytearray()
+    for polygon in sub_mesh.polygons:
+        for j in range(1, len(polygon) - 1):
+            for vertex in (polygon[0], polygon[j], polygon[j + 1]):
+                result.extend(values[vertex])
+    return result.hex()
+
+
+def orix_gouraud_polygons(data: dict, gouraud_records: Optional[Dict[int, list]]) -> List[Optional[dict]]:
+    """How the Japanese disc's game draws each polygon of a model with Gouraud colours (`<car>.GRO`), None for a
+    polygon drawn without: its `oriload` (SLPS_010.24 FUN_8007f358) gives every polygon with `mapping` bit 0x40, or of
+    draw type 10, the draw type 8 (a triangle: POLY_G3, untextured), 15 (draw type below 12: POLY_G4, untextured) or 16
+    (POLY_GT4); FUN_80084944 fills their packets with the colours of the first `<car>.GRO` record of the polygon, the
+    colour of its material (`color`) on every corner without one. {'colors': [(r, g, b)] in the order of the polygon's
+    vertices, 'textured'}. All None without a GRO (`gouraud_records` None): the US disc's loader converts nothing"""
+    if gouraud_records is None:
+        return [None] * len(data['polygons'])
+    result = []
+    for pi, polygon in enumerate(data['polygons']):
+        draw_type = polygon['draw_type'] & 0xFF
+        if not polygon['mapping'].get('6') and draw_type != 10:
+            result.append(None)
+            continue
+        corners = polygon['polygon_type'] & 7
+        record = gouraud_records.get(pi)
+        if record is not None:
+            colors = [(c['r'], c['g'], c['b']) for c in record[:corners]]
+        else:
+            color = data['materials'][polygon['material_index']].get('color') or 0
+            colors = [((color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF)] * corners
+        result.append({'colors': colors, 'textured': corners == 4 and draw_type >= 12})
+    return result
+
+
 class OrixGeometrySerializer(OripGeometrySerializer):
     """PSX TNFS geometry (`OrixGeometry`: car models of `.VSM` / `.WSM`, track props of `_POR.FAM`), exported like the
     PC one (`OripGeometrySerializer`: mesh names by label, texture and partition, fx dummies, steering morphs), with
@@ -668,17 +723,17 @@ class OrixGeometrySerializer(OripGeometrySerializer):
                 return join_id(archive_id, 'children', str(i), 'item', 'data')
         return None
 
-    def require_gouraud_colors(self, id) -> Dict[int, list]:
+    def require_gouraud_colors(self, id) -> Optional[Dict[int, list]]:
         """Corner colours by polygon index of the model's `<car>.GRO` (`TnfsPsxGouraudColors`, high-poly models of
-        the Japanese disc's car archives), empty without one"""
+        the Japanese disc's car archives), None without one"""
         from library import require_resource
 
         gro_id = self._archive_sibling_id(id, '.gro') if id else None
         if gro_id is None:
-            return {}
+            return None
         (_, gro_block, gro_data), _ = require_resource(gro_id)
         if gro_block is None or gro_block.__class__.__name__ != 'TnfsPsxGouraudColors' or not gro_data:
-            return {}
+            return None
         colors = {}
         for record in gro_data['records']:
             # the game takes the first record of a polygon
@@ -694,31 +749,45 @@ class OrixGeometrySerializer(OripGeometrySerializer):
         return image_data['width'], image_data['height']
 
     def _material_names(self, data: dict, texture_names: List[str]) -> List[str]:
-        """The image of each polygon (`orix_polygon_textures`); a polygon without one gets a `flat_<rrggbb>` material:
-        the mean of its corner colours in the `<car>.GRO` next to the model (the windows of the Japanese disc's cars,
-        drawn by the game as Gouraud-shaded polygons in these colours; a converter choice, the export has no vertex
-        colours), else black (none in the game files)"""
-        gouraud_colors = getattr(self, 'gouraud_colors', None) or {}
+        """The image of each polygon (`orix_polygon_textures`); a polygon the game draws untextured with Gouraud colours
+        (`orix_gouraud_polygons`: the windows of the Japanese disc's cars) gets a `flat_<rrggbb>` material of the mean
+        of its corner colours, the fallback of viewers without the colours of `_PSX_GOURAUD` (their
+        `TnfsSkylineMemorialCarMeshController` draws the colours), another one without an image black (none in the
+        game files)"""
+        gouraud = getattr(self, 'gouraud_polygons', None) or [None] * len(data['polygons'])
         result = []
-        for pi, (polygon, name) in enumerate(zip(data['polygons'], orix_polygon_textures(data, texture_names))):
-            if name:
-                result.append(name)
-                continue
-            corners = gouraud_colors.get(pi, [])[: polygon['polygon_type'] & 7]
-            if corners:
-                mean = [round(sum(c[k] for c in corners) / len(corners)) for k in 'rgb']
+        for name, shading in zip(orix_polygon_textures(data, texture_names), gouraud):
+            if shading and not shading['textured']:
+                colors = shading['colors']
+                mean = [round(sum(c[k] for c in colors) / len(colors)) for k in range(3)]
                 result.append(f'{ORIP_FLAT_MATERIAL_PREFIX}{mean[0]:02x}{mean[1]:02x}{mean[2]:02x}')
             else:
-                result.append(f'{ORIP_FLAT_MATERIAL_PREFIX}000000')
+                result.append(name or f'{ORIP_FLAT_MATERIAL_PREFIX}000000')
         return result
+
+    def _vertex_values(self, polygon_index: int, index_in_polygon: int) -> Optional[Dict[str, tuple]]:
+        """`_PSX_GOURAUD` of a model with Gouraud colours: the corner's colour (r, g, b, 255) on a polygon the game
+        draws with them, (0x80, 0x80, 0x80, 0) on the others (alpha 0: no Gouraud colour, the texture as it is)"""
+        gouraud = getattr(self, 'gouraud_polygons', None)
+        if gouraud is None or not any(gouraud):
+            return None
+        shading = gouraud[polygon_index]
+        if shading is None:
+            return {PSX_GOURAUD_ATTRIBUTE: (PSX_NEUTRAL_COLOR,) * 3 + (0,)}
+        return {PSX_GOURAUD_ATTRIBUTE: tuple(shading['colors'][index_in_polygon]) + (0xFF,)}
 
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
         BaseFileSerializer.serialize(self, data, path)
         data, moved = orix_wheel_labels_on_tyres(data)
         for label, polygon, new_polygon in moved:
             logging.info(f'{id}: wheel label "{label}" of polygon {polygon} exported on the tyre polygon {new_polygon}')
-        self.gouraud_colors = self.require_gouraud_colors(id)
+        self.gouraud_polygons = orix_gouraud_polygons(data, self.require_gouraud_colors(id))
         psh_id, psh_block, psh_data, sub_models = self.build_mesh(data, id)
+        for sub_model in sub_models.values():
+            # the colours of a mesh with a polygon drawn with Gouraud colours
+            values = sub_model.vertex_byte_attributes.get(PSX_GOURAUD_ATTRIBUTE)
+            if values is not None and not any(v[3] for v in values):
+                del sub_model.vertex_byte_attributes[PSX_GOURAUD_ATTRIBUTE]
         # the tyre textures are exported as `tyr1`..`tyr4` (the PSH export, `ShppArchiveSerializer.items`), in the
         # texture and mesh names too: renamed after `build_mesh`, which finds the images (their sizes) by their names
         renamed = {}
@@ -734,6 +803,14 @@ class OrixGeometrySerializer(OripGeometrySerializer):
         scene.object_properties = {
             renamed.get(name, name): {'partition': p} for name, p in self.mesh_partitions.items()
         }
+        gouraud_meshes = {
+            sm.name: orix_obj_corner_values(sm, sm.vertex_byte_attributes[PSX_GOURAUD_ATTRIBUTE])
+            for sm in sub_models.values()
+            if PSX_GOURAUD_ATTRIBUTE in sm.vertex_byte_attributes
+        }
+        if gouraud_meshes:
+            # the OBJ cannot hold them: for the GUI's preview, by mesh
+            scene.extras['psx_gouraud'] = gouraud_meshes
         scene.name = 'body'
         scene.obj_name = 'geometry'
         scene.mtl_name = 'material'

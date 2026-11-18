@@ -269,7 +269,7 @@ plumbing. To build one (see `ShpiBlock` in `resources/eac/archives/shpi_block.py
    every textured material. `SubMesh.morph_targets` (target name -> relative delta per vertex,
    kept in sync by `change_axes` only) reach the gg-web-engine GLB as glTF morph targets, added after the
    Blender export (`glb_morph_targets.py`, TNFS car steering); `Scene.object_properties` (mesh name ->
-   custom properties) become glTF node extras; `Scene.export_normals=False` writes the GLB without NORMAL / TANGENT
+   custom properties) become glTF node extras; `SubMesh.vertex_byte_attributes` (glTF name -> unsigned bytes per vertex) become application-specific unsigned byte normalized GLB attributes (`_PSX_GOURAUD`, the Japanese PSX cars' Gouraud colours; `add_glb_vertex_attributes`, matched by position and UV, a warning where that is ambiguous); `Scene.export_normals=False` writes the GLB without NORMAL / TANGENT
    (TNFS terrain, cars and props, drawn unlit by nfs-web). `ImageSerializer().to_image(data, block, id)` returns a
    PIL image of any `EacImage` (palette resolved from `id`), e.g. to compose texture atlases (see
    `compose_texture_page` in `serializers/geometries.py` for NFS5 CRP texture pages). A texture

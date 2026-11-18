@@ -126,7 +126,8 @@ When you do:
   `custom_offset`, `usage` (comma-separated subset of `ui`/`io`/`doc`, default = everywhere).
 - `frontend/src/nfs-three-lib/` (README there) is copied into the nfs-web game as it is: its files import only each
   other and `three`, `@gg-web-engine/core`, `rxjs`, nothing else of the frontend (a part they need is brought into it),
-  and hold no specs (they are tested next to the GUI components using them). It has `TnfsCarMeshController`,
+  and hold no specs (they are tested next to the GUI components using them). It has `TnfsCarMeshController` (and
+  `TnfsSkylineMemorialCarMeshController`, the Japanese PSX cars' Gouraud colours; `createTnfsCarMeshController` picks one),
   `Nfs2CarMeshController`, `FceCarMeshController` (NFS3 / NFS4 paint in the fragment shader, by the paint mask's
   alpha; NFS3 chrome), `Nfs6Ps2CarMeshController` (NFS HP2 PS2 cars), `Nfs6CarMeshController` (NFS HP2 PC
   cars), `scene-sky.ts` (a scene's sky cube and the sun of a gg-web-engine procedural sky, for car shaders lit by the
@@ -611,7 +612,7 @@ When you do:
   byte-exact.
 - `OrixGeometry` (`resources/eac/geometries/tnfs.py`, magic `ORIX`, version 800): the PSX ORIP. Header 120 bytes
   (ORIP's + count and offset of `polygon_textures`), 16-byte polygons (`draw_type` = GPU primitive, always 12 = textured
-  quad in the US files), 24-byte materials (`textures` bit field instead of the colour), then morphs, partitions, fx points, labels,
+  quad in the US files), 24-byte materials (`textures` bit field; `color` at +0x10, 0 in the US files), then morphs, partitions, fx points, labels,
   vertices and vmap as in ORIP (their blocks are shared). Cars (buffer name `.VSM` / `.WSM` / `.POR`) have 32:7
   vertices, props (`Z<track>_POR.FAM`, a `WwwwBlock` item) 32:4. Ends with its own CRC footer in a BIGF item, not in
   a FAM. Most polygons have an image of their own (`J000`..): a material with `per_polygon_textures` owns a run of
@@ -647,7 +648,8 @@ When you do:
 
 ### Over Drivin' Skyline Memorial (Japanese PSX disc, `games/tnfs_skyline_memorial`, SLPS-01024)
 
-- The Japanese PSX TNFS (Aug 1997, executable `SLPS_010.24`, no Ghidra project; its archive reader is the US one,
+- The Japanese PSX TNFS (Aug 1997, executable `SLPS_010.24`, no Ghidra project in the repos, addresses from a scratch
+  import with the PSX loader; its archive reader is the US one,
   SLUS_002.04 0x800aee94 / 0x800aef04 / 0x800aef68), preset `nfs-web-assets-tnfs-skyline-memorial`, documented in
   `resources/TNFS_PSX.md`. 416 of its 578 files are the US disc's. Its cars replace the US ones: KPGC (KPGC110), BCNR
   (R33, Skyline GT-R BCNR33), KHGC (KHGC211), EHR (HR31), KBNR (R32, Skyline GT-R BNR32), KDR (KDR30), PGC (PGC10),
@@ -660,11 +662,26 @@ When you do:
   the game finds them by name, ignoring case, and so does `OrixGeometrySerializer` the PSH of a model. Every item ends
   with its own CRC footer.
 - `<car>.GRO` (`TnfsPsxGouraudColors`, `resources/eac/psx.py`, exported as JSON): 14-byte records (u16 polygon index of
-  the high-poly model, 4 RGB corner colours, 0x80 = the texture as it is) up to a record of index 0xFFFF. The Japanese
-  `oriload` (FUN_8007f358) makes every polygon with `mapping` bit 0x40 or draw type 10 Gouraud-shaded (draw type 8 /
-  15 / 16); FUN_80084944 gives it the colours of its record. The export applies no vertex colours, but the untextured
-  windows (material `window`, draw types 10 and 3; black otherwise) get a `flat_<rrggbb>` material of the mean of their
-  corner colours.
+  the high-poly model, 4 RGB corner colours in the polygon's vertex order) up to a record of index 0xFFFF. The rule
+  (`orix_gouraud_polygons`, verified in SLPS_010.24): `oriload` FUN_8007f358 gives every polygon with `mapping` bit
+  0x40 or draw type 10 draw type 8 (a triangle: POLY_G3, untextured), 15 (below 12: POLY_G4, untextured) or 16
+  (POLY_GT4); FUN_8007fe30 -> FUN_80084944 fill their packets with the first GRO record of the polygon, else the
+  material's `color` (+0x10, 0x00RRGGBB: the KHGC211's plate black, the BCNR33's polygon 83 blue, the PGC10's bumpers
+  brighter); a record of another polygon is unused; textured: texel x colour / 128 clamped, untextured: the colour.
+  None is semi-transparent (polygon type bits 0x78 never 0x10 / 0x18). Only the high-poly models have such polygons.
+- Export (`OrixGeometrySerializer`, a model with a GRO next to it): the GLB vertex attribute `_PSX_GOURAUD`
+  (`SubMesh.vertex_byte_attributes`, `add_glb_vertex_attributes`: unsigned byte normalized VEC4, three.js
+  `_psx_gouraud` = value / 255), per corner (r, g, b, 255) on the Gouraud polygons and (0x80, 0x80, 0x80, 0) on the
+  others of a mesh with one; meshes without any have none. A vertex is one polygon corner (no vmap slot is shared;
+  `_vertex_values` keys the vertices by their values too). The OBJ cannot hold it: `geometry_extra.json` has
+  `psx_gouraud` (mesh name -> hex, 4 bytes per corner of the triangles three.js OBJLoader makes, in their order) for
+  the GUI's preview (`addPsxGouraudColors` in `orip-geometry.block-ui.component.ts`). The untextured polygons (the
+  windows) keep a `flat_<rrggbb>` material of the mean of their corner colours, for viewers without the colours.
+  Models without a GRO export as before. `TnfsSkylineMemorialCarMeshController` (`nfs-three-lib`, created by
+  `createTnfsCarMeshController` for a model with `_psx_gouraud` on any mesh, the GUI's and nfs-web's factory) draws
+  them in the fragment shader at `#include <color_fragment>`, after the tail light recolour: textured
+  sRGB(texel) x colour x 255 / 128, clamped, untextured the colour, alpha 0 the material's own; materials shared with
+  meshes without the attribute are copied first.
 - Export choices for nfs-web: the tyre images `Tir1`..`Tir4` are exported as `tyr1`..`tyr4`, the names
   `TnfsCarMeshController` loads (`tnfs_tyre_texture_file_name`: PSH PNGs, GLB images, mesh names; the Saturn export
   too); a wheel label on a polygon which is no tyre moves to the nearest tyre polygon of its axle

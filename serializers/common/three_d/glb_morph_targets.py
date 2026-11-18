@@ -11,6 +11,7 @@ Y-up conversion. Each target becomes a glTF morph target with a POSITION accesso
 """
 
 import json
+import logging
 import math
 import struct
 from typing import List, Tuple
@@ -21,6 +22,7 @@ _GLB_MAGIC = b'glTF'
 _CHUNK_JSON = 0x4E4F534A
 _CHUNK_BIN = 0x004E4942
 _FLOAT = 5126
+_UNSIGNED_BYTE = 5121
 _ARRAY_BUFFER = 34962
 _COMPONENT_SIZES = {5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4}
 _COMPONENT_FORMATS = {5120: 'b', 5121: 'B', 5122: 'h', 5123: 'H', 5125: 'I', 5126: 'f'}
@@ -211,15 +213,66 @@ def _match_color(sub_mesh: SubMesh, index: dict, position, uv, tolerance: float)
     return list(sub_mesh.vertex_colors[candidates[0]])
 
 
+def _append_byte_accessor(gltf: dict, binary: bytearray, vectors: List[List[int]]) -> int:
+    """Unsigned byte normalized accessor of the vectors (1..4 bytes each), every element 4-byte aligned as glTF wants
+    for vertex attributes"""
+    size = len(vectors[0]) if vectors else 0
+    stride = (size + 3) // 4 * 4
+    binary.extend(b'\x00' * (-len(binary) % 4))
+    data = b''.join(bytes(v) + bytes(stride - size) for v in vectors)
+    view = {'buffer': 0, 'byteOffset': len(binary), 'byteLength': len(data), 'target': _ARRAY_BUFFER}
+    if stride != size:
+        view['byteStride'] = stride
+    gltf.setdefault('bufferViews', []).append(view)
+    binary.extend(data)
+    gltf.setdefault('accessors', []).append(
+        {
+            'bufferView': len(gltf['bufferViews']) - 1,
+            'componentType': _UNSIGNED_BYTE,
+            'normalized': True,
+            'count': len(vectors),
+            'type': 'SCALAR' if size == 1 else f'VEC{size}',
+        }
+    )
+    return len(gltf['accessors']) - 1
+
+
+def _match_values(sub_mesh: SubMesh, values: List[list], index: dict, position, uv, tolerance: float) -> list:
+    """Values (parallel to the sub-mesh vertices) of the sub-mesh vertex exported as the glTF vertex at `position`: of
+    the vertices at that position, one with the texture coordinates `uv`. A warning when those still differ in their
+    values (two corners the GLB cannot tell apart)"""
+    candidates = index.get(tuple(round(x, 3) for x in position))
+    if not candidates:
+        pivot = sub_mesh.pivot_offset
+        candidates = [
+            i
+            for i, v in enumerate(sub_mesh.vertices)
+            if _close([v[k] - pivot[k] for k in range(3)], position, tolerance)
+        ]
+    if not candidates:
+        raise ValueError(f'Mesh "{sub_mesh.name}": no vertex at {position} for the vertex attributes')
+    if uv is not None:
+        candidates = [i for i in candidates if _close(sub_mesh.vertex_uvs[i], uv, tolerance)] or candidates
+    if len({tuple(values[i]) for i in candidates}) > 1:
+        logging.warning(f'Mesh "{sub_mesh.name}": vertices at {position} with other attribute values, the first taken')
+    return list(values[candidates[0]])
+
+
 def add_glb_vertex_attributes(glb_path: str, sub_meshes: List[SubMesh], tolerance: float = 1e-4):
     """Adds the `vertex_normals` of `sub_meshes` to the meshes of the nodes with their names in the GLB file, as the
     vertex attribute `_GAME_NORMAL` (an application-specific glTF attribute; three.js GLTFLoader reads it as the
-    geometry attribute `_game_normal`), and their `vertex_colors` as COLOR_0. The GLB keeps Blender's NORMAL: the game
-    normals are for code that follows the game's own shading (FCE chrome, `FceCarMeshController`). Vertices are matched
-    as for the morph targets"""
+    geometry attribute `_game_normal`), their `vertex_colors` as COLOR_0 and their `vertex_byte_attributes` as unsigned
+    byte normalized attributes of their names (three.js: the name in lower case, value / 255; `_PSX_GOURAUD`). The GLB
+    keeps Blender's NORMAL: the game normals are for code that follows the game's own shading (FCE chrome,
+    `FceCarMeshController`). Vertices are matched as for the morph targets"""
     with_normals = {sm.name for sm in sub_meshes if len(sm.vertices) and len(sm.vertex_normals) == len(sm.vertices)}
     with_colors = {sm.name for sm in sub_meshes if len(sm.vertices) and len(sm.vertex_colors) == len(sm.vertices)}
-    sub_meshes = [sm for sm in sub_meshes if sm.name in with_normals or sm.name in with_colors]
+    with_bytes = {
+        sm.name
+        for sm in sub_meshes
+        if len(sm.vertices) and any(len(v) == len(sm.vertices) for v in sm.vertex_byte_attributes.values())
+    }
+    sub_meshes = [sm for sm in sub_meshes if sm.name in with_normals or sm.name in with_colors or sm.name in with_bytes]
     if not sub_meshes:
         return
     gltf, binary = read_glb(glb_path)
@@ -256,5 +309,15 @@ def add_glb_vertex_attributes(glb_path: str, sub_meshes: List[SubMesh], toleranc
                     [_match_color(sub_mesh, index, p, uv, tolerance) for p, uv in zip(positions, uvs)],
                     'VEC4',
                 )
+            if sub_mesh.name in with_bytes:
+                index = _position_index(sub_mesh)
+                for name, values in sorted(sub_mesh.vertex_byte_attributes.items()):
+                    if len(values) != len(sub_mesh.vertices):
+                        continue
+                    attributes[name] = _append_byte_accessor(
+                        gltf,
+                        binary,
+                        [_match_values(sub_mesh, values, index, p, uv, tolerance) for p, uv in zip(positions, uvs)],
+                    )
     gltf['buffers'][0]['byteLength'] = len(binary) + (-len(binary) % 4)
     write_glb(glb_path, gltf, bytes(binary))
