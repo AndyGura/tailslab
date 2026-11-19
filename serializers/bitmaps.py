@@ -329,9 +329,12 @@ class PcxImageSerializer(TargaImageSerializer):
 
 
 class PsxImageSerializer(BaseFileSerializer):
-    """PNG of a PSX image (`PsxImage`) as the game shows it: a rotated image is turned back, 4-bit and 8-bit images are
-    indexed PNGs with their CLUT colors (like PC 8Bit images, `ImageSerializer.indexed_image`), 16-bit ones RGBA. The
-    PSX color 0x0000 is transparent, every other one opaque (`psx_color_to_rgba`)"""
+    """PNG of a PSX image (`PsxImage`) as the game shows it: a rotated image is turned back, a transposed one transposed
+    back, 4-bit and 8-bit images are indexed PNGs with their CLUT colors (like PC 8Bit images,
+    `ImageSerializer.indexed_image`), 16-bit ones RGBA. The PSX color 0x0000 is transparent, every other one opaque
+    (`psx_color_to_rgba`). An image without pixels (0 x 0:
+    `J018` of the Japanese disc's BNR32 `KBNR.PSH`, its CLUT all 0x0000) is a transparent 1 x 1 PNG: its polygons show
+    nothing"""
 
     def ui_serialization(self):
         return {
@@ -371,10 +374,15 @@ class PsxImageSerializer(BaseFileSerializer):
 
     @staticmethod
     def _as_shown(image: Image.Image, data: dict) -> Image.Image:
-        from resources.eac.psx_bitmaps import psx_image_is_rotated
+        from resources.eac.psx_bitmaps import psx_image_is_rotated, psx_image_is_transposed
 
-        # stored rotated: the left column, bottom to top, is the top row
-        return image.transpose(Image.Transpose.ROTATE_270) if psx_image_is_rotated(data) else image
+        if psx_image_is_rotated(data):
+            # stored rotated: the left column, bottom to top, is the top row
+            return image.transpose(Image.Transpose.ROTATE_270)
+        if psx_image_is_transposed(data):
+            # stored transposed: the left column, top to bottom, is the top row
+            return image.transpose(Image.Transpose.TRANSPOSE)
+        return image
 
     def to_image(self, data: dict, **kwargs) -> Image.Image:
         """The image as the game shows it, RGBA"""
@@ -383,6 +391,8 @@ class PsxImageSerializer(BaseFileSerializer):
     def to_png_image(self, data: dict) -> Image.Image:
         from resources.eac.psx_bitmaps import psx_color_to_rgba
 
+        if data['width'] == 0 or data['height'] == 0:
+            return Image.new('RGBA', (1, 1), (0, 0, 0, 0))
         values = self.pixel_values(data)
         palette = self.palette_colors(data)
         height, width = values.shape

@@ -35,9 +35,12 @@ class OripGeometrySerializer(BaseFileSerializer):
         index_in_polygon,
         textures_shpi_data,
         back_face=False,
+        polygon_index=None,
     ):
         # the back face of a two-sided polygon gets vertices of its own: Blender drops a face on the vertices of another
-        key = (index_3D, back_face)
+        values = self._vertex_values(polygon_index, index_in_polygon) if polygon_index is not None else None
+        # corners with other values of the vertex attributes are other vertices
+        key = (index_3D, back_face) if values is None else (index_3D, back_face, tuple(sorted(values.items())))
         try:
             return vertices_file_indices_map[model][key]
         except KeyError:
@@ -46,6 +49,8 @@ class OripGeometrySerializer(BaseFileSerializer):
         vertex = block_data['vertices']['data'][block_data['vmap'][index_3D]]
         model.vertices.append([vertex['x'], vertex['y'], vertex['z']])
         vertices_file_indices_map[model][key] = len(model.vertices) - 1
+        for name, value in (values or {}).items():
+            model.vertex_byte_attributes.setdefault(name, []).append(list(value))
         # setup texture coordinate
         if index_2D is None:
             model.vertex_uvs.append([self.default_uvs[index_in_polygon][0], self.default_uvs[index_in_polygon][1]])
@@ -58,7 +63,7 @@ class OripGeometrySerializer(BaseFileSerializer):
                     width, height = self._texture_size(c['item']['data'])
                     u_multiplier, v_multiplier = (1 / width, 1 / height)
 
-                except StopIteration, ValueError:
+                except StopIteration, ValueError, ZeroDivisionError:
                     pass
                 except TypeError:
                     print()
@@ -73,6 +78,11 @@ class OripGeometrySerializer(BaseFileSerializer):
     def _texture_size(self, image_data: dict) -> Tuple[int, int]:
         """Width and height in texels of a texture of the archive next to the model, as the UVs count them"""
         return image_data['width'], image_data['height']
+
+    def _vertex_values(self, polygon_index: int, index_in_polygon: int) -> Optional[Dict[str, tuple]]:
+        """Values of the vertex attributes of a polygon corner (`SubMesh.vertex_byte_attributes`: glTF attribute name
+        -> unsigned bytes), None without any: given for every corner or none"""
+        return None
 
     def _material_names(self, data: dict, texture_names: List[str]) -> List[str]:
         """Exported material name of each polygon"""
@@ -138,6 +148,7 @@ class OripGeometrySerializer(BaseFileSerializer):
                             offset,
                             textures_shpi_data,
                             back_face=not first_face,
+                            polygon_index=pi,
                         )
                         for offset in offsets
                     ]
@@ -165,8 +176,8 @@ class OripGeometrySerializer(BaseFileSerializer):
         morph_deltas = orip_morph_deltas(data)
         for sub_model in sub_models.values():
             vertex_indices = [None] * len(sub_model.vertices)
-            for (index_3D, _), index in vertices_file_indices_map[sub_model].items():
-                vertex_indices[index] = data['vmap'][index_3D]
+            for key, index in vertices_file_indices_map[sub_model].items():
+                vertex_indices[index] = data['vmap'][key[0]]
             for name, deltas in morph_deltas.items():
                 if any(i in deltas for i in vertex_indices):
                     sub_model.morph_targets[name] = [deltas.get(i, [0, 0, 0]) for i in vertex_indices]
@@ -513,23 +524,41 @@ def orip_fx_dummies(data: dict) -> List[dict]:
     return dummies
 
 
-# the tyre texture the PSX game puts on the wheel quads of a car at load (`tire4`'s, car model setup 0x8004ea54)
+# the tyre texture the PSX game puts on the wheel quads of a car at load: the texture of material `tire4` (car model
+# setup 0x8004ea54), `tyr4` in the US disc, `Tir4` in the Japanese one (SLPS-01024); this one without such a material
 ORIX_TYRE_TEXTURE = 'tyr4'
+ORIX_TYRE_TEXTURE_MATERIAL = b'tire4'
+
+# tyre textures `Tir1`..`Tir4` (Japanese PSX disc SLPS-01024, Sega Saturn; `Tyr1`..`Tyr4` in the Saturn PGC10) are
+# exported as `tyr1`..`tyr4`, the names of the PC and US PSX exports, which nfs-web's TnfsCarMeshController loads
+_TNFS_TYRE_TEXTURE_NAME = re.compile(r'^t[iy]r([1-4])$', re.IGNORECASE)
+
+
+def tnfs_tyre_texture_file_name(name: str) -> str:
+    """Exported (PNG, GLB image, material) name of a TNFS car texture: `tyr<n>` for a tyre texture, else the name"""
+    match = _TNFS_TYRE_TEXTURE_NAME.match(name)
+    return f'tyr{match.group(1)}' if match else name
 
 
 def orix_polygon_textures(data: dict, psh_names=None) -> List[Optional[str]]:
     """PSH image name of each ORIX polygon, as the PSX game assigns them (`orisetdefaulmaterialtextures` 0x80081e28):
     a material with `per_polygon_textures` gives its `polygon_textures` items to the polygons they name, another one
     its `file_name` to all of its polygons; the wheel materials `frntires` / `rertires` without an image get the
-    tyre texture `tyr4` at run time. None for a polygon left without an image of the PSH (`psh_names`, None to take
-    every name as found): none in the game files"""
+    texture of material `tire4` at run time (`tyr4` without one). None for a polygon left without an image of the PSH
+    (`psh_names`, None to take every name as found): none in the US game files, the untextured polygons (`window`,
+    draw types 10 and 3) of the Japanese disc's high-poly cars"""
     own = {}
+    tyre_texture = ORIX_TYRE_TEXTURE
     for material in data['materials']:
         textures = material['textures']
         if textures['per_polygon_textures']:
             first = textures['first_polygon_texture']
             for entry in data['polygon_textures'][first : first + textures['num_polygon_textures']]:
                 own[entry['polygon_index']] = entry['file_name']
+        elif material['name'].rstrip(b'\0') == ORIX_TYRE_TEXTURE_MATERIAL and (material['file_name'] or '').rstrip(
+            '\0'
+        ):
+            tyre_texture = material['file_name'].rstrip('\0')
     result = []
     for pi, polygon in enumerate(data['polygons']):
         material = data['materials'][polygon['material_index']]
@@ -543,8 +572,90 @@ def orix_polygon_textures(data: dict, psh_names=None) -> List[Optional[str]]:
         if (not name or (psh_names is not None and name not in psh_names)) and (
             material['name'].rstrip(b'\0') in ORIP_TYRE_MATERIAL_NAMES
         ):
-            name = ORIX_TYRE_TEXTURE
+            name = tyre_texture
         result.append(name if name and (psh_names is None or name in psh_names) else None)
+    return result
+
+
+def orix_wheel_labels_on_tyres(data: dict) -> Tuple[dict, List[Tuple[str, int, int]]]:
+    """The model with each wheel label (`lt_frnt`, `rt_frnt`, `lt_rear`, `rt_rear`) on a polygon of the tyre material of
+    its axle (`frntires` / `rertires`): a label on another polygon moves to the nearest tyre polygon of its axle which
+    has no wheel label. A converter choice: the Japanese disc's KDR30 labels the inner `circ` quad of its left rear
+    wheel `lt_rear` (polygon 81, the tyre quad is 82), nfs-web turns the labelled polygon as the wheel. Returns (data,
+    [(label, polygon in the file, new polygon)] of the labels it moved); data is the given dict when nothing changes"""
+    wheel_labels = {'lt_frnt': b'frntires', 'rt_frnt': b'frntires', 'lt_rear': b'rertires', 'rt_rear': b'rertires'}
+    polygons, materials, vertices = data['polygons'], data['materials'], data['vertices']['data']
+
+    def material_name(pi):
+        return materials[polygons[pi]['material_index']]['name'].rstrip(b'\0')
+
+    def centre(pi):
+        polygon = polygons[pi]
+        corners = [vertices[data['vmap'][polygon['offset_3d'] + k]] for k in range(polygon['polygon_type'] & 7)]
+        return [sum(c[a] for c in corners) / max(1, len(corners)) for a in 'xyz']
+
+    labelled = {x['index'] for x in data['labels'] if x['name'] in wheel_labels}
+    moved = []
+    labels = []
+    for label in data['labels']:
+        tyre_material = wheel_labels.get(label['name'])
+        if tyre_material and label['index'] < len(polygons) and material_name(label['index']) != tyre_material:
+            candidates = [
+                pi for pi in range(len(polygons)) if material_name(pi) == tyre_material and pi not in labelled
+            ]
+            if candidates:
+                position = centre(label['index'])
+                nearest = min(candidates, key=lambda pi: sum((a - b) ** 2 for a, b in zip(centre(pi), position)))
+                moved.append((label['name'], label['index'], nearest))
+                labelled.add(nearest)
+                label = {**label, 'index': nearest}
+        labels.append(label)
+    if not moved:
+        return data, []
+    return {**data, 'labels': labels}, moved
+
+
+# the corner colour of a PSX polygon drawn with its texture as it is (the GPU multiplies texel and colour / 128)
+PSX_NEUTRAL_COLOR = 0x80
+# GLB vertex attribute of the corner colours of a model with Gouraud colours (three.js: `_psx_gouraud`), see
+# `OrixGeometrySerializer._vertex_values`
+PSX_GOURAUD_ATTRIBUTE = '_PSX_GOURAUD'
+
+
+def orix_obj_corner_values(sub_mesh: SubMesh, values: List[list]) -> str:
+    """The vertex values of a sub-mesh per corner of the triangles three.js OBJLoader makes of its OBJ faces (a fan from
+    the first corner, in face order: its geometry attributes), as hex (the bytes of each corner one after the other)"""
+    result = bytearray()
+    for polygon in sub_mesh.polygons:
+        for j in range(1, len(polygon) - 1):
+            for vertex in (polygon[0], polygon[j], polygon[j + 1]):
+                result.extend(values[vertex])
+    return result.hex()
+
+
+def orix_gouraud_polygons(data: dict, gouraud_records: Optional[Dict[int, list]]) -> List[Optional[dict]]:
+    """How the Japanese disc's game draws each polygon of a model with Gouraud colours (`<car>.GRO`), None for a
+    polygon drawn without: its `oriload` (SLPS_010.24 FUN_8007f358) gives every polygon with `mapping` bit 0x40, or of
+    draw type 10, the draw type 8 (a triangle: POLY_G3, untextured), 15 (draw type below 12: POLY_G4, untextured) or 16
+    (POLY_GT4); FUN_80084944 fills their packets with the colours of the first `<car>.GRO` record of the polygon, the
+    colour of its material (`color`) on every corner without one. {'colors': [(r, g, b)] in the order of the polygon's
+    vertices, 'textured'}. All None without a GRO (`gouraud_records` None): the US disc's loader converts nothing"""
+    if gouraud_records is None:
+        return [None] * len(data['polygons'])
+    result = []
+    for pi, polygon in enumerate(data['polygons']):
+        draw_type = polygon['draw_type'] & 0xFF
+        if not polygon['mapping'].get('6') and draw_type != 10:
+            result.append(None)
+            continue
+        corners = polygon['polygon_type'] & 7
+        record = gouraud_records.get(pi)
+        if record is not None:
+            colors = [(c['r'], c['g'], c['b']) for c in record[:corners]]
+        else:
+            color = data['materials'][polygon['material_index']].get('color') or 0
+            colors = [((color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF)] * corners
+        result.append({'colors': colors, 'textured': corners == 4 and draw_type >= 12})
     return result
 
 
@@ -566,8 +677,9 @@ class OrixGeometrySerializer(OripGeometrySerializer):
         raise NotImplementedError('Importing PSX geometry is not supported')
 
     def require_shpi(self, id):
-        """The PSH of the model: the next item of a car archive, the item of the same index of `Z<track>_PSH.FAM`
-        for a prop of `Z<track>_POR.FAM`"""
+        """The PSH of the model: the item of a car archive named as the model with the extension `.psh` (the item
+        after the model without one), the item of the same index of `Z<track>_PSH.FAM` for a prop of
+        `Z<track>_POR.FAM`"""
         from library import require_resource
 
         file_path, _, item_path = id.partition('__')
@@ -575,46 +687,142 @@ class OrixGeometrySerializer(OripGeometrySerializer):
             is_lower = file_path[-7:-4].islower()
             psh_id = f'{file_path[:-7]}{"psh" if is_lower else "PSH"}{file_path[-4:]}__{item_path}'
         else:
-            parts = id.split('/')
-            parts[-3] = str(int(parts[-3]) + 1)
-            psh_id = '/'.join(parts)
+            psh_id = self._archive_sibling_id(id, '.psh')
+            if psh_id is None:
+                parts = id.split('/')
+                parts[-3] = str(int(parts[-3]) + 1)
+                psh_id = '/'.join(parts)
         (psh_id, psh_block, psh_data), _ = require_resource(psh_id)
         if not psh_data or not isinstance(psh_block, ShppBlock):
             raise DataIntegrityException('Cannot find PSH archive for ORIX geometry')
         return psh_id, psh_block, psh_data
 
-    def _texture_size(self, image_data: dict) -> Tuple[int, int]:
-        from resources.eac.psx_bitmaps import psx_image_is_rotated
+    @staticmethod
+    def _archive_sibling_id(id: str, extension: str) -> Optional[str]:
+        """Id of the item of the model's archive named as the model with another extension (`<car>.por` ->
+        `<car>.psh`), ignoring case as the game does (SLUS_002.04 0x800aef68: an archive item by its name); the
+        archives of the Japanese disc are in no particular order (`KHGCL.POR` is followed by `KHGC.PBS`). None
+        without such an item, or for a model which is no archive item"""
+        from library import require_resource
 
-        # UVs are in texels of the image as shown: one stored rotated has width and height exchanged
-        if psx_image_is_rotated(image_data):
-            return image_data['height'], image_data['width']
-        return image_data['width'], image_data['height']
+        if '__' not in id or 'children/' not in id:
+            return None
+        archive_id, _, entry_path = id.rpartition('children/')
+        if not entry_path.split('/')[0].isdigit():
+            return None
+        index = int(entry_path.split('/')[0])
+        archive_id = archive_id[: -len('__')] if archive_id.endswith('__') else archive_id.rstrip('/')
+        (_, _, archive_data), _ = require_resource(archive_id)
+        children = (archive_data.get('children') if isinstance(archive_data, dict) else None) or []
+        alias = children[index].get('alias') if index < len(children) else None
+        if not alias:
+            return None
+        sibling_name = f'{alias.rsplit(".", 1)[0]}{extension}'.lower()
+        for i, child in enumerate(children):
+            if (child.get('alias') or '').lower() == sibling_name:
+                return join_id(archive_id, 'children', str(i), 'item', 'data')
+        return None
+
+    def require_gouraud_colors(self, id) -> Optional[Dict[int, list]]:
+        """Corner colours by polygon index of the model's `<car>.GRO` (`TnfsPsxGouraudColors`, high-poly models of
+        the Japanese disc's car archives), None without one"""
+        from library import require_resource
+
+        gro_id = self._archive_sibling_id(id, '.gro') if id else None
+        if gro_id is None:
+            return None
+        (_, gro_block, gro_data), _ = require_resource(gro_id)
+        if gro_block is None or gro_block.__class__.__name__ != 'TnfsPsxGouraudColors' or not gro_data:
+            return None
+        colors = {}
+        for record in gro_data['records']:
+            # the game takes the first record of a polygon
+            colors.setdefault(record['polygon_index'], record['colors'])
+        return colors
+
+    def _texture_size(self, image_data: dict) -> Tuple[int, int]:
+        from resources.eac.psx_bitmaps import psx_image_shown_size
+
+        # UVs are in texels of the image as shown: one stored rotated or transposed has width and height exchanged
+        return psx_image_shown_size(image_data)
 
     def _material_names(self, data: dict, texture_names: List[str]) -> List[str]:
-        # a polygon without an image (none in the game files) gets a black material
-        return [x or f'{ORIP_FLAT_MATERIAL_PREFIX}000000' for x in orix_polygon_textures(data, texture_names)]
+        """The image of each polygon (`orix_polygon_textures`); a polygon the game draws untextured with Gouraud colours
+        (`orix_gouraud_polygons`: the windows of the Japanese disc's cars) gets a `flat_<rrggbb>` material of the mean
+        of its corner colours, the fallback of viewers without the colours of `_PSX_GOURAUD` (their
+        `TnfsSkylineMemorialCarMeshController` draws the colours), another one without an image black (none in the
+        game files)"""
+        gouraud = getattr(self, 'gouraud_polygons', None) or [None] * len(data['polygons'])
+        result = []
+        for name, shading in zip(orix_polygon_textures(data, texture_names), gouraud):
+            if shading and not shading['textured']:
+                colors = shading['colors']
+                mean = [round(sum(c[k] for c in colors) / len(colors)) for k in range(3)]
+                result.append(f'{ORIP_FLAT_MATERIAL_PREFIX}{mean[0]:02x}{mean[1]:02x}{mean[2]:02x}')
+            else:
+                result.append(name or f'{ORIP_FLAT_MATERIAL_PREFIX}000000')
+        return result
+
+    def _vertex_values(self, polygon_index: int, index_in_polygon: int) -> Optional[Dict[str, tuple]]:
+        """`_PSX_GOURAUD` of a model with Gouraud colours: the corner's colour (r, g, b, 255) on a polygon the game
+        draws with them, (0x80, 0x80, 0x80, 0) on the others (alpha 0: no Gouraud colour, the texture as it is)"""
+        gouraud = getattr(self, 'gouraud_polygons', None)
+        if gouraud is None or not any(gouraud):
+            return None
+        shading = gouraud[polygon_index]
+        if shading is None:
+            return {PSX_GOURAUD_ATTRIBUTE: (PSX_NEUTRAL_COLOR,) * 3 + (0,)}
+        return {PSX_GOURAUD_ATTRIBUTE: tuple(shading['colors'][index_in_polygon]) + (0xFF,)}
 
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
         BaseFileSerializer.serialize(self, data, path)
+        data, moved = orix_wheel_labels_on_tyres(data)
+        for label, polygon, new_polygon in moved:
+            logging.info(f'{id}: wheel label "{label}" of polygon {polygon} exported on the tyre polygon {new_polygon}')
+        self.gouraud_polygons = orix_gouraud_polygons(data, self.require_gouraud_colors(id))
         psh_id, psh_block, psh_data, sub_models = self.build_mesh(data, id)
+        for sub_model in sub_models.values():
+            # the colours of a mesh with a polygon drawn with Gouraud colours
+            values = sub_model.vertex_byte_attributes.get(PSX_GOURAUD_ATTRIBUTE)
+            if values is not None and not any(v[3] for v in values):
+                del sub_model.vertex_byte_attributes[PSX_GOURAUD_ATTRIBUTE]
+        # the tyre textures are exported as `tyr1`..`tyr4` (the PSH export, `ShppArchiveSerializer.items`), in the
+        # texture and mesh names too: renamed after `build_mesh`, which finds the images (their sizes) by their names
+        renamed = {}
+        for sub_model in sub_models.values():
+            renamed[sub_model.name] = '__'.join(tnfs_tyre_texture_file_name(x) for x in sub_model.name.split('__'))
+            sub_model.name = renamed[sub_model.name]
+            if sub_model.texture_id:
+                sub_model.texture_id = tnfs_tyre_texture_file_name(sub_model.texture_id)
 
         scene = Scene()
         scene.sub_meshes = [sm for sm in sub_models.values()]
         scene.dummies = orip_fx_dummies(data)
-        scene.object_properties = {name: {'partition': p} for name, p in self.mesh_partitions.items()}
+        scene.object_properties = {
+            renamed.get(name, name): {'partition': p} for name, p in self.mesh_partitions.items()
+        }
+        gouraud_meshes = {
+            sm.name: orix_obj_corner_values(sm, sm.vertex_byte_attributes[PSX_GOURAUD_ATTRIBUTE])
+            for sm in sub_models.values()
+            if PSX_GOURAUD_ATTRIBUTE in sm.vertex_byte_attributes
+        }
+        if gouraud_meshes:
+            # the OBJ cannot hold them: for the GUI's preview, by mesh
+            scene.extras['psx_gouraud'] = gouraud_meshes
         scene.name = 'body'
         scene.obj_name = 'geometry'
         scene.mtl_name = 'material'
         for c in psh_data['children']:
             if isinstance(c['item']['data'], dict) and 'width' in c['item']['data']:
-                scene.mtl_texture_names.append(c['alias'])
+                texture_name = tnfs_tyre_texture_file_name(c['alias'])
+                scene.mtl_texture_names.append(texture_name)
                 # texels of colour 0x0000 are not drawn, every other one is opaque
-                scene.mtl_texture_alpha_modes[c['alias']] = 'cutout'
+                scene.mtl_texture_alpha_modes[texture_name] = 'cutout'
         scene.mtl_texture_path_func = lambda name: f'assets/{name}.png'
         for sub_model in sub_models.values():
             if (sub_model.texture_id or '').startswith(ORIP_FLAT_MATERIAL_PREFIX):
-                scene.mtl_flat_colors[sub_model.texture_id] = (0, 0, 0)
+                color = int(sub_model.texture_id[len(ORIP_FLAT_MATERIAL_PREFIX) :], 16)
+                scene.mtl_flat_colors[sub_model.texture_id] = ((color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF)
         # as the PC models: nfs-web draws TNFS models unlit
         scene.export_normals = False
 

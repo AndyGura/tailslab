@@ -2,27 +2,25 @@
 
 import json
 import os
-import re
 from io import BytesIO
 from typing import Dict, List, Optional
 
 from library.utils import path_join
 from serializers import BaseFileSerializer
 
-# tyre textures `Tir1`..`Tir4` (`Tyr1`..`Tyr4` in the PGC10) are exported as `tyr1`..`tyr4`, the names of the PC and PSX
-# exports, which nfs-web's TnfsCarMeshController loads
-_TYRE_TEXTURE_NAME = re.compile(r'^t[iy]r([1-4])$', re.IGNORECASE)
-
 
 def tnfs_saturn_texture_file_name(name: str) -> str:
-    """Exported (PNG, GLB image) name of a texture of a Saturn texture bank"""
-    match = _TYRE_TEXTURE_NAME.match(name)
-    return f'tyr{match.group(1)}' if match else name
+    """Exported (PNG, GLB image) name of a texture of a Saturn texture bank: the tyre textures `Tir1`..`Tir4`
+    (`Tyr1`..`Tyr4` in the PGC10) as `tyr1`..`tyr4` (`tnfs_tyre_texture_file_name`)"""
+    from serializers.geometries import tnfs_tyre_texture_file_name
+
+    return tnfs_tyre_texture_file_name(name)
 
 
 def tnfs_saturn_bank_textures(bank: dict) -> Dict[str, tuple]:
-    """Exported name -> (PIL image, the 16 colours, set of colour indices used) of every texture of a bank"""
+    """Exported name -> (PIL image, the 16 colours, set of colour indices drawn) of every texture of a bank"""
     from resources.eac.tnfs_saturn import (
+        SATURN_DRAW_MODE_INDEX_0_DRAWN,
         tnfs_saturn_texture_image,
         tnfs_saturn_texture_name,
         tnfs_saturn_texture_pixels,
@@ -32,7 +30,11 @@ def tnfs_saturn_bank_textures(bank: dict) -> Dict[str, tuple]:
     for i, entry in enumerate(bank['textures']):
         name = tnfs_saturn_texture_file_name(tnfs_saturn_texture_name(entry))
         _, _, indices, colors = tnfs_saturn_texture_pixels(bank, i)
-        result[name] = (tnfs_saturn_texture_image(bank, i), colors, set(indices))
+        used = set(indices)
+        if not entry['draw_mode'] & SATURN_DRAW_MODE_INDEX_0_DRAWN:
+            # colour 0 of a cut-out texture is not drawn (a key colour, green in the Warrior's tyres)
+            used.discard(0)
+        result[name] = (tnfs_saturn_texture_image(bank, i), colors, used)
     return result
 
 
@@ -163,3 +165,150 @@ def tnfs_saturn_car_bundle_path(orix_path: str) -> Optional[str]:
             if os.path.isfile(candidate):
                 return candidate
     return None
+
+
+def _directory_ui_serialization():
+    return {
+        'file_type': 'directory',
+        'is_directory': True,
+        'output_file_name_suffix': None,
+        'reversible': False,
+        'reversible_settings_patch': {},
+    }
+
+
+def tnfs_saturn_sprite_bank_files(bank: dict, bank_index: int, path: str, palettes: dict) -> List[str]:
+    """`<bank index>_<sprite index>.png` of every sprite of a sprite bank, with its palette of the palette table
+    (`tnfs_saturn_sprite_palette`)"""
+    from resources.eac.tnfs_saturn import (
+        tnfs_saturn_palette_colors,
+        tnfs_saturn_sprite_image,
+        tnfs_saturn_sprite_palette,
+    )
+
+    output = []
+    for i, entry in enumerate(bank['sprites']):
+        colors = tnfs_saturn_palette_colors(palettes, tnfs_saturn_sprite_palette(entry))
+        file_path = path_join(path, f'{bank_index}_{i}.png')
+        tnfs_saturn_sprite_image(bank, i, colors).save(file_path, 'PNG')
+        output.append(file_path)
+    return output
+
+
+class TnfsSaturnFrontendArtSerializer(BaseFileSerializer):
+    """`UIDATA/FRONTEND.DAT` to a folder of PNGs (RGBA, colour index 0 transparent): `<bank>_<index>.png` for the
+    sprites of banks 0..3, `4_<index>.png` for the font glyphs (their own width and height, palette
+    `TNFS_SATURN_FONT_PALETTE`), `5_<index>.png` for the title screen's sprites, each sprite with its palette
+    (`TNFS_SATURN_SCREEN_PALETTE` for none); `pcx_<index>.png` for the PCX files with the palettes of
+    `TNFS_SATURN_FRONTEND_PCX_PALETTES`, `pcx_<index>_<palette>.png` for the other palettes of
+    `TNFS_SATURN_FRONTEND_PCX_TINTS`"""
+
+    def __init__(self):
+        super().__init__(is_dir=True)
+
+    def ui_serialization(self):
+        return _directory_ui_serialization()
+
+    def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
+        from resources.eac.tnfs_saturn import (
+            TNFS_SATURN_FONT_PALETTE,
+            TNFS_SATURN_FRONTEND_PCX_PALETTES,
+            TNFS_SATURN_FRONTEND_PCX_TINTS,
+            tnfs_saturn_palette_colors,
+            tnfs_saturn_pcx_image,
+            tnfs_saturn_sprite_image,
+        )
+
+        super().serialize(data, path)
+        palettes = data['palettes']
+        banks = list(data['sprite_banks'])
+        output = []
+        for bank_index, bank in enumerate(banks):
+            output += tnfs_saturn_sprite_bank_files(bank, bank_index, path, palettes)
+        font_colors = tnfs_saturn_palette_colors(palettes, TNFS_SATURN_FONT_PALETTE)
+        font_index = len(banks)
+        for i in range(len(data['font']['glyphs'])):
+            file_path = path_join(path, f'{font_index}_{i}.png')
+            tnfs_saturn_sprite_image(data['font'], i, font_colors).save(file_path, 'PNG')
+            output.append(file_path)
+        output += tnfs_saturn_sprite_bank_files(data['title_sprites'], font_index + 1, path, palettes)
+        for i, picture in enumerate(data['pictures']):
+            palette = TNFS_SATURN_FRONTEND_PCX_PALETTES[i] if i < len(TNFS_SATURN_FRONTEND_PCX_PALETTES) else 0
+            names = [(f'pcx_{i}.png', palette)] + [
+                (f'pcx_{i}_{tint}.png', tint) for tint in TNFS_SATURN_FRONTEND_PCX_TINTS.get(i, [])
+            ]
+            for name, palette in names:
+                file_path = path_join(path, name)
+                tnfs_saturn_pcx_image(picture['pcx'], tnfs_saturn_palette_colors(palettes, palette)).save(
+                    file_path, 'PNG'
+                )
+                output.append(file_path)
+        return output
+
+
+def tnfs_saturn_frontend_art_path(file_path: str) -> Optional[str]:
+    """`FRONTEND.DAT` (or the German `GRONTEND.DAT`) in the folder of `file_path`, any case"""
+    folder = os.path.dirname(file_path)
+    try:
+        names = os.listdir(folder or '.')
+    except OSError:
+        return None
+    for wanted in ('FRONTEND.DAT', 'GRONTEND.DAT'):
+        for name in names:
+            if name.upper() == wanted:
+                return path_join(folder, name)
+    return None
+
+
+class TnfsSaturnSpriteBanksSerializer(BaseFileSerializer):
+    """`UIDATA/SHOWCASE.DAT` (`TnfsSaturnSpriteBanks`) to a folder of `<bank>_<index>.png` (RGBA, colour index 0
+    transparent), each sprite with its palette of the palette table of `FRONTEND.DAT` in the same folder"""
+
+    def __init__(self):
+        super().__init__(is_dir=True)
+
+    def ui_serialization(self):
+        return _directory_ui_serialization()
+
+    def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
+        from library import require_file
+        from library.exceptions import DataIntegrityException
+        from library.loader import id_to_path
+        from resources.eac.tnfs_saturn import TnfsSaturnFrontendArt
+
+        frontend_path = tnfs_saturn_frontend_art_path(id_to_path(id)) if id else None
+        if frontend_path is None:
+            raise DataIntegrityException('The palettes of the sprites are in FRONTEND.DAT, not found next to the file')
+        _, frontend_block, frontend = require_file(frontend_path)
+        if not isinstance(frontend_block, TnfsSaturnFrontendArt):
+            raise DataIntegrityException(f'{frontend_path} is not the menu art file with the palettes')
+        super().serialize(data, path)
+        output = []
+        for bank_index, bank in enumerate(data['sprite_banks']):
+            output += tnfs_saturn_sprite_bank_files(bank, bank_index, path, frontend['palettes'])
+        return output
+
+
+class TnfsSaturnRlePictureSerializer(BaseFileSerializer):
+    """A word run-length encoded picture (`TnfsSaturnRlePicture`: `ELOAD/<car>/<n>.BIN`, `ECREDITS/0<n>.BIN`) to an
+    RGB PNG, `<name>.png`"""
+
+    def ui_serialization(self):
+        return {
+            'file_type': 'png',
+            'is_directory': False,
+            'output_file_name_suffix': '.png',
+            'reversible': False,
+            'reversible_settings_patch': {},
+        }
+
+    def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
+        from resources.eac.tnfs_saturn import tnfs_saturn_rle_picture_image
+        from serializers.misc.path_utils import escape_chars
+
+        super().serialize(data, path, id=id, block=block)
+        file_path = escape_chars(path)
+        if not file_path.endswith('.png'):
+            file_path += '.png'
+        tnfs_saturn_rle_picture_image(data).save(file_path, 'PNG')
+        return [file_path]

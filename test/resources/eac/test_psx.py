@@ -12,8 +12,10 @@ from library.loader import clear_file_cache
 from resources.eac.archives import BigfBlock, ShppBlock, WwwwBlock
 from resources.eac.archives.compressed_block import EacCompressedBlock
 from resources.eac.car_specs import CarAiAndCrashBody
+from resources.eac.psx_bitmaps import psx_image_is_rotated, psx_image_is_transposed, psx_image_shown_size
 from resources.eac.psx import (
     PsxHorizonSettings,
+    TnfsPsxGouraudColors,
     TnfsPsxHorizonInfo,
     parse_psx_horizon_settings,
     psx_crc16,
@@ -165,13 +167,13 @@ def with_footer(item: bytes) -> bytes:
 
 
 def bigf(items):
-    """Bytes of a BIGF of (name, item bytes), items back to back"""
+    """Bytes of a BIGF of (name, item bytes), items back to back, the header length = the first item offset"""
     data_start = 16 + sum(9 + len(name) for name, _ in items)
     entries, data = b'', b''
     for name, item in items:
         entries += struct.pack('>II', data_start + len(data), len(item)) + name.encode() + b'\0'
         data += item
-    return b'BIGF' + struct.pack('>II', data_start + len(data), len(items)) + b'\0' * 4 + entries + data
+    return b'BIGF' + struct.pack('>III', data_start + len(data), len(items), data_start) + entries + data
 
 
 def bigf_items(raw):
@@ -258,10 +260,35 @@ class TestPsxImageSerializer(unittest.TestCase):
         self.assertEqual(pixels[0].tolist(), [clear, green, clear])
         self.assertEqual(pixels[1].tolist(), [red, blue, red])
 
+    def test_transposed_image_is_shown_transposed_back(self):
+        # stored 2x3 [[0, 1], [2, 3], [0, 1]] with the transposed bit (ZDS54B.PSH of the Japanese disc)
+        raw = psx_image(0x41, 2, 3, [bytes([0, 1]), bytes([2, 3]), bytes([0, 1])], clut=[0, 1, 2, 3], vram_x=0x8100)
+        data = ShppBlock().unpack_from_bytes(shpp([('pila', raw)]))
+        item = data['children'][0]['item']['data']
+        self.assertTrue(psx_image_is_transposed(item))
+        self.assertEqual(psx_image_shown_size(item), (3, 2))
+        image = PsxImageSerializer().to_png_image(item)
+        # shown pixel (x, y) = stored pixel (y, x): the left column top to bottom is the top row
+        self.assertEqual(image.size, (3, 2))
+        self.assertEqual(list(image.getdata()), [0, 2, 0, 1, 3, 1])
+        self.assertEqual(ShppBlock().pack(data), shpp([('pila', raw)]))
+
+    def test_rotated_bit_wins_over_the_transposed_one(self):
+        # the loader checks the rotated bit first
+        self.assertFalse(psx_image_is_transposed({'vram_x': 0xC000}))
+        self.assertTrue(psx_image_is_rotated({'vram_x': 0xC000}))
+
     def test_16bit_stp_black_red_is_opaque(self):
         image = PsxImageSerializer().to_png_image(self.sixteen)
         self.assertEqual(image.mode, 'RGBA')
         self.assertEqual(image.getpixel((0, 0)), (255, 0, 0, 255))
+
+    def test_image_without_pixels_is_transparent(self):
+        # 0 x 0, a CLUT of 0x0000 only (J018 of the Japanese disc's BNR32)
+        data = ShppBlock().unpack_from_bytes(shpp([('J018', psx_image(0x40, 0, 0, [], clut=[0] * 16))]))
+        image = PsxImageSerializer().to_png_image(data['children'][0]['item']['data'])
+        self.assertEqual(image.size, (1, 1))
+        self.assertEqual(image.getpixel((0, 0))[3], 0)
 
 
 class TestShppExport(unittest.TestCase):
@@ -303,6 +330,110 @@ class TestShppExport(unittest.TestCase):
         serializer.patch_settings({'maps__save_spherical_skybox_texture': True})
         files = serializer.serialize(data, os.path.join(self.tmp, 'out'), id=name, block=block)
         self.assertNotIn('spherical.png', {os.path.basename(x) for x in files})
+
+
+def gouraud_colors(records):
+    """Bytes of a `<car>.GRO`: (polygon index, 4 RGB colours) records, the end record, the CRC footer"""
+    body = b''.join(struct.pack('<H', index) + bytes(c for rgb in colors for c in rgb) for index, colors in records)
+    return with_footer(body + b'\xff\xff' + bytes(12))
+
+
+class TestTnfsPsxGouraudColors(unittest.TestCase):
+    def setUp(self):
+        self.raw = gouraud_colors(
+            [(9, [(200, 200, 200), (150, 150, 150), (150, 150, 150), (200, 200, 200)]), (50, [(0x78, 0x8C, 0xBE)] * 4)]
+        )
+
+    def test_reads_records_and_writes_back(self):
+        block = TnfsPsxGouraudColors()
+        data = block.unpack_from_bytes(self.raw)
+        self.assertEqual([x['polygon_index'] for x in data['records']], [9, 50])
+        self.assertEqual(data['records'][0]['colors'][1], {'r': 150, 'g': 150, 'b': 150})
+        self.assertEqual(data['list_end'], 0xFFFF)
+        self.assertEqual(data['crc_footer']['crc'], psx_crc16(self.raw[:-12]))
+        self.assertEqual(block.pack(data), self.raw)
+
+    def test_edited_colors_get_a_new_crc(self):
+        block = TnfsPsxGouraudColors()
+        data = block.unpack_from_bytes(self.raw)
+        data['records'][1]['colors'][0]['r'] = 0x80
+        packed = block.pack(data)
+        self.assertEqual(packed[16], 0x80)
+        self.assertEqual(struct.unpack('<I', packed[-4:])[0], psx_crc16(packed[:-12]))
+
+    def test_without_footer(self):
+        block = TnfsPsxGouraudColors()
+        data = block.unpack_from_bytes(self.raw[:-12])
+        self.assertIsNone(data['crc_footer'])
+        self.assertEqual(block.pack(data), self.raw[:-12])
+
+
+class TestSkylineMemorialCarArchive(unittest.TestCase):
+    """`ZKHGC.VSM` of the Japanese disc Over Drivin' Skyline Memorial (SLPS-01024): a C0FB archive, items in another
+    order than the US disc's, every one ending with its own CRC footer"""
+
+    def setUp(self):
+        self.path = os.path.join(SAMPLES, 'ZKHGC.VSM')
+        with open(self.path, 'rb') as f:
+            self.raw = f.read()
+
+    def test_items_and_round_trip(self):
+        from resources.eac.archives import C0fbBlock
+
+        name, block, data = require_file(self.path, lazy=False)
+        self.assertIsInstance(block, C0fbBlock)
+        self.assertEqual(data['header_length'], 0x70)
+        kinds = {}
+        for child in data['children']:
+            item_block = block.item_block.possible_blocks[child['item']['choice_index']]
+            kind = item_block.__class__.__name__
+            if isinstance(item_block, EacCompressedBlock):
+                kind = item_block.possible_blocks[child['item']['data']['choice_index']].__class__.__name__
+            kinds[child['alias']] = kind
+        self.assertEqual(
+            kinds,
+            {
+                'KHGCL.POR': 'OrixGeometry',
+                'KHGC.PBS': 'PlayerCarPhysics',
+                'KHGC.PDN': 'CarAiAndCrashBody',
+                'KHGC.POR': 'OrixGeometry',
+                'KHGC.PSH': 'ShppBlock',
+                'KHGCL.PSH': 'ShppBlock',
+                'KHGC.GRO': 'TnfsPsxGouraudColors',
+            },
+        )
+        # every item ends with its own CRC footer, counted in its length
+        for alias, item in bigf_like_items(self.raw):
+            self.assertEqual(item[-12:-8], b'CRCF', alias)
+            self.assertEqual(struct.unpack('<I', item[-4:])[0], psx_crc16(item[:-12]), alias)
+        self.assertEqual(block.pack(data, name=name), self.raw)
+
+    def test_gouraud_colors_of_the_high_poly_model(self):
+        name, block, data = require_file(self.path, lazy=False)
+        children = {x['alias']: x['item']['data'] for x in data['children']}
+        gouraud = [x['polygon_index'] for x in children['KHGC.GRO']['records']]
+        model = children['KHGC.POR']
+        # polygons the Japanese executable's loader makes Gouraud-shaded: flag 0x40 or draw type 10 (FUN_8007f358)
+        shaded = [i for i, x in enumerate(model['polygons']) if x['mapping']['6'] or (x['draw_type'] & 0xFF) == 10]
+        self.assertEqual(len(gouraud), 74)
+        self.assertEqual(sorted(set(shaded) - set(gouraud)), [12, 17])
+        self.assertEqual(sorted(set(gouraud) - set(shaded)), [0])
+        self.assertLess(max(gouraud), len(model['polygons']))
+        self.assertFalse(any(x['mapping']['6'] for x in children['KHGCL.POR']['polygons']))
+
+
+def bigf_like_items(raw):
+    """(name, item bytes) of a C0FB archive, by its directory"""
+    result, position = [], 6
+    for _ in range(struct.unpack('>H', raw[4:6])[0]):
+        offset, length = (
+            int.from_bytes(raw[position : position + 3], 'big'),
+            int.from_bytes(raw[position + 3 : position + 6], 'big'),
+        )
+        end = raw.index(b'\0', position + 6)
+        result.append((raw[position + 6 : end].decode(), raw[offset : offset + length]))
+        position = end + 1
+    return result
 
 
 if __name__ == '__main__':

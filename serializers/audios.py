@@ -3,7 +3,7 @@ import os
 import subprocess
 import traceback
 import wave
-from typing import List, Dict, Tuple
+from typing import List, Dict, Optional, Tuple
 
 from config import general_config
 from library.utils import audio_ima_adpcm_codec, audio_ea_xa_codec, format_exception, path_join
@@ -590,4 +590,159 @@ class SaturnToneBankSerializer(BaseFileSerializer):
                 with open(meta_path, 'w') as file:
                     file.write(json.dumps(meta, indent=4))
                 output += [wav_path, meta_path]
+        return output
+
+
+def tnfs_psx_vag_pcm(channels: List[dict]) -> Tuple[bytes, int, Optional[int]]:
+    """(16-bit PCM, channels interleaved; sample count; loop start sample, None without a loop) of PSX "VAGp" samples
+    (`TnfsPsxVagSample`) played together as the SPU plays them: the loop of the first one, all as long as the
+    shortest"""
+    import numpy as np
+
+    from library.utils.audio_ps_adpcm_codec import decode_spu_sample
+
+    decoded = [decode_spu_sample(x['wave_data']) for x in channels]
+    count = min(len(x.samples) for x in decoded)
+    pcm = np.stack([x.samples[:count] for x in decoded], axis=1).astype('<i2').tobytes()
+    loop_start = decoded[0].loop_start
+    if loop_start is not None and loop_start >= count:
+        loop_start = None
+    return pcm, count, loop_start
+
+
+def tnfs_psx_loop_meta(count: int, loop_start: Optional[int], rate: int) -> Dict:
+    """`loop`, `loop_start_time_ms`, `loop_end_time_ms` (the last sample of the loop, as the PC banks' export) of a
+    decoded PSX sample"""
+    return {
+        'loop': loop_start is not None,
+        'loop_start_time_ms': 1000 * (loop_start or 0) / rate,
+        'loop_end_time_ms': 1000 * (count - 1) / rate,
+    }
+
+
+class TnfsPsxVagSampleSerializer(BaseFileSerializer):
+    """A PSX "VAGp" sample file (`TnfsPsxVagSample`) to `<name>.wav` + `<name>.meta.json` (`loop`, `loop_start_time_ms`,
+    `loop_end_time_ms` from the flags of its frames, `name`), at the sampling rate of its header"""
+
+    def ui_serialization(self):
+        return {
+            'file_type': 'wav',
+            'is_directory': False,
+            'output_file_name_suffix': '.wav',
+            'reversible': False,
+            'reversible_settings_patch': {},
+        }
+
+    def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
+        if path.endswith('/') or path.endswith('\\'):
+            path += id.replace('\\', '/').rsplit('/', 1)[-1]
+        super().serialize(data, path)
+        pcm, count, loop_start = tnfs_psx_vag_pcm([data])
+        _save_wav(f'{path}.wav', pcm, 1, data['sampling_rate'])
+        with open(f'{path}.meta.json', 'w') as file:
+            meta = {**tnfs_psx_loop_meta(count, loop_start, data['sampling_rate']), 'name': data['name']}
+            file.write(json.dumps(meta, indent=4))
+        return [f'{path}.wav', f'{path}.meta.json']
+
+
+class TnfsPsxVagBankSerializer(BaseFileSerializer):
+    """PSX TNFS sound bank samples `Z<bank>.VB` (`TnfsPsxVagBank`) to a folder of WAVs (16-bit) + `.meta.json`, one
+    per sample id of the `.VH` of the same name next to it (`TnfsPsxPatchBank`, any case), as the game plays them:
+    two channels are a stereo WAV (left first). Sample rate: the patch's SPU pitch x 44100 / 4096 (rounded to whole
+    Hz), the rate the game plays it at for pitch value 64, the samples untouched; a pitch value v bends it by (v - 64)
+    / 64 x `bend_range_semitones` semitones, the PC banks' rule (nfs-web's `TnfsEngineSoundModel`). Names: car banks
+    of the US disc `engine_on`, `engine_off`, `honk`, `gear` (ids 1, 2, 3, 0x20; split screen banks `ZS<car>` have
+    the first three), of the Japanese disc `engine_low`, `engine_mid`, `engine_high`, `gear`
+    (`serializers/misc/tnfs_psx_car_sounds.py`), other banks `0x<id>` (`hex(id)`, the PC banks' names). Meta: `loop`,
+    `loop_start_time_ms`, `loop_end_time_ms` (the flags of the ADPCM frames), the patch's `bend_range_semitones`,
+    `volume`, `pan` (0x40 centre), `random_range` (cents), `random_volume_range`, `random_pan_range`, `reverb`, plus
+    `pitch` (SPU pitch), `max_playback_rate` (the SPU plays no faster than 176400 Hz: the highest playback rate of the
+    WAV the game reaches), `name` (the "VAGp" name, of the left channel) and for the Japanese engine layers
+    `volume_by_pitch_value` (128 volumes 0..128, the layer's volume by the engine's pitch value, from the
+    executable). Without a `.VH`: every sample as `<index>.wav` at its header's sampling rate"""
+
+    def __init__(self):
+        super().__init__(is_dir=True)
+
+    def ui_serialization(self):
+        return {
+            'file_type': 'directory',
+            'is_directory': True,
+            'output_file_name_suffix': None,
+            'reversible': False,
+            'reversible_settings_patch': {},
+        }
+
+    @staticmethod
+    def _patch_bank_path(vb_path: str) -> Optional[str]:
+        directory, name = os.path.split(vb_path)
+        wanted = f'{os.path.splitext(name)[0]}.vh'.lower()
+        try:
+            names = {x.lower(): x for x in os.listdir(directory or '.')}
+        except OSError:
+            return None
+        return os.path.join(directory, names[wanted]) if wanted in names else None
+
+    def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
+        from library.loader import id_to_path
+        from resources.eac.psx_audios import (
+            PSX_SPU_MAX_PITCH,
+            TnfsPsxPatchBank,
+            psx_spu_sample_rate,
+            tnfs_psx_bank_patches,
+            tnfs_psx_vag_bank_samples_by_offset,
+        )
+        from serializers.misc.tnfs_psx_car_sounds import tnfs_psx_car_bank
+
+        super().serialize(data, path)
+        vb_path = id_to_path(id) if id and '__' not in id else None
+        vh_path = self._patch_bank_path(vb_path) if vb_path else None
+        output = []
+        if vh_path is None:
+            for i, sample in enumerate(data['samples']):
+                output += TnfsPsxVagSampleSerializer().serialize(sample, path_join(path, str(i)))
+            return output
+        with open(vh_path, 'rb') as f:
+            patches = tnfs_psx_bank_patches(TnfsPsxPatchBank().unpack_from_bytes(f.read()))
+        samples = tnfs_psx_vag_bank_samples_by_offset(data)
+        car_bank = tnfs_psx_car_bank(vb_path, patches.keys())
+        skipped = []
+        for sample_id, patch in patches.items():
+            name = car_bank.names[sample_id] if car_bank else hex(sample_id)
+            offsets = [patch['sample_offset']] + ([patch['right_sample_offset']] if patch['channels'] == 2 else [])
+            if offsets[0] < 0:
+                # an empty patch (ZCOLLISN of the Japanese disc: the cop siren's)
+                continue
+            if any(x not in samples for x in offsets):
+                skipped.append((name, f'No sample at offset {[hex(x) for x in offsets]} of the .VB'))
+                continue
+            channels = [samples[x] for x in offsets]
+            pcm, count, loop_start = tnfs_psx_vag_pcm(channels)
+            rate = round(psx_spu_sample_rate(patch['pitch']))
+            wav_path = path_join(path, f'{name}.wav')
+            _save_wav(wav_path, pcm, len(channels), rate)
+            meta = {
+                **tnfs_psx_loop_meta(count, loop_start, rate),
+                'bend_range_semitones': patch['bend_range'],
+                'volume': patch['volume'],
+                'pan': patch['pan'],
+                'random_range': min(patch['random_pitch_range'], 1200),
+                'random_volume_range': patch['random_volume_range'],
+                'random_pan_range': patch['random_pan_range'],
+                'reverb': patch['reverb'] != 0,
+                'pitch': patch['pitch'],
+                'max_playback_rate': psx_spu_sample_rate(PSX_SPU_MAX_PITCH) / rate,
+                'name': channels[0]['name'],
+            }
+            if car_bank and sample_id in car_bank.layer_volumes:
+                meta['volume_by_pitch_value'] = list(car_bank.layer_volumes[sample_id])
+            meta_path = path_join(path, f'{name}.meta.json')
+            with open(meta_path, 'w') as file:
+                file.write(json.dumps(meta, indent=4))
+            output += [wav_path, meta_path]
+        if skipped:
+            with open(path_join(path, 'skipped.txt'), 'w') as f:
+                for item in skipped:
+                    f.write('%s\t\t%s\n' % item)
+            output.append(path_join(path, 'skipped.txt'))
         return output

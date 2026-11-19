@@ -24,6 +24,11 @@ class BaseMesh(ABC):
         # alpha left out; three.js OBJLoader reads them as the geometry attribute `color`) and by the gg-web-engine
         # export to the GLB as the vertex attribute COLOR_0 (`add_glb_vertex_attributes`)
         self.vertex_colors = []
+        # application-specific GLB vertex attribute name (`_PSX_GOURAUD`) -> unsigned bytes per vertex (parallel to
+        # `vertices`, the same count for every vertex): written by the gg-web-engine export as unsigned byte normalized
+        # accessors (three.js geometry attribute of the name in lower case, value / 255; `add_glb_vertex_attributes`),
+        # not to the OBJ
+        self.vertex_byte_attributes = {}
 
     def rotate_z(self, angle):
         c, s = math.cos(angle), math.sin(angle)

@@ -441,6 +441,125 @@ class TestBigfBlock(unittest.TestCase):
         self.assertEqual(reread['length'], size - 3)
         self.assertEqual(block.pack(reread), nfs6_style)
 
+    def test_bigf_header_length_field(self):
+        from resources.eac.archives import BigfBlock
+
+        block = BigfBlock()
+        data = block.new_data()
+        bytes_choice = block.item_block.get_choice_index_by_class_name('BytesBlock')
+        data['children'] = [
+            {'alias': 'a.bin', 'item': {'choice_index': bytes_choice, 'data': b'1234'}, 'post_offset_payload': b''}
+        ]
+        data['pre_items_payload'] = bytes(3)
+        # descriptions end at 16 + 8 + 6 = 30, the item starts after 3 bytes of padding
+        packed = block.pack(data)
+        self.assertEqual(int.from_bytes(packed[12:16], 'big'), 33)
+        self.assertEqual(int.from_bytes(packed[16:20], 'big'), 33)
+        # files with the end of the descriptions in it keep that
+        descriptions_end_style = packed[:12] + (30).to_bytes(4, 'big') + packed[16:]
+        reread = block.unpack_from_bytes(descriptions_end_style)
+        self.assertEqual(reread['header_length'], 30)
+        self.assertEqual(block.pack(reread), descriptions_end_style)
+        # a renamed item moves the item: the first item offset again
+        reread = block.unpack_from_bytes(packed)
+        reread['children'][0]['alias'] = 'abc.bin'
+        self.assertEqual(int.from_bytes(block.pack(reread)[12:16], 'big'), 35)
+
+
+def c0fb(items, first_item_padding=None):
+    """Bytes of a C0FB archive of (name, item bytes): items 4-byte aligned (zero padding), but the last one"""
+    descriptions_end = 6 + sum(7 + len(name) for name, _ in items)
+    data_start = (
+        (descriptions_end + 3) // 4 * 4 if first_item_padding is None else descriptions_end + first_item_padding
+    )
+    entries, data = b'', b''
+    for i, (name, item) in enumerate(items):
+        entries += (data_start + len(data)).to_bytes(3, 'big') + len(item).to_bytes(3, 'big') + name.encode() + b'\0'
+        data += item
+        if i < len(items) - 1:
+            data += bytes(-len(data) % 4)
+    header = b'\xc0\xfb' + struct.pack('>HH', data_start - 4, len(items)) + entries
+    return header + bytes(data_start - len(header)) + data
+
+
+class TestC0fbBlock(unittest.TestCase):
+    """EA's compact BIGF: 24-bit offsets and lengths, header length = first item offset - 4"""
+
+    def setUp(self):
+        self.raw = c0fb([('car.pbs', b'12345'), ('CAR.GRO', b'\xff\xff' + bytes(12)), ('z.bin', b'abc')])
+
+    def test_reads_items_and_writes_back_byte_exact(self):
+        from resources.eac.archives import C0fbBlock
+
+        block = C0fbBlock()
+        data = block.unpack_from_bytes(self.raw)
+        # 6 + 3 * 7 + 19 = 46 bytes of descriptions, the first item at 48
+        self.assertEqual(data['header_length'], 44)
+        self.assertEqual(data['num_items'], 3)
+        self.assertEqual(data['pre_items_payload'], bytes(2))
+        self.assertEqual([x['alias'] for x in data['children']], ['car.pbs', 'CAR.GRO', 'z.bin'])
+        # the zero padding to 4 bytes after an item: its post offset payload
+        self.assertEqual([len(x['post_offset_payload']) for x in data['children']], [3, 2, 0])
+        kinds = [
+            block.item_block.possible_blocks[x['item']['choice_index']].__class__.__name__ for x in data['children']
+        ]
+        self.assertEqual(kinds, ['BytesBlock', 'TnfsPsxGouraudColors', 'BytesBlock'])
+        self.assertEqual(block.pack(data), self.raw)
+
+    def test_items_in_another_order_and_lazy(self):
+        from resources.eac.archives import C0fbBlock
+
+        # descriptions in another order than the items: each item is read from its own offset (written back in the
+        # order of the descriptions, as BIGF: the game files have them in item order)
+        items = [('a.bin', b'\x01' * 8), ('b.bin', b'\x02' * 4)]
+        raw = c0fb(items)
+        # 6 + 5 + 1 bytes each
+        descriptions = raw[6:18], raw[18:30]
+        swapped = raw[:6] + descriptions[1] + descriptions[0] + raw[30:]
+        block = C0fbBlock()
+        data = block.unpack_from_bytes(swapped)
+        self.assertEqual(
+            [(x['alias'], x['item']['data']) for x in data['children']],
+            [('b.bin', b'\x02' * 4), ('a.bin', b'\x01' * 8)],
+        )
+        reread = block.unpack_from_bytes(block.pack(data))
+        self.assertEqual(
+            [(x['alias'], x['item']['data']) for x in reread['children']],
+            [('b.bin', b'\x02' * 4), ('a.bin', b'\x01' * 8)],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'SPEECH.VIV')
+            with open(path, 'wb') as f:
+                f.write(raw)
+            name, lazy_block, lazy_data = require_file(path, lazy=True)
+            self.assertIsInstance(lazy_block, C0fbBlock)
+            self.assertEqual(lazy_block.pack(lazy_data), raw)
+            from library.loader import clear_file_cache
+
+            clear_file_cache(path)
+
+    def test_changed_item_moves_the_next_ones(self):
+        from resources.eac.archives import C0fbBlock
+
+        block = C0fbBlock()
+        data = block.unpack_from_bytes(self.raw)
+        data['children'][0]['alias'] = 'longer_name.pbs'
+        packed = block.pack(data)
+        reread = block.unpack_from_bytes(packed)
+        self.assertEqual(reread['children'][0]['item']['data'], b'12345')
+        self.assertEqual(reread['children'][1]['item']['data']['records'], [])
+        self.assertEqual(reread['children'][2]['item']['data'], b'abc')
+        first_offset = int.from_bytes(packed[6:9], 'big')
+        self.assertEqual(reread['header_length'], first_offset - 4)
+
+    def test_loader_takes_it_for_an_archive(self):
+        from io import BytesIO
+
+        from library.loader import probe_block_class
+        from resources.eac.archives import C0fbBlock
+
+        self.assertIs(probe_block_class(BytesIO(self.raw), 'ZCAR.VSM', len(self.raw)), C0fbBlock)
+
 
 def build_ea_sound_bank() -> bytes:
     """BNKl version 2 with 3 slots: 16-bit PCM stereo sound with a mono EA-XA layer, an empty slot, a one-shot"""

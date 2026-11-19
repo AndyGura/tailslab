@@ -619,8 +619,11 @@ class OrixPolygon(DeclarativeCompoundBlock):
             IntegerBlock(length=1),
             {
                 'description': 'Polygon type, as in ORIP: bits 0-2 number of vertices, bit 0x08 colour-keyed, bit 0x80 '
-                'textured. The PSX draw code does not read it (verified): `draw_type` picks the primitive, and the GPU '
-                'skips texels of colour 0x0000 on every textured one. Values in the files: 0x84 and 0x8C (quads)'
+                'textured. The PSX draw code reads only bits 0x78 (verified): 0x10 or 0x18 there makes the polygon '
+                'semi-transparent (`buildprimlist` SLUS_002.04 0x80084c08 / SLPS_010.24 0x80082a80 sets the GPU '
+                "packet's ABE bit, SetSemiTrans FUN_80091050); `draw_type` picks the primitive, and the GPU skips "
+                'texels of colour 0x0000 on every textured one. Values in the files: 0x84 and 0x8C (quads), in the '
+                "Japanese disc's cars also 0x04 and 0x03 (the windows): none semi-transparent"
             },
         )
         mapping = (
@@ -629,7 +632,12 @@ class OrixPolygon(DeclarativeCompoundBlock):
                 'description': 'Polygon flags, as in ORIP (verified): `two_sided` or `not_in_draw_list` = no backface '
                 'culling, `flip_normal` = reversed winding, `use_uv` = has texture coordinates (without it the '
                 'texture is mapped to the corners of the quad: vertex 0 to its top left texel, 1 top right, 2 bottom '
-                'right, 3 bottom left)'
+                'right, 3 bottom left). Bit 0x40 (`6`): Gouraud-shaded, read by the loader of the Japanese disc only '
+                "(Over Drivin' Skyline Memorial, SLPS_010.24 FUN_8007f358, the US `oriload` has no such code): such a "
+                'polygon, and one of draw type 10, gets draw type 8 (a triangle, untextured), 15 (draw type below 12) '
+                "or 16 at load, and the colours of its record in the `<car>.GRO` next to the model (its material's "
+                "`color` without one). Set on most polygons of the Japanese disc's high-poly cars, nowhere in the US "
+                'disc'
             },
         )
         material_index = (
@@ -643,7 +651,10 @@ class OrixPolygon(DeclarativeCompoundBlock):
                 'description': 'GPU primitive of the polygon (verified, the low byte is read): 5 textured triangle, 9 '
                 'Gouraud-shaded textured triangle, 12 textured quad, 16 Gouraud-shaded textured quad; 1 / 2 lines, 3 / '
                 '8 untextured triangles and 10 untextured quad are not drawn (the game only prints their names). '
-                'Always 12 in the files'
+                "Always 12 in the US files. The Japanese disc's high-poly cars also have 10 and 3 (their untextured "
+                'windows, material `window`), which its loader turns into 15 (Gouraud-shaded untextured quad) and 8 '
+                '(see `mapping` bit 0x40); it fills the colours of the GPU packets of draw types 8, 15 and 16 from '
+                '`<car>.GRO` (SLPS_010.24 FUN_80084944)'
             },
         )
         offset_3d = OripPolygon.Fields.offset_3d
@@ -730,9 +741,15 @@ class OrixMaterial(DeclarativeCompoundBlock):
             ),
             {'description': 'Where the textures of the polygons come from (verified)'},
         )
-        unknown_0x10 = (
+        color = (
             IntegerBlock(length=4),
-            {'description': 'Never read by the game (verified), always 0', 'is_unknown': True},
+            {
+                'description': 'Colour 0x00RRGGBB: the corner colour of the polygons of the material drawn with Gouraud '
+                'colours which have no record in `<car>.GRO` (the instance setup SLPS_010.24 FUN_8007fe30 / '
+                'SLUS_002.04 FUN_80082128 hands it to FUN_80084944 / FUN_80086948; see `draw_type` of '
+                "[OrixPolygon](#orixpolygon)). 0 in every US file, different per material in the Japanese disc's "
+                "high-poly cars (`window` 0x0096c8, the KHGC211's `Number` 0: its plate drawn black)"
+            },
         )
         unknown_0x14 = (
             IntegerBlock(length=4),
@@ -762,8 +779,10 @@ class OrixGeometry(DeclarativeCompoundBlock):
             'block_description': 'Geometry block of the PSX TNFS: car models (`<car>.por` / `<car>l.por` of the car '
             'archives `.VSM` / `.WSM`) and track props (`Z<track>_POR.FAM`). The PSX counterpart of ORIP: the same '
             'header with 8 more bytes, 16-byte polygons, 24-byte materials and a table of per-polygon textures. '
-            'Textures are the images of the PSH archive that follows it in the car archive (in a `_POR.FAM`: the '
-            'item of the same index in `Z<track>_PSH.FAM`). Brake lights are no part of the model: in the high-poly '
+            'Textures are the images of the PSH archive of the same name in the car archive (`<car>.psh`, the item '
+            'after it in the US disc; in a `_POR.FAM`: the item of the same index in `Z<track>_PSH.FAM`); the wheel '
+            'quads (materials `frntires` / `rertires`) get the texture of material `tire4` at load (`tyr4`, `Tir4` '
+            'in the Japanese disc). Brake lights are no part of the model: in the high-poly '
             'textures of a racer the game takes every CLUT entry of pure green (5-bit red < 2, green > 29, blue < '
             '2, at most 5) and writes 0x0008 (dark red) to it, 0x001F (red) while the brake is at 11 or more; the '
             "cop's pure red and pure blue entries exchange red (0x001F) and blue (0x7C00) every 16 clock units "
@@ -1079,7 +1098,8 @@ class TnfsSaturnOrixMaterial(DeclarativeCompoundBlock):
             {
                 'description': 'A colour 0x00RRGGBB per material, different in most materials of a model (grey `Shad`, '
                 'red `front`, green `rear`, yellow `top`...; 0 in the tyre and the low-poly materials): the colour '
-                'of the PC ORIP material, it seems. Not known whether the Saturn game reads it (0 in every PSX ORIX)',
+                'of the PC ORIP material, it seems. Not known whether the Saturn game reads it (0 in every US PSX ORIX, the '
+                "Gouraud polygons' colour in the Japanese PSX disc, `color` of the PSX `OrixMaterial`)",
                 'is_unknown': True,
             },
         )

@@ -101,8 +101,8 @@ class ShppBlock(ShpiBlock):
             {
                 'usage': 'ui,doc',
                 'description': 'CRC footer after the SHPP (`length` does not count it), in a file of its own and in '
-                'a BIGF item (PSX car archives `.VSM` / `.WSM`): inside a FAM archive it follows the last item of '
-                'the FAM',
+                'a BIGF or C0FB item (PSX car archives `.VSM` / `.WSM`): inside a FAM archive it follows the last '
+                'item of the FAM',
             },
         )
 

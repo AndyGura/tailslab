@@ -1,14 +1,22 @@
 """
-PlayStation TNFS (SLUS-00204) files: the `CRCF` footer most of its files end with, and the horizon settings
-`Z<track><time>.INF`.
+PlayStation TNFS (SLUS-00204) files: the `CRCF` footer most of its files end with, the horizon settings
+`Z<track><time>.INF`, and the Gouraud colours `<car>.GRO` of the car archives of the Japanese disc (SLPS-01024).
 """
 
 from io import SEEK_CUR
 from typing import Dict, NamedTuple, Optional, Tuple
 
 from library.context import ReadContext, WriteContext
-from library.read_blocks import DeclarativeCompoundBlock, IntegerBlock, TrailingOptionalBlock, UTF8Block
+from library.read_blocks import (
+    ArrayBlock,
+    BytesBlock,
+    DeclarativeCompoundBlock,
+    IntegerBlock,
+    TrailingOptionalBlock,
+    UTF8Block,
+)
 from library.read_blocks.misc.value_validators import Eq
+from resources.eac.fields.misc import RGBBlock
 
 CRCF_FOOTER_LENGTH = 12
 
@@ -193,3 +201,93 @@ class TnfsPsxHorizonInfo(DeclarativeCompoundBlock):
         from serializers import TnfsPsxHorizonInfoSerializer
 
         return TnfsPsxHorizonInfoSerializer
+
+
+GOURAUD_RECORD_LENGTH = 14
+GOURAUD_LIST_END = 0xFFFF
+
+
+def _gouraud_record_count(ctx) -> int:
+    """Records before the one of polygon 0xFFFF, which ends the list"""
+    position = ctx.buffer.tell()
+    remaining = ctx.read_bytes_remaining
+    count = 0
+    try:
+        while remaining is None or remaining >= 2 * GOURAUD_RECORD_LENGTH:
+            head = ctx.buffer.read(GOURAUD_RECORD_LENGTH)
+            if len(head) < GOURAUD_RECORD_LENGTH or int.from_bytes(head[:2], 'little') == GOURAUD_LIST_END:
+                break
+            count += 1
+            if remaining is not None:
+                remaining -= GOURAUD_RECORD_LENGTH
+    finally:
+        ctx.buffer.seek(position)
+    return count
+
+
+class TnfsPsxGouraudRecord(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {**super().schema, 'block_description': 'The corner colours of one polygon'}
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        polygon_index = (
+            IntegerBlock(length=2),
+            {'description': 'Index of the polygon in `polygons` of the high-poly model `<car>.POR`'},
+        )
+        colors = (
+            ArrayBlock(child=RGBBlock(), length=4),
+            {
+                'description': "The colours of the corners, in the order of the polygon's vertices (verified: the draw "
+                "routines FUN_80082498 / FUN_80082690 put the polygon's vertices 2 and 3 in the GPU packet's vertices "
+                '3 and 2, FUN_80084944 its colours 2 and 3 alike; a triangle leaves the fourth unused). Textured '
+                '(POLY_GT4): 0x80 draws the texel as it is, more brightens it, less darkens it (the GPU multiplies '
+                'texel and colour / 128, clamped); untextured (POLY_G3 / POLY_G4, the windows): the colour itself'
+            },
+        )
+
+
+class TnfsPsxGouraudColors(DeclarativeCompoundBlock):
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': "Gouraud colours of a car's polygons, `<car>.GRO` in the car archives of the "
+            "Japanese disc Over Drivin' Skyline Memorial (SLPS-01024; the US disc has none). The game "
+            '(SLPS_010.24 FUN_80038cb8 loads it with the car, FUN_80038b40 frees it once both models are set up, '
+            'FUN_80084944 fills the GPU packets of a model) gives a polygon of draw type 16 (POLY_GT4), 15 (POLY_G4) '
+            'or 8 (POLY_G3), the polygons its `oriload` makes Gouraud-shaded (`mapping` bit 0x40 or draw type 10 of '
+            '[OrixPolygon](#orixpolygon)), the colours of the first record of its index; one without a record gets '
+            "its material's `color` on every corner. A record of another polygon is not used (the KHGC211's "
+            'polygon 0). None of these polygons is semi-transparent. Only the high-poly models have such polygons',
+        }
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        records = (
+            ArrayBlock(
+                child=TnfsPsxGouraudRecord(),
+                length=(_gouraud_record_count, 'up to the record of polygon 0xFFFF'),
+            ),
+            {'description': 'The polygons with colours of their own, by polygon index'},
+        )
+        list_end = (
+            IntegerBlock(length=2, value_validator=Eq(GOURAUD_LIST_END)),
+            {'description': 'Polygon index 0xFFFF: the end of the list'},
+        )
+        list_end_colors = (
+            BytesBlock(length=GOURAUD_RECORD_LENGTH - 2),
+            {'description': 'The colours of the end record: zeros'},
+        )
+        crc_footer = (
+            TrailingOptionalBlock(child=PsxCrcFooter(), criteria=(_footer_criteria, 'the file ends with "CRCF"')),
+            {'description': 'CRC footer'},
+        )
+
+    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
+        packed = super().write({**data, 'crc_footer': None}, ctx, name)
+        return with_crc_footer(packed, data.get('crc_footer'))
+
+    def serializer_class(self):
+        from serializers import JsonSerializer
+
+        return JsonSerializer

@@ -189,6 +189,14 @@ Interact through ordinary selectors (e.g. `pg.fill('input[type=number]', '250')`
 "Spline item" fly-to). Print the console log every time: a texture 404 or a backend `Traceback` usually
 shows up there before it shows up in the picture.
 
+- On macOS the same script works headless with the installed Google Chrome (`chromium.launch(channel='chrome',
+  headless=True)`, no SwiftShader flags: WebGL renders on the GPU; `pip install playwright` into a scratch venv, no
+  browser download). The backend started with `run_gui_editor` exits when the page closes: start it again for every
+  run. For a 3D viewer view: open an archive item by clicking its label (`pg.get_by_text('KBNR.POR', exact=True)`),
+  hide the overlays (`app-obj-viewer #controls, app-view-mode-toolbar { display: none }` with `add_style_tag`), set
+  the orbit camera with `ng.getComponent(document.querySelector('app-obj-viewer')).controller.spherical = {phi, theta,
+  radius}` (Z up; a car's front at +y) and screenshot `app-obj-viewer canvas` (confirmed 2026-11-18, Skyline Memorial
+  cars).
 - The container's Node may be older than `frontend/package.json`'s `engines` range; `npm install
   node@24` into a scratch directory and put its `node_modules/.bin` first on `PATH`.
 - Stop the servers with a pattern that can't match your own shell's command line

@@ -116,7 +116,8 @@ def _is_ea_audio_stream(buffer, length) -> bool:
 # performance, because we spawn process per file, and it doesn't need to load all those classes every time
 def _tnfs_saturn_block_class(buffer, file_path: str, length):
     """Block class of a file of the Sega Saturn TNFS port Over Drivin' GT-R, None for another file: the executable
-    `0`, car bundles `*.ALL`, tone banks `*.BIN`, car showcase pictures `*.DAT` and `*.PCX`"""
+    `0`, car bundles `*.ALL`, run-length encoded pictures and tone banks `*.BIN`, car showcase pictures, menu art and
+    sprite banks `*.DAT`, and `*.PCX`"""
     if length is None:
         return None
     name = _file_or_archive_item_name(file_path).upper()
@@ -134,6 +135,11 @@ def _tnfs_saturn_block_class(buffer, file_path: str, length):
 
         if is_tnfs_saturn_car_bundle(_peek(buffer, 1912)):
             return TnfsSaturnCarBundle
+    elif name.endswith('.BIN') and length >= 10 and _peek(buffer, 4) == b'\x04\x08\x00\x00':
+        from resources.eac.tnfs_saturn import TnfsSaturnRlePicture, is_tnfs_saturn_rle_picture
+
+        if is_tnfs_saturn_rle_picture(_peek(buffer, length)):
+            return TnfsSaturnRlePicture
     elif name.endswith('.BIN') and length >= 64:
         from resources.common.audios.saturn_tone_bank import SaturnToneBank, is_saturn_tone_bank
 
@@ -144,6 +150,10 @@ def _tnfs_saturn_block_class(buffer, file_path: str, length):
 
         if is_tnfs_saturn_pcx_list(buffer, length):
             return TnfsSaturnPcxList
+    elif name.endswith('.DAT') and length >= 20 and _peek(buffer, 2) == b'\0\0':
+        from resources.eac.tnfs_saturn import tnfs_saturn_dat_block_class
+
+        return tnfs_saturn_dat_block_class(buffer, length)
     elif name.endswith('.PCX') and _peek(buffer, 1) == b'\x0a':
         from resources.common.bitmaps import PcxImage
 
@@ -231,6 +241,16 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.psx import TnfsPsxHorizonInfo
 
             return TnfsPsxHorizonInfo
+        elif (
+            length is not None
+            and _file_or_archive_item_name(file_path).upper().endswith('.GRO')
+            and length % 14 in (0, 12)
+        ):
+            # Gouraud colours <car>.GRO of the PSX TNFS car archives of the Japanese disc (SLPS-01024): 14-byte records
+            # (a CRC footer of 12 bytes after them)
+            from resources.eac.psx import TnfsPsxGouraudColors
+
+            return TnfsPsxGouraudColors
         elif file_path.lower().endswith('.ini') and _nfs6_car_ini_class(file_path):
             # NFS HP2 PC car spec files Cars/<car>/car.ini, vehicle.ini... and Cars/Cars.ini, Cameras.ini...
             return _nfs6_car_ini_class(file_path)
@@ -416,6 +436,21 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.archives import EaSoundBank
 
             return EaSoundBank
+        elif header_str == 'BXSP':
+            # PSX TNFS sound bank header Z<bank>.VH
+            from resources.eac.psx_audios import TnfsPsxPatchBank
+
+            return TnfsPsxPatchBank
+        elif header_str == 'Bgav':
+            # PSX TNFS sound bank samples Z<bank>.VB
+            from resources.eac.psx_audios import TnfsPsxVagBank
+
+            return TnfsPsxVagBank
+        elif header_str == 'VAGp':
+            # a PlayStation SPU ADPCM sample (ZSFXLEVL.VAG of the Japanese PSX TNFS)
+            from resources.eac.psx_audios import TnfsPsxVagSample
+
+            return TnfsPsxVagSample
         elif header_str == '1SNh':
             from resources.eac.audios import AsfAudio
 
@@ -536,6 +571,11 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
         # TODO Bitmap32Bit1010102
         # elif resource_id == 0x6A:
         #     pass
+        elif header_bytes[:2] == b'\xc0\xfb':
+            # EA's compact BIGF, "C0FB" (not a compression algorithm)
+            from resources.eac.archives import C0fbBlock
+
+            return C0fbBlock
         elif header_bytes[1] == 0xFB:
             from resources.eac.archives import EacCompressedBlock
 

@@ -15,6 +15,8 @@ from .audios import (
     Nfs6Ps2JukeboxSerializer,
     Nfs6Ps2JukeboxTrackSerializer,
     SaturnToneBankSerializer,
+    TnfsPsxVagBankSerializer,
+    TnfsPsxVagSampleSerializer,
 )
 from .bitmaps import (
     ImageSerializer,
@@ -55,8 +57,11 @@ from .maps import (
 from .videos import FfmpegSupportedVideoSerializer
 from .tnfs_saturn import (
     TnfsSaturnCarBundleSerializer,
+    TnfsSaturnFrontendArtSerializer,
     TnfsSaturnGtrExecutableSerializer,
     TnfsSaturnPcxListSerializer,
+    TnfsSaturnRlePictureSerializer,
+    TnfsSaturnSpriteBanksSerializer,
 )
 
 

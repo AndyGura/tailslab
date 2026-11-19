@@ -3,7 +3,9 @@ import { SubscribableGuiComponent } from '../../gui.component';
 import { ImageViewerComponent } from '../../common/image-viewer/image-viewer.component';
 import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
 
+// bits of `vram_x`: stored rotated, or (without the rotated bit; the Japanese disc only) transposed
 const PSX_VRAM_ROTATED = 0x4000;
+const PSX_VRAM_TRANSPOSED = 0x8000;
 const PSX_VRAM_COORDINATE_MASK = 0x3fff;
 
 // A PSX image of an SHPP archive (`PsxImage`): the image as the game shows it, its color model and CLUT
@@ -21,7 +23,7 @@ export class PsxImageBlockUiComponent extends SubscribableGuiComponent {
   get stats(): { label: string; value: string }[] {
     const data = this.resourceData;
     if (!data) return [];
-    const rotated = !!(data.vram_x & PSX_VRAM_ROTATED);
+    const stored = data.vram_x & PSX_VRAM_ROTATED ? 'rotated' : data.vram_x & PSX_VRAM_TRANSPOSED ? 'transposed' : null;
     const colors = data.clut?.colors?.length;
     return [
       { label: 'Color model', value: data.resource_id },
@@ -29,7 +31,7 @@ export class PsxImageBlockUiComponent extends SubscribableGuiComponent {
         label: 'Palette (CLUT)',
         value: colors ? `${colors} colors` : data.resource_id === '16Bit PSX' ? 'none, direct colors' : 'missing',
       },
-      { label: 'Stored', value: rotated ? `rotated, ${data.width}x${data.height}` : 'as shown' },
+      { label: 'Stored', value: stored ? `${stored}, ${data.width}x${data.height}` : 'as shown' },
       { label: 'VRAM', value: `${data.vram_x & PSX_VRAM_COORDINATE_MASK}, ${data.vram_y & PSX_VRAM_COORDINATE_MASK}` },
     ];
   }

@@ -126,7 +126,8 @@ When you do:
   `custom_offset`, `usage` (comma-separated subset of `ui`/`io`/`doc`, default = everywhere).
 - `frontend/src/nfs-three-lib/` (README there) is copied into the nfs-web game as it is: its files import only each
   other and `three`, `@gg-web-engine/core`, `rxjs`, nothing else of the frontend (a part they need is brought into it),
-  and hold no specs (they are tested next to the GUI components using them). It has `TnfsCarMeshController`,
+  and hold no specs (they are tested next to the GUI components using them). It has `TnfsCarMeshController` (and
+  `TnfsSkylineMemorialCarMeshController`, the Japanese PSX cars' Gouraud colours; `createTnfsCarMeshController` picks one),
   `Nfs2CarMeshController`, `FceCarMeshController` (NFS3 / NFS4 paint in the fragment shader, by the paint mask's
   alpha; NFS3 chrome), `Nfs6Ps2CarMeshController` (NFS HP2 PS2 cars), `Nfs6CarMeshController` (NFS HP2 PC
   cars), `scene-sky.ts` (a scene's sky cube and the sun of a gg-web-engine procedural sky, for car shaders lit by the
@@ -193,7 +194,7 @@ When you do:
 - Real game files for broader validation live under the gitignored `games/<game>/` folders (e.g. every
   QFS3-compressed file across nfs1/nfs2/nfs2se/nfs3), beyond the few samples in `test/samples/`.
   `test/resources/test_games_directory.py` round-trips (read → write → compare) every one of them in
-  `cpu_count() // 2` processes, writing `game_files_stats.txt`, `game_files_failures.txt` and
+  `cpu_count() // 2` processes, writing `game_files_stats.txt`, `game_files_failures.txt` (both committed) and
   `game_files_regressions.txt` (gitignored) next to it, then fails if any extension has fewer passed files than in
   the `game_files_stats.txt` committed at git HEAD (committing new stats accepts them as the baseline). Extensions
   without a single read file are left out of the stats. It takes more than 10 minutes, so it's opt-in:
@@ -590,16 +591,20 @@ When you do:
 - `.PSH` = `ShppBlock` (`resources/eac/archives/shpp_block.py`): SHPI header and directory with magic `SHPP` (dir id
   `GIMX`), items `PsxImage` (`resources/eac/psx_bitmaps.py`: id 0x40 / 0x41 / 0x42 = 4 / 8 / 16-bit, rows padded to
   16-bit words, 4-bit low nibble first, `next_offset` to the attached CLUT `PsxClut` 0x23, 4-byte aligned). Bit 0x4000
-  of `vram_x` = stored rotated (PSX loader FUN_80044330): `PsxImageSerializer` turns it back (PIL `ROTATE_270`), so
-  PNGs are as shown. Color 0x0000 is transparent, all others opaque (STP not applied). Also an item of `WwwwBlock`
-  (`Z<track>_PSH.FAM`) and `BigfBlock` (car archives). PNG / folder import is not supported (`reversible` False).
+  of `vram_x` = stored rotated (PSX loader FUN_80044330): `PsxImageSerializer` turns it back (PIL `ROTATE_270`); bit
+  0x8000 without 0x4000 = stored transposed (only the Japanese loader 0x80043b54 knows it, only its `ZDS54B.PSH` uses
+  it): transposed back (PIL `TRANSPOSE`), so PNGs are as shown (`psx_image_shown_size` for UVs). Color 0x0000 is
+  transparent, all others opaque (STP not applied). Also an item of `WwwwBlock` (`Z<track>_PSH.FAM`) and `BigfBlock` /
+  `C0fbBlock` (car archives). PNG / folder import is not supported (`reversible` False).
   GUI: `PsxImageBlockUiComponent` (`frontend/.../editor/eac/psx-image.block-ui/`: the image as shown, its color
-  model, CLUT size, rotation and VRAM position in the viewer toolbar; `resource_id` read-only, no conversion) and
+  model, CLUT size, rotation / transposition and VRAM position in the viewer toolbar; `resource_id` read-only, no
+  conversion) and
   `PsxClutBlockUiComponent` (swatches, a click changes a color keeping its STP bit; black is written 0x8000).
   `frontend/src/app/utils/psx-color.ts` converts like `psx_color_to_rgba`: keep the two the same.
 - Most PSX files end with a 12-byte `CRCF` footer (`PsxCrcFooter`, `resources/eac/psx.py`): CRC-16 (reflected 0x8005,
   init 0xFBEA) of the bytes before it, recomputed on save (`with_crc_footer`). `ShppBlock` reads it as a file of its
-  own and as a BIGF item, not in a FAM (`_in_wwww_archive`): there it stays in the last entry's `post_offset_payload`.
+  own and as a BIGF / C0FB item, not in a FAM (`_in_wwww_archive`): there it stays in the last entry's
+  `post_offset_payload`.
 - `Z<car>.VSM` (every car) / `Z<car>.WSM` (the 8 racers and `TRAFFC`: the car in another color, loaded for racers in
   odd car slots, `tnfs_carobj` 0x80039604; `TRAFFC`'s is identical) = `BigfBlock` of `<car>.pbs`, `<car>.pdn` (QFS3-compressed PC PBS / PDN layouts; traffic and cop cars
   have a 16-byte `HI\r\n` placeholder `.pbs`), `<car>.por` / `<car>l.por` (high / low-poly model, `OrixGeometry`),
@@ -609,17 +614,18 @@ When you do:
   byte-exact.
 - `OrixGeometry` (`resources/eac/geometries/tnfs.py`, magic `ORIX`, version 800): the PSX ORIP. Header 120 bytes
   (ORIP's + count and offset of `polygon_textures`), 16-byte polygons (`draw_type` = GPU primitive, always 12 = textured
-  quad), 24-byte materials (`textures` bit field instead of the colour), then morphs, partitions, fx points, labels,
+  quad in the US files), 24-byte materials (`textures` bit field; `color` at +0x10, 0 in the US files), then morphs, partitions, fx points, labels,
   vertices and vmap as in ORIP (their blocks are shared). Cars (buffer name `.VSM` / `.WSM` / `.POR`) have 32:7
   vertices, props (`Z<track>_POR.FAM`, a `WwwwBlock` item) 32:4. Ends with its own CRC footer in a BIGF item, not in
   a FAM. Most polygons have an image of their own (`J000`..): a material with `per_polygon_textures` owns a run of
   `polygon_textures` (polygon index, PSH image name), other materials give `file_name` to their polygons, `frntires`
-  / `rertires` without one get `tyr4` at run time (`orix_polygon_textures`, as `orisetdefaulmaterialtextures`
-  0x80081e28). UVs are texels of the image as shown (a rotated image has width / height exchanged); without `use_uv`
+  / `rertires` without one get the image of material `tire4` (`tyr4`) at run time (`orix_polygon_textures`, as
+  `orisetdefaulmaterialtextures` 0x80081e28 and the car setup 0x8004ea54). UVs are texels of the image as shown (a rotated image has width / height exchanged); without `use_uv`
   the image covers the quad. All 62 car models and 39 props write back byte-exact.
 - `OrixGeometrySerializer` (subclass of `OripGeometrySerializer`: same mesh names `lbl__<label>__<image>`, partitions
-  in the extras, fx dummies, steering morphs, no normals) takes the PSH after the model in the car archive, or the
-  item of the same index of `Z<track>_PSH.FAM` for a prop, writes its PNGs to `assets/` and every texture as
+  in the extras, fx dummies, steering morphs, no normals) takes the PSH of the model's name in the car archive
+  (`<car>.psh`, any case, `_archive_sibling_id`; else the item after the model), or the item of the same index of
+  `Z<track>_PSH.FAM` for a prop, writes its PNGs to `assets/` and every texture as
   `alpha_mode cutout`. No import (`reversible` False).
 - `car_colors.json` of a car PSH (`ShppArchiveSerializer` for a PSH inside a `.VSM` / `.WSM`,
   `serializers/misc/tnfs_psx_car_colors.py`), keys of the PC one: the PSX game (texture upload 0x8004e72c) takes the
@@ -641,16 +647,89 @@ When you do:
   mirror, 160 px focal length, colour top / gradient above, faded `hrz0` texel below). Converter choice, not the game
   (it draws nothing there): the fade goes to the average color of the ring's bottom line (texel row H - 2 of the 8
   sectors, `bottom_line_average`) instead of black, and everything further down is that average.
+- Sound banks `Z<bank>.VH` + `Z<bank>.VB` (`resources/eac/psx_audios.py`): EA's PSX sound library format, not Sony's
+  VAB. `.VH` = `TnfsPsxPatchBank` ("BXSP", the game's "PatchBank": sample id -> patch table, 24-byte `TnfsPsxPatch`es:
+  `.VB` offsets of the left / right "VAGp", SPU pitch (0x1000 = 44100 Hz), random pitch in cents, channels, volume,
+  pan, bend range, reverb), reversible JSON (`CompleteJsonSerializer`). `.VB` = `TnfsPsxVagBank` ("Bgav") of
+  `TnfsPsxVagSample`s ("VAGp" header + SPU ADPCM, also a file of its own: `ZSFXLEVL.VAG`): a sample runs up to the next
+  "VAGp" header (`leftovers` after its data, never uploaded; `wave_data` cut there when `data_size` runs past it:
+  ZCOLLISN `CarHorn`). All 120 bank files of both discs and `ZSFXLEVL.VAG` write back byte-exact. Verified in
+  SLUS_002.04 (the same library in SLPS_010.24): a voice plays at patch pitch x 2^(((v - 64) x bend x 100 / 64 + random
+  cents) / 1200), v the game's pitch value 0..127 (the engine loops: rpm x 127 / (redline + 2000)), the PC banks' rule;
+  the SPU tops out at pitch 0x4000 (176.4 kHz).
+- `TnfsPsxVagBankSerializer` (folder `Z<bank>.VB/`, needs the `.VH` next to it, any case; without it each sample at its
+  header's rate): a WAV per sample id at pitch x 44100 / 4096 Hz, the samples untouched (nfs-web bends them by
+  `bend_range_semitones` as the PC banks), two-channel patches as stereo WAVs; loops from the ADPCM flags
+  (`decode_spu_sample`: up to and including the first loop end frame; the loop decoded with the filter history of its
+  own end, as the SPU replays it: a plain decode clicks at every loop). Meta: the PC banks' keys (`random_range` = the
+  random pitch in cents, no `priority`) plus `random_volume_range`, `random_pan_range`, `reverb`, `pitch`,
+  `max_playback_rate` (the SPU limit over the WAV's rate) and `name`. Names (`serializers/misc/tnfs_psx_car_sounds.py`,
+  verified in both executables, details in its docstring): car banks `Z<car>` (ids 1, 2, 3, 0x20) and split screen
+  banks `ZS<car>` (1, 2, 3) `engine_on`, `engine_off`, `honk`, `gear`; on the Japanese disc (its executable
+  `SLPS_010.24` next to the bank, else a Japanese car's name) `engine_low`, `engine_mid`, `engine_high`, `gear`: its
+  engine crossfades three rpm layers (no throttle crossfade) and its player car has no horn, the layers' meta carries
+  `volume_by_pitch_value` (the executable's per-car volume tables, 128 values); other banks `0x<id>` (`hex`, the PC
+  banks' names). nfs-web reads these file names and keys: keep them stable.
+
+### Over Drivin' Skyline Memorial (Japanese PSX disc, `games/tnfs_skyline_memorial`, SLPS-01024)
+
+- The Japanese PSX TNFS (Aug 1997, executable `SLPS_010.24`, no Ghidra project in the repos, addresses from a scratch
+  import with the PSX loader; its archive reader is the US one,
+  SLUS_002.04 0x800aee94 / 0x800aef04 / 0x800aef68), preset `nfs-web-assets-tnfs-skyline-memorial`, documented in
+  `resources/TNFS_PSX.md`. 416 of its 578 files are the US disc's. Its cars replace the US ones: KPGC (KPGC110), BCNR
+  (R33, Skyline GT-R BCNR33), KHGC (KHGC211), EHR (HR31), KBNR (R32, Skyline GT-R BNR32), KDR (KDR30), PGC (PGC10),
+  S54B (S54B) and TRAFFC (R390: the Nissan R390, a model of its own, in the Warrior's slot), as `ZSTATS.ENG` names them.
+- Their `Z<car>.VSM` / `Z<car>.WSM` and `SPEECH.VIV` are `C0fbBlock` archives (`resources/eac/archives/__init__.py`, a
+  `BigfBlock` subclass; the loader checks the magic `C0 FB` before the compressed blocks' `xx FB`): u16 BE magic, u16
+  BE header length (= first item offset - 4), u16 BE count, per item u24 BE offset, u24 BE length, NUL-terminated
+  name; items 4-aligned with zero padding (none after the last). NFS5's `GameData/Track/Data/tr<nn>a.viv` are C0FB too.
+  The items are in no particular order (`KHGCL.POR`, `KHGC.PBS`...) and mostly upper case (`KBNR.PBS`, `bcnr.psh`):
+  the game finds them by name, ignoring case, and so does `OrixGeometrySerializer` the PSH of a model. Every item ends
+  with its own CRC footer.
+- `<car>.GRO` (`TnfsPsxGouraudColors`, `resources/eac/psx.py`, exported as JSON): 14-byte records (u16 polygon index of
+  the high-poly model, 4 RGB corner colours in the polygon's vertex order) up to a record of index 0xFFFF. The rule
+  (`orix_gouraud_polygons`, verified in SLPS_010.24): `oriload` FUN_8007f358 gives every polygon with `mapping` bit
+  0x40 or draw type 10 draw type 8 (a triangle: POLY_G3, untextured), 15 (below 12: POLY_G4, untextured) or 16
+  (POLY_GT4); FUN_8007fe30 -> FUN_80084944 fill their packets with the first GRO record of the polygon, else the
+  material's `color` (+0x10, 0x00RRGGBB: the KHGC211's plate black, the BCNR33's polygon 83 blue, the PGC10's bumpers
+  brighter); a record of another polygon is unused; textured: texel x colour / 128 clamped, untextured: the colour.
+  None is semi-transparent (polygon type bits 0x78 never 0x10 / 0x18). Only the high-poly models have such polygons.
+- Export (`OrixGeometrySerializer`, a model with a GRO next to it): the GLB vertex attribute `_PSX_GOURAUD`
+  (`SubMesh.vertex_byte_attributes`, `add_glb_vertex_attributes`: unsigned byte normalized VEC4, three.js
+  `_psx_gouraud` = value / 255), per corner (r, g, b, 255) on the Gouraud polygons and (0x80, 0x80, 0x80, 0) on the
+  others of a mesh with one; meshes without any have none. A vertex is one polygon corner (no vmap slot is shared;
+  `_vertex_values` keys the vertices by their values too). The OBJ cannot hold it: `geometry_extra.json` has
+  `psx_gouraud` (mesh name -> hex, 4 bytes per corner of the triangles three.js OBJLoader makes, in their order) for
+  the GUI's preview (`addPsxGouraudColors` in `orip-geometry.block-ui.component.ts`). The untextured polygons (the
+  windows) keep a `flat_<rrggbb>` material of the mean of their corner colours, for viewers without the colours.
+  Models without a GRO export as before. `TnfsSkylineMemorialCarMeshController` (`nfs-three-lib`, created by
+  `createTnfsCarMeshController` for a model with `_psx_gouraud` on any mesh, the GUI's and nfs-web's factory) draws
+  them in the fragment shader at `#include <color_fragment>`, after the tail light recolour: textured
+  sRGB(texel) x colour x 255 / 128, clamped, untextured the colour, alpha 0 the material's own; materials shared with
+  meshes without the attribute are copied first.
+- Export choices for nfs-web: the tyre images `Tir1`..`Tir4` are exported as `tyr1`..`tyr4`, the names
+  `TnfsCarMeshController` loads (`tnfs_tyre_texture_file_name`: PSH PNGs, GLB images, mesh names; the Saturn export
+  too); a wheel label on a polygon which is no tyre moves to the nearest tyre polygon of its axle
+  (`orix_wheel_labels_on_tyres`: the KDR30's `lt_rear` labels its inner `circ` quad); a PSX image without pixels (the
+  BNR32's `J018`, 0 x 0, CLUT all 0x0000) is a transparent 1 x 1 PNG. Not parsed, as on the US disc: `.LGS` /
+  `.LGT`, the executable.
+- Sound banks (see above): its own car banks `Z<car>` / `ZS<car>` (three engine rpm layers, a gear shift, no horn),
+  `ZCOLLISN` (no cop siren: patch 23 is empty, ids 0x62 / 0x64 gone); its opponent banks `ZO<car>` are the US disc's
+  byte for byte under the Japanese names (`ZOBCNR` = `ZODIABLO`, `ZOKPGC` = `ZOSUPRA`...), `ZCOLLIS0` (named by no
+  executable) and `ZOWAR` too.
 
 ## Over Drivin' GT-R (Sega Saturn TNFS, `games/tnfs_saturn_gtr`, doc `resources/TNFS_SATURN_GTR.md`)
 
 - The Japanese Saturn TNFS port with 8 Nissans; files keep the PC cars' names (SUPRA = PGC10, DIABLO = BCNR33, PORSCHE =
   240ZG, VETTE = KPGC110, TESTA = 300ZX, VIPER = BNR32, NSX = 180SX, RX7 = Silvia). Big-endian (SH-2) everywhere. Blocks:
-  `resources/eac/tnfs_saturn.py` (bundles, executable, picture lists), `TnfsSaturnOrix*` in `geometries/tnfs.py`, the
-  Sega sound driver tone bank in `resources/common/audios/saturn_tone_bank.py`, `PcxImage` in `resources/common/bitmaps`.
+  `resources/eac/tnfs_saturn.py` (bundles, executable, picture lists, menu art), `TnfsSaturnOrix*` in
+  `geometries/tnfs.py`, the Sega sound driver tone bank in `resources/common/audios/saturn_tone_bank.py`, `PcxImage` in
+  `resources/common/bitmaps`.
   The loader picks them in `_tnfs_saturn_block_class` (by name and content; ORIX by version 800 stored big-endian).
-  Big-endian copies of PC layouts are made with `big_endian_copy` (`resources/eac/fields/byte_order.py`). The Saturn
-  executable is not disassembled: descriptions say what the files show ("checked") and keep the PC / PSX meanings.
+  Big-endian copies of PC layouts are made with `big_endian_copy` (`resources/eac/fields/byte_order.py`). The car
+  formats are not traced in the Saturn executable: descriptions say what the files show ("checked") and keep the PC /
+  PSX meanings. The menu art and pictures are traced in it (nfs-web's Ghidra project `decomp/tnfs_saturn_gtr`, auto
+  analysis, addresses in the descriptions).
 - `CARS/<car>.ALL` / `CAR2/<car>.ALL` (`TnfsSaturnCarBundle`, second paint in CAR2): PBS (`TnfsSaturnCarPhysics`, PC
   layout big-endian), two texture banks (high / low-poly: 12-byte entries made of VDP1 command fields, 4-bit pixels high
   nibble first, 16 RGB555 colours per texture; draw mode bit 0x40 (SPD) clear = colour index 0 transparent), then in
@@ -664,8 +743,8 @@ When you do:
   (nfs-web's `TnfsCarMeshController` works unchanged): textures from the car's `CARS/<car>.ALL` bank (high: first,
   low: second), `frntires` / `rertires` get `tyr4`, wheel labels renamed by their polygon's position
   (`tnfs_wheel_labels_by_position`: the PGC10 labels its left front wheel `rt_frnt`). `car_colors.json`
-  (`serializers/misc/tnfs_saturn_car_colors.py`): pure green (green >= 29) colours = brake light marker (5 cars, colour 0
-  of the rear light texture), off / on colours of the PSX game; not verified in the Saturn code.
+  (`serializers/misc/tnfs_saturn_car_colors.py`): pure green (green >= 29) colours drawn = brake light marker (5 cars,
+  colour 0 of the rear light texture; colour 0 of a cut-out texture is not drawn and not counted), off / on colours of the PSX game; not verified in the Saturn code.
 - `0` (`TnfsSaturnGtrExecutable`): model pointers, 9 car AI records (`TnfsSaturnCarAiAndCrashBody`: PDN big-endian, top
   speeds in whole mph 16.16, `gear_count` 16.16) and their pointer table (entry 13 + model id, 21 = Warrior). Exported
   as PC PDN JSON per car slot (`pc_data`: PC raw top speed = mph x 29124); the Warrior's equals PC TRAFFC.PDN.json.
@@ -674,7 +753,25 @@ When you do:
   data only. `SaturnToneBankSerializer` writes the PC car bank names, 16-bit WAVs at 44100 x 2^((note - base note) / 12)
   Hz, loop times from LSA / LEA; priority / random range / unknown_0x16 are the PC banks' values.
 - `UIDATA/*.DAT` (`TnfsSaturnPcxList`: big-endian size + PCX, to `<index>.png`), `UIDATA/<maker>/MAIN.PCX` (`PcxImage`).
-  `DASH/*` and `PARAMETERS/*` are not parsed.
+- Menu art (`tnfs_saturn_dat_block_class`, by content): sprite banks (`TnfsSaturnSpriteBank`: u32 count, 12-byte
+  entries `flags`, `width_8`, `height`, VDP1 `draw_mode` (0x10A0 8 bits per pixel, 0x1080 4 bits high nibble first;
+  SPD clear: index 0 transparent), `pixel_offset` / 8, `palette`; u32 size, pixels). `UIDATA/FRONTEND.DAT`
+  (`TnfsSaturnFrontendArt`, read by 0x060563cc / 0x060568bc): 4 banks, 19 palette-less PCX (u32 size + file), the
+  palette table (`TnfsSaturnPaletteTable`: u32 count, 275 palettes of 256 RGB555 colours + 16), the font
+  (`TnfsSaturnFontBank`: the glyph width is in pixels, rows padded to 8 pixels, heights stored even), the title
+  screen's bank. `UIDATA/SHOWCASE.DAT` (`TnfsSaturnSpriteBanks`): banks to the end, palettes from the sibling
+  FRONTEND.DAT. Sprite palette p = table colours p x 256.. (runtime palette p + 1: the table loads at colour 256;
+  4-bit sprites take the first 16), 0xFFFF = the screen background's palette (exported with palette 0); PCX palettes
+  from the executable's descriptors and screen structs (`TNFS_SATURN_FRONTEND_PCX_PALETTES`, `..._TINTS`: the menu
+  background PCX 16 in several tints). `TnfsSaturnFrontendArtSerializer` writes `<bank>_<index>.png` (banks 0..3, 4 =
+  font glyphs with palette 6, 5 = title screen), `pcx_<index>.png`, `pcx_16_<palette>.png`; the showcase
+  `<bank>_<index>.png`. nfs-web reads these names: keep them stable.
+- `UIDATA/ELOAD/<car>/<n>.BIN`, `ELOAD/LOAD.BIN`, `ECREDITS/0<n>.BIN` (`TnfsSaturnRlePicture`): 0x0408, 0, u32 decoded
+  size, word RLE (i16 n < 0: -n literal RGB555 words; else the next word n + 2 times) of a 320-wide picture, to
+  `<name>.png` (RGB).
+- Not parsed: `DASH/*`, `HORIZON/*.IM`, `TRACKS/*.ALL`, the traffic cars `CARS/<car>` (no extension), `REPLAY/*`, the
+  raw PCM and driver files of `SOUNDS/`, `IP.BIN`, `PARAMETERS/*`; `TGQ/*.TGQ` (movies) go through `AsfAudio` (their
+  `1SNh` sound only).
 
 ## SHPI images (`EacImage`, `resources/eac/bitmaps.py`, all games up to NFS6)
 
@@ -1068,8 +1165,7 @@ When you do:
   leftovers), 0x1c `flags` (bit 0: stereo pair, the next sample is the other channel). 0x15 (`unk3`, 0x80 everywhere)
   is copied to voice+0x14 by DOS and the demo and never read; 0x16 (`unk4`, meta `unknown_0x16`) is read by no binary
   (DOS, demo, SE), probably an authoring transpose.
-- PSX TNFS has its own sound patch format, which the converter does not read: 0x08 base pitch, 0x0e ushort random
-  range in cents (max 1200), 0x13 bend range, 0x17 reverb flag (voices with it get the SPU reverb in tunnels).
+- PSX TNFS banks (`.VH` / `.VB`, same sample ids): "TNFS PlayStation" section.
 
 ## EA sound banks of NFS2-NFS6 (BNKl)
 

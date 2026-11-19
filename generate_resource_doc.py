@@ -14,7 +14,7 @@ from library.read_blocks import (
 from library.read_blocks.strings import LengthPrefixedUtf8Block, UTF8Block
 from library.utils.docs import add_doc_numbers
 from resources import eac, blackbox
-from resources.eac import psx as eac_psx, psx_bitmaps as eac_psx_bitmaps
+from resources.eac import psx as eac_psx, psx_audios as eac_psx_audios, psx_bitmaps as eac_psx_bitmaps
 from resources.eac import tnfs_saturn as eac_tnfs_saturn
 from resources.common import audios as common_audios
 from resources.common import bitmaps as common_bitmaps
@@ -221,12 +221,20 @@ EXPORT_RESOURCES = {
 
 **Z<track>_POR.FAM** track props. {render_type(eac.archives.WwwwBlock())} of {render_type(eac.geometries.OrixGeometry())} items, the textures of each are the item of the same index of `Z<track>_PSH.FAM`. The CRC footer follows its last item
 
-**Z<car>.VSM**, **Z<car>.WSM** car archive. {render_type(eac.archives.BigfBlock())} of the car's files, every one ending with its own CRC footer (counted in the item length): `<car>.pbs` player car physics, {render_type(eac.car_specs.PlayerCarPhysics())}, [compressed](eac_compressions.md) (QFS3; traffic and cop cars have a 16-byte placeholder `HI\\r\\n` + CRC footer instead), `<car>.pdn` car AI and crash body, {render_type(eac.car_specs.CarAiAndCrashBody())}, [compressed](eac_compressions.md), `<car>.por` / `<car>l.por` high-poly / low-poly 3D model, {render_type(eac.geometries.OrixGeometry())}, `<car>.psh` / `<car>l.psh` their textures, {render_type(eac.archives.ShppBlock())} (high-poly: pieces `J000`.., a few named ones like the wheels `tyr1`..`tyr4` and the shadow `shad`; low-poly: `frnt`, `rear`, `side`). Every car has a VSM; the 8 racers and the Warrior (`TRAFFC`) also have a WSM: the same `.pbs` / `.pdn`, the car in another color (red / yellow F512TR, black / purple LDIABL...; the Warrior's is identical), with slightly different models. The game loads the WSM for the racers in odd car slots (`tnfs_carobj` 0x80039604: slot < number of racers and odd), so a second car of the same model (the opponent in a head-to-head race, player 2 in split screen) looks different""",
+**Z<car>.VSM**, **Z<car>.WSM** car archive. {render_type(eac.archives.BigfBlock())} of the car's files, every one ending with its own CRC footer (counted in the item length): `<car>.pbs` player car physics, {render_type(eac.car_specs.PlayerCarPhysics())}, [compressed](eac_compressions.md) (QFS3; traffic and cop cars have a 16-byte placeholder `HI\\r\\n` + CRC footer instead), `<car>.pdn` car AI and crash body, {render_type(eac.car_specs.CarAiAndCrashBody())}, [compressed](eac_compressions.md), `<car>.por` / `<car>l.por` high-poly / low-poly 3D model, {render_type(eac.geometries.OrixGeometry())}, `<car>.psh` / `<car>l.psh` their textures, {render_type(eac.archives.ShppBlock())} (high-poly: pieces `J000`.., a few named ones like the wheels `tyr1`..`tyr4` and the shadow `shad`; low-poly: `frnt`, `rear`, `side`). Every car has a VSM; the 8 racers and the Warrior (`TRAFFC`) also have a WSM: the same `.pbs` / `.pdn`, the car in another color (red / yellow F512TR, black / purple LDIABL...; the Warrior's is identical), with slightly different models. The game loads the WSM for the racers in odd car slots (`tnfs_carobj` 0x80039604: slot < number of racers and odd), so a second car of the same model (the opponent in a head-to-head race, player 2 in split screen) looks different
+
+**Over Drivin' Skyline Memorial**, the Japanese disc (SLPS-01024, executable SLPS_010.24): most files are the US disc's. Its 8 Nissan Skylines and the bonus car in the Warrior's slot (the Nissan R390, a model of its own) replace the US cars: KPGC (KPGC110), BCNR (R33, Skyline GT-R BCNR33), KHGC (KHGC211), EHR (HR31), KBNR (R32, Skyline GT-R BNR32), KDR (KDR30), PGC (PGC10), S54B (S54B), TRAFFC (R390), the names `ZSTATS.ENG` shows. Their car archives `Z<car>.VSM` / `Z<car>.WSM` and **SPEECH.VIV** are {render_type(eac.archives.C0fbBlock())} archives, the items in no particular order, mostly upper case (`KBNR.PBS`, `KBNRL.POR`, `bcnr.psh`), each ending with its own CRC footer, one more item in the car archives: `<car>.GRO` the Gouraud colours of the high-poly model, {render_type(eac_psx.TnfsPsxGouraudColors())}. The high-poly models have Gouraud-shaded polygons (bit 0x40 of `mapping` in [OrixPolygon](#orixpolygon)) and untextured windows, the tyre images are `Tir1`..`Tir4` (exported as `tyr1`..`tyr4`, the US names)
+
+**Z<bank>.VH**, **Z<bank>.VB** sound bank: EA's PlayStation sound library format (not Sony's VAB), the patches {render_type(eac_psx_audios.TnfsPsxPatchBank())} and the samples {render_type(eac_psx_audios.TnfsPsxVagBank())}. Banks: `Z<car>` the player's car (sample ids 1 / 2 engine loops, 3 horn, 0x20 gear shift), `ZS<car>` the car in split screen (1, 2, 3 in one channel), `ZO<car>` the car as an opponent (0x41 horn, 0x43 / 0x45 engine), `ZCOLLISN` (`ZCOLLIS0` another version of it, which no executable names) the collision bank, `ZFRNTEND` the front end. On the Japanese disc 1, 2 and 3 of a car bank are a low, a mid and a high rpm layer of the engine and the player car has no horn; its `ZO<car>` banks are the US disc's (`ZOBCNR` = `ZODIABLO`...). The converter writes a folder per `.VB` with a WAV per sample id of its `.VH` at the rate the game plays it (car banks: `engine_on`, `engine_off`, `honk`, `gear`; the Japanese disc `engine_low`, `engine_mid`, `engine_high`, `gear`; other banks `0x<id>`)
+
+**ZSFXLEVL.VAG** (Japanese disc) a sample of its own, {render_type(eac_psx_audios.TnfsPsxVagSample())} with a CRC footer""",
         'blocks': {
             'Archives': [
                 eac.archives.ShppBlock(),
                 eac.archives.WwwwBlock(),
                 eac.archives.BigfBlock(),
+                eac.archives.C0fbBlock(),
+                eac.archives.C0fbItemDescriptionBlock(),
             ],
             'Physics': [
                 eac.car_specs.PlayerCarPhysics(),
@@ -246,16 +254,24 @@ EXPORT_RESOURCES = {
                 eac_psx_bitmaps.PsxImage(),
                 eac_psx_bitmaps.PsxClut(),
             ],
+            'Sounds': [
+                eac_psx_audios.TnfsPsxPatchBank(),
+                eac_psx_audios.TnfsPsxPatch(),
+                eac_psx_audios.TnfsPsxVagBank(),
+                eac_psx_audios.TnfsPsxVagSample(),
+            ],
             'Misc': [
                 eac_psx.TnfsPsxHorizonInfo(),
                 eac_psx.PsxCrcFooter(),
+                eac_psx.TnfsPsxGouraudColors(),
+                eac_psx.TnfsPsxGouraudRecord(),
             ],
         },
     },
     'tnfs_saturn_gtr': {
         'file_name': 'TNFS_SATURN_GTR.md',
         'title': "Over Drivin' GT-R (Sega Saturn TNFS) file specs",
-        'file_list': f"""The Japanese Sega Saturn port of TNFS with 8 Nissans in place of the 8 cars, which keep the PC cars' file names (SUPRA = Skyline GT-R PGC10, DIABLO = Skyline GT-R BCNR33, PORSCHE = Fairlady Z 240ZG, VETTE = Skyline GT-R KPGC110, TESTA = Fairlady Z 300ZX, VIPER = Skyline GT-R BNR32, NSX = 180SX Type X, RX7 = Silvia K's). Everything is big-endian (SH-2). The folder `games/tnfs_saturn_gtr` holds the car files of the disc and the car models sliced from the executable
+        'file_list': f"""The Japanese Sega Saturn port of TNFS with 8 Nissans in place of the 8 cars, which keep the PC cars' file names (SUPRA = Skyline GT-R PGC10, DIABLO = Skyline GT-R BCNR33, PORSCHE = Fairlady Z 240ZG, VETTE = Skyline GT-R KPGC110, TESTA = Fairlady Z 300ZX, VIPER = Skyline GT-R BNR32, NSX = 180SX Type X, RX7 = Silvia K's). Everything is big-endian (SH-2). The folder `games/tnfs_saturn_gtr` holds the files of the disc (`CDDA/` its CD audio tracks) and the car models sliced from the executable
 
 **0** the executable (loaded at 0x06010000), with the car models and the car AI records. {render_type(eac_tnfs_saturn.TnfsSaturnGtrExecutable())}. The converter writes the car AI records as PC PDN JSON, `<car>.PDN.json` (and `WARRIOR.PDN.json`)
 
@@ -269,7 +285,13 @@ EXPORT_RESOURCES = {
 
 **UIDATA/\\<maker\\>/MAIN.PCX** car card. {render_type(common_bitmaps.PcxImage())}
 
-**DASH/\\*** the race HUD (not parsed). **PARAMETERS/\\*** copies of the physics at the start of the car bundles (not converted)""",
+**UIDATA/FRONTEND.DAT** the menu art: sprite banks, PCX pictures, the palettes, the font. {render_type(eac_tnfs_saturn.TnfsSaturnFrontendArt())}. The converter writes `<bank>_<sprite>.png` (banks 0..3, 4 = the font glyphs, 5 = the title screen), `pcx_<index>.png` and `pcx_16_<palette>.png`
+
+**UIDATA/SHOWCASE.DAT** the car showcase pages' sprites (palettes in FRONTEND.DAT). {render_type(eac_tnfs_saturn.TnfsSaturnSpriteBanks())}. Exported as `<bank>_<sprite>.png`
+
+**UIDATA/ELOAD/\\<car\\>/\\<n\\>.BIN**, **UIDATA/ELOAD/LOAD.BIN**, **UIDATA/ECREDITS/0\\<n\\>.BIN** race loading pictures and credits pages. {render_type(eac_tnfs_saturn.TnfsSaturnRlePicture())}. Exported as `<name>.png`
+
+**DASH/\\***, **HORIZON/\\*.IM**, **TRACKS/\\*.ALL**, the traffic cars **CARS/\\<car\\>** (no extension), **REPLAY/\\***, the other **SOUNDS/\\*** and **IP.BIN** are not parsed. **TGQ/\\*.TGQ** (movies) are read as EA audio streams (`1SNh`): their sound is exported. **PARAMETERS/\\*** copies of the physics at the start of the car bundles (not converted)""",
         'blocks': {
             'Physics': [
                 eac_tnfs_saturn.TnfsSaturnCarPhysics(),
@@ -295,6 +317,14 @@ EXPORT_RESOURCES = {
             'Images': [
                 eac_tnfs_saturn.TnfsSaturnPcxList(),
                 eac_tnfs_saturn.TnfsSaturnPcxListEntry(),
+                eac_tnfs_saturn.TnfsSaturnFrontendArt(),
+                eac_tnfs_saturn.TnfsSaturnSpriteBanks(),
+                eac_tnfs_saturn.TnfsSaturnSpriteBank(),
+                eac_tnfs_saturn.TnfsSaturnSpriteEntry(),
+                eac_tnfs_saturn.TnfsSaturnPaletteTable(),
+                eac_tnfs_saturn.TnfsSaturnFontBank(),
+                eac_tnfs_saturn.TnfsSaturnFontGlyph(),
+                eac_tnfs_saturn.TnfsSaturnRlePicture(),
             ],
             'Audio': [
                 common_audios.SaturnToneBank(),
@@ -760,12 +790,16 @@ EXPORT_RESOURCES = {
 
 **GameData/Track/Sky/\\<track\\>.fsh**, **.txt**, **.bin** the sky of the track of that name (alps.crp: Alps.\\*), checked against the unprotected Porsche.exe: sky maps (`st1a`...: 16x16 ARGB, pixel (column j, row i) is the colour of vertex (i, j) of the sky dome, a 16x16 grid curved down from its centre), layer textures (`cc1a`...: clouds, their UV (j, i) times the scale factors), the horizon bitmap `horz` (cut into cells, one per quad of the 16 around the camera; `hor0`, `hor1`... are copies with other details), `hzcl` (16x2: the horizon quads' top and bottom vertex colours). The **.txt** lists sky levels `BEGIN`..`END` by computer capability (HIGH, MEDIUM, LOW) with `#` comments: capability, sky level type (`MULTINORMAL` or `basic`), "does this layer block the sun", then weather regions A and B (MULTINORMAL: 3 sky maps (ARGB, `none`), 3 X scale factors, 3 Y scale factors, move ratio (0 still, 50 fast, 400 slow), 3 wind speeds (0..10), 3 wind directions (degrees, north 0, east 90), warp speed, warp amount (0..1 of the UV); basic: sky map, sky map alpha (`none`, `noise`, `speed`), texture, X and Y scale factor, move ratio, wind speed, wind direction, warp speed, warp amount), then (MULTINORMAL) 3 textures: "the number of textures determines how many layers you have" (`flat` = an untextured layer, `none` = no layer; layer i is texture i coloured by sky map i). The **.bin**: {render_type(eac.maps.Nfs5SkyBin())}. See `library/utils/nfs5_sky_to_spherical.py`.
 
-**\\*.VIV** archive with some data. {render_type(eac.archives.BigfBlock())}""",
+**\\*.VIV** archive with some data. {render_type(eac.archives.BigfBlock())}
+
+**GameData/Track/Data/tr\\<nn\\>a.viv** archive of `.can` files (not parsed). {render_type(eac.archives.C0fbBlock())}""",
         'blocks': {
             'Archives': [
                 eac.archives.ShpiBlock(),
                 eac.archives.BigfBlock(),
                 eac.archives.BigfItemDescriptionBlock(),
+                eac.archives.C0fbBlock(),
+                eac.archives.C0fbItemDescriptionBlock(),
                 eac.archives.EaSoundBank(),
             ],
             'Maps': [
