@@ -722,11 +722,14 @@ When you do:
 
 - The Japanese Saturn TNFS port with 8 Nissans; files keep the PC cars' names (SUPRA = PGC10, DIABLO = BCNR33, PORSCHE =
   240ZG, VETTE = KPGC110, TESTA = 300ZX, VIPER = BNR32, NSX = 180SX, RX7 = Silvia). Big-endian (SH-2) everywhere. Blocks:
-  `resources/eac/tnfs_saturn.py` (bundles, executable, picture lists), `TnfsSaturnOrix*` in `geometries/tnfs.py`, the
-  Sega sound driver tone bank in `resources/common/audios/saturn_tone_bank.py`, `PcxImage` in `resources/common/bitmaps`.
+  `resources/eac/tnfs_saturn.py` (bundles, executable, picture lists, menu art), `TnfsSaturnOrix*` in
+  `geometries/tnfs.py`, the Sega sound driver tone bank in `resources/common/audios/saturn_tone_bank.py`, `PcxImage` in
+  `resources/common/bitmaps`.
   The loader picks them in `_tnfs_saturn_block_class` (by name and content; ORIX by version 800 stored big-endian).
-  Big-endian copies of PC layouts are made with `big_endian_copy` (`resources/eac/fields/byte_order.py`). The Saturn
-  executable is not disassembled: descriptions say what the files show ("checked") and keep the PC / PSX meanings.
+  Big-endian copies of PC layouts are made with `big_endian_copy` (`resources/eac/fields/byte_order.py`). The car
+  formats are not traced in the Saturn executable: descriptions say what the files show ("checked") and keep the PC /
+  PSX meanings. The menu art and pictures are traced in it (nfs-web's Ghidra project `decomp/tnfs_saturn_gtr`, auto
+  analysis, addresses in the descriptions).
 - `CARS/<car>.ALL` / `CAR2/<car>.ALL` (`TnfsSaturnCarBundle`, second paint in CAR2): PBS (`TnfsSaturnCarPhysics`, PC
   layout big-endian), two texture banks (high / low-poly: 12-byte entries made of VDP1 command fields, 4-bit pixels high
   nibble first, 16 RGB555 colours per texture; draw mode bit 0x40 (SPD) clear = colour index 0 transparent), then in
@@ -740,8 +743,8 @@ When you do:
   (nfs-web's `TnfsCarMeshController` works unchanged): textures from the car's `CARS/<car>.ALL` bank (high: first,
   low: second), `frntires` / `rertires` get `tyr4`, wheel labels renamed by their polygon's position
   (`tnfs_wheel_labels_by_position`: the PGC10 labels its left front wheel `rt_frnt`). `car_colors.json`
-  (`serializers/misc/tnfs_saturn_car_colors.py`): pure green (green >= 29) colours = brake light marker (5 cars, colour 0
-  of the rear light texture), off / on colours of the PSX game; not verified in the Saturn code.
+  (`serializers/misc/tnfs_saturn_car_colors.py`): pure green (green >= 29) colours drawn = brake light marker (5 cars,
+  colour 0 of the rear light texture; colour 0 of a cut-out texture is not drawn and not counted), off / on colours of the PSX game; not verified in the Saturn code.
 - `0` (`TnfsSaturnGtrExecutable`): model pointers, 9 car AI records (`TnfsSaturnCarAiAndCrashBody`: PDN big-endian, top
   speeds in whole mph 16.16, `gear_count` 16.16) and their pointer table (entry 13 + model id, 21 = Warrior). Exported
   as PC PDN JSON per car slot (`pc_data`: PC raw top speed = mph x 29124); the Warrior's equals PC TRAFFC.PDN.json.
@@ -750,7 +753,25 @@ When you do:
   data only. `SaturnToneBankSerializer` writes the PC car bank names, 16-bit WAVs at 44100 x 2^((note - base note) / 12)
   Hz, loop times from LSA / LEA; priority / random range / unknown_0x16 are the PC banks' values.
 - `UIDATA/*.DAT` (`TnfsSaturnPcxList`: big-endian size + PCX, to `<index>.png`), `UIDATA/<maker>/MAIN.PCX` (`PcxImage`).
-  `DASH/*` and `PARAMETERS/*` are not parsed.
+- Menu art (`tnfs_saturn_dat_block_class`, by content): sprite banks (`TnfsSaturnSpriteBank`: u32 count, 12-byte
+  entries `flags`, `width_8`, `height`, VDP1 `draw_mode` (0x10A0 8 bits per pixel, 0x1080 4 bits high nibble first;
+  SPD clear: index 0 transparent), `pixel_offset` / 8, `palette`; u32 size, pixels). `UIDATA/FRONTEND.DAT`
+  (`TnfsSaturnFrontendArt`, read by 0x060563cc / 0x060568bc): 4 banks, 19 palette-less PCX (u32 size + file), the
+  palette table (`TnfsSaturnPaletteTable`: u32 count, 275 palettes of 256 RGB555 colours + 16), the font
+  (`TnfsSaturnFontBank`: the glyph width is in pixels, rows padded to 8 pixels, heights stored even), the title
+  screen's bank. `UIDATA/SHOWCASE.DAT` (`TnfsSaturnSpriteBanks`): banks to the end, palettes from the sibling
+  FRONTEND.DAT. Sprite palette p = table colours p x 256.. (runtime palette p + 1: the table loads at colour 256;
+  4-bit sprites take the first 16), 0xFFFF = the screen background's palette (exported with palette 0); PCX palettes
+  from the executable's descriptors and screen structs (`TNFS_SATURN_FRONTEND_PCX_PALETTES`, `..._TINTS`: the menu
+  background PCX 16 in several tints). `TnfsSaturnFrontendArtSerializer` writes `<bank>_<index>.png` (banks 0..3, 4 =
+  font glyphs with palette 6, 5 = title screen), `pcx_<index>.png`, `pcx_16_<palette>.png`; the showcase
+  `<bank>_<index>.png`. nfs-web reads these names: keep them stable.
+- `UIDATA/ELOAD/<car>/<n>.BIN`, `ELOAD/LOAD.BIN`, `ECREDITS/0<n>.BIN` (`TnfsSaturnRlePicture`): 0x0408, 0, u32 decoded
+  size, word RLE (i16 n < 0: -n literal RGB555 words; else the next word n + 2 times) of a 320-wide picture, to
+  `<name>.png` (RGB).
+- Not parsed: `DASH/*`, `HORIZON/*.IM`, `TRACKS/*.ALL`, the traffic cars `CARS/<car>` (no extension), `REPLAY/*`, the
+  raw PCM and driver files of `SOUNDS/`, `IP.BIN`, `PARAMETERS/*`; `TGQ/*.TGQ` (movies) go through `AsfAudio` (their
+  `1SNh` sound only).
 
 ## SHPI images (`EacImage`, `resources/eac/bitmaps.py`, all games up to NFS6)
 

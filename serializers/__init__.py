@@ -57,8 +57,11 @@ from .maps import (
 from .videos import FfmpegSupportedVideoSerializer
 from .tnfs_saturn import (
     TnfsSaturnCarBundleSerializer,
+    TnfsSaturnFrontendArtSerializer,
     TnfsSaturnGtrExecutableSerializer,
     TnfsSaturnPcxListSerializer,
+    TnfsSaturnRlePictureSerializer,
+    TnfsSaturnSpriteBanksSerializer,
 )
 
 

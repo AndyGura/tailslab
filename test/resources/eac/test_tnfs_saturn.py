@@ -17,21 +17,40 @@ from resources.eac.car_specs import CarAiAndCrashBody, PlayerCarPhysics
 from resources.eac.fields.byte_order import big_endian_copy
 from resources.eac.geometries import TnfsSaturnOrixGeometry
 from resources.eac.tnfs_saturn import (
+    TNFS_SATURN_FONT_PALETTE,
+    TNFS_SATURN_FRONTEND_PCX_PALETTES,
     TNFS_SATURN_GTR_CAR_AI_OFFSET,
     TNFS_SATURN_GTR_CAR_AI_POINTERS_OFFSET,
     TNFS_SATURN_GTR_LOAD_ADDRESS,
+    TNFS_SATURN_SCREEN_PALETTE,
     TnfsSaturnCarAiAndCrashBody,
     TnfsSaturnCarBundle,
+    TnfsSaturnFrontendArt,
     TnfsSaturnPcxList,
+    TnfsSaturnRlePicture,
+    TnfsSaturnSpriteBanks,
     is_tnfs_saturn_gtr_executable,
+    is_tnfs_saturn_rle_picture,
+    saturn_color_to_rgba,
     tnfs_saturn_gtr_car_ai_records,
+    tnfs_saturn_palette_colors,
+    tnfs_saturn_rle_picture_image,
     tnfs_saturn_rle_pixels,
+    tnfs_saturn_sprite_image,
+    tnfs_saturn_sprite_pixels,
     tnfs_saturn_texture_image,
     tnfs_saturn_texture_name,
 )
 from serializers.audios import SaturnToneBankSerializer, saturn_tone_stereo_pair
 from serializers.geometries import TnfsSaturnOrixGeometrySerializer, tnfs_wheel_labels_by_position
-from serializers.tnfs_saturn import export_tnfs_saturn_texture_bank, tnfs_saturn_texture_file_name
+from serializers.tnfs_saturn import (
+    TnfsSaturnFrontendArtSerializer,
+    TnfsSaturnRlePictureSerializer,
+    TnfsSaturnSpriteBanksSerializer,
+    export_tnfs_saturn_texture_bank,
+    tnfs_saturn_bank_textures,
+    tnfs_saturn_texture_file_name,
+)
 
 SAMPLES = os.path.join(os.path.dirname(__file__), '..', '..', 'samples', 'tnfs_saturn_gtr')
 BUNDLE = os.path.join(SAMPLES, 'CARS', 'VIPER.ALL')
@@ -262,3 +281,199 @@ class TestTnfsSaturnPcx(unittest.TestCase):
         data = block.unpack_from_bytes(raw)
         self.assertEqual([x['pcx'] for x in data['pictures']], pictures)
         self.assertEqual(block.pack(data), raw)
+
+
+def _rgba(color):
+    rgba = saturn_color_to_rgba(color)
+    return (rgba >> 24) & 0xFF, (rgba >> 16) & 0xFF, (rgba >> 8) & 0xFF, 0xFF
+
+
+class TestTnfsSaturnTextureBankCarColors(unittest.TestCase):
+    @staticmethod
+    def _bank(draw_mode):
+        # one 8x2 texture, colour 0 pure green (the brake light marker colour), pixels of colours 0 and 1
+        return {
+            'textures': [
+                {
+                    'name_start': 'J0',
+                    'width_8': 1,
+                    'height': 2,
+                    'draw_mode': draw_mode,
+                    'pixel_offset': 0,
+                    'name_end': '00',
+                }
+            ],
+            'pixels': bytes([0x01] * 8),
+            'colors': [0x83E0, 0x801F] + [0x8000] * 14,
+        }
+
+    def test_key_colour_of_a_cut_out_texture_is_no_brake_light(self):
+        # drawn (0x10C8): colour 0 is the marker; cut-out (0x1088): colour 0 is a key colour, not drawn
+        self.assertEqual(tnfs_saturn_bank_textures(self._bank(0x10C8))['J000'][2], {0, 1})
+        self.assertEqual(tnfs_saturn_bank_textures(self._bank(0x1088))['J000'][2], {1})
+        with tempfile.TemporaryDirectory() as tmp:
+            export_tnfs_saturn_texture_bank(self._bank(0x10C8), os.path.join(tmp, 'drawn'))
+            export_tnfs_saturn_texture_bank(self._bank(0x1088), os.path.join(tmp, 'cut_out'))
+            self.assertTrue(os.path.isfile(os.path.join(tmp, 'drawn', 'car_colors.json')))
+            self.assertFalse(os.path.isfile(os.path.join(tmp, 'cut_out', 'car_colors.json')))
+
+
+def _sprite_entry(width, height, draw_mode, pixel_offset, palette, flags=0x8000):
+    return struct.pack('>6H', flags, width, height, draw_mode, pixel_offset, palette)
+
+
+def _sprite_bank(entries, pixels):
+    return struct.pack('>I', len(entries)) + b''.join(entries) + struct.pack('>I', len(pixels)) + pixels
+
+
+# palette p of the synthetic palette table: colour i = (p * 7 + i) & 0x7FFF
+def _palette_color(p, i):
+    return (p * 7 + i) & 0x7FFF
+
+
+def _palette_table(palettes=276, extra=16):
+    colors = [_palette_color(p, i) for p in range(palettes) for i in range(256)]
+    colors += [_palette_color(palettes, i) for i in range(extra)]
+    return struct.pack('>I', len(colors)) + struct.pack(f'>{len(colors)}H', *colors)
+
+
+def _pcx(width, height, value):
+    image = Image.new('L', (width, height), value)
+    image.putpixel((0, 0), 0)
+    buffer = BytesIO()
+    image.save(buffer, format='PCX')
+    return buffer.getvalue()
+
+
+# bank: an 8x2 8-bit sprite of palette 3 (pixels 0..15) and an 8x2 4-bit sprite without a palette sharing them
+SPRITES = _sprite_bank(
+    [_sprite_entry(1, 2, 0x10A0, 0, 3), _sprite_entry(1, 2, 0x1080, 0, 0xFFFF)],
+    bytes(range(16)),
+)
+# font: a glyph 5 pixels wide, 3 high: rows of 8 pixels, 4 rows stored (the height rounded up to even)
+FONT = _sprite_bank([_sprite_entry(5, 3, 0x1080, 0, 0)], bytes([0x12, 0x34, 0x56, 0x78] * 4))
+
+
+def _frontend_art():
+    pictures = b''.join(len(x).to_bytes(4, 'big') + x for x in [_pcx(8, 4, 5 + i) for i in range(19)])
+    return SPRITES * 4 + pictures + _palette_table() + FONT + SPRITES
+
+
+def _rle_picture(colors, runs):
+    """`runs`: (literal, count) pairs over `colors` in order"""
+    out = bytearray(struct.pack('>HHI', 0x0408, 0, 2 * len(colors)))
+    pos = 0
+    for literal, count in runs:
+        if literal:
+            out += struct.pack('>h', -count) + struct.pack(f'>{count}H', *colors[pos : pos + count])
+        else:
+            out += struct.pack('>hH', count - 2, colors[pos])
+        pos += count
+    assert pos == len(colors)
+    return bytes(out)
+
+
+class TestTnfsSaturnMenuArt(unittest.TestCase):
+    def _write(self, folder, name, raw):
+        path = os.path.join(folder, name)
+        with open(path, 'wb') as f:
+            f.write(raw)
+        return path
+
+    def test_detected_and_written_back(self):
+        frontend, showcase = _frontend_art(), SPRITES * 3
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIs(_probe(self._write(tmp, 'FRONTEND.DAT', frontend)), TnfsSaturnFrontendArt)
+            self.assertIs(_probe(self._write(tmp, 'SHOWCASE.DAT', showcase)), TnfsSaturnSpriteBanks)
+        for block, raw in ((TnfsSaturnFrontendArt(), frontend), (TnfsSaturnSpriteBanks(), showcase)):
+            self.assertEqual(block.pack(block.unpack_from_bytes(raw)), raw)
+
+    def test_palette_table(self):
+        data = TnfsSaturnFrontendArt().unpack_from_bytes(_frontend_art())
+        table = data['palettes']
+        self.assertEqual((len(table['palettes']), len(table['extra_colors'])), (276, 16))
+        self.assertEqual(tnfs_saturn_palette_colors(table, 60)[5], _palette_color(60, 5))
+        self.assertEqual(tnfs_saturn_palette_colors(table, 276), [_palette_color(276, i) for i in range(16)])
+        self.assertEqual(data['font']['glyphs'][0]['width'], 5)
+        self.assertEqual(len(data['pictures']), 19)
+
+    def test_sprites(self):
+        bank = TnfsSaturnSpriteBanks().unpack_from_bytes(SPRITES)['sprite_banks'][0]
+        colors = [_palette_color(3, i) for i in range(256)]
+        image = tnfs_saturn_sprite_image(bank, 0, colors)
+        self.assertEqual(image.size, (8, 2))
+        # 8 bits: one byte per pixel, colour 0 transparent (no SPD)
+        self.assertEqual(image.getpixel((0, 0))[3], 0)
+        self.assertEqual(image.getpixel((5, 1)), _rgba(_palette_color(3, 13)))
+        # 4 bits, the high nibble first: byte 1 = pixels 0 and 1, the first 16 colours of the palette
+        width, height, indices = tnfs_saturn_sprite_pixels(bank, 1)
+        self.assertEqual((width, height), (8, 2))
+        self.assertEqual(indices[:4], [0, 0, 0, 1])
+        self.assertEqual(tnfs_saturn_sprite_image(bank, 1, colors).getpixel((3, 0)), _rgba(_palette_color(3, 1)))
+
+    def test_font_glyph(self):
+        font = TnfsSaturnFrontendArt().unpack_from_bytes(_frontend_art())['font']
+        width, height, indices = tnfs_saturn_sprite_pixels(font, 0)
+        self.assertEqual((width, height), (5, 3))
+        # rows of 8 pixels cut to 5
+        self.assertEqual(indices[:5], [1, 2, 3, 4, 5])
+        self.assertEqual(indices[5:10], [1, 2, 3, 4, 5])
+
+    def test_export(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            frontend_path = self._write(tmp, 'FRONTEND.DAT', _frontend_art())
+            showcase_path = self._write(tmp, 'SHOWCASE.DAT', SPRITES)
+            name, block, data = require_file(frontend_path, lazy=False)
+            out = os.path.join(tmp, 'out')
+            files = TnfsSaturnFrontendArtSerializer().serialize(data, out, id=name, block=block)
+            names = {os.path.basename(x) for x in files}
+            for expected in ('0_0.png', '3_1.png', '4_0.png', '5_1.png', 'pcx_0.png', 'pcx_18.png', 'pcx_16_55.png'):
+                self.assertIn(expected, names)
+            self.assertEqual(len(files), 4 * 2 + 1 + 2 + 19 + 2)
+            # the sprite without a palette takes the screen palette, the glyph the font palette, the PCX its own
+            sprite = Image.open(os.path.join(out, '0_1.png'))
+            self.assertEqual(sprite.getpixel((3, 0)), _rgba(_palette_color(TNFS_SATURN_SCREEN_PALETTE, 1)))
+            glyph = Image.open(os.path.join(out, '4_0.png'))
+            self.assertEqual(glyph.size, (5, 3))
+            self.assertEqual(glyph.getpixel((0, 0)), _rgba(_palette_color(TNFS_SATURN_FONT_PALETTE, 1)))
+            pcx = Image.open(os.path.join(out, 'pcx_1.png'))
+            self.assertEqual(pcx.getpixel((0, 0))[3], 0)
+            self.assertEqual(pcx.getpixel((1, 0)), _rgba(_palette_color(TNFS_SATURN_FRONTEND_PCX_PALETTES[1], 6)))
+            # SHOWCASE.DAT takes the palettes of FRONTEND.DAT next to it
+            name, block, data = require_file(showcase_path, lazy=False)
+            files = TnfsSaturnSpriteBanksSerializer().serialize(
+                data, os.path.join(tmp, 'showcase'), id=name, block=block
+            )
+            self.assertEqual(sorted(os.path.basename(x) for x in files), ['0_0.png', '0_1.png'])
+
+
+class TestTnfsSaturnRlePicture(unittest.TestCase):
+    COLORS = [0x1F] * 300 + list(range(0x400, 0x400 + 20)) + [0x7C00] * 320
+
+    def test_runs(self):
+        raw = _rle_picture(self.COLORS, [(False, 300), (True, 20), (False, 320)])
+        self.assertTrue(is_tnfs_saturn_rle_picture(raw))
+        # a byte more or a run less: not a picture of that size
+        self.assertFalse(is_tnfs_saturn_rle_picture(raw + b'\0\0'))
+        self.assertFalse(is_tnfs_saturn_rle_picture(raw[:-4]))
+        block = TnfsSaturnRlePicture()
+        data = block.unpack_from_bytes(raw)
+        self.assertEqual(block.pack(data), raw)
+        image = tnfs_saturn_rle_picture_image(data)
+        self.assertEqual(image.size, (320, 2))
+        self.assertEqual(image.getpixel((299, 0)), (255, 0, 0))
+        self.assertEqual(image.getpixel((300, 0)), _rgba(0x400)[:3])
+        self.assertEqual(image.getpixel((319, 1)), (0, 0, 255))
+
+    def test_detected_and_exported(self):
+        raw = _rle_picture(self.COLORS, [(True, 2), (False, 298), (True, 20), (False, 320)])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, '1.BIN')
+            with open(path, 'wb') as f:
+                f.write(raw)
+            self.assertIs(_probe(path), TnfsSaturnRlePicture)
+            name, block, data = require_file(path, lazy=False)
+            files = TnfsSaturnRlePictureSerializer().serialize(
+                data, os.path.join(tmp, 'out', '1.BIN'), id=name, block=block
+            )
+            self.assertEqual([os.path.basename(x) for x in files], ['1.BIN.png'])

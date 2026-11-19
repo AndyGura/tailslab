@@ -271,7 +271,7 @@ EXPORT_RESOURCES = {
     'tnfs_saturn_gtr': {
         'file_name': 'TNFS_SATURN_GTR.md',
         'title': "Over Drivin' GT-R (Sega Saturn TNFS) file specs",
-        'file_list': f"""The Japanese Sega Saturn port of TNFS with 8 Nissans in place of the 8 cars, which keep the PC cars' file names (SUPRA = Skyline GT-R PGC10, DIABLO = Skyline GT-R BCNR33, PORSCHE = Fairlady Z 240ZG, VETTE = Skyline GT-R KPGC110, TESTA = Fairlady Z 300ZX, VIPER = Skyline GT-R BNR32, NSX = 180SX Type X, RX7 = Silvia K's). Everything is big-endian (SH-2). The folder `games/tnfs_saturn_gtr` holds the car files of the disc and the car models sliced from the executable
+        'file_list': f"""The Japanese Sega Saturn port of TNFS with 8 Nissans in place of the 8 cars, which keep the PC cars' file names (SUPRA = Skyline GT-R PGC10, DIABLO = Skyline GT-R BCNR33, PORSCHE = Fairlady Z 240ZG, VETTE = Skyline GT-R KPGC110, TESTA = Fairlady Z 300ZX, VIPER = Skyline GT-R BNR32, NSX = 180SX Type X, RX7 = Silvia K's). Everything is big-endian (SH-2). The folder `games/tnfs_saturn_gtr` holds the files of the disc (`CDDA/` its CD audio tracks) and the car models sliced from the executable
 
 **0** the executable (loaded at 0x06010000), with the car models and the car AI records. {render_type(eac_tnfs_saturn.TnfsSaturnGtrExecutable())}. The converter writes the car AI records as PC PDN JSON, `<car>.PDN.json` (and `WARRIOR.PDN.json`)
 
@@ -285,7 +285,13 @@ EXPORT_RESOURCES = {
 
 **UIDATA/\\<maker\\>/MAIN.PCX** car card. {render_type(common_bitmaps.PcxImage())}
 
-**DASH/\\*** the race HUD (not parsed). **PARAMETERS/\\*** copies of the physics at the start of the car bundles (not converted)""",
+**UIDATA/FRONTEND.DAT** the menu art: sprite banks, PCX pictures, the palettes, the font. {render_type(eac_tnfs_saturn.TnfsSaturnFrontendArt())}. The converter writes `<bank>_<sprite>.png` (banks 0..3, 4 = the font glyphs, 5 = the title screen), `pcx_<index>.png` and `pcx_16_<palette>.png`
+
+**UIDATA/SHOWCASE.DAT** the car showcase pages' sprites (palettes in FRONTEND.DAT). {render_type(eac_tnfs_saturn.TnfsSaturnSpriteBanks())}. Exported as `<bank>_<sprite>.png`
+
+**UIDATA/ELOAD/\\<car\\>/\\<n\\>.BIN**, **UIDATA/ELOAD/LOAD.BIN**, **UIDATA/ECREDITS/0\\<n\\>.BIN** race loading pictures and credits pages. {render_type(eac_tnfs_saturn.TnfsSaturnRlePicture())}. Exported as `<name>.png`
+
+**DASH/\\***, **HORIZON/\\*.IM**, **TRACKS/\\*.ALL**, the traffic cars **CARS/\\<car\\>** (no extension), **REPLAY/\\***, the other **SOUNDS/\\*** and **IP.BIN** are not parsed. **TGQ/\\*.TGQ** (movies) are read as EA audio streams (`1SNh`): their sound is exported. **PARAMETERS/\\*** copies of the physics at the start of the car bundles (not converted)""",
         'blocks': {
             'Physics': [
                 eac_tnfs_saturn.TnfsSaturnCarPhysics(),
@@ -311,6 +317,14 @@ EXPORT_RESOURCES = {
             'Images': [
                 eac_tnfs_saturn.TnfsSaturnPcxList(),
                 eac_tnfs_saturn.TnfsSaturnPcxListEntry(),
+                eac_tnfs_saturn.TnfsSaturnFrontendArt(),
+                eac_tnfs_saturn.TnfsSaturnSpriteBanks(),
+                eac_tnfs_saturn.TnfsSaturnSpriteBank(),
+                eac_tnfs_saturn.TnfsSaturnSpriteEntry(),
+                eac_tnfs_saturn.TnfsSaturnPaletteTable(),
+                eac_tnfs_saturn.TnfsSaturnFontBank(),
+                eac_tnfs_saturn.TnfsSaturnFontGlyph(),
+                eac_tnfs_saturn.TnfsSaturnRlePicture(),
             ],
             'Audio': [
                 common_audios.SaturnToneBank(),
