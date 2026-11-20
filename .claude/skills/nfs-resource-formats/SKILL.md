@@ -37,6 +37,11 @@ new parsing primitives. Skim the cheat-sheet below before reaching for `read-blo
 - `BytesBlock(length, allow_negative_length=False)` — raw bytes; `length` may be an int, a
   `lambda ctx: ...`, or `(lambda ctx: ..., "doc string")` to control what `size_doc_str` shows.
   `Padding(to, is_global=False)` — `BytesBlock` subclass that pads up to an absolute/local offset.
+- A new leaf storing a value as an integer (angle, scaled number, code) subclasses `IntegerBlock` and
+  overrides `from_raw(raw)` / `to_raw(value)` (see `resources/eac/fields/numbers.py`), not `read` /
+  `write`: records made only of integer / float leaves (nested records and int-length arrays of them
+  included, no value validator or programmatic value inside) are then read and written with one
+  `struct` call per record, several times faster (skill `read-block-framework`, struct records).
 
 **Containers**
 - `CompoundBlock(fields=[(name, block, extras), ...])` / `DeclarativeCompoundBlock` (fields declared
@@ -176,6 +181,8 @@ When the on-disk representation is awkward (e.g. packed color bitness, indexed r
 GUI's live/unsaved-edits state — mutating it directly corrupts that), transform the copy
 (`_internal_to_native`), then `super().write(copied, ...)`. See `EacImage`/`EacPalette` in
 `resources/eac/bitmaps.py` for the full pattern, including per-color-format conversion tables.
+Such a block is read and written field by field: keep the overrides off small records repeated
+thousands of times (vertices, polygons), or they lose the struct path.
 
 If a field's native bytes are actually a *concatenation of several same-format chunks of differing
 size* (e.g. `EacImage.mipmaps`: w/2×h/2, w/4×h/4, ..., 1×1 bitmaps back to back), don't feed the

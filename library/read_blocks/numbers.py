@@ -1,9 +1,11 @@
 import struct
-from typing import Dict, Literal, List, Tuple
+from functools import cached_property
+from typing import Dict, Literal, List, Tuple, Optional
 
 from library.context import ReadContext, WriteContext
 from library.exceptions import EndOfBufferException, DataIntegrityException, IntegerOutOfRangeException
 from library.read_blocks.basic import DataBlock
+from library.read_blocks.struct_record import INTEGER_STRUCT_CODES, struct_byte_order
 
 
 class IntegerBlock(DataBlock):
@@ -38,27 +40,63 @@ class IntegerBlock(DataBlock):
             return self.value_validator.new_data()
         return 0
 
+    # Value of the stored integer: subclasses storing another value as an integer (fixed point numbers, enums, angles)
+    # override `from_raw` / `to_raw` instead of `read` / `write`, so records of them are read and written with `struct`
+    def from_raw(self, raw: int):
+        return raw
+
+    # The integer stored for a value
+    def to_raw(self, value) -> int:
+        return value
+
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
         raw = ctx.buffer.read(self.length)
         if len(raw) < self.length:
             raise EndOfBufferException(ctx=ctx)
-        return int.from_bytes(raw, byteorder=self.byte_order, signed=self.is_signed)
+        return self.from_raw(int.from_bytes(raw, byteorder=self.byte_order, signed=self.is_signed))
 
     def estimate_packed_size(self, data, ctx: WriteContext = None):
         return self.length
 
     def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
+        raw = self.to_raw(data)
         try:
-            return data.to_bytes(self.length, byteorder=self.byte_order, signed=self.is_signed).ljust(
-                self.length, b'\0'
-            )
+            return raw.to_bytes(self.length, byteorder=self.byte_order, signed=self.is_signed).ljust(self.length, b'\0')
         except OverflowError:
             schema = self.schema
             raise IntegerOutOfRangeException(
                 ctx=ctx,
-                message=f'{name + " = " if name else ""}{data} does not fit {schema["block_description"]} '
+                message=f'{name + " = " if name else ""}{raw} does not fit {schema["block_description"]} '
                 f'({schema["min_value"]}..{schema["max_value"]})',
             )
+
+    @cached_property
+    def fixed_size(self) -> Optional[int]:
+        return self.length if type(self).estimate_packed_size is IntegerBlock.estimate_packed_size else None
+
+    @cached_property
+    def struct_format(self) -> Optional[Tuple[str, str]]:
+        code = INTEGER_STRUCT_CODES.get((self.length, self.is_signed))
+        cls = type(self)
+        if (
+            code is None
+            or cls.read is not IntegerBlock.read
+            or cls.write is not IntegerBlock.write
+            or self.value_validator is not None
+            or self.programmatic_value is not None
+        ):
+            return None
+        return struct_byte_order(self.byte_order) if self.length > 1 else '', code
+
+    @cached_property
+    def struct_raw(self) -> bool:
+        return type(self).from_raw is IntegerBlock.from_raw and type(self).to_raw is IntegerBlock.to_raw
+
+    def from_struct(self, values: tuple, index: int):
+        return self.from_raw(values[index]), index + 1
+
+    def to_struct(self, data, values: list):
+        values.append(self.to_raw(data))
 
 
 class FixedPointBlock(IntegerBlock):
@@ -84,18 +122,17 @@ class FixedPointBlock(IntegerBlock):
         super().__init__(**kwargs)
         self.fraction_bits = fraction_bits
 
-    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
-        return float(super().read(ctx, name, read_bytes_amount) / (1 << self.fraction_bits))
+    def from_raw(self, raw: int):
+        return float(raw / (1 << self.fraction_bits))
 
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        data = max(
+    def to_raw(self, value) -> int:
+        return max(
             min(
-                round(data * (1 << self.fraction_bits)),
+                round(value * (1 << self.fraction_bits)),
                 ((1 << (self.length * 8 - 1)) if self.is_signed else (1 << (self.length * 8))) - 1,
             ),
             -(1 << (self.length * 8 - 1)) if self.is_signed else 0,
         )
-        return super().write(data, ctx, name)
 
 
 class DecimalBlock(DataBlock):
@@ -137,6 +174,32 @@ class DecimalBlock(DataBlock):
         f = 'f' if self.length == 4 else 'd'
         return struct.pack(f'<{f}' if self.byte_order == 'little' else f'>{f}', data)
 
+    @cached_property
+    def fixed_size(self) -> Optional[int]:
+        return self.length if type(self).estimate_packed_size is DecimalBlock.estimate_packed_size else None
+
+    @cached_property
+    def struct_format(self) -> Optional[Tuple[str, str]]:
+        cls = type(self)
+        if (
+            cls.read is not DecimalBlock.read
+            or cls.write is not DecimalBlock.write
+            or self.value_validator is not None
+            or self.programmatic_value is not None
+        ):
+            return None
+        return struct_byte_order(self.byte_order), 'f' if self.length == 4 else 'd'
+
+    @cached_property
+    def struct_raw(self) -> bool:
+        return True
+
+    def from_struct(self, values: tuple, index: int):
+        return values[index], index + 1
+
+    def to_struct(self, data, values: list):
+        values.append(data)
+
 
 class EnumByteBlock(IntegerBlock):
     @property
@@ -162,11 +225,10 @@ class EnumByteBlock(IntegerBlock):
             return self.value_validator.new_data()
         return self.enum_names[0][1]
 
-    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
-        raw = super().read(ctx, name, read_bytes_amount)
+    def from_raw(self, raw: int):
         if self.raise_error_on_unknown and self.enum_name_map[raw] is None:
-            raise DataIntegrityException(ctx=ctx, message=f'Unknown enum value {raw} at {name}')
+            raise DataIntegrityException(message=f'Unknown enum value {raw}')
         return self.enum_name_map[raw]
 
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        return super().write(self.enum_name_map.index(data), ctx, name)
+    def to_raw(self, value) -> int:
+        return self.enum_name_map.index(value)

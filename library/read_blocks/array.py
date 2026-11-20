@@ -1,6 +1,7 @@
 from abc import ABC
+from functools import cached_property
 from math import ceil
-from typing import Dict, Tuple, Any
+from typing import Dict, Tuple, Any, Optional
 
 from library.context import ReadContext, WriteContext, DocumentationContext
 from library.exceptions import EndOfBufferException
@@ -64,6 +65,60 @@ class ArrayBlock(DataBlockWithChildren, DataBlock, ABC):
             self_len = self_len(ctx)
         return self_len
 
+    # the length when it is the same for every array: a positive number (0 marks arrays filled by custom code)
+    @property
+    def static_length(self) -> Optional[int]:
+        self_len = self._length[0] if isinstance(self._length, tuple) else self._length
+        return self_len if type(self_len) is int and self_len > 0 else None
+
+    # True when the class reads, writes and sizes the items one by one, as ArrayBlock does
+    @property
+    def item_by_item_io(self) -> bool:
+        cls = type(self)
+        return (
+            cls.read is ArrayBlock.read
+            and cls.write is ArrayBlock.write
+            and cls.estimate_packed_size is ArrayBlock.estimate_packed_size
+        )
+
+    @cached_property
+    def fixed_size(self) -> Optional[int]:
+        if not self.item_by_item_io or self.static_length is None or self.child.fixed_size is None:
+            return None
+        return self.static_length * self.child.fixed_size
+
+    @cached_property
+    def struct_format(self) -> Optional[Tuple[str, str]]:
+        if (
+            not self.item_by_item_io
+            or self.static_length is None
+            or self.value_validator is not None
+            or self.programmatic_value is not None
+            or self.child.struct_format is None
+        ):
+            return None
+        byte_order, codes = self.child.struct_format
+        return byte_order, codes * self.static_length
+
+    def from_struct(self, values: tuple, index: int):
+        if self.child.struct_raw:
+            end = index + self.static_length
+            return list(values[index:end]), end
+        res = []
+        for _ in range(self.static_length):
+            item, index = self.child.from_struct(values, index)
+            res.append(item)
+        return res, index
+
+    def to_struct(self, data, values: list):
+        if len(data) != self.static_length:
+            raise ValueError(f'Array of {len(data)} items instead of {self.static_length}')
+        if self.child.struct_raw:
+            values.extend(data)
+        else:
+            for item in data:
+                self.child.to_struct(item, values)
+
     def get_child_block(self, name: str) -> 'DataBlock':
         int(name)
         return self.child
@@ -92,11 +147,22 @@ class ArrayBlock(DataBlockWithChildren, DataBlock, ABC):
                 raise EndOfBufferException(ctx=ctx)
             self_ctx.res = res
             return res
+        record = self.child.struct_record
+        if record is not None:
+            start = ctx.buffer.tell()
+            try:
+                res.extend(record.read_many(ctx.buffer, self_len))
+                return res
+            except Exception:
+                # end of buffer, a value an item field cannot hold: the item by item read raises it with its context
+                ctx.buffer.seek(start)
         for i in range(self_len):
             res.append(self.child.unpack(ctx=self_ctx, name=str(i)))
         return res
 
     def estimate_packed_size(self, data, ctx: WriteContext = None):
+        if self.child.fixed_size is not None:
+            return len(data) * self.child.fixed_size
         self_ctx = WriteContext(data=data, block=self, parent=ctx)
         res = 0
         for item in data:
@@ -112,11 +178,15 @@ class ArrayBlock(DataBlockWithChildren, DataBlock, ABC):
     def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
         if self.child.__class__ == IntegerBlock and self.child.length == 1 and not self.child.is_signed:
             return bytes(data)
+        record = self.child.struct_record
+        if record is not None:
+            try:
+                return record.write_many(data)
+            except Exception:
+                # a missing value or one an item field cannot hold: the item by item write raises it with its context
+                pass
         self_ctx = WriteContext(data=data, block=self, parent=ctx, name=name)
-        res = bytes()
-        for i, item in enumerate(data):
-            res += self.child.pack(data=item, ctx=self_ctx, name=str(i))
-        return res
+        return b''.join(self.child.pack(data=item, ctx=self_ctx, name=str(i)) for i, item in enumerate(data))
 
 
 # TODO maybe merge with LengthPrefixedUtf8Block, make abstract

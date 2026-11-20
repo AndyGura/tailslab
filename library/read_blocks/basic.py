@@ -1,11 +1,17 @@
 from abc import ABC, abstractmethod
+from functools import cached_property
 from io import SEEK_CUR, BytesIO
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 
 from library.context import ReadContext, WriteContext, DocumentationContext
 from library.exceptions import DataIntegrityException, BlockDefinitionException, EndOfBufferException
 from library.read_blocks.misc.value_validators import ValueValidator
+from library.read_blocks.struct_record import StructRecord
 from library.utils import represent_value_as_str
+
+
+# cached properties computed from a block's settings
+CACHED_LAYOUT_PROPERTIES = ('fixed_size', 'struct_format', 'struct_raw', 'struct_record', 'struct_fields')
 
 
 class DataBlock(ABC):
@@ -73,6 +79,48 @@ class DataBlock(ABC):
         import serializers
 
         return getattr(serializers, self.serializer)
+
+    # Packed size of every value of the block (what `estimate_packed_size` returns for any data), None when it depends
+    # on the data. Cached, like the struct properties below
+    @cached_property
+    def fixed_size(self) -> Optional[int]:
+        return None
+
+    # (byte order '<' / '>', or '' when it does not matter, and the `struct` format characters) of a block whose packed
+    # value `struct` reads and writes, with `from_struct` / `to_struct` converting it from / to the unpacked values;
+    # None for other blocks. A block with a value validator or a programmatic value has none
+    @cached_property
+    def struct_format(self) -> Optional[Tuple[str, str]]:
+        return None
+
+    # True when the value is the one unpacked `struct` value as it is (plain numbers)
+    @cached_property
+    def struct_raw(self) -> bool:
+        return False
+
+    # The precompiled `struct` reader / writer of the block's values, None when the block has no struct format
+    @cached_property
+    def struct_record(self) -> Optional[StructRecord]:
+        struct_format = self.struct_format
+        if struct_format is None or not struct_format[1]:
+            return None
+        return StructRecord(self)
+
+    def from_struct(self, values: tuple, index: int) -> Tuple[Any, int]:
+        """The value of the block from `struct`-unpacked `values` at `index`, and the index after its values"""
+        raise NotImplementedError
+
+    def to_struct(self, data, values: list):
+        """Appends the `struct` values of `data` to `values`"""
+        raise NotImplementedError
+
+    # copies (deepcopy, pickle) leave the cached layout out: a copy may get other settings (`big_endian_copy`), and a
+    # `struct.Struct` cannot be copied
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        for name in CACHED_LAYOUT_PROPERTIES:
+            state.pop(name, None)
+        return state
 
     @abstractmethod
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):

@@ -21,6 +21,11 @@ class Point2D(CompoundBlock):
         self.normalized = normalized
         super().__init__(fields=[('x', child, {}), ('y', child, {})], **kwargs)
 
+    # the write override only normalizes
+    @property
+    def field_by_field_io(self) -> bool:
+        return not self.normalized
+
     def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
         if self.normalized:
             length = math.sqrt(data['x'] ** 2 + data['y'] ** 2)
@@ -47,6 +52,11 @@ class Point3D(CompoundBlock):
     def __init__(self, child, normalized=False, **kwargs):
         self.normalized = normalized
         super().__init__(fields=[('x', child, {}), ('y', child, {}), ('z', child, {})], **kwargs)
+
+    # the write override only normalizes
+    @property
+    def field_by_field_io(self) -> bool:
+        return not self.normalized
 
     def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
         if self.normalized:

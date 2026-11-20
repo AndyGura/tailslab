@@ -432,10 +432,7 @@ def block_layout(block, data=None, offset: int = 0, path: str = '') -> List[dict
         data = block.new_data()
     res = []
     if isinstance(block, CompoundBlock):
-        for name, field in block.field_blocks:
-            usage = block.field_extras_map.get(name, {}).get('usage', 'everywhere')
-            if usage != 'everywhere' and 'io' not in usage:
-                continue
+        for name, field in block.io_field_blocks:
             sub = block_layout(field, data.get(name), offset, f'{path}.{name}' if path else name)
             if len(sub) == 1 and not isinstance(field, CompoundBlock):
                 sub[0]['description'] = block.field_extras_map.get(name, {}).get('description', '')

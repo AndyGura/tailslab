@@ -120,7 +120,7 @@ def calc_ffn_block_size(ctx):
     data = ctx.get_full_data()
     block_ctx = WriteContext(data=data, block=ctx.block, parent=None)
     res = 0
-    for name, field in ctx.block.field_blocks:
+    for name, field in ctx.block.io_field_blocks:
         if name == 'padding_2' and ctx.data('version') <= 101:
             continue
         if name == 'bitmap' and data['bitmap']['resource_id'] == '8Bit' and data['bitmap']['embedded_palette']:
@@ -129,9 +129,6 @@ def calc_ffn_block_size(ctx):
             continue
 
         # fallback default compound block estimate_packed_size logic
-        usage = ctx.block.field_extras_map.get(name, {}).get('usage', 'everywhere')
-        if usage != 'everywhere' and 'io' not in usage:
-            continue
         res += field.estimate_packed_size(data=data.get(name), ctx=block_ctx)
     return res
 

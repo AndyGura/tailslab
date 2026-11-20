@@ -50,6 +50,32 @@ Commonly overridden:
   (default) if it isn't independently convertible. `DataBlock.serializer_class()` resolves the name
   (`BytesBlock`: `PlainBinarySerializer`, `DelegateBlock`: `DelegateBlockSerializer`); override
   `serializer_class()` only for a serializer that depends on the block's settings.
+- `fixed_size` (cached property) — the packed size of every value (what `estimate_packed_size`
+  returns for any data), `None` (default) when it depends on the data. `IntegerBlock` / `DecimalBlock`:
+  their length; `CompoundBlock`: the sum of its io fields; `ArrayBlock` with a positive int length:
+  length × child (0 marks arrays filled by custom code). Compound and array estimates return it
+  without walking the data; `ArrayBlock.estimate_packed_size` is `len(data) × child.fixed_size`.
+- Struct records — `struct_format` (cached: byte order `'<'` / `'>'` or `''`, and the `struct`
+  format characters), `struct_raw` (the value is the unpacked value as it is), `from_struct(values,
+  index)` / `to_struct(data, values)`, `struct_record` (the compiled `StructRecord`,
+  `library/read_blocks/struct_record.py`). Integer / float leaves, compounds of them (nested ones
+  too) and arrays of a positive int length of them have one when no block in them has a value
+  validator or programmatic value and the byte orders agree. `CompoundBlock.read` / `write` and the
+  items of `ArrayBlock.read` / `write` (`struct.iter_unpack`, one `struct.pack` per item) then go
+  through it, without a context per field; on any exception (end of buffer, a value out of range,
+  a wrong array length) they fall back to the field by field path, which raises the error with its
+  context. Caches are left out of copies (`DataBlock.__getstate__`): `big_endian_copy` changes the
+  byte order of a copy.
+- Number leaves storing another value as an integer (fixed point, enum, angle, time, bit fields:
+  `SubByteCompoundBlock`) override `IntegerBlock.from_raw(raw)` / `to_raw(value)`, never `read` /
+  `write`: a leaf class overriding `read` / `write` has no struct format, and neither has a record
+  holding it.
+- `CompoundBlock.field_by_field_io` — the class's `read` / `write` / `estimate_packed_size` are
+  `CompoundBlock`'s; only then do `fixed_size` and `struct_format` come from the fields. A subclass
+  whose override changes nothing (`Point3D` without `normalized`) overrides it
+  (`ArrayBlock.item_by_item_io` likewise). `CompoundBlock.io_field_blocks` = the `(name, block)` of
+  the fields with io usage (`is_io_usage`), computed in `__init__`: use it instead of filtering
+  `field_blocks` by `usage`.
 - For container blocks, subclass `DataBlockWithChildren` too and implement
   `get_child_block(name)`, `get_child_block_with_data(unpacked_data, name)`, and
   `offset_to_child_when_packed(data, child_name, ctx)` — these back the GUI's per-field navigation

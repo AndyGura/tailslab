@@ -417,13 +417,7 @@ def data_keys_of(block) -> Optional[FrozenSet[str]]:
     from library.read_blocks.compound import CompoundBlock
 
     if isinstance(block, CompoundBlock) and type(block).read is CompoundBlock.read:
-        return frozenset(
-            name
-            for name, _ in block.field_blocks
-            if (lambda usage: usage == 'everywhere' or 'io' in usage)(
-                block.field_extras_map.get(name, {}).get('usage', 'everywhere')
-            )
-        )
+        return frozenset(name for name, _ in block.io_field_blocks)
     return None
 
 

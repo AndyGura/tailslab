@@ -55,10 +55,7 @@ class ArchiveBlock(DeclarativeCompoundBlock, ABC):
         res = dict()
         self_ctx = ctx.get_or_create_child(name, self, read_bytes_amount, res)
         region_start, region_length = None, 0
-        for field_name, field in self.field_blocks:
-            usage = self.field_extras_map.get(field_name, {}).get('usage', 'everywhere')
-            if usage != 'everywhere' and 'io' not in usage:
-                continue
+        for field_name, field in self.io_field_blocks:
             if field_name == 'data_bytes':
                 region_start = ctx.buffer.tell()
                 region_length = field.resolve_length(self_ctx)

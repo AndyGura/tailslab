@@ -1,7 +1,6 @@
 import math
 from typing import Dict
 
-from library.context import ReadContext, WriteContext
 from library.read_blocks import IntegerBlock
 
 
@@ -29,13 +28,11 @@ class Nfs1Angle8(AngleBlock, IntegerBlock):
     def __init__(self, **kwargs):
         super().__init__(length=1, is_signed=False, **kwargs)
 
-    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
-        return float((super().read(ctx, name, read_bytes_amount) / 256) * (math.pi * 2))
+    def from_raw(self, raw: int):
+        return float((raw / 256) * (math.pi * 2))
 
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        value = self.wrap_angle(data)
-        value = min(round(256 * value / (math.pi * 2)), 0xFF)
-        return super().write(value, ctx, name)
+    def to_raw(self, value) -> int:
+        return min(round(256 * self.wrap_angle(value) / (math.pi * 2)), 0xFF)
 
 
 class Nfs1Angle14(AngleBlock, IntegerBlock):
@@ -54,13 +51,11 @@ class Nfs1Angle14(AngleBlock, IntegerBlock):
     def __init__(self, **kwargs):
         super().__init__(length=2, byte_order='little', is_signed=False, **kwargs)
 
-    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
-        return float(((super().read(ctx, name, read_bytes_amount) & 0x3FFF) / 0x4000) * (math.pi * 2))
+    def from_raw(self, raw: int):
+        return float(((raw & 0x3FFF) / 0x4000) * (math.pi * 2))
 
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        value = self.wrap_angle(data)
-        value = min(round(0x4000 * value / (math.pi * 2)), 0x3FFF)
-        return super().write(value, ctx, name)
+    def to_raw(self, value) -> int:
+        return min(round(0x4000 * self.wrap_angle(value) / (math.pi * 2)), 0x3FFF)
 
 
 class IntegerAngleBlock(IntegerBlock):
@@ -94,8 +89,8 @@ class Nfs1TimeField(IntegerBlock):
             'equals to amount of ticks (amount of seconds * 60)',
         }
 
-    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
-        return float(super().read(ctx, name, read_bytes_amount)) / 60
+    def from_raw(self, raw: int):
+        return float(raw) / 60
 
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        return super().write(int(data * 60), ctx, name)
+    def to_raw(self, value) -> int:
+        return int(value * 60)
