@@ -10,6 +10,8 @@ UVs of a POLY_FT4 for it.
 from io import SEEK_CUR
 from typing import Tuple
 
+import numpy as np
+
 from library.context import ReadContext
 from library.read_blocks import (
     ArrayBlock,
@@ -20,7 +22,7 @@ from library.read_blocks import (
     TrailingOptionalBlock,
 )
 from library.read_blocks.misc.value_validators import Eq
-from library.utils import transform_bitness
+from library.utils.colors import decode_colors
 from resources.eac.fields.misc import Point2D
 
 PSX_IMAGE_IDS = [(0x40, '4Bit PSX'), (0x41, '8Bit PSX'), (0x42, '16Bit PSX')]
@@ -38,16 +40,17 @@ def psx_row_bytes(resource_id, width: int) -> int:
     return (width * bits + 15) // 16 * 2
 
 
+def psx_colors_to_rgba(colors) -> np.ndarray:
+    """PSX 16-bit colors (bits 0-4 red, 5-9 green, 10-14 blue, 15 STP) as RGBA (uint32 0xRRGGBBAA). 0x0000 is
+    transparent: the GPU does not draw texels of that value on any textured primitive. Every other value is opaque
+    (STP makes a texel semi-transparent only on primitives drawn semi-transparent, which the image does not tell)"""
+    colors = np.asarray(colors, dtype=np.uint32)
+    return np.where(colors == 0, np.uint32(0), decode_colors('bgr555', colors))
+
+
 def psx_color_to_rgba(color: int) -> int:
-    """A PSX 16-bit color (bits 0-4 red, 5-9 green, 10-14 blue, 15 STP) as RGBA (0xRRGGBBAA). 0x0000 is transparent:
-    the GPU does not draw texels of that value on any textured primitive. Every other value is opaque (STP makes a
-    texel semi-transparent only on primitives drawn semi-transparent, which the image does not tell)"""
-    if color == 0:
-        return 0
-    red = transform_bitness(color, 5)
-    green = transform_bitness(color >> 5, 5)
-    blue = transform_bitness(color >> 10, 5)
-    return red << 24 | green << 16 | blue << 8 | 0xFF
+    """`psx_colors_to_rgba` of one color"""
+    return int(psx_colors_to_rgba(color))
 
 
 def psx_image_is_rotated(data: dict) -> bool:

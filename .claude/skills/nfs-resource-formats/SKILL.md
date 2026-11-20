@@ -138,7 +138,13 @@ container payload) or `peek_bytes`; a chunk of variable-size records filling its
 (`RECORD_HEADER_SIZE`, `record_size(payload, pos)`, `MIN_RECORDS`: its `matches_chunk` counts them with
 `count_records`), names are checked with `is_name_bytes`. A chunk parsed as a lazy part may read its siblings'
 values (`ctx.data('../0/data/faces_amount')`), never how many siblings were read before it: use its index
-(`int(ctx.name)`) for that.
+(`int(ctx.name)`) for that. Serializers find chunk data in a parsed chunk list with `find_chunk(chunks, id)` /
+`find_chunks`.
+
+**PSX `CRCF` footer** (`resources/eac/psx.py`): a block of a file ending with one has `crc_footer =
+crc_footer_field()` as its last field and mixes in `PsxCrcFooterMixin` (written with the CRC of the bytes before it);
+a block whose footer follows it only in a file of its own or a BIGF item, not in a FAM, mixes in
+`PsxItemCrcFooterMixin` (`ShppBlock`, `OrixGeometry`; its length fields take `size_without_footer`).
 
 **Typed INI text files** (`resources/eac/ini.py`): `IniFile` + `ini_fields_class([...])` with `IniSection(section,
 fields)` / `IniSectionGroup(IniGroupSection(fields, ...), name_regex, new_name)` of `IniInt` / `IniFloat` /
@@ -233,7 +239,8 @@ When the on-disk representation is awkward (e.g. packed color bitness, indexed r
 (`_native_to_internal`), return it; in `write`, **`deepcopy(data)` first** (the same dict backs the
 GUI's live/unsaved-edits state — mutating it directly corrupts that), transform the copy
 (`_internal_to_native`), then `super().write(copied, ...)`. See `EacImage`/`EacPalette` in
-`resources/eac/bitmaps.py` for the full pattern, including per-color-format conversion tables.
+`resources/eac/bitmaps.py` for the full pattern; colours convert with `decode_colors` / `encode_colors`
+(`library/utils/colors.py`: whole numpy arrays of packed ARGB formats, BGR555, DOS 6-bit, never pixel by pixel).
 Such a block is read and written field by field: keep the overrides off small records repeated
 thousands of times (vertices, polygons), or they lose the struct path.
 
@@ -247,11 +254,14 @@ whose decoding depends on row width.
 
 ### JSON every field, reversible
 
-`JsonSerializer` leaves unknown and editor-hidden fields out and cannot import. `CompleteJsonSerializer`
-(`serializers/complete_json.py`) writes the same `<name>.json` with every field (bytes as `{"$bytes": [...]}`, NaN as
-"NaN") and imports it back (`complete_json_value`: missing compound fields from `new_data()`, the result packed once
-to refuse what cannot be written), so a record file round-trips byte-exact through JSON (NFS5 car data). Switching a
-block to it keeps its JSON keys (a superset).
+`JsonSerializer` (`serializers/json.py`) leaves unknown and editor-hidden fields out and cannot import.
+`ReversibleJsonSerializer` writes the same file and imports it back: its values over the data loaded under the id
+(`current_resource`) or over new data (`merge_json_values`); a subclass overrides `json_value(data, block)` (what the
+file holds) or `json_to_data(block, value, current)` (the import), `with_bin = True` also writes `<name>.bin`, the
+bytes. `CompleteJsonSerializer` (`serializers/complete_json.py`) writes every field (bytes as `{"$bytes": [...]}`, NaN
+as "NaN") and imports it back (`complete_json_value`: missing compound fields from `new_data()`, the result packed
+once to refuse what cannot be written), so a record file round-trips byte-exact through JSON (NFS5 car data). Switching
+a block to it keeps its JSON keys (a superset).
 
 ### Custom GUI actions
 
@@ -335,8 +345,8 @@ files: `extrablocks`), are read with `read_items_at_offsets` and written back fr
    `SomeBlock().schema['block_class_mro']` that it doesn't match an existing one before wiring up
    a bespoke viewer for it.
 3. **Serialize it**: add a serializer class (subclass `BaseFileSerializer` from
-   `serializers/base.py`) under `serializers/<area>.py`, implement `serialize()` (and
-   `deserialize()`/`ui_serialization()` if it should round-trip from the GUI convert panel), name it
+   `serializers/base.py`) under `serializers/<area>.py`, implement `serialize()` (and `deserialize()`, the GUI convert
+   panel entry is the class attribute `ui = UiSerialization(...)`, e.g. `REVERSIBLE_JSON_UI`), name it
    in the block's `serializer` class attribute (`serializer = 'SomeThingSerializer'`), and import the
    new serializer class in `serializers/__init__.py` (the attribute is looked up there).
    For 3D formats, give each `SubMesh` a `texture_id`, list those ids in `Scene.mtl_texture_names`
@@ -352,9 +362,12 @@ files: `extrablocks`), are read with `read_items_at_offsets` and written back fr
    (TNFS terrain, cars and props, drawn unlit by nfs-web). `ImageSerializer().to_image(data, block, id)` returns a
    PIL image of any `EacImage` (palette resolved from `id`), e.g. to compose texture atlases (see
    `compose_texture_page` in `serializers/geometries.py` for NFS5 CRP texture pages). A texture
-   file that sits next to the model (track `.fsh`, car `.tpg`) is loaded with
-   `require_resource(path_to_name(<sibling path>))`; unwrap `EacCompressedBlock` by re-requiring
-   `join_id(id, 'data')`. NFS5 car atlases overlap alternative image variants (roof, decals, ...):
+   file that sits next to the model (track `.fsh`, car `.tpg`) is found with `find_file_case_insensitive` and loaded
+   with `require_resource_as(path_to_name(<path>), ShpiBlock)` (through an `EacCompressedBlock`). Textures exported on
+   first use: `TextureExporter(path, image_of, name_of)` (`.name(key)`, `.alpha_modes`); WAVs:
+   `write_wav_with_meta` + `loop_meta` (`serializers/audios.py`); archive items: `export_child`, `write_skipped`,
+   `unique_name` (`serializers/base.py`); track scenes: `track_map_scene`, `terrain_chunk_scene`, `road_path_curve`,
+   `write_terrain_chunks_json`. NFS5 car atlases overlap alternative image variants (roof, decals, ...):
    `crp_car_is_image_used` keeps those of the car's default `.tpg` `[styleN]`. CRP alpha is not
    transparency except for `CarWheel`/`CarWindow` materials, so other pages are written opaque
    (`page_<n>.png` vs `page_<n>_alpha.png`). Meshes without a texture still need a material

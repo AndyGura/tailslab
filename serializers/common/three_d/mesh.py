@@ -62,7 +62,8 @@ class BaseMesh(ABC):
     def to_obj(self, face_index_increment, mtllib=None, pivot_offset=None) -> Tuple[str, int]:
         raise NotImplementedError
 
-    def change_axes(self, new_x='x', new_y='y', new_z='z'):
+    # `pivot`: the pivot offset too
+    def change_axes(self, new_x='x', new_y='y', new_z='z', pivot=False):
         map = {
             'x': 0,
             'y': 1,
@@ -88,6 +89,8 @@ class BaseMesh(ABC):
         self.vertices = convert(self.vertices)
         self.morph_targets = {name: convert(deltas) for name, deltas in self.morph_targets.items()}
         self.vertex_normals = convert(self.vertex_normals)
+        if pivot:
+            self.pivot_offset = tuple(convert([self.pivot_offset])[0])
 
     # after deleting polygons should call this function
     def remove_orphaned_vertices(self):
@@ -246,6 +249,10 @@ class Mesh(BaseMesh):
                     sm.vertex_normals.append(self.vertex_normals[v_idx])
             res.append((sm, vertex_indices, polygon_indices))
         return res
+
+    def sub_meshes(self) -> List[SubMesh]:
+        """The single-texture meshes of `split_by_texture_ids`"""
+        return [sub_mesh for sub_mesh, _, _ in self.split_by_texture_ids()]
 
     def to_obj(self, face_index_increment, mtllib=None, pivot_offset=None) -> Tuple[str, int]:
         sub_meshes = self.split_by_texture_ids()

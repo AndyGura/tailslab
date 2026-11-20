@@ -1,7 +1,6 @@
 from io import SEEK_CUR
 from typing import Dict
 
-from library.context import ReadContext, WriteContext
 from library.read_blocks import (
     ArrayBlock,
     AutoDetectBlock,
@@ -14,7 +13,7 @@ from library.read_blocks import (
 from library.read_blocks.archives import ArchiveBlock
 from library.read_blocks.misc.value_validators import Eq
 from resources.eac.archives.shpi_block import ShpiBlock
-from resources.eac.psx import CRCF_FOOTER_LENGTH, PsxCrcFooter, with_crc_footer
+from resources.eac.psx import PsxCrcFooter, PsxItemCrcFooterMixin
 from resources.eac.psx_bitmaps import PSX_IMAGE_IDS, PsxImage
 
 
@@ -29,17 +28,7 @@ class PsxShapeItemBlock(AutoDetectBlock):
         return self.get_choice_index_by_class_name('BytesBlock')
 
 
-def _in_wwww_archive(ctx) -> bool:
-    """Whether the closest archive the SHPP is read in is a wwww one (FAM)"""
-    parent = ctx
-    while parent is not None:
-        if isinstance(parent.block, ArchiveBlock):
-            return parent.block.__class__.__name__ == 'WwwwBlock'
-        parent = parent.parent
-    return False
-
-
-class ShppBlock(ShpiBlock):
+class ShppBlock(PsxItemCrcFooterMixin, ShpiBlock):
     """The PlayStation counterpart of SHPI (`.PSH` files of the PSX TNFS): the same header and directory, with PSX
     images (`PsxImage`, each with its CLUT) as items"""
 
@@ -71,7 +60,7 @@ class ShppBlock(ShpiBlock):
     class Fields(ArchiveBlock.Fields):
         resource_id = (UTF8Block(length=4, value_validator=Eq('SHPP')), {'description': 'Resource ID'})
         length = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: ctx.block.shpp_length(ctx.get_full_data())),
+            IntegerBlock(length=4, programmatic_value=lambda ctx: ctx.block.size_without_footer(ctx.get_full_data())),
             {'description': 'The length of this SHPP block in bytes, without the CRC footer'},
         )
         num_items = ShpiBlock.Fields.num_items
@@ -105,28 +94,3 @@ class ShppBlock(ShpiBlock):
         if not head:
             return None
         return 'PsxImage' if head[0] in [x for x, _ in PSX_IMAGE_IDS] else 'BytesBlock'
-
-    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
-        start = ctx.buffer.tell()
-        res = super().read(ctx, name, read_bytes_amount)
-        res['crc_footer'] = None
-        # the footer of the file or BIGF item: a FAM has the footer of the whole FAM after its last item
-        if not _in_wwww_archive(ctx) and read_bytes_amount is not None:
-            if read_bytes_amount - (ctx.buffer.tell() - start) == CRCF_FOOTER_LENGTH:
-                footer = ctx.buffer.read(CRCF_FOOTER_LENGTH)
-                if footer[:4] == b'CRCF':
-                    res['crc_footer'] = self.field_blocks_map['crc_footer'].child.unpack_from_bytes(footer)
-                else:
-                    ctx.buffer.seek(-len(footer), SEEK_CUR)
-        return res
-
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        return with_crc_footer(super().write(data, ctx, name), data.get('crc_footer'))
-
-    def shpp_length(self, data) -> int:
-        """Value of the `length` field: the SHPP without the CRC footer"""
-        return super().estimate_packed_size(data)
-
-    def estimate_packed_size(self, data, ctx: WriteContext = None):
-        footer_length = CRCF_FOOTER_LENGTH if data.get('crc_footer') is not None else 0
-        return super().estimate_packed_size(data, ctx) + footer_length

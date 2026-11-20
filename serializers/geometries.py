@@ -8,19 +8,35 @@ from typing import List, Tuple, Dict, Optional
 
 from PIL import Image
 
+from library import require_resource_as
 from library.exceptions import DataIntegrityException
 from library.utils import path_join
+from library.utils.file_utils import find_file_case_insensitive, find_folder_case_insensitive
 from library.utils.id import is_file_id, join_id, parse_item_id, split_id, split_last_id_part
+from resources.blackbox.chunks import find_chunk, find_chunks
 from resources.eac.archives import ShpiBlock, ShppBlock
 from resources.eac.bitmaps import EacImage
 from serializers import BaseFileSerializer
-from serializers.common.three_d import SubMesh, Mesh, export_scenes, Scene
+from serializers.base import UiSerialization, current_resource
+from serializers.common.three_d import SubMesh, Mesh, export_scenes, Scene, terrain_chunk_scene
 from serializers.misc.nfs5_road_network import nfs5_track_roads
 from serializers.misc.path_utils import escape_chars
 
 
 class OripGeometrySerializer(BaseFileSerializer):
     default_uvs = [(0, 0), (1, 0), (1, 1), (0, 1)]
+    ui = UiSerialization(
+        'OBJ + MTL directory',
+        is_directory=True,
+        reversible=True,
+        settings_patch={
+            'geometry__save_obj': True,
+            'geometry__save_blend': False,
+            'geometry__export_to_gg_web_engine': False,
+        },
+        # the GUI shows its OBJ import guide (rules of the import) before the folder is picked
+        import_guide='orip_obj',
+    )
 
     def __init__(self):
         super().__init__(is_dir=True)
@@ -234,34 +250,18 @@ class OripGeometrySerializer(BaseFileSerializer):
         ShpiArchiveSerializer().serialize(textures_shpi_data, path_join(path, 'assets/'), shpi_id, textures_shpi_block)
         return export_scenes([scene], path, self.settings)
 
-    def ui_serialization(self):
-        return {
-            'file_type': 'OBJ + MTL directory',
-            'is_directory': True,
-            'output_file_name_suffix': None,
-            'reversible': True,
-            'reversible_settings_patch': {
-                'geometry__save_obj': True,
-                'geometry__save_blend': False,
-                'geometry__export_to_gg_web_engine': False,
-            },
-            # the GUI shows its OBJ import guide (rules of the import) before the folder is picked
-            'import_guide': 'orip_obj',
-        }
-
     def deserialize(self, file_paths: List[str], id=None, block=None, **kwargs) -> dict:
         """The ORIP loaded under `id` with the geometry of an OBJ + MTL (a folder holding one OBJ, "geometry.obj"
         among several, or the OBJ file), see `serializers/misc/orip_import.py`. The textures it uses (`map_Kd` files,
         the "assets" folder of the export) go to the SHPI next to the ORIP when they differ from it: that SHPI is left
         in `deserialize_related` ({id: data}), applied with the ORIP. The summary is left in `deserialize_report`"""
         from io import BytesIO
-        from library import require_resource
         from library.context import ReadContext
         from serializers.misc.orip_import import orip_from_obj
 
         obj_path = self._find_obj(file_paths)
-        (_, _, current), _ = require_resource(id)
-        if not isinstance(current, dict) or current.get('resource_id') != 'ORIP':
+        current = current_resource(id)
+        if current is None or current.get('resource_id') != 'ORIP':
             raise DataIntegrityException(f'No ORIP geometry loaded under {id}')
         self.deserialize_related = {}
         texture_report = None
@@ -659,14 +659,7 @@ class OrixGeometrySerializer(OripGeometrySerializer):
     PC one (`OripGeometrySerializer`: mesh names by label, texture and partition, fx dummies, steering morphs), with
     the images of the PSH next to it as textures: most polygons have an image of their own"""
 
-    def ui_serialization(self):
-        return {
-            'file_type': 'OBJ + MTL directory',
-            'is_directory': True,
-            'output_file_name_suffix': None,
-            'reversible': False,
-            'reversible_settings_patch': {},
-        }
+    ui = UiSerialization('OBJ + MTL directory', is_directory=True)
 
     def deserialize(self, file_paths: List[str], id=None, block=None, **kwargs) -> dict:
         raise NotImplementedError('Importing PSX geometry is not supported')
@@ -910,9 +903,7 @@ class GeoGeometrySerializer(BaseFileSerializer):
                     'geo_part_pos': [part['pos']['x'], part['pos']['z'], part['pos']['y']],
                 }
         for mesh in meshes:
-            mesh.change_axes(new_z='y', new_y='z')
-            px, py, pz = mesh.pivot_offset
-            mesh.pivot_offset = (px, pz, py)
+            mesh.change_axes(new_z='y', new_y='z', pivot=True)
 
         scene = Scene()
         scene.sub_meshes = meshes
@@ -989,6 +980,36 @@ def texture_alpha_mode(image: Image.Image) -> str:
     return 'blend' if sum(histogram[17:240]) > 0.1 * image.width * image.height else 'cutout'
 
 
+class TextureExporter:
+    """The textures of an export, each written once to `textures/<name>.png` of `path` on its first use: `name(key)`
+    is the texture name of a key ("untextured" when `image_of(key)` gives None or fails), `name_of(key, taken)` names
+    an image (`taken`: the names given so far), `alpha_modes` holds the alpha mode of each (`texture_alpha_mode`)"""
+
+    def __init__(self, path: str, image_of, name_of):
+        self.path = path
+        self.image_of = image_of
+        self.name_of = name_of
+        self.names = {}
+        self.alpha_modes = {}
+
+    def name(self, key) -> str:
+        if key not in self.names:
+            self.names[key] = 'untextured'
+            try:
+                image = self.image_of(key)
+                if image is not None:
+                    name = self.name_of(key, self.names.values())
+                    os.makedirs(path_join(self.path, 'textures'), exist_ok=True)
+                    from serializers import ImageSerializer
+
+                    ImageSerializer.save_png(image, path_join(self.path, f'textures/{name}.png'))
+                    self.names[key] = name
+                    self.alpha_modes[name] = texture_alpha_mode(image)
+            except Exception:
+                traceback.print_exc()
+        return self.names[key]
+
+
 def crp_car_texture_page_sources(fsh_indices: List[int], tpg: ConfigParser = None) -> Dict[int, int]:
     """Maps texture page index (MaterialPartData.tex_page_index) to the index of the FSH part, which content is
     drawn on that page. Uses car's .tpg file if available. Without it, uses the layout all NFS5 cars share:
@@ -1056,11 +1077,7 @@ def crp_car_is_image_used(tpg: ConfigParser, file_index: int, alias: str, style:
 
 
 def _find_sibling_file(file_path: str, file_name: str) -> Optional[str]:
-    directory = os.path.dirname(file_path) or '.'
-    try:
-        return next(path_join(directory, x) for x in os.listdir(directory) if x.lower() == file_name.lower())
-    except StopIteration, FileNotFoundError:
-        return None
+    return find_file_case_insensitive(path_join(os.path.dirname(file_path) or '.', file_name))
 
 
 def crp_primitive_triangles(primitive_type: int, count: int) -> List[Tuple[int, int, int]]:
@@ -1182,7 +1199,6 @@ class CrpGeometrySerializer(BaseFileSerializer):
     def _load_track_textures(self, data, path, id, block, tags) -> Tuple[Dict[int, str], Dict[str, str]]:
         """Exports textures, referenced by materials, from FSH file(s) next to the track CRP. Returns material
         texture tag (as integer) -> name of exported texture, and name of exported texture -> its alpha mode"""
-        from library import require_resource
         from library.loader import id_to_path, path_to_name
         from serializers import ImageSerializer
 
@@ -1196,12 +1212,10 @@ class CrpGeometrySerializer(BaseFileSerializer):
             fsh_path = _find_sibling_file(id_to_path(id), fsh_name)
             if not fsh_path:
                 continue
-            (fsh_id, shpi_block, shpi_data), _ = require_resource(path_to_name(fsh_path))
-            # unwrap compressed file
-            while not isinstance(shpi_block, ShpiBlock) and isinstance(shpi_data, dict) and 'choice_index' in shpi_data:
-                (fsh_id, shpi_block, shpi_data), _ = require_resource(join_id(fsh_id, 'data'))
-            if not isinstance(shpi_block, ShpiBlock):
+            shpi = require_resource_as(path_to_name(fsh_path), ShpiBlock)
+            if shpi is None:
                 continue
+            fsh_id, shpi_block, shpi_data = shpi
             for _, child, item_block, _ in shpi_block.items(shpi_data, EacImage):
                 if child['alias'] not in images:
                     images[child['alias']] = (
@@ -1410,7 +1424,7 @@ class CrpGeometrySerializer(BaseFileSerializer):
                 if not mesh.polygons:
                     continue
 
-                for sub_mesh, _, _ in mesh.split_by_texture_ids():
+                for sub_mesh in mesh.sub_meshes():
                     sub_mesh.name = mesh_name + (
                         f'_{sub_mesh.texture_id}' if sub_mesh.texture_id != 'untextured' else ''
                     )
@@ -1507,15 +1521,7 @@ class CrpGeometrySerializer(BaseFileSerializer):
                 sub_mesh.pivot_offset = (position[0], position[2], position[1])
                 lod = f'lod{mesh_lods[id(sub_mesh)]}_' if all_lods else ''
                 sub_mesh.name = f'terrain_chunk_{k}_{j}_{lod}{sub_mesh.texture_id}'
-            scenes.append(
-                Scene(
-                    name=f'terrain_chunk_{k}',
-                    sub_meshes=meshes,
-                    obj_name=f'terrain_chunk_{k}',
-                    mtl_name=None,
-                    bake_textures=False,
-                )
-            )
+            scenes.append(terrain_chunk_scene(f'terrain_chunk_{k}', meshes, mtl_name=None, skip_mtl_export=False))
         exported = export_scenes(scenes, path, self.settings)
         # the race route and the other roads, from the road spline
         spline_parts = {
@@ -1623,31 +1629,23 @@ class NfsuBinGeometrySerializer(BaseFileSerializer):
 
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
         from library.loader import id_to_path
-        from serializers.bitmaps import ImageSerializer, nfsu_texture_to_image
+        from serializers.bitmaps import nfsu_texture_to_image
 
         super().serialize(data, path)
 
         textures = find_nfsu_car_textures(id_to_path(id)) if id and is_file_id(id) else {}
-        texture_names = {}
-        alpha_modes = {}
 
-        def texture_name(texture_id):
-            if texture_id not in texture_names:
-                texture_names[texture_id] = 'untextured'
-                if texture_id in textures:
-                    try:
-                        info = textures[texture_id][0]
-                        image = nfsu_texture_to_image(*textures[texture_id], indexed=True)
-                        name = re.sub(r'[^A-Za-z0-9_]', '_', info['name']) or f'{texture_id:08x}'
-                        if name in texture_names.values():
-                            name += f'_{texture_id:08x}'
-                        os.makedirs(path_join(path, 'textures'), exist_ok=True)
-                        ImageSerializer.save_png(image, path_join(path, f'textures/{name}.png'))
-                        texture_names[texture_id] = name
-                        alpha_modes[name] = texture_alpha_mode(image)
-                    except Exception:
-                        traceback.print_exc()
-            return texture_names[texture_id]
+        def texture_file_name(texture_id, taken):
+            name = re.sub(r'[^A-Za-z0-9_]', '_', textures[texture_id][0]['name']) or f'{texture_id:08x}'
+            return name + f'_{texture_id:08x}' if name in taken else name
+
+        exporter = TextureExporter(
+            path,
+            lambda texture_id: (
+                nfsu_texture_to_image(*textures[texture_id], indexed=True) if texture_id in textures else None
+            ),
+            texture_file_name,
+        )
 
         scene = Scene()
         scene.name = 'body'
@@ -1663,19 +1661,19 @@ class NfsuBinGeometrySerializer(BaseFileSerializer):
             for texture_id, triangles in nfsu_mesh.parts:
                 if texture_id not in textures:
                     texture_id = nfsmw_car_runtime_texture(texture_id, nfsu_mesh.name, textures)
-                name = texture_name(texture_id)
+                name = exporter.name(texture_id)
                 for t in triangles:
                     if all(i < len(mesh.vertices) for i in t):
                         mesh.polygons.append(list(t))
                         mesh.texture_ids.append(name)
             if not mesh.polygons:
                 continue
-            for sub_mesh, _, _ in mesh.split_by_texture_ids():
+            for sub_mesh in mesh.sub_meshes():
                 sub_mesh.name = f'{nfsu_mesh.name}__{sub_mesh.texture_id}'
                 scene.sub_meshes.append(sub_mesh)
 
-        scene.mtl_texture_names = sorted(x for x in set(texture_names.values()) if x != 'untextured')
-        scene.mtl_texture_alpha_modes = alpha_modes
+        scene.mtl_texture_names = sorted(x for x in set(exporter.names.values()) if x != 'untextured')
+        scene.mtl_texture_alpha_modes = exporter.alpha_modes
         return export_scenes([scene], path, self.settings)
 
 
@@ -1866,7 +1864,7 @@ class Fce3GeometrySerializer(BaseFileSerializer):
                         mesh.texture_ids.append(texture_id)
                 if not mesh.polygons:
                     continue
-                for sub_mesh, _, _ in mesh.split_by_texture_ids():
+                for sub_mesh in mesh.sub_meshes():
                     sub_mesh.name = (
                         mesh_name
                         + (f'__{sub_mesh.texture_id}' if sub_mesh.texture_id != 'untextured' else '')
@@ -1875,9 +1873,7 @@ class Fce3GeometrySerializer(BaseFileSerializer):
                     )
                     if class_properties:
                         scene.object_properties[sub_mesh.name] = class_properties
-                    sub_mesh.change_axes(new_y='z', new_z='y')
-                    px, py, pz = sub_mesh.pivot_offset
-                    sub_mesh.pivot_offset = (px, pz, py)
+                    sub_mesh.change_axes(new_y='z', new_z='y', pivot=True)
                     scene.sub_meshes.append(sub_mesh)
 
         for dummy_index in range(min(data['num_dummies'], 16)):
@@ -2007,11 +2003,9 @@ def find_eagl_texture_archive(id: str, model_file_name: str = None) -> Optional[
             fsh_id = candidate()
             if not fsh_id:
                 continue
-            (fsh_id, shpi_block, shpi_data), _ = require_resource(fsh_id)
-            while not isinstance(shpi_block, ShpiBlock) and isinstance(shpi_data, dict) and 'choice_index' in shpi_data:
-                (fsh_id, shpi_block, shpi_data), _ = require_resource(join_id(fsh_id, 'data'))
-            if isinstance(shpi_block, ShpiBlock):
-                return fsh_id, shpi_block, shpi_data
+            shpi = require_resource_as(fsh_id, ShpiBlock)
+            if shpi is not None:
+                return shpi
         except Exception:
             traceback.print_exc()
     return None
@@ -2230,14 +2224,10 @@ def find_nfs6_car_skins(id: str) -> List[Tuple[str, str, Optional[dict], Tuple[s
             alias = child['alias'] or ''
             if not alias.lower().endswith('.fsh'):
                 continue
-            (fsh_id, fsh_block, fsh_data), _ = require_resource(join_id(archive_id, 'children', str(i), 'item', 'data'))
-            while not isinstance(fsh_block, ShpiBlock) and isinstance(fsh_data, dict) and 'choice_index' in fsh_data:
-                (fsh_id, fsh_block, fsh_data), _ = require_resource(join_id(fsh_id, 'data'))
-            if isinstance(fsh_block, ShpiBlock):
+            shpi = require_resource_as(join_id(archive_id, 'children', str(i), 'item', 'data'), ShpiBlock)
+            if shpi is not None:
                 name = alias[:-4]
-                skins.append(
-                    (name, labels.get(name.lower(), name), nfs6_skin_specular(ini, name), (fsh_id, fsh_block, fsh_data))
-                )
+                skins.append((name, labels.get(name.lower(), name), nfs6_skin_specular(ini, name), shpi))
     except Exception:
         traceback.print_exc()
     return skins
@@ -2266,25 +2256,14 @@ def _find_nfs6_car_skeleton(id: str):
 
 def _nfs6_fsh_file(file_path: Optional[str]) -> Optional[Tuple[str, ShpiBlock, dict]]:
     """(id, block, data) of an FSH file on disk, None if it is not one"""
-    from library import require_resource
     from library.loader import path_to_name
 
     if not file_path:
         return None
     try:
-        (fsh_id, block, data), _ = require_resource(path_to_name(file_path))
-        while not isinstance(block, ShpiBlock) and isinstance(data, dict) and 'choice_index' in data:
-            (fsh_id, block, data), _ = require_resource(join_id(fsh_id, 'data'))
-        return (fsh_id, block, data) if isinstance(block, ShpiBlock) else None
+        return require_resource_as(path_to_name(file_path), ShpiBlock)
     except Exception:
         traceback.print_exc()
-        return None
-
-
-def _find_child_ignore_case(directory: Optional[str], name: str) -> Optional[str]:
-    try:
-        return next(path_join(directory, x) for x in sorted(os.listdir(directory)) if x.lower() == name.lower())
-    except StopIteration, FileNotFoundError, NotADirectoryError, TypeError:
         return None
 
 
@@ -2329,18 +2308,18 @@ def nfs6_car_lighting(id: str, path: str) -> dict:
         'vehicle_type': vehicle_type,
         'specular_hotspot_exponent': _nfs6_ini_number(ini, 'effects', 'specular_hotspot_exponent'),
         'environment_map': export_first_image(
-            _nfs6_fsh_file(_find_child_ignore_case(cars_dir, 'common.fsh')), 'common', 'refl'
+            _nfs6_fsh_file(find_file_case_insensitive(path_join(cars_dir, 'common.fsh'))), 'common', 'refl'
         ),
         'locations': [],
     }
-    tracks_dir = _find_child_ignore_case(os.path.dirname(cars_dir), 'tracks')
+    tracks_dir = find_folder_case_insensitive(path_join(os.path.dirname(cars_dir), 'tracks'))
     for location in sorted(os.listdir(tracks_dir)) if tracks_dir else []:
         location_dir = path_join(tracks_dir, location)
         if not os.path.isdir(location_dir):
             continue
         levels = sorted(x for x in os.listdir(location_dir) if re.fullmatch(r'level\d+', x.lower()))
         lighting_ini = next(
-            (p for p in (_find_child_ignore_case(path_join(location_dir, x), 'lighting.ini') for x in levels) if p),
+            (p for p in (find_file_case_insensitive(path_join(location_dir, x, 'lighting.ini')) for x in levels) if p),
             None,
         )
         if not lighting_ini:
@@ -2361,7 +2340,7 @@ def nfs6_car_lighting(id: str, path: str) -> dict:
                     _nfs6_ini_number(location_ini, 'sun', f'position_{axis}') or 0.0 for axis in ('x', 'y', 'z')
                 ],
                 'environment_map': export_first_image(
-                    _nfs6_fsh_file(_find_child_ignore_case(location_dir, 'staticenvmap.fsh')), file_name
+                    _nfs6_fsh_file(find_file_case_insensitive(path_join(location_dir, 'staticenvmap.fsh'))), file_name
                 ),
             }
         )
@@ -2473,12 +2452,6 @@ class NfsuMesh:
         self.parts: List[Tuple[Optional[int], List[List[int]]]] = []
 
 
-def _nfsu_sub_chunk_data(chunks: list, chunk_id: int):
-    return next(
-        (x['data'] for x in chunks if isinstance(x['data'], dict) and x['data'].get('chunk_id') == chunk_id), None
-    )
-
-
 def nfsu_geometry_meshes(geometry_data: dict) -> List[NfsuMesh]:
     """Meshes of NFS Underground geometry pack (NfsuBinGeometry data)"""
     meshes = []
@@ -2486,15 +2459,15 @@ def nfsu_geometry_meshes(geometry_data: dict) -> List[NfsuMesh]:
         if c['data'].get('chunk_id') != 0x80_13_40_10:
             continue
         sub_chunks = c['data']['sub_chunks']
-        header = _nfsu_sub_chunk_data(sub_chunks, 0x00_13_40_11)
-        container = _nfsu_sub_chunk_data(sub_chunks, 0x80_13_41_00)
+        header = find_chunk(sub_chunks, 0x00_13_40_11)
+        container = find_chunk(sub_chunks, 0x80_13_41_00)
         if header is None or container is None:
             continue
-        texture_ids = _nfsu_sub_chunk_data(sub_chunks, 0x00_13_40_12)
+        texture_ids = find_chunk(sub_chunks, 0x00_13_40_12)
         texture_ids = [x['value'] for x in texture_ids['items']] if texture_ids else []
-        vertices_chunk = _nfsu_sub_chunk_data(container['sub_chunks'], 0x00_13_4B_01)
-        faces_chunk = _nfsu_sub_chunk_data(container['sub_chunks'], 0x00_13_4B_03)
-        materials_chunk = _nfsu_sub_chunk_data(container['sub_chunks'], 0x00_13_4B_02)
+        vertices_chunk = find_chunk(container['sub_chunks'], 0x00_13_4B_01)
+        faces_chunk = find_chunk(container['sub_chunks'], 0x00_13_4B_03)
+        materials_chunk = find_chunk(container['sub_chunks'], 0x00_13_4B_02)
         if materials_chunk is not None and materials_chunk['materials'] and 'effect' in materials_chunk['materials'][0]:
             mesh = _nfsmw_mesh(header, texture_ids, container, faces_chunk, materials_chunk['materials'])
             if mesh is not None:
@@ -2564,11 +2537,11 @@ def nfs6_ps2_mesh(mesh_data: dict) -> Optional[NfsuMesh]:
     from library.utils.ps2 import as_float, vif_packets
 
     sub_chunks = mesh_data['sub_chunks']
-    header = _nfsu_sub_chunk_data(sub_chunks, 0x00034003)
-    draw_groups = _nfsu_sub_chunk_data(sub_chunks, 0x00034004)
-    vif = _nfsu_sub_chunk_data(sub_chunks, 0x00034005)
-    textures = _nfsu_sub_chunk_data(sub_chunks, 0x00034006)
-    materials = _nfsu_sub_chunk_data(sub_chunks, 0x0003401D)
+    header = find_chunk(sub_chunks, 0x00034003)
+    draw_groups = find_chunk(sub_chunks, 0x00034004)
+    vif = find_chunk(sub_chunks, 0x00034005)
+    textures = find_chunk(sub_chunks, 0x00034006)
+    materials = find_chunk(sub_chunks, 0x0003401D)
     if header is None or draw_groups is None or vif is None:
         return None
     texture_ids = [x[0] for x in textures['textures']] if textures else []
@@ -3106,11 +3079,7 @@ def _nfsmw_mesh(header: dict, texture_ids: list, container: dict, faces_chunk, m
     its buffer"""
     from resources.blackbox.geometries.nfsu import nfsmw_vertex_buffer_materials
 
-    buffers = [
-        x['data']['vertices']['data']
-        for x in container['sub_chunks']
-        if isinstance(x['data'], dict) and x['data'].get('chunk_id') == 0x00_13_4B_01
-    ]
+    buffers = [x['vertices']['data'] for x in find_chunks(container['sub_chunks'], 0x00_13_4B_01)]
     groups = nfsmw_vertex_buffer_materials(materials)
     if faces_chunk is None or len(buffers) != len(groups) or not all(isinstance(b, list) for b in buffers):
         return None

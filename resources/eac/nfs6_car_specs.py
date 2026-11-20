@@ -1217,7 +1217,7 @@ class Nfs6EngineAudioTable(DeclarativeCompoundBlock):
         '(0x435430, 0..127) and its pitch table bends the sample (64 = its own pitch). engine.rpm (one slot, '
         'identity table) is loaded but only checked for presence: the FakeRPM debug line shows the same index'
     )
-    serializer = 'BlockJsonSerializer'
+    serializer = 'CompleteJsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         magic = (UTF8Block(length=4, value_validator=Eq('CRDl')), {'description': 'Magic "CRDl"'})
@@ -1272,13 +1272,6 @@ class Nfs6EngineAudioTable(DeclarativeCompoundBlock):
             ArrayBlock(child=IntegerBlock(length=1), length=(lambda ctx: ctx.read_bytes_remaining, 'rest')),
             {'description': 'Bytes after the last whole table (none in the files)'},
         )
-
-    def from_json(self, json_data: dict, current: dict = None) -> dict:
-        res = dict(current) if current is not None else self.new_data()
-        for name, _ in self.field_blocks:
-            if name in json_data:
-                res[name] = json_data[name]
-        return res
 
     @staticmethod
     def table_index(offsets_field: str, slot: int, offset: int):

@@ -1,4 +1,3 @@
-from io import SEEK_CUR
 from math import floor
 
 from library.context import ReadContext, WriteContext
@@ -19,12 +18,11 @@ from library.read_blocks import (
     OffsetOf,
     OwnSize,
 )
-from library.read_blocks.archives import ArchiveBlock
 from library.read_blocks.misc.value_validators import Eq
 from library.read_blocks.strings import NullTerminatedUTF8Block
 from resources.eac.fields.byte_order import big_endian_copy
 from resources.eac.fields.misc import Point3D
-from resources.eac.psx import CRCF_FOOTER_LENGTH, PsxCrcFooter, with_crc_footer
+from resources.eac.psx import PsxCrcFooter, PsxItemCrcFooterMixin
 
 # "Verified" in the descriptions below: read in the game code (TNFS DOS, PSX and Win95 SE executables, tnfs-1995
 # Ghidra projects; DOS `gfx_oriload` 0xa1148, `gfx_orilocatemorph` 0xa14d0, `gfx_oriapplymorph` 0xa16a4,
@@ -702,17 +700,7 @@ class OrixMaterial(DeclarativeCompoundBlock):
         )
 
 
-def _in_wwww_archive(ctx) -> bool:
-    """Whether the closest archive the block is read in is a wwww one (FAM)"""
-    parent = ctx
-    while parent is not None:
-        if isinstance(parent.block, ArchiveBlock):
-            return parent.block.__class__.__name__ == 'WwwwBlock'
-        parent = parent.parent
-    return False
-
-
-class OrixGeometry(DeclarativeCompoundBlock):
+class OrixGeometry(PsxItemCrcFooterMixin, DeclarativeCompoundBlock):
     block_description = (
         'Geometry block of the PSX TNFS: car models (`<car>.por` / `<car>l.por` of the car '
         'archives `.VSM` / `.WSM`) and track props (`Z<track>_POR.FAM`). The PSX counterpart of ORIP: the same '
@@ -731,7 +719,7 @@ class OrixGeometry(DeclarativeCompoundBlock):
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(value_validator=Eq('ORIX'), length=4), {'description': 'Resource ID'})
         block_size = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: ctx.block.orix_length(ctx.get_full_data())),
+            IntegerBlock(length=4, programmatic_value=lambda ctx: ctx.block.size_without_footer(ctx.get_full_data())),
             {'description': 'Total ORIX block size in bytes, without the CRC footer'},
         )
         version = (
@@ -908,34 +896,6 @@ class OrixGeometry(DeclarativeCompoundBlock):
                 'inside a FAM archive it follows the last item of the FAM',
             },
         )
-
-    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
-        start = ctx.buffer.tell()
-        res = super().read(ctx, name, read_bytes_amount)
-        res['crc_footer'] = None
-        # the footer of the BIGF item: a FAM has the footer of the whole FAM after its last item
-        if (
-            not _in_wwww_archive(ctx)
-            and read_bytes_amount is not None
-            and read_bytes_amount - (ctx.buffer.tell() - start) == CRCF_FOOTER_LENGTH
-        ):
-            footer = ctx.buffer.read(CRCF_FOOTER_LENGTH)
-            if footer[:4] == b'CRCF':
-                res['crc_footer'] = self.field_blocks_map['crc_footer'].child.unpack_from_bytes(footer)
-            else:
-                ctx.buffer.seek(-len(footer), SEEK_CUR)
-        return res
-
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        return with_crc_footer(super().write(data, ctx, name), data.get('crc_footer'))
-
-    def orix_length(self, data) -> int:
-        """Value of the `block_size` field: the ORIX without the CRC footer"""
-        return super().estimate_packed_size(data)
-
-    def estimate_packed_size(self, data, ctx: WriteContext = None):
-        footer_length = CRCF_FOOTER_LENGTH if data.get('crc_footer') is not None else 0
-        return super().estimate_packed_size(data, ctx) + footer_length
 
 
 # "Checked" in the Saturn descriptions below: against every ORIX of Over Drivin' GT-R (the 8 cars' high and low-poly

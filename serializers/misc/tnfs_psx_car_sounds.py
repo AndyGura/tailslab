@@ -22,6 +22,8 @@ patch's volume applies (`TnfsPsxPatch`).
 import os
 from typing import Dict, NamedTuple, Optional, Tuple
 
+from library.utils.file_utils import find_file_case_insensitive
+
 TNFS_PSX_CAR_BANK_NAMES = {1: 'engine_on', 2: 'engine_off', 3: 'honk', 0x20: 'gear'}
 TNFS_SKYLINE_MEMORIAL_CAR_BANK_NAMES = {1: 'engine_low', 2: 'engine_mid', 3: 'engine_high', 0x20: 'gear'}
 # the cars of the Japanese disc, by the names of their banks: Z<car> (ZS<car> in split screen); the R390 in the
@@ -132,13 +134,9 @@ class TnfsPsxCarBank(NamedTuple):
 def _is_skyline_memorial(directory: str, car: str) -> bool:
     """A bank of the Japanese disc: its executable is next to the bank (the US one: the US disc), else a bank of one
     of the Japanese cars"""
-    try:
-        names = {x.upper() for x in os.listdir(directory or '.')}
-    except OSError:
-        names = set()
-    if TNFS_SKYLINE_MEMORIAL_EXECUTABLE in names:
+    if find_file_case_insensitive(os.path.join(directory, TNFS_SKYLINE_MEMORIAL_EXECUTABLE)):
         return True
-    if TNFS_PSX_EXECUTABLE in names:
+    if find_file_case_insensitive(os.path.join(directory, TNFS_PSX_EXECUTABLE)):
         return False
     return car in TNFS_SKYLINE_MEMORIAL_CARS
 

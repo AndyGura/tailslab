@@ -8,18 +8,17 @@ SLPS_010.24 has the same sound library at other addresses (`sfx_voice_start` 0x8
 
 from typing import Dict, Optional
 
-from library.context import ReadContext, WriteContext
+from library.context import ReadContext
 from library.read_blocks import (
     ArrayBlock,
     BytesBlock,
     DeclarativeCompoundBlock,
     IntegerBlock,
-    TrailingOptionalBlock,
     UTF8Block,
     CountOf,
 )
 from library.read_blocks.misc.value_validators import Eq, Or
-from resources.eac.psx import CRCF_FOOTER_LENGTH, PsxCrcFooter, crc_footer_at, with_crc_footer
+from resources.eac.psx import CRCF_FOOTER_LENGTH, PsxCrcFooterMixin, crc_footer_field
 
 # SPU pitch of a voice playing a sample at 44100 Hz (`VxPitch`); the SPU plays no faster than 0x4000 (psx-spx: higher
 # values are taken as 0x4000)
@@ -35,10 +34,6 @@ TNFS_PSX_VAG_HEADER_LENGTH = 0x30
 def psx_spu_sample_rate(pitch: int) -> float:
     """Sample rate (Hz) a voice plays a sample at with SPU pitch `pitch` (0x1000 = 44100 Hz)"""
     return pitch * PSX_SPU_SAMPLE_RATE / PSX_SPU_PITCH_44100
-
-
-def _footer_criteria(ctx, **kwargs):
-    return crc_footer_at(ctx, 0)
 
 
 class TnfsPsxPatch(DeclarativeCompoundBlock):
@@ -152,7 +147,7 @@ class TnfsPsxPatch(DeclarativeCompoundBlock):
         )
 
 
-class TnfsPsxPatchBank(DeclarativeCompoundBlock):
+class TnfsPsxPatchBank(PsxCrcFooterMixin, DeclarativeCompoundBlock):
     block_description = (
         'Sound bank header `Z<bank>.VH` ("PatchBank" resource of the game, magic "BXSP"): '
         'the patch of each sample id, the samples are in the `.VB` of the same name (`TnfsPsxVagBank`). A race '
@@ -190,14 +185,7 @@ class TnfsPsxPatchBank(DeclarativeCompoundBlock):
             ArrayBlock(child=TnfsPsxPatch(), length='patch_count'),
             {'description': 'The patches'},
         )
-        crc_footer = (
-            TrailingOptionalBlock(child=PsxCrcFooter(), criteria=(_footer_criteria, 'the file ends with "CRCF"')),
-            {'description': 'CRC footer'},
-        )
-
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        packed = super().write({**data, 'crc_footer': None}, ctx, name)
-        return with_crc_footer(packed, data.get('crc_footer'))
+        crc_footer = crc_footer_field()
 
 
 def tnfs_psx_bank_patches(data: dict) -> Dict[int, dict]:
@@ -235,7 +223,7 @@ def _bytes_to_next_sample(ctx) -> int:
     return end if found < 0 else found
 
 
-class TnfsPsxVagSample(DeclarativeCompoundBlock):
+class TnfsPsxVagSample(PsxCrcFooterMixin, DeclarativeCompoundBlock):
     block_description = (
         'A sample: Sony\'s "VAGp" header (big-endian numbers) and SPU ADPCM data (16-byte '
         'frames of 28 samples, `library/utils/audio_ps_adpcm_codec.py`), the flags of the frames give the loop: '
@@ -293,19 +281,12 @@ class TnfsPsxVagSample(DeclarativeCompoundBlock):
                 'is_unknown': True,
             },
         )
-        crc_footer = (
-            TrailingOptionalBlock(
-                child=PsxCrcFooter(), criteria=(_footer_criteria, 'a file of its own ending with "CRCF"')
-            ),
-            {'description': 'CRC footer of a sample in a file of its own'},
+        crc_footer = crc_footer_field(
+            'CRC footer of a sample in a file of its own', 'a file of its own ending with "CRCF"'
         )
 
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        packed = super().write({**data, 'crc_footer': None}, ctx, name)
-        return with_crc_footer(packed, data.get('crc_footer'))
 
-
-class TnfsPsxVagBank(DeclarativeCompoundBlock):
+class TnfsPsxVagBank(PsxCrcFooterMixin, DeclarativeCompoundBlock):
     block_description = (
         'Sound bank samples `Z<bank>.VB` (magic "Bgav"): the samples of the patches of the '
         '`.VH` of the same name (`TnfsPsxPatchBank`), back to back. Converted to a folder with a WAV per sample '
@@ -339,14 +320,7 @@ class TnfsPsxVagBank(DeclarativeCompoundBlock):
                 'gives, a multiple of 16'
             },
         )
-        crc_footer = (
-            TrailingOptionalBlock(child=PsxCrcFooter(), criteria=(_footer_criteria, 'the file ends with "CRCF"')),
-            {'description': 'CRC footer'},
-        )
-
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        packed = super().write({**data, 'crc_footer': None}, ctx, name)
-        return with_crc_footer(packed, data.get('crc_footer'))
+        crc_footer = crc_footer_field()
 
 
 def tnfs_psx_vag_samples_length(samples: list) -> int:

@@ -8,20 +8,35 @@ from library.read_blocks import DataBlock
 from library.utils import path_join
 from library.utils.id import join_id
 from serializers import BaseFileSerializer, ImageSerializer
+from serializers.base import UiSerialization, current_resource
+
+
+# the keys of the `#custom` line of a .fnt (what BMFont has no keys for): (key, path in the font data, kind), kind
+# 'flag' a bool written 1 / 0, 'bytes' written as hex, None the value as it is
+FNT_CUSTOM_KEYS = [
+    ('resource_id', ('resource_id',), None),
+    ('version', ('version',), None),
+    ('dropshadow', ('flags', 'dropshadow'), 'flag'),
+    ('vram', ('flags', 'vram'), 'flag'),
+    *((name, ('flags', name), None) for name in ('drawpad', 'baseline', 'orientation', 'direction', 'layoutpad')),
+    *((name, ('flags', name), None) for name in ('encoding', 'format', 'pad')),
+    ('center_x', ('center', 'x'), None),
+    ('center_y', ('center', 'y'), None),
+    *((name, (name,), 'bytes') for name in ('padding_0', 'padding_1', 'padding_2', 'remaining_bytes')),
+]
+
+
+def _value_at(data: dict, path: tuple):
+    for part in path:
+        data = data.get(part) if isinstance(data, dict) else None
+    return data
 
 
 class FfnFontSerializer(BaseFileSerializer):
+    ui = UiSerialization('fnt + png', reversible=True)
+
     def __init__(self):
         super().__init__(is_dir=True)
-
-    def ui_serialization(self):
-        return {
-            'file_type': 'fnt + png',
-            'is_directory': False,
-            'output_file_name_suffix': None,
-            'reversible': True,
-            'reversible_settings_patch': {},
-        }
 
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
         super().serialize(data, path, id=id, block=None)
@@ -52,29 +67,11 @@ class FfnFontSerializer(BaseFileSerializer):
                 },
             )
             write_fnt_line('common', {'lineHeight': data['ascent'] + data['descent'], 'base': data['ascent']})
-            write_fnt_line(
-                '#custom',
-                {
-                    'resource_id': data['resource_id'],
-                    'version': data['version'],
-                    'dropshadow': 1 if data['flags']['dropshadow'] else 0,
-                    'vram': 1 if data['flags']['vram'] else 0,
-                    'drawpad': data['flags']['drawpad'],
-                    'baseline': data['flags']['baseline'],
-                    'orientation': data['flags']['orientation'],
-                    'direction': data['flags']['direction'],
-                    'layoutpad': data['flags']['layoutpad'],
-                    'encoding': data['flags']['encoding'],
-                    'format': data['flags']['format'],
-                    'pad': data['flags']['pad'],
-                    'center_x': data['center']['x'],
-                    'center_y': data['center']['y'],
-                    'padding_0': data['padding_0'],
-                    'padding_1': data.get('padding_1'),
-                    'padding_2': data['padding_2'],
-                    'remaining_bytes': data['remaining_bytes'],
-                },
-            )
+            custom = {}
+            for key, path, kind in FNT_CUSTOM_KEYS:
+                value = _value_at(data, path)
+                custom[key] = (1 if value else 0) if kind == 'flag' else value
+            write_fnt_line('#custom', custom)
             write_fnt_line('page', {'id': 0, 'file': 'bitmap.png'})
             write_fnt_line('chars', {'count': data['num_glyphs']})
             # 16-byte glyphs keep the advance in x_advance (advance is 0 in the game files). In 12-byte ones the
@@ -163,47 +160,20 @@ class FfnFontSerializer(BaseFileSerializer):
         if 'lineHeight' in common_part:
             data['descent'] = common_part['lineHeight'] - data['ascent']
 
-        try:
-            custom_part = parse_fnt_char_line(next(l for l in lines if l.startswith('#custom ')))
-            if 'resource_id' in custom_part:
-                data['resource_id'] = custom_part['resource_id']
-            if 'version' in custom_part:
-                data['version'] = custom_part['version']
-            if 'dropshadow' in custom_part:
+        custom_part = next((parse_fnt_char_line(l) for l in lines if l.startswith('#custom ')), {})
+        for key, path, kind in FNT_CUSTOM_KEYS:
+            value = custom_part.get(key)
+            if key not in custom_part or (kind == 'bytes' and value in (None, 'None')):
+                continue
+            if kind == 'flag':
                 # older exports wrote True / False
-                data['flags']['dropshadow'] = custom_part['dropshadow'] in (1, 'True')
-            if 'vram' in custom_part:
-                data['flags']['vram'] = custom_part['vram'] == 1
-            if 'drawpad' in custom_part:
-                data['flags']['drawpad'] = custom_part['drawpad']
-            if 'baseline' in custom_part:
-                data['flags']['baseline'] = custom_part['baseline']
-            if 'orientation' in custom_part:
-                data['flags']['orientation'] = custom_part['orientation']
-            if 'direction' in custom_part:
-                data['flags']['direction'] = custom_part['direction']
-            if 'layoutpad' in custom_part:
-                data['flags']['layoutpad'] = custom_part['layoutpad']
-            if 'encoding' in custom_part:
-                data['flags']['encoding'] = custom_part['encoding']
-            if 'format' in custom_part:
-                data['flags']['format'] = custom_part['format']
-            if 'pad' in custom_part:
-                data['flags']['pad'] = custom_part['pad']
-            if 'center_x' in custom_part:
-                data['center']['x'] = custom_part['center_x']
-            if 'center_y' in custom_part:
-                data['center']['y'] = custom_part['center_y']
-            if 'padding_0' in custom_part:
-                data['padding_0'] = bytes.fromhex(str(custom_part['padding_0']))
-            if 'padding_1' in custom_part and custom_part['padding_1'] is not None:
-                data['padding_1'] = bytes.fromhex(str(custom_part['padding_1'])) if custom_part['padding_1'] else b''
-            if 'padding_2' in custom_part:
-                data['padding_2'] = bytes.fromhex(str(custom_part['padding_2']))
-            if 'remaining_bytes' in custom_part:
-                data['remaining_bytes'] = bytes.fromhex(str(custom_part['remaining_bytes']))
-        except StopIteration:
-            pass
+                value = value in (1, 'True')
+            elif kind == 'bytes':
+                value = bytes.fromhex(str(value))
+            target = data
+            for part in path[:-1]:
+                target = target[part]
+            target[path[-1]] = value
 
         glyph_def_lines = [parse_fnt_char_line(l) for l in lines if l.startswith('char ')]
         data['definitions'] = []
@@ -288,13 +258,8 @@ class FfnFontSerializer(BaseFileSerializer):
     @staticmethod
     def _current_font(id: str):
         # the font loaded under `id`, which the import replaces
-        from library import require_resource
-
-        try:
-            (_, _, current), _ = require_resource(id)
-            return current if isinstance(current, dict) and 'bitmap' in current else None
-        except Exception:
-            return None
+        current = current_resource(id)
+        return current if current is not None and 'bitmap' in current else None
 
     @staticmethod
     def _keep_bitmap_format(bitmap: dict, current_bitmap: dict):

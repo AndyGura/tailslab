@@ -15,6 +15,7 @@ from library.read_blocks import (
     TrailingOptionalBlock,
     UTF8Block,
 )
+from library.read_blocks.archives import ArchiveBlock
 from library.read_blocks.misc.value_validators import Eq
 from resources.eac.fields.misc import RGBBlock
 
@@ -82,6 +83,68 @@ def with_crc_footer(packed: bytes, footer: Optional[dict]) -> bytes:
     if footer is None:
         return packed
     return packed + PsxCrcFooter().pack({**footer, 'crc': psx_crc16(packed)})
+
+
+def _footer_criteria(ctx, **kwargs):
+    return crc_footer_at(ctx, 0)
+
+
+def crc_footer_field(description: str = 'CRC footer', criteria_doc: str = 'the file ends with "CRCF"') -> tuple:
+    """The `crc_footer` field, the last one of a `PsxCrcFooterMixin` block: read when the bytes left are a footer"""
+    footer = TrailingOptionalBlock(child=PsxCrcFooter(), criteria=(_footer_criteria, criteria_doc))
+    return footer, {'description': description}
+
+
+class PsxCrcFooterMixin:
+    """A block whose last field is `crc_footer` (`crc_footer_field`, None without a footer): written after the other
+    fields with the CRC of their bytes"""
+
+    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
+        packed = super().write({**data, 'crc_footer': None}, ctx, name)
+        return with_crc_footer(packed, data.get('crc_footer'))
+
+
+def in_wwww_archive(ctx) -> bool:
+    """Whether the closest archive the block is read in is a wwww one (FAM)"""
+    parent = ctx
+    while parent is not None:
+        if isinstance(parent.block, ArchiveBlock):
+            return parent.block.__class__.__name__ == 'WwwwBlock'
+        parent = parent.parent
+    return False
+
+
+class PsxItemCrcFooterMixin:
+    """A block followed by a CRC footer in a file of its own and in a BIGF or C0FB item, not in a FAM: the footer after
+    the last item of a FAM is the FAM's. Its `crc_footer` field (a `PsxCrcFooter` for the GUI and docs, not read by
+    the fields: their length fields do not count it, `size_without_footer`) holds it, None without one"""
+
+    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
+        start = ctx.buffer.tell()
+        res = super().read(ctx, name, read_bytes_amount)
+        res['crc_footer'] = None
+        if (
+            not in_wwww_archive(ctx)
+            and read_bytes_amount is not None
+            and read_bytes_amount - (ctx.buffer.tell() - start) == CRCF_FOOTER_LENGTH
+        ):
+            footer = ctx.buffer.read(CRCF_FOOTER_LENGTH)
+            if footer[:4] == b'CRCF':
+                res['crc_footer'] = self.field_blocks_map['crc_footer'].child.unpack_from_bytes(footer)
+            else:
+                ctx.buffer.seek(-len(footer), SEEK_CUR)
+        return res
+
+    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
+        return with_crc_footer(super().write(data, ctx, name), data.get('crc_footer'))
+
+    def size_without_footer(self, data) -> int:
+        """Packed size of the block without the CRC footer"""
+        return super().estimate_packed_size(data)
+
+    def estimate_packed_size(self, data, ctx: WriteContext = None):
+        footer_length = CRCF_FOOTER_LENGTH if data.get('crc_footer') is not None else 0
+        return super().estimate_packed_size(data, ctx) + footer_length
 
 
 class PsxHorizonSettings(NamedTuple):
@@ -158,11 +221,7 @@ def _text_length(ctx):
     return remaining
 
 
-def _footer_criteria(ctx, **kwargs):
-    return crc_footer_at(ctx, 0)
-
-
-class TnfsPsxHorizonInfo(DeclarativeCompoundBlock):
+class TnfsPsxHorizonInfo(PsxCrcFooterMixin, DeclarativeCompoundBlock):
     block_description = (
         'Horizon settings of a PSX TNFS track at a time of day, `Z<track><A|B|C>.INF` '
         '(A morning, B midday, C evening), the counterpart of the PC `SIMDATA/MISC/<track>INFO`. Plain text: '
@@ -176,21 +235,17 @@ class TnfsPsxHorizonInfo(DeclarativeCompoundBlock):
         '`hrz7`..`hrz0` mirrored). Unlike the PC there is no ring type (the PSX always draws the ring) and no '
         'time of day values. See `library/utils/tnfs_psx_horizon_to_spherical.py` for how the game draws them'
     )
-    serializer = 'TnfsPsxHorizonInfoSerializer'
+    serializer = 'EacHorizonSettingsSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         text = (
             UTF8Block(length=(_text_length, 'up to the CRCF footer')),
             {'description': 'The settings text'},
         )
-        crc_footer = (
-            TrailingOptionalBlock(child=PsxCrcFooter(), criteria=(_footer_criteria, 'the file ends with "CRCF"')),
-            {'description': 'CRC footer'},
-        )
+        crc_footer = crc_footer_field()
 
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        packed = super().write({**data, 'crc_footer': None}, ctx, name)
-        return with_crc_footer(packed, data.get('crc_footer'))
+    def parse(self, text: str):
+        return parse_psx_horizon_settings(text)
 
 
 GOURAUD_RECORD_LENGTH = 14
@@ -235,7 +290,7 @@ class TnfsPsxGouraudRecord(DeclarativeCompoundBlock):
         )
 
 
-class TnfsPsxGouraudColors(DeclarativeCompoundBlock):
+class TnfsPsxGouraudColors(PsxCrcFooterMixin, DeclarativeCompoundBlock):
     block_description = (
         "Gouraud colours of a car's polygons, `<car>.GRO` in the car archives of the "
         "Japanese disc Over Drivin' Skyline Memorial (SLPS-01024; the US disc has none). The game "
@@ -264,11 +319,4 @@ class TnfsPsxGouraudColors(DeclarativeCompoundBlock):
             BytesBlock(length=GOURAUD_RECORD_LENGTH - 2),
             {'description': 'The colours of the end record: zeros'},
         )
-        crc_footer = (
-            TrailingOptionalBlock(child=PsxCrcFooter(), criteria=(_footer_criteria, 'the file ends with "CRCF"')),
-            {'description': 'CRC footer'},
-        )
-
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        packed = super().write({**data, 'crc_footer': None}, ctx, name)
-        return with_crc_footer(packed, data.get('crc_footer'))
+        crc_footer = crc_footer_field()

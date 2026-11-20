@@ -205,17 +205,22 @@ and `BlockActionsComponent` to the app. Consequences:
 
 `serializers/base.py` defines the serializer contract:
 - `ResourceSerializer` (ABC): `serialize(data, path, id=None, block=None, **kwargs) -> List[str]`,
-  optional `deserialize(...)`, `ui_serialization()`, `patch_settings(dict)`.
-- `BaseFileSerializer`: adds `is_dir` (file vs directory output).
+  optional `deserialize(...)`, `ui` (class attribute, a `UiSerialization`), `patch_settings(dict)`.
+- `BaseFileSerializer`: adds `is_dir` (file vs directory output) and `output_path(path, id)` (a file output in a
+  folder path named after the resource).
+- Shared helpers there: `current_resource(id, block)` (the data an import replaces), `export_child` /
+  `write_skipped` / `unique_name` (archive items and `skipped.txt`).
 - `DelegateBlockSerializer`: dispatches to the serializer of whichever block a `DelegateBlock`
   actually resolved to at read time — the pattern to follow if you add another
   dispatch/composition-style block.
 
 Only extend these classes here for behavior that should apply across many resource kinds.
 Format-specific serializers (PNG export, OBJ export, WAV export, ...) belong in
-`nfs-resource-formats`. `ui_serialization()`'s return shape drives the GUI "convert" panel:
-`{file_type, is_directory, output_file_name_suffix, reversible, reversible_settings_patch}`
-(`None` hides the block from the convert UI). The only wiring point back into the system is a
+`nfs-resource-formats`. `ui = UiSerialization(file_type, is_directory, suffix, reversible, settings_patch,
+import_guide)` drives the GUI "convert" panel (common ones: `JSON_UI`, `REVERSIBLE_JSON_UI`, `PNG_UI`,
+`REVERSIBLE_PNG_UI`, `DIRECTORY_UI`; a variant `dataclasses.replace(Base.ui, ...)`); `ui_serialization()` sends it
+as `{file_type, is_directory, output_file_name_suffix, reversible, reversible_settings_patch[, import_guide]}` in
+`schema['serialization']` (`ui = None` hides the block from the convert UI). The only wiring point back into the system is a
 `DataBlock` subclass's `serializer` attribute naming your class — `get_serializer()` in
 `serializers/__init__.py` calls `serializer_class()`, which looks the name up in the `serializers`
 package — so a new serializer class needs an import in `serializers/__init__.py`, but no separate

@@ -149,6 +149,19 @@ When you do:
   a `MagicDispatchBlock(possible_blocks, field='identifier', fallback=None)` (`library/read_blocks/delegates.py`): each
   block's id field has an `Eq` / `Or` validator, the first block in order accepting the bytes is read (`fallback`: the
   index of an unknown-record block, else an unknown id raises). No hand-written choice function.
+- Serializers (`serializers/base.py`): the GUI convert panel entry is a class attribute `ui = UiSerialization(...)`
+  (`JSON_UI`, `REVERSIBLE_JSON_UI`, `PNG_UI`, `REVERSIBLE_PNG_UI`, `DIRECTORY_UI`; `ui_serialization()` sends it), a
+  file output's path `self.output_path(path, id)`, the data an import replaces `current_resource(id, block)`. JSON:
+  `JsonSerializer` (the fields the GUI shows), `ReversibleJsonSerializer` (imports back, `merge_json_values`; hooks
+  `json_value` / `json_to_data`, `with_bin` also writes `<name>.bin`), `CompleteJsonSerializer` (every field). Shared
+  pieces: archive items `export_child` / `write_skipped` / `unique_name`; WAVs `write_wav_with_meta` + `loop_meta`
+  (`serializers/audios.py`); textures written on first use `TextureExporter` (`serializers/geometries.py`); track
+  exports `track_map_scene`, `terrain_chunk_scene`, `road_path_curve`, `write_terrain_chunks_json`
+  (`serializers/common/three_d/scenes.py`); `Mesh.sub_meshes()`, `change_axes(..., pivot=True)`. Lookups:
+  `require_resource_as(id, ShpiBlock)` (through compressed wrappers), `find_chunk(s)` (data of chunks by id,
+  `resources/blackbox/chunks.py`), `find_file_case_insensitive` / `find_folder_case_insensitive`
+  (`library/utils/file_utils.py`). Colours: `library/utils/colors.py` (`decode_colors` / `encode_colors` of whole
+  arrays: packed ARGB formats, BGR555, DOS 6-bit; `rgba_image`, `image_rgba`, `rgb_palette`), never per pixel.
 - Resource ids (`library/utils/id.py`, `frontend/src/app/utils/join-id.ts`, the same rules): a file's id is
   `path_to_name` of its path (`__` escaped as `_%5F`, `:` as `---DRIVE`), a resource in it adds `__` and its path in
   the file's data (`children/3/item/data`), which never contains `__` nor starts with `_`; ids split at their last
@@ -463,8 +476,8 @@ When you do:
   keys. `Nfs6EngineAudioTable` ("CRDl", the items of `cartable.viv`, also a `BigfBlock` item block): engine sound
   slots, self-relative table offsets, 512-byte volume / pitch tables.
 - Conversion: `IniFileSerializer` writes `<file>.json` (the values, sections as objects, groups as lists; no layout)
-  and imports it back over the loaded file (layout kept) or as a new file; `BlockJsonSerializer` does the same for a
-  binary block with every field (`Nfs6EngineAudioTable`, `from_json`).
+  and imports it back over the loaded file (layout kept) or as a new file; `Nfs6EngineAudioTable` goes through
+  `CompleteJsonSerializer` (every field, imported back byte-exact).
 - GUI: `Nfs6CarIniBlockUiComponent` (`frontend/.../editor/eac/nfs6-car-ini.block-ui/`; the exe's formulas in
   `nfs6-car-specs.ts`: torque curve fill and lookup, gearing, drive force, shift speeds, aero, steering limit),
   `IniFileBlockUiComponent` (`editor/common/ini-file.block-ui/`, every `IniFile`: sections, keys with units, defaults
@@ -639,9 +652,11 @@ When you do:
   `PsxClutBlockUiComponent` (swatches, a click changes a color keeping its STP bit; black is written 0x8000).
   `frontend/src/app/utils/psx-color.ts` converts like `psx_color_to_rgba`: keep the two the same.
 - Most PSX files end with a 12-byte `CRCF` footer (`PsxCrcFooter`, `resources/eac/psx.py`): CRC-16 (reflected 0x8005,
-  init 0xFBEA) of the bytes before it, recomputed on save (`with_crc_footer`). `ShppBlock` reads it as a file of its
-  own and as a BIGF / C0FB item, not in a FAM (`_in_wwww_archive`): there it stays in the last entry's
-  `post_offset_payload`.
+  init 0xFBEA) of the bytes before it, recomputed on save: a block of such a file ends with `crc_footer =
+  crc_footer_field()` and mixes in `PsxCrcFooterMixin` (the footer written after the other fields, with their CRC).
+  `ShppBlock` and `OrixGeometry` (`PsxItemCrcFooterMixin`) read it after themselves in a file of their own and in a
+  BIGF / C0FB item, not in a FAM (`in_wwww_archive`): there it stays in the last entry's `post_offset_payload`.
+  `with_crc_footer` appends one to packed bytes (`EacCompressedBlock`).
 - `Z<car>.VSM` (every car) / `Z<car>.WSM` (the 8 racers and `TRAFFC`: the car in another color, loaded for racers in
   odd car slots, `tnfs_carobj` 0x80039604; `TRAFFC`'s is identical) = `BigfBlock` of `<car>.pbs`, `<car>.pdn` (QFS3-compressed PC PBS / PDN layouts; traffic and cop cars
   have a 16-byte `HI\r\n` placeholder `.pbs`), `<car>.por` / `<car>l.por` (high / low-poly model, `OrixGeometry`),
@@ -926,8 +941,8 @@ When you do:
   of the 131 ORIPs of TNFS SE's CFMs and FAMs, directly or through Blender's OBJ import / export, all come back as
   the game draws them, but the line polygon of TR6's mine (not exported); textured polygons without a bitmap of the
   FSH (WARIOR, LDIABLO low-poly) come back one-colour, drawn the same.
-- The GUI's import (upload) button shows the OBJ import guide before the folder is picked (`import_guide: 'orip_obj'`
-  in `ui_serialization()`, `ImportGuideDialogComponent` in `frontend/.../editor/common/import-guide.dialog/`): Blender
+- The GUI's import (upload) button shows the OBJ import guide before the folder is picked (`import_guide='orip_obj'`
+  of the serializer's `UiSerialization`, `ImportGuideDialogComponent` in `frontend/.../editor/common/import-guide.dialog/`): Blender
   steps, material, object and partition naming, the two models of a CFM. "Don't show this again" clears the general
   setting `show_orip_import_guide`, System Configuration sets it again. Keep its rules in sync with the import.
 
@@ -1012,9 +1027,9 @@ When you do:
   nfs2sen.exe 0x451bd0: `Nfs2PersonalityGrid` (4 rows of 12 letters) and the personalities `car_a` .. `car_m`
   (`Nfs2Personality`, 0xe4 bytes; field descriptions carry the `.DES` chain names). Names from `PRSONAL.DES`. Picked
   by name (any case) and size 3012. Both are `BigfBlock` item blocks; the exe also has compiled-in copies of both.
-- Conversion: all five export to `<name>.json` with every field (`Nfs2DataJsonSerializer`,
-  `serializers/misc/nfs2_data_json.py`: JsonSerializer's output, plus import: the JSON's values over the resource,
-  `merge_json_values`); a `.QDA` converts through its compressed wrapper to `<name>.QDA.json`.
+- Conversion: all five export to `<name>.json` with every field (`ReversibleJsonSerializer`, `serializers/json.py`:
+  JsonSerializer's output, plus import: the JSON's values over the resource, `merge_json_values`); a `.QDA` converts
+  through its compressed wrapper to `<name>.QDA.json`.
 - The developers' `.DES` files (`P*.DES`, `SIMTUNE.DES`, `MCF1.DES`, `TRAFCFG.DES`, `PRSONAL.DES`, the smackables'
   `TRACKS/DATA/PC/SM*.DES`; NFS5 `TRAFCFG.DES` too) = `EaFieldDescriptions` (`resources/eac/field_descriptions.py`,
   module docstring has the layout): a body (94 bytes of garbage, int data size, int records size, a copy of the data,

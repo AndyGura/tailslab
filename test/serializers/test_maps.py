@@ -572,10 +572,10 @@ class TestEacTrackSerializers(unittest.TestCase):
         numbers = sorted({r['texture_number'] for r in col['extrablocks'][0]['data_records']['data']})[:3]
         require_sibling = maps._require_track_sibling
 
-        def sibling_with_repeated_names(id, file_name, sub_id=''):
+        def sibling_with_repeated_names(id, *file_names, sub_id=''):
             # the track QFS with three images used by the track named alike, as in NFS2 SE TR060.QFS
-            (qfs_id, qfs_block, qfs_data), rest = require_sibling(id, file_name, sub_id)
-            if not file_name.upper().endswith('.QFS'):
+            (qfs_id, qfs_block, qfs_data), rest = require_sibling(id, *file_names, sub_id=sub_id)
+            if not file_names[0].upper().endswith('.QFS'):
                 return (qfs_id, qfs_block, qfs_data), rest
             qfs_data = deepcopy(qfs_data)
             for i, number in enumerate(numbers):

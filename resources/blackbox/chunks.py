@@ -359,3 +359,16 @@ class RecordsChunk(ChunkBlock):
     def matches_chunk(self, ctx) -> bool:
         amount = self.records_amount(peek_chunk_payload(ctx, peek_chunk_length(ctx)))
         return amount is not None and amount >= self.MIN_RECORDS
+
+
+def find_chunks(chunks: list, chunk_id: int) -> List[dict]:
+    """The data of the chunks `chunk_id` in a chunk list of parsed data (a `chunks_field`, `sub_chunks`: delegate values),
+    in order; the id of an unloaded lazy chunk is read without parsing it"""
+    return [x['data'] for x in chunks if isinstance(x['data'], dict) and x['data'].get('chunk_id') == chunk_id]
+
+
+def find_chunk(chunks: list, chunk_id: int) -> Optional[dict]:
+    """The data of the first chunk `chunk_id` in a chunk list of parsed data (`find_chunks`), None without one"""
+    return next(
+        (x['data'] for x in chunks if isinstance(x['data'], dict) and x['data'].get('chunk_id') == chunk_id), None
+    )

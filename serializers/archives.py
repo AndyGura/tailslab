@@ -1,12 +1,12 @@
 import json
 import os
 import traceback
+from dataclasses import replace
 from os.path import isdir
 import re
 from typing import Dict, List, Optional
 
 import config
-import serializers
 from library.exceptions import DataIntegrityException
 from library.utils import format_exception, path_join
 from library.utils.id import is_file_id, join_id
@@ -14,6 +14,7 @@ from resources.eac.archives import ShpiBlock
 from resources.eac.bitmaps import EacImage, EacPalette
 from resources.eac.geometries import OripGeometry
 from serializers import BaseFileSerializer
+from serializers.base import UiSerialization, current_resource, export_child, unique_name, write_skipped
 from serializers.misc.path_utils import escape_chars
 
 general_config = config.general_config()
@@ -27,23 +28,21 @@ def entry_alias(file_name: str, length: Optional[int]) -> str:
 
 
 class ShpiArchiveSerializer(BaseFileSerializer):
+    ui = UiSerialization(
+        'PNG-s directory',
+        is_directory=True,
+        reversible=True,
+        settings_patch={
+            'images__save_image_positions': False,
+            'images__save_palettes': False,
+            'images__save_mipmaps': False,
+            'images__save_embedded_palette': False,
+            'images__save_texts': False,
+        },
+    )
+
     def __init__(self):
         super().__init__(is_dir=True)
-
-    def ui_serialization(self):
-        return {
-            'file_type': 'PNG-s directory',
-            'is_directory': True,
-            'output_file_name_suffix': None,
-            'reversible': True,
-            'reversible_settings_patch': {
-                'images__save_image_positions': False,
-                'images__save_palettes': False,
-                'images__save_mipmaps': False,
-                'images__save_embedded_palette': False,
-                'images__save_texts': False,
-            },
-        }
 
     @staticmethod
     def items(data: dict, block) -> list:
@@ -67,19 +66,10 @@ class ShpiArchiveSerializer(BaseFileSerializer):
                 continue
             if i not in file_names:
                 continue
-            try:
-                serializer = serializers.get_serializer(item_block, item_data)
-                output.extend(
-                    serializer.serialize(
-                        item_data,
-                        path_join(path, file_names[i]),
-                        block=item_block,
-                        id=join_id(id, 'children', str(i), 'item', 'data'),
-                    )
-                )
-            except Exception as ex:
-                traceback.print_exc()
-                skipped_resources.append((name, format_exception(ex)))
+            item_id = join_id(id, 'children', str(i), 'item', 'data')
+            export_child(
+                output, skipped_resources, item_block, item_data, path_join(path, file_names[i]), name, item_id
+            )
         if is_tnfs_car:
             from serializers.misc.tnfs_car_colors import tnfs_car_colors
 
@@ -95,11 +85,7 @@ class ShpiArchiveSerializer(BaseFileSerializer):
         if self.settings.maps__save_spherical_skybox_texture:
             output.extend(self.serialize_sky(items, path, id))
 
-        if skipped_resources:
-            with open(path_join(path, 'skipped.txt'), 'w') as f:
-                for item in skipped_resources:
-                    f.write('%s\t\t%s\n' % item)
-            output.append(path_join(path, 'skipped.txt'))
+        output += write_skipped(path, skipped_resources)
         return output
 
     def serialize_sky(self, items, path: str, id) -> List[str]:
@@ -182,11 +168,7 @@ class ShpiArchiveSerializer(BaseFileSerializer):
                 continue
             if isinstance(item_data, Exception) or (isinstance(item_block, EacPalette) and not save_palettes):
                 continue
-            file_name = original_file_name = escape_chars(name).replace('/', '_')
-            n = 0
-            while file_name.lower() in taken:
-                file_name = f'{original_file_name}{n}'
-                n += 1
+            file_name = unique_name(escape_chars(name).replace('/', '_'), taken, ignore_case=True)
             taken.add(file_name.lower())
             names[i] = file_name
         return names
@@ -271,15 +253,8 @@ class ShpiArchiveSerializer(BaseFileSerializer):
     @staticmethod
     def _current_shpi(id) -> Optional[dict]:
         # the SHPI loaded under `id`, which the import merges into
-        if not id:
-            return None
-        from library import require_resource
-
-        try:
-            (_, _, current), _ = require_resource(id)
-        except Exception:
-            return None
-        return current if isinstance(current, dict) and 'children' in current else None
+        current = current_resource(id)
+        return current if current is not None and 'children' in current else None
 
 
 class ShppArchiveSerializer(ShpiArchiveSerializer):
@@ -289,8 +264,7 @@ class ShppArchiveSerializer(ShpiArchiveSerializer):
     the PC FAM export makes it. The tyre images of the Japanese disc's cars (SLPS-01024), `Tir1`..`Tir4`, are named
     `tyr1`..`tyr4`, as the US disc's (`tnfs_tyre_texture_file_name`)"""
 
-    def ui_serialization(self):
-        return {**super().ui_serialization(), 'reversible': False, 'reversible_settings_patch': {}}
+    ui = replace(ShpiArchiveSerializer.ui, reversible=False, settings_patch={})
 
     @staticmethod
     def items(data: dict, block) -> list:
@@ -347,17 +321,10 @@ class ShppArchiveSerializer(ShpiArchiveSerializer):
 
 
 class WwwwArchiveSerializer(BaseFileSerializer):
+    ui = UiSerialization(None, is_directory=True)
+
     def __init__(self):
         super().__init__(is_dir=True)
-
-    def ui_serialization(self):
-        return {
-            'file_type': None,
-            'is_directory': True,
-            'output_file_name_suffix': None,
-            'reversible': False,
-            'reversible_settings_patch': {},
-        }
 
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
         super().serialize(data, path)
@@ -391,24 +358,9 @@ class WwwwArchiveSerializer(BaseFileSerializer):
                 continue
             if isinstance(item_block, OripGeometry):
                 skip_next_shpi = True
-            try:
-                serializer = serializers.get_serializer(item_block, item_data)
-                output.extend(
-                    serializer.serialize(
-                        item_data,
-                        path_join(path, name),
-                        block=item_block,
-                        id=join_id(id, 'children', str(i), 'item', 'data'),
-                    )
-                )
-            except Exception as ex:
-                traceback.print_exc()
-                skipped_resources.append((name, format_exception(ex)))
-        if skipped_resources:
-            with open(path_join(path, 'skipped.txt'), 'w') as f:
-                for item in skipped_resources:
-                    f.write('%s\t\t%s\n' % item)
-            output.append(path_join(path, 'skipped.txt'))
+            item_id = join_id(id, 'children', str(i), 'item', 'data')
+            export_child(output, skipped_resources, item_block, item_data, path_join(path, name), name, item_id)
+        output += write_skipped(path, skipped_resources)
         return output
 
 
@@ -439,19 +391,9 @@ class SoundBankSerializer(BaseFileSerializer):
                 'random_range': entry['random_range'],
                 'unknown_0x16': entry['unk4'],
             }
-            try:
-                serializer = serializers.get_serializer(item_block, item)
-                output.extend(
-                    serializer.serialize(item, path_join(path, name), id=join_id(id, 'children', str(i)), meta=meta)
-                )
-            except Exception as ex:
-                traceback.print_exc()
-                skipped_resources.append((name, format_exception(ex)))
-        if skipped_resources:
-            with open(path_join(path, 'skipped.txt'), 'w') as f:
-                for item in skipped_resources:
-                    f.write('%s\t\t%s\n' % item)
-            output.append(path_join(path, 'skipped.txt'))
+            item_id = join_id(id, 'children', str(i))
+            export_child(output, skipped_resources, item_block, item, path_join(path, name), name, item_id, meta=meta)
+        output += write_skipped(path, skipped_resources)
         return output
 
 
@@ -466,36 +408,18 @@ class BigfArchiveSerializer(BaseFileSerializer):
             for child in data['children']
         ]
         skipped_resources = []
-        save_image_names = {}
+        # file names taken by exported items, letter case kept
+        taken = set()
         output = []
         for i, (name, item_data, item_block) in enumerate(items):
             if isinstance(item_data, Exception):
                 skipped_resources.append((name, format_exception(item_data)))
                 continue
-            try:
-                serializer = serializers.get_serializer(item_block, item_data)
-                file_name = escape_chars(name).replace('/', '_')
-                if save_image_names.get(file_name):
-                    original_file_name = file_name
-                    n = 0
-                    while save_image_names.get(file_name):
-                        file_name = f'{original_file_name}{n}'
-                        n += 1
-                output.extend(
-                    serializer.serialize(
-                        item_data,
-                        path_join(path, file_name),
-                        block=item_block,
-                        id=join_id(id, 'children', str(i), 'item', 'data'),
-                    )
-                )
-                save_image_names[file_name] = True
-            except Exception as ex:
-                traceback.print_exc()
-                skipped_resources.append((name, format_exception(ex)))
-        if skipped_resources:
-            with open(path_join(path, 'skipped.txt'), 'w') as f:
-                for item in skipped_resources:
-                    f.write('%s\t\t%s\n' % item)
-            output.append(path_join(path, 'skipped.txt'))
+            file_name = unique_name(escape_chars(name).replace('/', '_'), taken)
+            item_id = join_id(id, 'children', str(i), 'item', 'data')
+            if export_child(
+                output, skipped_resources, item_block, item_data, path_join(path, file_name), name, item_id
+            ):
+                taken.add(file_name)
+        output += write_skipped(path, skipped_resources)
         return output

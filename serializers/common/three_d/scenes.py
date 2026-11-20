@@ -68,6 +68,37 @@ class Scene:
         self.export_normals = export_normals
 
 
+def track_map_scene(chunked: bool, **overrides) -> Scene:
+    """The `map` scene of a track export (`map.obj`, `map.glb` + `map.meta`: the whole track; `chunked`: no OBJ, its
+    meshes go to `terrain_chunk_scene`s), textures `textures/<name>.png` of its `terrain.mtl`"""
+    settings = {'mtl_texture_path_func': lambda x: f'textures/{x}.png', 'skip_obj_export': chunked, **overrides}
+    return Scene(name='map', obj_name='map', mtl_name='terrain', **settings)
+
+
+def terrain_chunk_scene(name: str, sub_meshes: List[SubMesh], **overrides) -> Scene:
+    """A chunk of a chunked track export (`terrain_chunk_<i>`, nfs-web loads them by these names): its meshes, the
+    materials of the `map` scene's `terrain.mtl`"""
+    settings = {'mtl_name': 'terrain', 'bake_textures': False, 'skip_mtl_export': True, **overrides}
+    return Scene(name=name, sub_meshes=sub_meshes, obj_name=name, **settings)
+
+
+def road_path_curve(points, closed: bool = True, properties: Dict[str, list] = None) -> dict:
+    """The `road_path` curve of a track's `map` scene (nfs-web reads it): `points` (x, y, z) in game axes (Y up),
+    exported with y and z swapped; `properties`: a list of values per point"""
+    curve = {'name': 'road_path', 'closed': closed, 'points': [[p[0], p[2], p[1]] for p in points]}
+    if properties is not None:
+        curve['properties'] = properties
+    return curve
+
+
+def write_terrain_chunks_json(path: str, positions: List[dict]) -> str:
+    """`terrain_chunks.json` of a chunked track export in the folder `path`: the chunk positions ({x, y, z})"""
+    chunks_file = path_join(path, 'terrain_chunks.json')
+    with open(chunks_file, 'w') as f:
+        json.dump([{k: float(v) for k, v in p.items()} for p in positions], f)
+    return chunks_file
+
+
 # Blender script helper: the options that the loaded `export_glb_meta` accepts, the others dropped with a warning in
 # the Blender log (the exporter downloaded from gg-web-engine's main branch can be older than the converter)
 _GG_EXPORT_OPTIONS_SCRIPT = """

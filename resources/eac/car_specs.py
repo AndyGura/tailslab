@@ -867,7 +867,7 @@ class Nfs2CarPhysics(DeclarativeCompoundBlock):
         'elements, `CArray` = bytes), which also embed a copy of the file. Ranges in the descriptions are those of '
         "the game's 146 files (NFS2 and NFS2 SE, loose, `.QDA` and `CARDATA.VIV`)"
     )
-    serializer = 'Nfs2DataJsonSerializer'
+    serializer = 'ReversibleJsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         mass = (
@@ -1387,7 +1387,7 @@ class Nfs2SimTune(DeclarativeCompoundBlock):
         "types and order come from the developers' field descriptions `GAMEDATA/CARMODEL/PC/SIMTUNE.DES` "
         '(`Fixed` = 16.16 fixed point, `Integer` = int), which also embed a copy of the file'
     )
-    serializer = 'Nfs2DataJsonSerializer'
+    serializer = 'ReversibleJsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         simulation = (
@@ -1461,7 +1461,7 @@ class Nfs2CarAi(DeclarativeCompoundBlock):
         '"Arcade Mode Levers" (`Nfs2CarAiLevers`) in the middle; it also embeds a copy of `mcf1.dat`. Five '
         'cars (futr, dayt, chev, musc, mcf1) have identical files'
     )
-    serializer = 'Nfs2DataJsonSerializer'
+    serializer = 'ReversibleJsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         ai_shift_duration = (
@@ -1704,7 +1704,7 @@ class Nfs2TrafficConfig(DeclarativeCompoundBlock):
         'Parameters", "Glue Factors" and "AI Physics Configuration Parameters"; it also embeds a copy of the '
         'file. `MTRAF.BAT` there compiled it into the exe (`bin2src trafcfg.dat trafcfg.c`)'
     )
-    serializer = 'Nfs2DataJsonSerializer'
+    serializer = 'ReversibleJsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         opp_desired_ahead = (
@@ -1990,7 +1990,7 @@ class Nfs2Personalities(DeclarativeCompoundBlock):
         'Assignments" and "Personalities" (one chain per personality, named after the letter and a '
         'description); it also embeds a copy of the file'
     )
-    serializer = 'Nfs2DataJsonSerializer'
+    serializer = 'ReversibleJsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         grid = (Nfs2PersonalityGrid(), {'description': '`.DES` chain "Grid Assignments"'})

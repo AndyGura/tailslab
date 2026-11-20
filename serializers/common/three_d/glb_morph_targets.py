@@ -10,6 +10,7 @@ Y-up conversion. Each target becomes a glTF morph target with a POSITION accesso
 `mesh.extras.targetNames` (three.js GLTFLoader reads them into `morphTargetDictionary`), with default weights 0.
 """
 
+import itertools
 import json
 import logging
 import math
@@ -75,40 +76,85 @@ def read_accessor(gltf: dict, binary: bytes, index: int) -> List[tuple]:
     return [struct.unpack_from(fmt, binary, start + i * stride) for i in range(accessor['count'])]
 
 
-def _append_vec3_accessor(gltf: dict, binary: bytearray, vectors: List[List[float]]) -> int:
+def _append_accessor(gltf: dict, binary: bytearray, data: bytes, accessor: dict, byte_stride: int = None) -> int:
+    """Index of a new accessor (`bufferView` + `accessor`) of `data`, appended 4-byte aligned to the binary chunk as a
+    buffer view of its own"""
     binary.extend(b'\x00' * (-len(binary) % 4))
-    data = b''.join(struct.pack('<3f', *v) for v in vectors)
-    gltf.setdefault('bufferViews', []).append(
-        {'buffer': 0, 'byteOffset': len(binary), 'byteLength': len(data), 'target': _ARRAY_BUFFER}
-    )
+    view = {'buffer': 0, 'byteOffset': len(binary), 'byteLength': len(data), 'target': _ARRAY_BUFFER}
+    if byte_stride:
+        view['byteStride'] = byte_stride
+    gltf.setdefault('bufferViews', []).append(view)
     binary.extend(data)
-    # float32 values, like the data, so that min / max bound it exactly
-    as_float32 = [struct.unpack('<3f', struct.pack('<3f', *v)) for v in vectors]
-    gltf.setdefault('accessors', []).append(
-        {
-            'bufferView': len(gltf['bufferViews']) - 1,
-            'componentType': _FLOAT,
-            'count': len(vectors),
-            'type': 'VEC3',
-            'min': [min(v[i] for v in as_float32) for i in range(3)],
-            'max': [max(v[i] for v in as_float32) for i in range(3)],
-        }
-    )
+    gltf.setdefault('accessors', []).append({'bufferView': len(gltf['bufferViews']) - 1, **accessor})
     return len(gltf['accessors']) - 1
+
+
+def _append_float_accessor(
+    gltf: dict, binary: bytearray, vectors: List[List[float]], type_name: str, bounds: bool = False
+) -> int:
+    """Float accessor of the vectors; `bounds`: with `min` / `max` (POSITION accessors need them)"""
+    size = len(vectors[0]) if vectors else 0
+    accessor = {'componentType': _FLOAT, 'count': len(vectors), 'type': type_name}
+    if bounds:
+        # float32 values, like the data, so that min / max bound it exactly
+        as_float32 = [struct.unpack(f'<{size}f', struct.pack(f'<{size}f', *v)) for v in vectors]
+        accessor['min'] = [min(v[i] for v in as_float32) for i in range(size)]
+        accessor['max'] = [max(v[i] for v in as_float32) for i in range(size)]
+    return _append_accessor(gltf, binary, b''.join(struct.pack(f'<{size}f', *v) for v in vectors), accessor)
+
+
+def _append_byte_accessor(gltf: dict, binary: bytearray, vectors: List[List[int]]) -> int:
+    """Unsigned byte normalized accessor of the vectors (1..4 bytes each), every element 4-byte aligned as glTF wants
+    for vertex attributes"""
+    size = len(vectors[0]) if vectors else 0
+    stride = (size + 3) // 4 * 4
+    accessor = {
+        'componentType': _UNSIGNED_BYTE,
+        'normalized': True,
+        'count': len(vectors),
+        'type': 'SCALAR' if size == 1 else f'VEC{size}',
+    }
+    data = b''.join(bytes(v) + bytes(stride - size) for v in vectors)
+    return _append_accessor(gltf, binary, data, accessor, stride if stride != size else None)
 
 
 def _close(a, b, tolerance: float) -> bool:
     return all(math.isclose(x, y, abs_tol=tolerance) for x, y in zip(a, b))
 
 
-def _match_vertex(sub_mesh: SubMesh, position, uv, tolerance: float) -> int:
+def _position_index(sub_mesh: SubMesh) -> dict:
+    """Sub-mesh vertex indices by position rounded to 1 mm"""
+    pivot = sub_mesh.pivot_offset
+    index = {}
+    for i, v in enumerate(sub_mesh.vertices):
+        index.setdefault(tuple(round(v[k] - pivot[k], 3) for k in range(3)), []).append(i)
+    return index
+
+
+def _vertices_near(sub_mesh: SubMesh, index: dict, position, tolerance: float) -> List[int]:
+    """Sub-mesh vertices within `tolerance` of `position`, in vertex order: those of the cells of the position index
+    the tolerance reaches"""
+    reach = [max(tolerance, 2e-9 * abs(x)) for x in position]
+    # a reach under half a cell: at most two cells per axis
+    if max(reach) >= 5e-4:
+        cells = list(index.values())
+    else:
+        cells = [
+            index.get(key, ())
+            for key in itertools.product(*({round(x - r, 3), round(x + r, 3)} for x, r in zip(position, reach)))
+        ]
+    pivot = sub_mesh.pivot_offset
+    candidates = sorted(i for cell in cells for i in cell)
+    return [
+        i for i in candidates if _close([sub_mesh.vertices[i][k] - pivot[k] for k in range(3)], position, tolerance)
+    ]
+
+
+def _match_vertex(sub_mesh: SubMesh, index: dict, position, uv, tolerance: float) -> int:
     """Index of the sub-mesh vertex exported as the glTF vertex at `position` with texture coordinates `uv`: one with
     the same position, or with the same texture coordinates among them too when the vertices at that position have
     different morph deltas"""
-    pivot = sub_mesh.pivot_offset
-    candidates = [
-        i for i, v in enumerate(sub_mesh.vertices) if _close([v[k] - pivot[k] for k in range(3)], position, tolerance)
-    ]
+    candidates = _vertices_near(sub_mesh, index, position, tolerance)
 
     def same_deltas(indices):
         return all(len({tuple(deltas[i]) for i in indices}) == 1 for deltas in sub_mesh.morph_targets.values())
@@ -136,14 +182,19 @@ def add_glb_morph_targets(glb_path: str, sub_meshes: List[SubMesh], tolerance: f
             raise ValueError(f'Cannot add morph targets: no mesh node "{sub_mesh.name}" in {glb_path}')
         mesh = gltf['meshes'][node['mesh']]
         target_names = list(sub_mesh.morph_targets.keys())
+        index = _position_index(sub_mesh)
         for primitive in mesh['primitives']:
             positions = read_accessor(gltf, binary, primitive['attributes']['POSITION'])
             uv_accessor = primitive['attributes'].get('TEXCOORD_0')
             # the same as the sub-mesh ones: the OBJ has 1 - v, the glTF exporter flips V back
             uvs = read_accessor(gltf, binary, uv_accessor) if uv_accessor is not None else [None] * len(positions)
-            matches = [_match_vertex(sub_mesh, p, uv, tolerance) for p, uv in zip(positions, uvs)]
+            matches = [_match_vertex(sub_mesh, index, p, uv, tolerance) for p, uv in zip(positions, uvs)]
             primitive['targets'] = [
-                {'POSITION': _append_vec3_accessor(gltf, binary, [sub_mesh.morph_targets[name][i] for i in matches])}
+                {
+                    'POSITION': _append_float_accessor(
+                        gltf, binary, [sub_mesh.morph_targets[name][i] for i in matches], 'VEC3', bounds=True
+                    )
+                }
                 for name in target_names
             ]
         mesh['weights'] = [0.0] * len(target_names)
@@ -152,13 +203,10 @@ def add_glb_morph_targets(glb_path: str, sub_meshes: List[SubMesh], tolerance: f
     write_glb(glb_path, gltf, bytes(binary))
 
 
-def _match_normal(sub_mesh: SubMesh, position, uv, gltf_normal, tolerance: float) -> List[float]:
+def _match_normal(sub_mesh: SubMesh, index: dict, position, uv, gltf_normal, tolerance: float) -> List[float]:
     """Game normal of the sub-mesh vertex exported as the glTF vertex at `position`: of the vertices at that position,
     those with the texture coordinates `uv` when their normals differ, then the one nearest to the glTF normal"""
-    pivot = sub_mesh.pivot_offset
-    candidates = [
-        i for i, v in enumerate(sub_mesh.vertices) if _close([v[k] - pivot[k] for k in range(3)], position, tolerance)
-    ]
+    candidates = _vertices_near(sub_mesh, index, position, tolerance)
     if not candidates:
         raise ValueError(f'Mesh "{sub_mesh.name}": no vertex at {position} for the game normals')
 
@@ -172,88 +220,18 @@ def _match_normal(sub_mesh: SubMesh, position, uv, gltf_normal, tolerance: float
     return sub_mesh.vertex_normals[candidates[0]]
 
 
-def _append_float_accessor(gltf: dict, binary: bytearray, vectors: List[List[float]], type_name: str) -> int:
-    size = len(vectors[0]) if vectors else 0
-    binary.extend(b'\x00' * (-len(binary) % 4))
-    data = b''.join(struct.pack(f'<{size}f', *v) for v in vectors)
-    gltf.setdefault('bufferViews', []).append(
-        {'buffer': 0, 'byteOffset': len(binary), 'byteLength': len(data), 'target': _ARRAY_BUFFER}
-    )
-    binary.extend(data)
-    gltf.setdefault('accessors', []).append(
-        {'bufferView': len(gltf['bufferViews']) - 1, 'componentType': _FLOAT, 'count': len(vectors), 'type': type_name}
-    )
-    return len(gltf['accessors']) - 1
-
-
-def _position_index(sub_mesh: SubMesh) -> dict:
-    """Sub-mesh vertex indices by position rounded to 1 mm"""
-    pivot = sub_mesh.pivot_offset
-    index = {}
-    for i, v in enumerate(sub_mesh.vertices):
-        index.setdefault(tuple(round(v[k] - pivot[k], 3) for k in range(3)), []).append(i)
-    return index
-
-
-def _match_color(sub_mesh: SubMesh, index: dict, position, uv, tolerance: float) -> List[float]:
-    """Vertex color of the sub-mesh vertex exported as the glTF vertex at `position`: of the vertices at that position,
-    one with the texture coordinates `uv`"""
-    candidates = index.get(tuple(round(x, 3) for x in position))
-    if not candidates:
-        pivot = sub_mesh.pivot_offset
-        candidates = [
-            i
-            for i, v in enumerate(sub_mesh.vertices)
-            if _close([v[k] - pivot[k] for k in range(3)], position, tolerance)
-        ]
-    if not candidates:
-        raise ValueError(f'Mesh "{sub_mesh.name}": no vertex at {position} for the vertex colors')
-    if uv is not None:
-        candidates = [i for i in candidates if _close(sub_mesh.vertex_uvs[i], uv, tolerance)] or candidates
-    return list(sub_mesh.vertex_colors[candidates[0]])
-
-
-def _append_byte_accessor(gltf: dict, binary: bytearray, vectors: List[List[int]]) -> int:
-    """Unsigned byte normalized accessor of the vectors (1..4 bytes each), every element 4-byte aligned as glTF wants
-    for vertex attributes"""
-    size = len(vectors[0]) if vectors else 0
-    stride = (size + 3) // 4 * 4
-    binary.extend(b'\x00' * (-len(binary) % 4))
-    data = b''.join(bytes(v) + bytes(stride - size) for v in vectors)
-    view = {'buffer': 0, 'byteOffset': len(binary), 'byteLength': len(data), 'target': _ARRAY_BUFFER}
-    if stride != size:
-        view['byteStride'] = stride
-    gltf.setdefault('bufferViews', []).append(view)
-    binary.extend(data)
-    gltf.setdefault('accessors', []).append(
-        {
-            'bufferView': len(gltf['bufferViews']) - 1,
-            'componentType': _UNSIGNED_BYTE,
-            'normalized': True,
-            'count': len(vectors),
-            'type': 'SCALAR' if size == 1 else f'VEC{size}',
-        }
-    )
-    return len(gltf['accessors']) - 1
-
-
-def _match_values(sub_mesh: SubMesh, values: List[list], index: dict, position, uv, tolerance: float) -> list:
+def _match_values(
+    sub_mesh: SubMesh, values: List[list], index: dict, position, uv, tolerance: float, what: str, warn: bool = True
+) -> list:
     """Values (parallel to the sub-mesh vertices) of the sub-mesh vertex exported as the glTF vertex at `position`: of
-    the vertices at that position, one with the texture coordinates `uv`. A warning when those still differ in their
-    values (two corners the GLB cannot tell apart)"""
-    candidates = index.get(tuple(round(x, 3) for x in position))
+    the vertices at that position (rounded to 1 mm, else within `tolerance`), one with the texture coordinates `uv`.
+    `warn`: a warning when those still differ in their values (two corners the GLB cannot tell apart)"""
+    candidates = index.get(tuple(round(x, 3) for x in position)) or _vertices_near(sub_mesh, index, position, tolerance)
     if not candidates:
-        pivot = sub_mesh.pivot_offset
-        candidates = [
-            i
-            for i, v in enumerate(sub_mesh.vertices)
-            if _close([v[k] - pivot[k] for k in range(3)], position, tolerance)
-        ]
-    if not candidates:
-        raise ValueError(f'Mesh "{sub_mesh.name}": no vertex at {position} for the vertex attributes')
+        raise ValueError(f'Mesh "{sub_mesh.name}": no vertex at {position} for the {what}')
     if uv is not None:
         candidates = [i for i in candidates if _close(sub_mesh.vertex_uvs[i], uv, tolerance)] or candidates
-    if len({tuple(values[i]) for i in candidates}) > 1:
+    if warn and len({tuple(values[i]) for i in candidates}) > 1:
         logging.warning(f'Mesh "{sub_mesh.name}": vertices at {position} with other attribute values, the first taken')
     return list(values[candidates[0]])
 
@@ -282,42 +260,38 @@ def add_glb_vertex_attributes(glb_path: str, sub_meshes: List[SubMesh], toleranc
         node = nodes.get(sub_mesh.name)
         if node is None:
             raise ValueError(f'Cannot add vertex attributes: no mesh node "{sub_mesh.name}" in {glb_path}')
+        index = _position_index(sub_mesh)
         for primitive in gltf['meshes'][node['mesh']]['primitives']:
             attributes = primitive['attributes']
             positions = read_accessor(gltf, binary, attributes['POSITION'])
-            uvs = (
-                read_accessor(gltf, binary, attributes['TEXCOORD_0'])
-                if 'TEXCOORD_0' in attributes
-                else [None] * len(positions)
-            )
+            none = [None] * len(positions)
+            uvs = read_accessor(gltf, binary, attributes['TEXCOORD_0']) if 'TEXCOORD_0' in attributes else none
             if sub_mesh.name in with_normals:
-                normals = (
-                    read_accessor(gltf, binary, attributes['NORMAL'])
-                    if 'NORMAL' in attributes
-                    else [None] * len(positions)
-                )
-                attributes['_GAME_NORMAL'] = _append_vec3_accessor(
+                normals = read_accessor(gltf, binary, attributes['NORMAL']) if 'NORMAL' in attributes else none
+                attributes['_GAME_NORMAL'] = _append_float_accessor(
                     gltf,
                     binary,
-                    [_match_normal(sub_mesh, p, uv, n, tolerance) for p, uv, n in zip(positions, uvs, normals)],
+                    [_match_normal(sub_mesh, index, p, uv, n, tolerance) for p, uv, n in zip(positions, uvs, normals)],
+                    'VEC3',
+                    bounds=True,
                 )
             if sub_mesh.name in with_colors:
-                index = _position_index(sub_mesh)
-                attributes['COLOR_0'] = _append_float_accessor(
-                    gltf,
-                    binary,
-                    [_match_color(sub_mesh, index, p, uv, tolerance) for p, uv in zip(positions, uvs)],
-                    'VEC4',
-                )
+                colors = [
+                    _match_values(sub_mesh, sub_mesh.vertex_colors, index, p, uv, tolerance, 'vertex colors', False)
+                    for p, uv in zip(positions, uvs)
+                ]
+                attributes['COLOR_0'] = _append_float_accessor(gltf, binary, colors, 'VEC4')
             if sub_mesh.name in with_bytes:
-                index = _position_index(sub_mesh)
                 for name, values in sorted(sub_mesh.vertex_byte_attributes.items()):
                     if len(values) != len(sub_mesh.vertices):
                         continue
                     attributes[name] = _append_byte_accessor(
                         gltf,
                         binary,
-                        [_match_values(sub_mesh, values, index, p, uv, tolerance) for p, uv in zip(positions, uvs)],
+                        [
+                            _match_values(sub_mesh, values, index, p, uv, tolerance, 'vertex attributes')
+                            for p, uv in zip(positions, uvs)
+                        ],
                     )
     gltf['buffers'][0]['byteLength'] = len(binary) + (-len(binary) % 4)
     write_glb(glb_path, gltf, bytes(binary))

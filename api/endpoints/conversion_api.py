@@ -14,6 +14,7 @@ from library.utils import format_exception, path_join
 from library.utils.executable_detection import detect_blender_path, detect_ffmpeg_path
 from library.utils.logging_setup import setup_logging, is_stdout_redirected
 from serializers import get_serializer
+from serializers.base import write_skipped
 
 
 class ConversionAPI:
@@ -199,12 +200,8 @@ class ConversionAPI:
                     path_suffix = path[len(base_input_path) :]
                     if path_suffix.startswith('/'):
                         path_suffix = path_suffix[1:]
-                    skipped_txt_output_path = path_join(output_path, path_suffix, 'skipped.txt')
-                    os.makedirs(os.path.dirname(skipped_txt_output_path), exist_ok=True)
-                    skipped.sort(key=lambda x: x[0])
-                    with open(skipped_txt_output_path, 'w') as f:
-                        for item in skipped:
-                            f.write('%s\t\t%s\n' % item)
+                    os.makedirs(path_join(output_path, path_suffix), exist_ok=True)
+                    write_skipped(path_join(output_path, path_suffix), sorted(skipped, key=lambda x: x[0]))
             bridge.update_conversion_progress(self.total_files, self.total_files)
             return {'success': True, 'output_path': output_path}
         except Exception as e:

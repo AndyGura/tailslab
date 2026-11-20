@@ -10,6 +10,8 @@ from copy import deepcopy
 from io import BytesIO
 from typing import Dict, List, Optional, Tuple
 
+import numpy as np
+
 from library.context import ReadContext, WriteContext
 from library.read_blocks import (
     SizeOf,
@@ -23,7 +25,7 @@ from library.read_blocks import (
     CountOf,
 )
 from library.read_blocks.misc.value_validators import Eq
-from library.utils import transform_bitness
+from library.utils.colors import decode_colors, rgb_palette, rgba_image
 from resources.eac.car_specs import CarAiAndCrashBody, PlayerCarPhysics
 from resources.eac.fields.byte_order import big_endian_copy
 
@@ -56,13 +58,16 @@ TNFS_SATURN_GTR_WARRIOR_CAR_AI_POINTER = 21
 PC_PDN_MPH_TO_RAW = 29124
 
 
+def saturn_colors_to_rgba(colors) -> np.ndarray:
+    """Saturn 16-bit RGB colours (bits 0-4 red, 5-9 green, 10-14 blue, 15 the RGB flag, set in every texture colour)
+    as RGBA (uint32 0xRRGGBBAA), opaque. Which texels are transparent is up to the texture's draw mode, not the
+    colour"""
+    return decode_colors('bgr555', colors)
+
+
 def saturn_color_to_rgba(color: int) -> int:
-    """A Saturn 16-bit RGB colour (bits 0-4 red, 5-9 green, 10-14 blue, 15 the RGB flag, set in every texture colour)
-    as RGBA 0xRRGGBBAA, opaque. Which texels are transparent is up to the texture's draw mode, not the colour"""
-    red = transform_bitness(color, 5)
-    green = transform_bitness(color >> 5, 5)
-    blue = transform_bitness(color >> 10, 5)
-    return red << 24 | green << 16 | blue << 8 | 0xFF
+    """`saturn_colors_to_rgba` of one colour"""
+    return int(saturn_colors_to_rgba(color))
 
 
 def _tnfs_saturn_car_physics_fields():
@@ -257,11 +262,7 @@ def tnfs_saturn_texture_image(bank: dict, index: int):
     width, height, indices, colors = tnfs_saturn_texture_pixels(bank, index)
     image = Image.new('P', (width, height))
     image.putdata(indices)
-    palette = []
-    for color in colors:
-        rgba = saturn_color_to_rgba(color)
-        palette.extend([(rgba >> 24) & 0xFF, (rgba >> 16) & 0xFF, (rgba >> 8) & 0xFF])
-    image.putpalette(palette)
+    image.putpalette(rgb_palette(saturn_colors_to_rgba(colors)))
     if not bank['textures'][index]['draw_mode'] & SATURN_DRAW_MODE_INDEX_0_DRAWN:
         image.info['transparency'] = bytes([0] + [255] * 15)
     return image
@@ -318,11 +319,7 @@ def tnfs_saturn_rle_image(data: dict):
 
     image = Image.new('P', (data['width'], data['height']))
     image.putdata(tnfs_saturn_rle_pixels(data))
-    palette = []
-    for color in data['palette']:
-        rgba = saturn_color_to_rgba(color)
-        palette.extend([(rgba >> 24) & 0xFF, (rgba >> 16) & 0xFF, (rgba >> 8) & 0xFF])
-    image.putpalette(palette)
+    image.putpalette(rgb_palette(saturn_colors_to_rgba(data['palette'])))
     image.info['transparency'] = bytes([0] + [255] * 255)
     return image.convert('RGBA')
 
@@ -902,11 +899,7 @@ def tnfs_saturn_sprite_image(bank: dict, index: int, colors: List[int]):
     image = Image.new('P', (max(width, 1), max(height, 1)))
     if width and height:
         image.putdata(indices)
-    palette = []
-    for color in list(colors[:256]) + [0] * (256 - len(colors[:256])):
-        rgba = saturn_color_to_rgba(color)
-        palette.extend([(rgba >> 24) & 0xFF, (rgba >> 16) & 0xFF, (rgba >> 8) & 0xFF])
-    image.putpalette(palette)
+    image.putpalette(rgb_palette(saturn_colors_to_rgba(list(colors[:256]) + [0] * (256 - len(colors[:256])))))
     if not width or not height:
         image.info['transparency'] = bytes([0] * 256)
     elif not entry['draw_mode'] & SATURN_DRAW_MODE_INDEX_0_DRAWN:
@@ -923,10 +916,9 @@ def tnfs_saturn_pcx_image(pcx: bytes, colors: List[int]):
     """RGBA PIL image of a palette-less PCX file of `FRONTEND.DAT` with the given palette colours, colour index 0
     transparent"""
     from PIL import Image
-    import numpy as np
 
     indices = np.array(Image.open(BytesIO(pcx)), dtype=np.uint8)
-    rgba = np.array([saturn_color_to_rgba(c) for c in list(colors) + [0] * (256 - len(colors))], dtype=np.uint32)
+    rgba = saturn_colors_to_rgba(list(colors) + [0] * (256 - len(colors)))
     pixels = rgba[indices]
     channels = np.stack([(pixels >> shift) & 0xFF for shift in (24, 16, 8, 0)], axis=-1).astype(np.uint8)
     channels[indices == 0, 3] = 0
@@ -995,17 +987,12 @@ def tnfs_saturn_rle_picture_colors(data: bytes, decoded_size: int) -> Tuple[List
 def tnfs_saturn_rle_picture_image(data: dict):
     """RGB PIL image of a `TnfsSaturnRlePicture`, 320 pixels wide (bit 15 of the colours, clear in every file, not
     used)"""
-    from PIL import Image
 
     colors, _ = tnfs_saturn_rle_picture_colors(data['data'], data['decoded_size'])
     width = TNFS_SATURN_RLE_PICTURE_WIDTH
     height = data['decoded_size'] // 2 // width
     colors = (colors + [0] * (width * height))[: width * height]
-    raw = bytearray()
-    for color in colors:
-        rgba = saturn_color_to_rgba(color)
-        raw += bytes(((rgba >> 24) & 0xFF, (rgba >> 16) & 0xFF, (rgba >> 8) & 0xFF))
-    return Image.frombytes('RGB', (width, height), bytes(raw))
+    return rgba_image(width, height, saturn_colors_to_rgba(colors)).convert('RGB')
 
 
 def is_tnfs_saturn_rle_picture(data: bytes) -> bool:

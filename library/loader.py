@@ -1,10 +1,10 @@
 from collections import OrderedDict
 from io import BufferedReader, BytesIO, SEEK_CUR
 from os.path import getsize
-from typing import Set, Tuple
+from typing import Optional, Set, Tuple
 
 from library.read_blocks import DataBlock, OptionalBlock
-from library.utils.id import id_to_path, path_to_name, split_id
+from library.utils.id import id_to_path, join_id, path_to_name, split_id
 
 
 def _file_or_archive_item_name(file_path: str) -> str:
@@ -667,6 +667,15 @@ def require_resource(id: str) -> Tuple[Tuple[str, 'DataBlock', dict], Tuple[str,
         (res_block, res) = res_block.get_child_block_with_data(res, key)
         res_block = _unwrap_present_optional(res_block, res)
     return (id, res_block, res), (file_id, block, data)
+
+
+def require_resource_as(id: str, block_class: type) -> Optional[Tuple[str, 'DataBlock', dict]]:
+    """(id, block, data) of the resource `id` as a `block_class` block: the resource itself, or the data its delegates
+    hold (a compressed file's), followed down to one; None when there is none"""
+    (id, block, data), _ = require_resource(id)
+    while not isinstance(block, block_class) and isinstance(data, dict) and 'choice_index' in data:
+        (id, block, data), _ = require_resource(join_id(id, 'data'))
+    return (id, block, data) if isinstance(block, block_class) else None
 
 
 def _unwrap_present_optional(res_block: 'DataBlock', res) -> 'DataBlock':

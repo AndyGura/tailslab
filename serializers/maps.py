@@ -8,11 +8,21 @@ from typing import List, Dict, NamedTuple, Optional, Tuple
 
 import config
 from library.utils import path_join
+from resources.blackbox.chunks import find_chunk, find_chunks
 from resources.eac.maps import RoadSplinePoint
 from resources.eac.utils import rotate_list
 from serializers import BaseFileSerializer
 from serializers.common.chunk_export import export_chunks, fingerprint
-from serializers.common.three_d import SubMesh, Mesh, Scene, export_scenes
+from serializers.common.three_d import (
+    SubMesh,
+    Mesh,
+    Scene,
+    export_scenes,
+    road_path_curve,
+    terrain_chunk_scene,
+    track_map_scene,
+    write_terrain_chunks_json,
+)
 
 general_config = config.general_config()
 
@@ -527,16 +537,8 @@ class TriMapSerializer(BaseFileSerializer):
         meshes = _merge_meshes_by_texture([mesh for meshes in chunk_meshes for mesh in meshes], f'{file_prefix}_{n}')
         for mesh in meshes:
             mesh.pivot_offset = position
-        scene = Scene(
-            name=f'{file_prefix}_{n}',
-            sub_meshes=meshes,
-            obj_name=f'{file_prefix}_{n}',
-            mtl_name='terrain',
-            bake_textures=False,
-            skip_mtl_export=True,
-            # nfs-web draws the terrain unlit
-            export_normals=False,
-        )
+        # nfs-web draws the terrain unlit
+        scene = terrain_chunk_scene(f'{file_prefix}_{n}', meshes, export_normals=False)
         if add_props_to_obj:
             (meshes, txs) = self.render_tnfs_props(id, data, is_opened, first * 4, end * 4 - 1, position)
             scene.sub_meshes.extend(meshes)
@@ -617,23 +619,19 @@ class TriMapSerializer(BaseFileSerializer):
         super().serialize(data, path)
         is_opened = data['loop_chunk'] == 0
 
-        map_scene = Scene(
-            name='map',
-            obj_name='map',
-            mtl_name='terrain',
+        map_scene = track_map_scene(
+            self.settings.maps__save_as_chunked,
             mtl_texture_path_func=lambda x: f'../../ETRACKFM/{id.split("/")[-1][:3]}_001.FAM/{x}.png',
-            skip_obj_export=self.settings.maps__save_as_chunked,
         )
         scenes = [map_scene]
 
         # add road spline to map scene
         spline = data['road_spline'][: len(data['terrain']) * 4]
         item_mode_names = RoadSplinePoint().field_blocks_map['item_mode'].enum_name_map
-        curve = {
-            'name': 'road_path',
-            'closed': not is_opened,
-            'points': [[x['position']['x'], x['position']['z'], x['position']['y']] for x in spline],
-            'properties': {
+        curve = road_path_curve(
+            [(x['position']['x'], x['position']['y'], x['position']['z']) for x in spline],
+            closed=not is_opened,
+            properties={
                 # 'orientation': [-x['orientation'] for x in spline],
                 'slope': [x['slope'] for x in spline],
                 'slant': [x['slant'] for x in spline],
@@ -661,7 +659,7 @@ class TriMapSerializer(BaseFileSerializer):
                     data['ai_info'][math.floor(i / 4)]['safe_speed'] for i in range(len(data['terrain']) * 4)
                 ],
             },
-        }
+        )
         if is_opened:
             # a terminal road path point: when go backwards, race ends after this point
             curve['properties']['start_point_index'] = 12
@@ -991,17 +989,29 @@ def _add_quads(model: Mesh, polygons: list, vertices: list, get_texture):
         model.texture_ids.append(texture_name)
 
 
-def _require_track_sibling(id: str, file_name: str, sub_id: str = ''):
-    """Loads a file next to the track one (`<dir>/<file_name>`), ignoring letter case, or its resource `sub_id`"""
+def _require_track_sibling(id: str, *file_names: str, sub_id: str = ''):
+    """Loads a file next to the track one (`<dir>/<file name>`), ignoring letter case, or its resource `sub_id`: the
+    first of `file_names` that loads (the error of the last one raised)"""
     from library import require_resource
     from library.loader import id_to_path, path_to_name
-    from library.utils.file_utils import find_files_case_insensitive
+    from library.utils.file_utils import find_file_case_insensitive
     from library.utils.id import join_id
 
     dirpath, _, _ = id_to_path(id).rpartition('/')
-    path = f'{dirpath}/{file_name}' if dirpath else file_name
-    path = next(iter(find_files_case_insensitive([path])), path).replace('\\', '/')
-    return require_resource(join_id(path_to_name(path), sub_id) if sub_id else path_to_name(path))
+    last_error = None
+    for file_name in file_names:
+        path = f'{dirpath}/{file_name}' if dirpath else file_name
+        path = (find_file_case_insensitive(path) or path).replace('\\', '/')
+        try:
+            return require_resource(join_id(path_to_name(path), sub_id) if sub_id else path_to_name(path))
+        except Exception as e:
+            last_error = e
+    raise last_error
+
+
+def qfs_texture_name(names: List[Optional[str]], index: int) -> str:
+    """The texture name of a track QFS image by index (`shpi_texture_names`), `<index:04>` for one the QFS lacks"""
+    return names[index] if index < len(names) and names[index] is not None else f'{index:04}'
 
 
 def shpi_texture_names(shpi_block, shpi_data: dict, save_palettes: bool) -> List[Optional[str]]:
@@ -1104,8 +1114,19 @@ class EacTrackSerializer(BaseFileSerializer):
             for polygons in polygon_lists:
                 _add_quads(model, polygons, vertices, get_texture)
             if model.polygons:
-                meshes += [m for m, _, _ in model.split_by_texture_ids()]
+                meshes += model.sub_meshes()
         return meshes
+
+    def _qfs_texture_names(self, texture_archive, keep=None) -> List[Optional[str]]:
+        """`shpi_texture_names` of the track's QFS (`texture_archive()`) by the index the polygons use: of every item,
+        or of those `keep(child)` takes; empty when the archive does not load"""
+        try:
+            (_, qfs_block, qfs_data), _ = texture_archive()
+            names = shpi_texture_names(qfs_block, qfs_data, self.settings.images__save_palettes)
+        except Exception:
+            traceback.print_exc()
+            return []
+        return names if keep is None else [names[i] for i, x in enumerate(qfs_data['children']) if keep(x)]
 
     def _prop_meshes(self, model: Mesh, name: str, keyframe) -> List[SubMesh]:
         position, orientation = keyframe
@@ -1116,7 +1137,7 @@ class EacTrackSerializer(BaseFileSerializer):
         mesh.polygons = list(model.polygons)
         mesh.texture_ids = list(model.texture_ids)
         mesh.pivot_offset = (-position[0], -position[1], -position[2])
-        return [m for m, _, _ in mesh.split_by_texture_ids()]
+        return mesh.sub_meshes()
 
     def _export_prop_models(self, path: str, models: Dict[str, Mesh]) -> List[str]:
         """Exports every prop model in its own folder "props/<model id>/", like any other single model exported by the
@@ -1219,8 +1240,7 @@ class EacTrackSerializer(BaseFileSerializer):
 
         for i in range(len(chunks)):
             for mesh in terrain[i] + prop_meshes[i]:
-                mesh.pivot_offset = (mesh.pivot_offset[0], mesh.pivot_offset[2], mesh.pivot_offset[1])
-                mesh.change_axes(new_z='y', new_y='z')
+                mesh.change_axes(new_z='y', new_y='z', pivot=True)
         map_scene.mtl_texture_names = sorted(
             {m.texture_id for meshes in terrain + prop_meshes for m in meshes if m.texture_id}
         )
@@ -1232,13 +1252,9 @@ class EacTrackSerializer(BaseFileSerializer):
                 for mesh in terrain[i] + prop_meshes[i]:
                     mesh.pivot_offset = tuple(mesh.pivot_offset[k] + chunk_pos[k] for k in range(3))
                 scenes.append(
-                    Scene(
-                        name=f'terrain_chunk_{i}',
-                        sub_meshes=terrain[i] + prop_meshes[i],
-                        obj_name=f'terrain_chunk_{i}',
-                        mtl_name='terrain',
-                        bake_textures=False,
-                        skip_mtl_export=True,
+                    terrain_chunk_scene(
+                        f'terrain_chunk_{i}',
+                        terrain[i] + prop_meshes[i],
                         dummies=dummies[i],
                         object_properties=object_properties[i],
                     )
@@ -1280,16 +1296,15 @@ class TrkMapSerializer(EacTrackSerializer):
             traceback.print_exc()
 
         def texture_archive():
-            return _require_track_sibling(id, f'{track_name}0.QFS', 'data')
+            return _require_track_sibling(id, f'{track_name}0.QFS', sub_id='data')
 
         # polygons and props refer to the COL textures_map, whose records pick the QFS image by index
-        texture_map, texture_names = [], []
+        texture_map = []
         try:
             texture_map = col_data['extrablocks'][0]['data_records']['data']
-            (_, qfs_block, qfs_data), _ = texture_archive()
-            texture_names = shpi_texture_names(qfs_block, qfs_data, self.settings.images__save_palettes)
         except Exception:
             traceback.print_exc()
+        texture_names = self._qfs_texture_names(texture_archive)
 
         def get_texture(tex):
             """Texture name and UVs of the 4 polygon vertices by textures_map index"""
@@ -1304,22 +1319,8 @@ class TrkMapSerializer(EacTrackSerializer):
         for sb in data['superblocks']:
             blocks += sb['blocks']
 
-        map_scene = Scene(
-            name='map',
-            obj_name='map',
-            mtl_name='terrain',
-            mtl_texture_path_func=lambda x: f'textures/{x}.png',
-            skip_obj_export=self.settings.maps__save_as_chunked,
-        )
-
-        # add road spline to map scene
-        spline = data['block_positions']
-        curve = {
-            'name': 'road_path',
-            'closed': True,
-            'points': [[p['x'], p['z'], p['y']] for p in spline],
-        }
-        map_scene.curves.append(curve)
+        map_scene = track_map_scene(self.settings.maps__save_as_chunked)
+        map_scene.curves.append(road_path_curve([_point(p) for p in data['block_positions']]))
 
         def polygon_texture(p):
             return get_texture(p['texture'])
@@ -1364,7 +1365,7 @@ class TrkMapSerializer(EacTrackSerializer):
                 line_model.name = f'block_{block_i}_lod0' if self.settings.maps__save_all_lods else f'block_{block_i}'
                 line_model.pivot_offset = (-pivot['x'], -pivot['y'], -pivot['z'])
                 _add_slot_quads(line_model, lines)
-                meshes += [m for m, _, _ in line_model.split_by_texture_ids()]
+                meshes += line_model.sub_meshes()
                 line_textures.update(texture for texture, _ in lines)
             chunks.append((meshes, _point(pivot)))
 
@@ -1394,7 +1395,7 @@ def _export_nfs2_line_textures(id: str, path: str, names: List[str]) -> List[str
     """Saves the lin images the road lines use (`names`) from the game's RENDER/PC/DTEXTURE.FSH (two folders up from
     the track, next to TRACKS) to "<path>/textures/<name>.png", next to the track's own textures, so the lines' meshes
     `block_<i>__lin<n>` find them like the terrain's. Nothing when the file is not found"""
-    from library import require_resource
+    from library import require_resource_as
     from library.loader import id_to_path, path_to_name
     from library.utils.file_utils import find_files_case_insensitive
     from library.utils.id import join_id
@@ -1411,9 +1412,7 @@ def _export_nfs2_line_textures(id: str, path: str, names: List[str]) -> List[str
         return []
     output = []
     try:
-        (fsh_id, shpi_block, shpi_data), _ = require_resource(path_to_name(fsh_path.replace('\\', '/')))
-        while not isinstance(shpi_block, ShpiBlock) and isinstance(shpi_data, dict) and 'choice_index' in shpi_data:
-            (fsh_id, shpi_block, shpi_data), _ = require_resource(join_id(fsh_id, 'data'))
+        fsh_id, shpi_block, shpi_data = require_resource_as(path_to_name(fsh_path.replace('\\', '/')), ShpiBlock)
         os.makedirs(path_join(path, 'textures'), exist_ok=True)
         for i, child, item_block, _ in shpi_block.items(shpi_data, EacImage):
             if child['alias'] not in names:
@@ -1486,49 +1485,25 @@ class FrdMapSerializer(EacTrackSerializer):
         track_name = id.split('/')[-1][:-4]
 
         def texture_archive():
-            return _require_track_sibling(id, f'{track_name}0.QFS', 'data')
+            return _require_track_sibling(id, f'{track_name}0.QFS', sub_id='data')
 
         # Unlike NFS2 (TRK/COL), terrain polygon "tex_id" in FRD is not an index into the COL
         # texture map: it directly indexes the FRD file's own "texture_blocks" table, which in
         # turn stores the real index of the texture in the QFS/SHPI archive and UV-s of polygon corners
         texture_blocks = data['texture_blocks']
-        texture_names = []
-        try:
-            (_, qfs_block, qfs_data), _ = texture_archive()
-            texture_names = shpi_texture_names(qfs_block, qfs_data, self.settings.images__save_palettes)
-        except Exception:
-            traceback.print_exc()
-
-        def texture_name(texture_id):
-            # the QFS image by index
-            if texture_id < len(texture_names) and texture_names[texture_id] is not None:
-                return texture_names[texture_id]
-            return f'{texture_id:04}'
+        texture_names = self._qfs_texture_names(texture_archive)
 
         def polygon_texture(p):
             if p['tex_id'] >= len(texture_blocks):
                 return f'{p["tex_id"]:04}', DEFAULT_QUAD_UVS
             texture_block = texture_blocks[p['tex_id']]
             corners = texture_block['corners']
-            return texture_name(texture_block['texture_id']), [[corners[i * 2], corners[i * 2 + 1]] for i in range(4)]
+            uvs = [[corners[i * 2], corners[i * 2 + 1]] for i in range(4)]
+            return qfs_texture_name(texture_names, texture_block['texture_id']), uvs
 
         blocks = data['blocks']
-        map_scene = Scene(
-            name='map',
-            obj_name='map',
-            mtl_name='terrain',
-            mtl_texture_path_func=lambda x: f'textures/{x}.png',
-            skip_obj_export=self.settings.maps__save_as_chunked,
-        )
-
-        # add road spline to map scene
-        spline = [x['position'] for x in blocks]
-        curve = {
-            'name': 'road_path',
-            'closed': True,
-            'points': [[p['x'], p['z'], p['y']] for p in spline],
-        }
-        map_scene.curves.append(curve)
+        map_scene = track_map_scene(self.settings.maps__save_as_chunked)
+        map_scene.curves.append(road_path_curve([_point(x['position']) for x in blocks]))
 
         chunks = []
         for block_i, block in enumerate(blocks):
@@ -1552,7 +1527,7 @@ class FrdMapSerializer(EacTrackSerializer):
                         if obj['type'] == 1:
                             _add_quads(objects, obj['data']['data'], vertices, polygon_texture)
             if objects.polygons:
-                meshes += [m for m, _, _ in objects.split_by_texture_ids()]
+                meshes += objects.sub_meshes()
             chunks.append((meshes, _point(block['position'])))
 
         # extra objects (XOBJ): 4 chunks per block, then one with objects not attached to any block
@@ -1588,7 +1563,9 @@ class FrdMapSerializer(EacTrackSerializer):
                 if tex >= len(texture_map):
                     return f'{tex:04}', DEFAULT_QUAD_UVS
                 record = texture_map[tex]
-                return texture_name(record['texture_number']), nfs3_col_alignment_uvs(record['alignment'])
+                return qfs_texture_name(texture_names, record['texture_number']), nfs3_col_alignment_uvs(
+                    record['alignment']
+                )
 
             col_track_props, col_models = col_props(col_data, col_texture)
             # Texture numbers of COL models don't match the track QFS in NFS3 (e.g. TR00.COL has an airliner, which
@@ -1663,27 +1640,11 @@ def _require_nfs4_texture_archive(id):
     # and the reverse FRD's polygons reference texture indices into that same archive. Try the
     # archive named after this FRD's own basename first, and fall back to the same path with a
     # trailing "n" (the reverse-track marker) stripped before giving up.
-    from library import require_resource
-    from library.loader import id_to_path, path_to_name
-    from library.utils.file_utils import find_files_case_insensitive
-    from library.utils.id import join_id
+    from library.loader import id_to_path
 
-    dirpath, _, filename = id_to_path(id).rpartition('/')
-    prefix = f'{dirpath}/' if dirpath else ''
-    basename = filename[:-4]
-    candidates = [basename]
-    if basename[-1:].lower() == 'n':
-        candidates.append(basename[:-1])
-    last_error = None
-    for candidate in candidates:
-        path = f'{prefix}{candidate}0.QFS'
-        # Game files' letter case varies ("tr0.qfs", "TRN0.qFS"), which matters on case-sensitive file systems
-        path = next(iter(find_files_case_insensitive([path])), path).replace('\\', '/')
-        try:
-            return require_resource(join_id(path_to_name(path), 'data'))
-        except Exception as e:
-            last_error = e
-    raise last_error
+    basename = id_to_path(id).rpartition('/')[2][:-4]
+    candidates = [basename] + ([basename[:-1]] if basename[-1:].lower() == 'n' else [])
+    return _require_track_sibling(id, *(f'{x}0.QFS' for x in candidates), sub_id='data')
 
 
 def _is_mirrored_copy(shpi_child) -> bool:
@@ -1706,40 +1667,16 @@ class Nfs4FrdMapSerializer(EacTrackSerializer):
         # Unlike NFS3, a NFS4 FRD polygon's texture field indexes the track's QFS/SHPI archive
         # (no local texture table in the FRD itself), and no per-polygon UV corners are
         # stored anywhere: the polygon flags pick them from a table of the executable
-        try:
-            (_, qfs_block, qfs_data), _ = texture_archive()
-            names = shpi_texture_names(qfs_block, qfs_data, self.settings.images__save_palettes)
-            # the polygons' texture numbers don't count the mirrored copies
-            texture_names = [names[i] for i, x in enumerate(qfs_data['children']) if not _is_mirrored_copy(x)]
-        except Exception:
-            traceback.print_exc()
-            texture_names = []
+        # the polygons' texture numbers don't count the mirrored copies
+        texture_names = self._qfs_texture_names(texture_archive, keep=lambda x: not _is_mirrored_copy(x))
 
         def polygon_texture(p):
-            tex = p['texture']
-            if tex < len(texture_names) and texture_names[tex] is not None:
-                return texture_names[tex], nfs4_polygon_uvs(p['tex_flags'])
-            return f'{tex:04}', nfs4_polygon_uvs(p['tex_flags'])
+            return qfs_texture_name(texture_names, p['texture']), nfs4_polygon_uvs(p['tex_flags'])
 
-        map_scene = Scene(
-            name='map',
-            obj_name='map',
-            mtl_name='terrain',
-            mtl_texture_path_func=lambda x: f'textures/{x}.png',
-            skip_obj_export=self.settings.maps__save_as_chunked,
-            # the exported coordinates are the file's times this
-            meta_extras={'trackScale': scale},
-        )
-
-        # add road spline to map scene
-        headers = data['blocks_headers']
-        positions = [_scaled(_point(h['position']), scale) for h in headers]
-        curve = {
-            'name': 'road_path',
-            'closed': True,
-            'points': [[p[0], p[2], p[1]] for p in positions],
-        }
-        map_scene.curves.append(curve)
+        # the exported coordinates are the file's times this
+        map_scene = track_map_scene(self.settings.maps__save_as_chunked, meta_extras={'trackScale': scale})
+        positions = [_scaled(_point(h['position']), scale) for h in data['blocks_headers']]
+        map_scene.curves.append(road_path_curve(positions))
 
         chunks = []
         props = []
@@ -1767,7 +1704,7 @@ class Nfs4FrdMapSerializer(EacTrackSerializer):
             for name in NFS4_OBJECT_POLYGON_CHUNKS:
                 _add_quads(objects, trk_block[name], vertices, polygon_texture)
             if objects.polygons:
-                meshes += [m for m, _, _ in objects.split_by_texture_ids()]
+                meshes += objects.sub_meshes()
             chunks.append((meshes, position))
             for chunk_i in range(4):
                 add_extra_objects(trk_block[f'extra_objects_{chunk_i}'], f'xobj_{block_i}_{chunk_i}_', block_i)
@@ -1912,14 +1849,10 @@ class Nfs6AiPathsSerializer(BaseFileSerializer):
             texture_names[archive_name] = names
             alpha_modes.update(modes)
 
-        map_scene = Scene(
-            name='map',
-            obj_name='map',
-            mtl_name='terrain',
+        map_scene = track_map_scene(
+            self.settings.maps__save_as_chunked,
             mtl_texture_names=list(alpha_modes.keys()),
-            mtl_texture_path_func=lambda x: f'textures/{x}.png',
             mtl_texture_alpha_modes=alpha_modes,
-            skip_obj_export=self.settings.maps__save_as_chunked,
         )
         for graph_name in ['road_paths', 'helicopter_paths']:
             for ai_path in data[graph_name]['paths']:
@@ -1945,26 +1878,14 @@ class Nfs6AiPathsSerializer(BaseFileSerializer):
                 mesh.change_axes(new_z='y', new_y='z')
             if self.settings.maps__save_as_chunked:
                 chunk_positions.append({'x': pivot[0], 'y': pivot[1], 'z': pivot[2]})
-                scenes.append(
-                    Scene(
-                        name=f'terrain_chunk_{i}',
-                        sub_meshes=sub_meshes,
-                        obj_name=f'terrain_chunk_{i}',
-                        mtl_name='terrain',
-                        bake_textures=False,
-                        skip_mtl_export=True,
-                    )
-                )
+                scenes.append(terrain_chunk_scene(f'terrain_chunk_{i}', sub_meshes))
             else:
                 for mesh in sub_meshes:
                     mesh.pivot_offset = (-pivot[0], -pivot[2], -pivot[1])
                 map_scene.sub_meshes.extend(sub_meshes)
         exported = export_scenes(scenes, path, self.settings)
         if self.settings.maps__save_as_chunked:
-            chunks_file = path_join(path, 'terrain_chunks.json')
-            with open(chunks_file, 'w') as f:
-                json.dump(chunk_positions, f)
-            exported.append(chunks_file)
+            exported.append(write_terrain_chunks_json(path, chunk_positions))
         return exported
 
 
@@ -2065,10 +1986,9 @@ class NfsuWorld:
                 for info, d3d_format, data in nfsu_texture_pack_textures(chunk_data):
                     self.textures.setdefault(info['name_hash'], (info, d3d_format, data))
             elif chunk_data.get('chunk_id') == 0x80034100:
-                sub_chunks = [x['data'] for x in chunk_data['sub_chunks']]
-                header = next((x for x in sub_chunks if x.get('chunk_id') == 0x00034101), None)
-                infos = next((x['infos'] for x in sub_chunks if x.get('chunk_id') == 0x00034102), [])
-                instances = next((x['instances'] for x in sub_chunks if x.get('chunk_id') == 0x00034103), [])
+                header = find_chunk(chunk_data['sub_chunks'], 0x00034101)
+                infos = (find_chunk(chunk_data['sub_chunks'], 0x00034102) or {}).get('infos', [])
+                instances = (find_chunk(chunk_data['sub_chunks'], 0x00034103) or {}).get('instances', [])
                 self.sceneries.append((header['section_number'] if header else 0, infos, instances))
 
     def scenery_parts(
@@ -2180,9 +2100,8 @@ def nfsmw_track_paths(data: dict) -> Optional[List[BlackBoxRoad]]:
 def nfsu_roads(data: dict) -> List[BlackBoxRoad]:
     """Roads of an NFSU race bundle (roads chunk 0x34121), with the heights of their nodes. Open polylines: a road
     ending on another one ends at one of its nodes or within a few meters of it"""
-    for chunk in nfs6_ps2_bundle_chunks(data):
-        chunk_data = chunk['data']
-        if isinstance(chunk_data, dict) and chunk_data.get('chunk_id') == 0x00034121 and 'roads' in chunk_data:
+    for chunk_data in find_chunks(nfs6_ps2_bundle_chunks(data), 0x00034121):
+        if 'roads' in chunk_data:
             return [
                 BlackBoxRoad(
                     [(n['position']['x'], n['position']['y'], n['position']['z']) for n in road['nodes']], False
@@ -2209,9 +2128,8 @@ def nfsu2_track_paths(bundle_path: str) -> Optional[List[BlackBoxRoad]]:
         bundle = NfsuChunkBundle().unpack_from_bytes(f.read())
     return [
         BlackBoxRoad([(n['position']['x'], n['position']['y'], None) for n in road['nodes']], False)
-        for chunk in bundle['chunks']
-        if isinstance(chunk['data'], dict) and chunk['data'].get('chunk_id') == 0x00034121
-        for road in chunk['data'].get('roads', [])
+        for chunk in find_chunks(bundle['chunks'], 0x00034121)
+        for road in chunk.get('roads', [])
         if len(road['nodes']) > 1
     ]
 
@@ -2435,39 +2353,21 @@ class NfsuTrackBundleSerializer(BaseFileSerializer):
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
         import os
         import numpy as np
-        from serializers.bitmaps import ImageSerializer
-        from serializers.geometries import texture_alpha_mode
+        from serializers.geometries import TextureExporter
 
         super().serialize(data, path, id, block, **kwargs)
         world = self.load_world(data, id)
 
         # textures
         os.makedirs(path_join(path, 'textures'), exist_ok=True)
-        texture_names = {}
-        alpha_modes = {}
-
-        def texture_name(texture_id):
-            if texture_id not in texture_names:
-                texture_names[texture_id] = 'untextured'
-                if texture_id in world.textures:
-                    try:
-                        image = self.texture_image(world.textures[texture_id])
-                        name = f'{texture_id:08x}'
-                        ImageSerializer.save_png(image, path_join(path, f'textures/{name}.png'))
-                        texture_names[texture_id] = name
-                        alpha_modes[name] = texture_alpha_mode(image)
-                    except Exception:
-                        traceback.print_exc()
-            return texture_names[texture_id]
+        exporter = TextureExporter(
+            path,
+            lambda texture_id: self.texture_image(world.textures[texture_id]) if texture_id in world.textures else None,
+            lambda texture_id, taken: f'{texture_id:08x}',
+        )
 
         chunked = self.settings.maps__save_as_chunked
-        map_scene = Scene(
-            name='map',
-            obj_name='map',
-            mtl_name='terrain',
-            mtl_texture_path_func=lambda x: f'textures/{x}.png',
-            skip_obj_export=chunked,
-        )
+        map_scene = track_map_scene(chunked)
         scenes = [map_scene]
         chunk_positions = []
         for i, (section_number, infos, instances) in enumerate(world.sceneries):
@@ -2480,7 +2380,7 @@ class NfsuTrackBundleSerializer(BaseFileSerializer):
             for k, (key, (vertices, uvs, polygons, *colors)) in enumerate(parts.items()):
                 texture_id, road = key if world.road_part_prefixes else (key, False)
                 sm = SubMesh()
-                sm.texture_id = texture_name(texture_id)
+                sm.texture_id = exporter.name(texture_id)
                 # the texture last: readers take the texture name after the last "_"
                 sm.name = f'scenery{section_number}_{k}_{"road_" if road else ""}{sm.texture_id}'
                 # numpy arrays rather than lists: much less memory for a whole city
@@ -2493,26 +2393,14 @@ class NfsuTrackBundleSerializer(BaseFileSerializer):
                 sub_meshes.append(sm)
             if chunked:
                 chunk_positions.append({'x': pivot[0], 'y': pivot[2], 'z': pivot[1]})
-                scenes.append(
-                    Scene(
-                        name=f'terrain_chunk_{len(chunk_positions) - 1}',
-                        sub_meshes=sub_meshes,
-                        obj_name=f'terrain_chunk_{len(chunk_positions) - 1}',
-                        mtl_name='terrain',
-                        bake_textures=False,
-                        skip_mtl_export=True,
-                    )
-                )
+                scenes.append(terrain_chunk_scene(f'terrain_chunk_{len(chunk_positions) - 1}', sub_meshes))
             else:
                 map_scene.sub_meshes.extend(sub_meshes)
-        map_scene.mtl_texture_names = [x for x in texture_names.values() if x != 'untextured']
-        map_scene.mtl_texture_alpha_modes = alpha_modes
+        map_scene.mtl_texture_names = [x for x in exporter.names.values() if x != 'untextured']
+        map_scene.mtl_texture_alpha_modes = exporter.alpha_modes
         exported = export_scenes(scenes, path, self.settings)
         if chunked:
-            chunks_file = path_join(path, 'terrain_chunks.json')
-            with open(chunks_file, 'w') as f:
-                json.dump([{k: float(v) for k, v in p.items()} for p in chunk_positions], f)
-            exported.append(chunks_file)
+            exported.append(write_terrain_chunks_json(path, chunk_positions))
         return exported + self.serialize_extras(data, world, path)
 
     def serialize_extras(self, data: dict, world: NfsuWorld, path: str) -> List[str]:
