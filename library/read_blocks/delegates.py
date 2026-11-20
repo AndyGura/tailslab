@@ -1,10 +1,12 @@
 import traceback
-from typing import List, Dict, Tuple, Any
+from typing import List, Dict, Tuple, Any, Optional
 
 from library.context import ReadContext, WriteContext, DocumentationContext
-from library.exceptions import DataIntegrityException
+from library.exceptions import BlockDefinitionException, DataIntegrityException
 from library.lazy import lazy_unpack, unloaded_slot
-from library.read_blocks.basic import DataBlock
+from library.read_blocks.basic import BytesBlock, DataBlock
+from library.read_blocks.references import is_static_param, param_value
+from library.read_blocks.strings import UTF8Block
 from library.utils.id import join_id
 
 
@@ -160,6 +162,87 @@ class AutoDetectBlock(DelegateBlock):
         raise DataIntegrityException(
             ctx=ctx, message='Expectation failed for auto-detect block while reading: class not found'
         )
+
+
+def _read_size(block: DataBlock) -> Optional[int]:
+    """Bytes the block reads for any value: its fixed size, or the static length of a string / bytes block"""
+    if block.fixed_size is not None:
+        return block.fixed_size
+    if isinstance(block, (BytesBlock, UTF8Block)) and is_static_param(block._length):
+        return param_value(block._length, None)
+    return None
+
+
+def _has_validated_field(block: DataBlock, field: str) -> bool:
+    field_block = getattr(block, 'field_blocks_map', {}).get(field)
+    return field_block is not None and field_block.value_validator is not None
+
+
+# distinct peeked byte strings a `MagicDispatchBlock` keeps the choice of
+_MAX_CACHED_HEADS = 0x10000
+
+
+class MagicDispatchBlock(DelegateBlock):
+    """One of `possible_blocks`: the first in order whose field `field` (a magic id with a value validator, e.g.
+    `identifier = UTF8Block(length=2, value_validator=Eq('tv'))`, after fields of fixed size only) accepts the bytes
+    at its offset. `fallback`: the index of the block read when none does (an unknown record of raw bytes, it needs
+    no such field); None: reading raises"""
+
+    def __init__(self, possible_blocks: List[DataBlock], field: str = 'identifier', fallback: int = None, **kwargs):
+        super().__init__(
+            possible_blocks=possible_blocks,
+            choice_index=(self.dispatch, f'the first block whose `{field}` accepts the bytes there'),
+            **kwargs,
+        )
+        self.field = field
+        self.fallback = fallback
+        # (block index, offset, size, field block) of the magic id of each block
+        self._magics = []
+        for index, block in enumerate(possible_blocks):
+            if index == fallback and not _has_validated_field(block, field):
+                continue
+            offset = 0
+            for name, field_block in block.io_field_blocks:
+                size = _read_size(field_block)
+                if size is None:
+                    raise BlockDefinitionException(f'{type(block).__name__}.{name}: no fixed size before `{field}`')
+                if name == field:
+                    if field_block.value_validator is None:
+                        raise BlockDefinitionException(f'{type(block).__name__}.{field} has no value validator')
+                    self._magics.append((index, offset, size, field_block))
+                    break
+                offset += size
+            else:
+                raise BlockDefinitionException(f'{type(block).__name__} has no field `{field}`')
+        self._peek_size = max(offset + size for _, offset, size, _ in self._magics)
+        # block index by the peeked bytes
+        self._choices = {}
+
+    def dispatch(self, ctx, **_) -> int:
+        position = ctx.buffer.tell()
+        head = ctx.buffer.read(self._peek_size)
+        ctx.buffer.seek(position)
+        choice = self._choices.get(head)
+        if choice is None:
+            choice = self._choose(head)
+            if len(self._choices) < _MAX_CACHED_HEADS:
+                self._choices[head] = choice
+        if choice < 0:
+            raise BlockDefinitionException(ctx=ctx, message=f'No block for the `{self.field}` in {head!r}')
+        return choice
+
+    def _choose(self, head: bytes) -> int:
+        for index, offset, size, field_block in self._magics:
+            raw = head[offset : offset + size]
+            if len(raw) < size:
+                continue
+            try:
+                field_block.unpack_from_bytes(raw)
+            except Exception:
+                # not decodable, or the validator refuses it
+                continue
+            return index
+        return -1 if self.fallback is None else self.fallback
 
 
 def _enum_lookup(ctx, enum_field, fallback_index):

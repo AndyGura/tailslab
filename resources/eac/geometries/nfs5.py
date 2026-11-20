@@ -1,7 +1,6 @@
 from os import SEEK_CUR
 
-from library.context import ReadContext
-from library.exceptions import BlockDefinitionException
+from library.context import ReadContext, WriteContext
 from library.read_blocks import (
     DeclarativeCompoundBlock,
     UTF8Block,
@@ -10,8 +9,11 @@ from library.read_blocks import (
     BytesBlock,
     DelegateBlock,
     DecimalBlock,
+    MagicDispatchBlock,
     SubByteCompoundBlock,
     CountOf,
+    SizeOf,
+    REMAINING,
 )
 from library.read_blocks.misc.value_validators import Eq, Or
 from library.read_blocks.strings import NullTerminatedUTF8Block
@@ -33,6 +35,40 @@ _CHUNK_INFO_DESCRIPTION = (
 )
 _CHUNK_COUNT_DESCRIPTION = 'Count of the chunk (records in its data, the meaning depends on the part type)'
 
+# fields of the parts: `part_info` (the 16-bit index of a mesh part), `unk0` (low byte of the info word), `offset`
+_PART_INFO = (
+    SubByteCompoundBlock(
+        length=2,
+        schema=[
+            (4, 'damage', 'number', [], 'Damage switch (0x8 means damaged)'),
+            (8, 'animation_index', 'number', [], 'animation index'),
+            (4, 'lod', 'number', [], 'Level of detail'),
+        ],
+    ),
+    {'description': 'Part matching info. Part should be used with others that have same values'},
+)
+_PART_UNK0 = (IntegerBlock(length=1), {'is_unknown': True, 'description': _CHUNK_INFO_DESCRIPTION})
+_PART_OFFSET = (
+    IntegerBlock(length=4),
+    {'usage': 'io,doc', 'description': 'Data offset in bytes, relative to this part (the data is 16-byte aligned)'},
+)
+
+
+def crp_array_part_fields(child, count_name: str, count_description: str, data_description: str = None) -> tuple:
+    """The fields after the id of a part holding an array of `child` records, to unpack into its `Fields` class:
+    `unk0, len, <count_name>, offset, data = crp_array_part_fields(...)` (info byte, data length, record count, data
+    offset, the records)"""
+    return (
+        _PART_UNK0,
+        (IntegerBlock(length=3, programmatic_value=SizeOf('data')), {'description': 'Data length in bytes'}),
+        (IntegerBlock(length=4, programmatic_value=CountOf('data')), {'description': count_description}),
+        _PART_OFFSET,
+        (
+            ArrayBlock(length=count_name, child=child),
+            {'usage': 'ui', **({'description': data_description} if data_description else {})},
+        ),
+    )
+
 
 class UnkPart2(DeclarativeCompoundBlock):
     block_description = 'Unknown part with index and 2-chars identifier'
@@ -40,13 +76,10 @@ class UnkPart2(DeclarativeCompoundBlock):
     class Fields(DeclarativeCompoundBlock.Fields):
         idx = (IntegerBlock(length=2), {'description': 'A part index of the same identifier (in the same article)'})
         identifier = (UTF8Block(length=2, value_validator=Or(['zd', 'ns'])), {'description': 'Identifier'})
-        unk0 = (IntegerBlock(length=1), {'is_unknown': True, 'description': _CHUNK_INFO_DESCRIPTION})
+        unk0 = _PART_UNK0
         len = (IntegerBlock(length=3), {'description': 'Data length in bytes'})
         unk1 = (IntegerBlock(length=4), {'description': _CHUNK_COUNT_DESCRIPTION})
-        offset = (
-            IntegerBlock(length=4),
-            {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
-        )
+        offset = _PART_OFFSET
         data = (BytesBlock(length='len'), {'usage': 'ui'})
 
 
@@ -64,13 +97,10 @@ class UnkPart4(DeclarativeCompoundBlock):
                 '(Porsche.exe 0x4777f0)'
             },
         )
-        unk0 = (IntegerBlock(length=1), {'is_unknown': True, 'description': _CHUNK_INFO_DESCRIPTION})
+        unk0 = _PART_UNK0
         len = (IntegerBlock(length=3), {'description': 'Data length in bytes'})
         unk1 = (IntegerBlock(length=4), {'description': _CHUNK_COUNT_DESCRIPTION})
-        offset = (
-            IntegerBlock(length=4),
-            {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
-        )
+        offset = _PART_OFFSET
         data = (BytesBlock(length='len'), {'usage': 'ui'})
 
 
@@ -122,13 +152,16 @@ class MaterialPart(DeclarativeCompoundBlock):
     class Fields(DeclarativeCompoundBlock.Fields):
         idx = (IntegerBlock(length=2), {'description': 'A part index of the same identifier'})
         identifier = (UTF8Block(length=2, value_validator=Eq('tm')), {'description': 'Identifier'})
-        unk0 = (IntegerBlock(length=1), {'is_unknown': True, 'description': _CHUNK_INFO_DESCRIPTION})
-        len = (IntegerBlock(length=3), {'description': 'Data length in bytes'})
-        unk1 = (IntegerBlock(length=4), {'is_unknown': True})
-        offset = (
-            IntegerBlock(length=4),
-            {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
+        unk0 = _PART_UNK0
+        len = (
+            IntegerBlock(length=3),
+            {
+                'description': 'Data length in bytes: 76..312 in the game files; `data` is read as 312 bytes, past a '
+                'shorter length into the bytes after it, and written up to the length'
+            },
         )
+        unk1 = (IntegerBlock(length=4), {'is_unknown': True})
+        offset = _PART_OFFSET
         data = (MaterialPartData(), {'usage': 'ui'})
 
 
@@ -138,7 +171,7 @@ class FSHPart(DeclarativeCompoundBlock):
     class Fields(DeclarativeCompoundBlock.Fields):
         idx = (IntegerBlock(length=2), {'description': 'A part index of the same identifier'})
         identifier = (UTF8Block(length=2, value_validator=Eq('fs')), {'description': 'Identifier'})
-        unk0 = (IntegerBlock(length=1), {'is_unknown': True, 'description': _CHUNK_INFO_DESCRIPTION})
+        unk0 = _PART_UNK0
         len = (
             IntegerBlock(
                 length=3,
@@ -152,10 +185,7 @@ class FSHPart(DeclarativeCompoundBlock):
             IntegerBlock(length=4, programmatic_value=CountOf('data')),
             {'description': 'Number of SHPI blocks'},
         )
-        offset = (
-            IntegerBlock(length=4),
-            {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
-        )
+        offset = _PART_OFFSET
         data = (ArrayBlock(child=ShpiBlock(), length='num_data'), {'usage': 'ui'})
 
 
@@ -165,16 +195,13 @@ class TextPart2(DeclarativeCompoundBlock):
     class Fields(DeclarativeCompoundBlock.Fields):
         idx = (IntegerBlock(length=2), {'description': 'A part index of the same identifier (in the same article)'})
         identifier = (UTF8Block(length=2, value_validator=Eq('ns')), {'description': 'Identifier'})
-        unk0 = (IntegerBlock(length=1), {'is_unknown': True, 'description': _CHUNK_INFO_DESCRIPTION})
+        unk0 = _PART_UNK0
         len = (
             IntegerBlock(length=3, programmatic_value=lambda ctx: len(ctx.data('data')) + 1),
             {'description': 'Data length in bytes, equals to `text length + 1` (0x00 terminating byte)'},
         )
         unk1 = (IntegerBlock(length=4), {'is_unknown': True})
-        offset = (
-            IntegerBlock(length=4),
-            {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
-        )
+        offset = _PART_OFFSET
         data = (NullTerminatedUTF8Block(length=None), {'usage': 'ui'})
 
 
@@ -183,16 +210,13 @@ class TextPart4(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         identifier = (UTF8Block(length=4, value_validator=Or(['emaN', 'cseD'])), {'description': 'Identifier'})
-        unk0 = (IntegerBlock(length=1), {'is_unknown': True, 'description': _CHUNK_INFO_DESCRIPTION})
+        unk0 = _PART_UNK0
         len = (
             IntegerBlock(length=3, programmatic_value=lambda ctx: len(ctx.data('data')) + 1),
             {'description': 'Data length in bytes, equals to `text length + 1` (0x00 terminating byte)'},
         )
         unk1 = (IntegerBlock(length=4), {'is_unknown': True})
-        offset = (
-            IntegerBlock(length=4),
-            {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
-        )
+        offset = _PART_OFFSET
         data = (NullTerminatedUTF8Block(length=None), {'usage': 'ui'})
 
 
@@ -201,7 +225,7 @@ class CullingPartData(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         normal = (
-            Point3D(child=DecimalBlock(length=4), is_normalized=True),
+            Point3D(child=DecimalBlock(length=4)),
             {'description': 'Normalized direction vector (plane normal?)'},
         )
         threshold = (DecimalBlock(length=4), {'description': 'Threshold value (plane distance?)'})
@@ -211,32 +235,13 @@ class CullingPart(DeclarativeCompoundBlock):
     block_description = 'A part referencing to an array of [CullingPartData](#cullingpartdata) blocks'
 
     class Fields(DeclarativeCompoundBlock.Fields):
-        part_info = (
-            SubByteCompoundBlock(
-                length=2,
-                schema=[
-                    (4, 'damage', 'number', [], 'Damage switch (0x8 means damaged)'),
-                    (8, 'animation_index', 'number', [], 'animation index'),
-                    (4, 'lod', 'number', [], 'Level of detail'),
-                ],
-            ),
-            {'description': 'Part matching info. Part should be used with others that have same values'},
-        )
+        part_info = _PART_INFO
         identifier = (UTF8Block(length=2, value_validator=Eq('n$')), {'description': 'Identifier'})
-        unk0 = (IntegerBlock(length=1), {'is_unknown': True, 'description': _CHUNK_INFO_DESCRIPTION})
-        len = (
-            IntegerBlock(length=3, programmatic_value=lambda ctx: len(ctx.data('data')) * 16),
-            {'description': 'Data length in bytes'},
+        unk0, len, num_data, offset, data = crp_array_part_fields(
+            CullingPartData(),
+            'num_data',
+            'Number of culling part data blocks',
         )
-        num_data = (
-            IntegerBlock(length=4, programmatic_value=CountOf('data')),
-            {'description': 'Number of culling part data blocks'},
-        )
-        offset = (
-            IntegerBlock(length=4),
-            {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
-        )
-        data = (ArrayBlock(length='num_data', child=CullingPartData()), {'usage': 'ui'})
 
 
 class TransformationPart(DeclarativeCompoundBlock):
@@ -249,28 +254,15 @@ class TransformationPart(DeclarativeCompoundBlock):
     )
 
     class Fields(DeclarativeCompoundBlock.Fields):
-        part_info = (
-            SubByteCompoundBlock(
-                length=2,
-                schema=[
-                    (4, 'damage', 'number', [], 'Damage switch (0x8 means damaged)'),
-                    (8, 'animation_index', 'number', [], 'animation index'),
-                    (4, 'lod', 'number', [], 'Level of detail'),
-                ],
-            ),
-            {'description': 'Part matching info. Part should be used with others that have same values'},
-        )
+        part_info = _PART_INFO
         identifier = (UTF8Block(length=2, value_validator=Eq('rt')), {'description': 'Identifier'})
-        unk0 = (IntegerBlock(length=1), {'is_unknown': True, 'description': _CHUNK_INFO_DESCRIPTION})
+        unk0 = _PART_UNK0
         len = (IntegerBlock(length=3, value_validator=Eq(0x40)), {'description': 'Data length in bytes'})
         unk_1 = (
             IntegerBlock(length=4),
             {'is_unknown': True, 'description': 'Always 1? Number of Transformation Matrices?'},
         )
-        offset = (
-            IntegerBlock(length=4),
-            {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
-        )
+        offset = _PART_OFFSET
         data = (ArrayBlock(length=16, child=DecimalBlock(length=4)), {'usage': 'ui'})
 
 
@@ -292,32 +284,13 @@ class VertexPart(DeclarativeCompoundBlock):
     )
 
     class Fields(DeclarativeCompoundBlock.Fields):
-        part_info = (
-            SubByteCompoundBlock(
-                length=2,
-                schema=[
-                    (4, 'damage', 'number', [], 'Damage switch (0x8 means damaged)'),
-                    (8, 'animation_index', 'number', [], 'animation index'),
-                    (4, 'lod', 'number', [], 'Level of detail'),
-                ],
-            ),
-            {'description': 'Part matching info. Part should be used with others that have same values'},
-        )
+        part_info = _PART_INFO
         identifier = (UTF8Block(length=2, value_validator=Eq('tv')), {'description': 'Identifier'})
-        unk0 = (IntegerBlock(length=1), {'is_unknown': True, 'description': _CHUNK_INFO_DESCRIPTION})
-        len = (
-            IntegerBlock(length=3, programmatic_value=lambda ctx: len(ctx.data('data')) * 16),
-            {'usage': 'io,doc', 'description': 'Data length in bytes'},
+        unk0, len, num_vertices, offset, data = crp_array_part_fields(
+            VertexData(),
+            'num_vertices',
+            'Number of vertices',
         )
-        num_vertices = (
-            IntegerBlock(length=4, programmatic_value=CountOf('data')),
-            {'description': 'Number of vertices'},
-        )
-        offset = (
-            IntegerBlock(length=4),
-            {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
-        )
-        data = (ArrayBlock(length='num_vertices', child=VertexData()), {'usage': 'ui'})
 
 
 class NormalPartData(DeclarativeCompoundBlock):
@@ -332,32 +305,9 @@ class NormalPart(DeclarativeCompoundBlock):
     )
 
     class Fields(DeclarativeCompoundBlock.Fields):
-        part_info = (
-            SubByteCompoundBlock(
-                length=2,
-                schema=[
-                    (4, 'damage', 'number', [], 'Damage switch (0x8 means damaged)'),
-                    (8, 'animation_index', 'number', [], 'animation index'),
-                    (4, 'lod', 'number', [], 'Level of detail'),
-                ],
-            ),
-            {'description': 'Part matching info. Part should be used with others that have same values'},
-        )
+        part_info = _PART_INFO
         identifier = (UTF8Block(length=2, value_validator=Eq('mn')), {'description': 'Identifier'})
-        unk0 = (IntegerBlock(length=1), {'is_unknown': True, 'description': _CHUNK_INFO_DESCRIPTION})
-        len = (
-            IntegerBlock(length=3, programmatic_value=lambda ctx: ctx.data('num_data') * 16),
-            {'description': 'Data length in bytes'},
-        )
-        num_data = (
-            IntegerBlock(length=4, programmatic_value=CountOf('data')),
-            {'description': 'Number of normals'},
-        )
-        offset = (
-            IntegerBlock(length=4),
-            {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
-        )
-        data = (ArrayBlock(length='num_data', child=NormalPartData()), {'usage': 'ui'})
+        unk0, len, num_data, offset, data = crp_array_part_fields(NormalPartData(), 'num_data', 'Number of normals')
 
 
 class UVData(DeclarativeCompoundBlock):
@@ -372,32 +322,13 @@ class UVPart(DeclarativeCompoundBlock):
     block_description = 'A part referencing to an array of [UVData](#uvdata) blocks, representing texture coordinates'
 
     class Fields(DeclarativeCompoundBlock.Fields):
-        part_info = (
-            SubByteCompoundBlock(
-                length=2,
-                schema=[
-                    (4, 'damage', 'number', [], 'Damage switch (0x8 means damaged)'),
-                    (8, 'animation_index', 'number', [], 'animation index'),
-                    (4, 'lod', 'number', [], 'Level of detail'),
-                ],
-            ),
-            {'description': 'Part matching info. Part should be used with others that have same values'},
-        )
+        part_info = _PART_INFO
         identifier = (UTF8Block(length=2, value_validator=Eq('vu')), {'description': 'Identifier'})
-        unk0 = (IntegerBlock(length=1), {'is_unknown': True, 'description': _CHUNK_INFO_DESCRIPTION})
-        len = (
-            IntegerBlock(length=3, programmatic_value=lambda ctx: ctx.data('num_data') * 8),
-            {'description': 'Data length in bytes'},
+        unk0, len, num_data, offset, data = crp_array_part_fields(
+            UVData(),
+            'num_data',
+            'Amount of UVData blocks, equals to len / 8',
         )
-        num_data = (
-            IntegerBlock(length=4, programmatic_value=CountOf('data')),
-            {'description': 'Amount of UVData blocks, equals to len / 8'},
-        )
-        offset = (
-            IntegerBlock(length=4),
-            {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
-        )
-        data = (ArrayBlock(length='num_data', child=UVData()), {'usage': 'ui'})
 
 
 _ROW_TYPE_DESCRIPTION = (
@@ -659,14 +590,10 @@ class TrianglePart(DeclarativeCompoundBlock):
             {'description': 'Part matching info. Part should be used with others that have same values'},
         )
         identifier = (UTF8Block(length=2, value_validator=Eq('rp')), {'description': 'Identifier'})
-        unk0 = (IntegerBlock(length=1), {'is_unknown': True, 'description': _CHUNK_INFO_DESCRIPTION})
-        # TODO setup programmatic value for length fields. Here it should be (48 + data.num_info_rows*16 + data.num_index_rows*8 + num_data*2)
-        len = (IntegerBlock(length=3), {'description': 'Data length in bytes'})
+        unk0 = _PART_UNK0
+        len = (IntegerBlock(length=3, programmatic_value=SizeOf('data')), {'description': 'Data length in bytes'})
         num_data = (IntegerBlock(length=4), {'description': 'Number of indices (size of each index table in the data)'})
-        offset = (
-            IntegerBlock(length=4),
-            {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
-        )
+        offset = _PART_OFFSET
         data = (TrianglePartData(), {'usage': 'ui'})
 
 
@@ -692,25 +619,18 @@ class EffectPart(DeclarativeCompoundBlock):
     block_description = 'A part referencing to an array of [EffectPartData](#effectpartdata) blocks'
 
     class Fields(DeclarativeCompoundBlock.Fields):
-        part_info = (
-            SubByteCompoundBlock(
-                length=2,
-                schema=[
-                    (4, 'damage', 'number', [], 'Damage switch (0x8 means damaged)'),
-                    (8, 'animation_index', 'number', [], 'animation index'),
-                    (4, 'lod', 'number', [], 'Level of detail'),
-                ],
-            ),
-            {'description': 'Part matching info. Part should be used with others that have same values'},
-        )
+        part_info = _PART_INFO
         identifier = (UTF8Block(length=2, value_validator=Eq('fe')), {'description': 'Identifier'})
-        unk0 = (IntegerBlock(length=1), {'is_unknown': True, 'description': _CHUNK_INFO_DESCRIPTION})
-        len = (IntegerBlock(length=3, programmatic_value=lambda ctx: 0x58), {'description': 'Data length in bytes'})
-        unk1 = (IntegerBlock(length=4), {'is_unknown': True})
-        offset = (
-            IntegerBlock(length=4),
-            {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
+        unk0 = _PART_UNK0
+        len = (
+            IntegerBlock(length=3),
+            {
+                'description': 'Data length in bytes: 44, 56, 72 or 88 in the game files; `data` is read as 88 bytes, '
+                'past a shorter length into the bytes after it, and written up to the length'
+            },
         )
+        unk1 = (IntegerBlock(length=4), {'is_unknown': True})
+        offset = _PART_OFFSET
         data = (EffectPartData(), {'usage': 'ui'})
 
 
@@ -820,16 +740,13 @@ class CrpBasePart(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         identifier = (UTF8Block(length=4, value_validator=Eq('esaB')), {'description': 'Identifier'})
-        unk0 = (IntegerBlock(length=1), {'is_unknown': True, 'description': _CHUNK_INFO_DESCRIPTION})
+        unk0 = _PART_UNK0
         len = (
             IntegerBlock(length=3, programmatic_value=lambda ctx: 0x64 + 12 * len(ctx.data('data/lods'))),
             {'description': 'Data length in bytes: 0x64 + 12 x levels of detail'},
         )
         unk1 = (IntegerBlock(length=4), {'description': _CHUNK_COUNT_DESCRIPTION + ': 0'})
-        offset = (
-            IntegerBlock(length=4),
-            {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
-        )
+        offset = _PART_OFFSET
         data = (CrpBasePartData(), {'usage': 'ui'})
 
 
@@ -844,22 +761,11 @@ class CrpVertexColorPart(DeclarativeCompoundBlock):
     class Fields(DeclarativeCompoundBlock.Fields):
         idx = (IntegerBlock(length=2), {'description': 'A part index of the same identifier (in the same article)'})
         identifier = (UTF8Block(length=2, value_validator=Eq('fd')), {'description': 'Identifier'})
-        unk0 = (IntegerBlock(length=1), {'is_unknown': True, 'description': _CHUNK_INFO_DESCRIPTION})
-        len = (
-            IntegerBlock(length=3, programmatic_value=lambda ctx: len(ctx.data('data')) * 4),
-            {'description': 'Data length in bytes'},
-        )
-        num_data = (
-            IntegerBlock(length=4, programmatic_value=CountOf('data')),
-            {'description': 'Number of colours'},
-        )
-        offset = (
+        unk0, len, num_data, offset, data = crp_array_part_fields(
             IntegerBlock(length=4),
-            {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
-        )
-        data = (
-            ArrayBlock(length='num_data', child=IntegerBlock(length=4)),
-            {'usage': 'ui', 'description': 'Colours (BGRA)'},
+            'num_data',
+            'Number of colours',
+            'Colours (BGRA)',
         )
 
 
@@ -924,22 +830,11 @@ class CrpSimDPart(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         identifier = (UTF8Block(length=4, value_validator=Eq('DmiS')), {'description': 'Identifier'})
-        unk0 = (IntegerBlock(length=1), {'is_unknown': True, 'description': _CHUNK_INFO_DESCRIPTION})
-        len = (
-            IntegerBlock(length=3, programmatic_value=lambda ctx: len(ctx.data('data')) * 0x50),
-            {'description': 'Data length in bytes'},
-        )
-        num_data = (
-            IntegerBlock(length=4, programmatic_value=CountOf('data')),
-            {'description': 'Number of slices'},
-        )
-        offset = (
-            IntegerBlock(length=4),
-            {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
-        )
-        data = (
-            ArrayBlock(length='num_data', child=CrpSplineSlice()),
-            {'usage': 'ui', 'description': 'Slices'},
+        unk0, len, num_data, offset, data = crp_array_part_fields(
+            CrpSplineSlice(),
+            'num_data',
+            'Number of slices',
+            'Slices',
         )
 
 
@@ -960,46 +855,34 @@ class CrpSimTPart(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         identifier = (UTF8Block(length=4, value_validator=Eq('TmiS')), {'description': 'Identifier'})
-        unk0 = (IntegerBlock(length=1), {'is_unknown': True, 'description': _CHUNK_INFO_DESCRIPTION})
-        len = (
-            IntegerBlock(length=3, programmatic_value=lambda ctx: len(ctx.data('data')) * 4),
-            {'description': 'Data length in bytes'},
-        )
-        num_data = (
-            IntegerBlock(length=4, programmatic_value=CountOf('data')),
-            {'description': 'Number of sections'},
-        )
-        offset = (
-            IntegerBlock(length=4),
-            {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
-        )
-        data = (
-            ArrayBlock(length='num_data', child=IntegerBlock(length=4, is_signed=True)),
-            {'usage': 'ui', 'description': 'Slice count of each section'},
+        unk0, len, num_data, offset, data = crp_array_part_fields(
+            IntegerBlock(length=4, is_signed=True),
+            'num_data',
+            'Number of sections',
+            'Slice count of each section',
         )
 
 
-class PartBlock(DelegateBlock):
-    def __init__(self, **kwargs):
-        super().__init__(
-            possible_blocks=[
-                TextPart4(),
-                CullingPart(),
-                TextPart2(),
-                EffectPart(),
-                NormalPart(),
-                TrianglePart(),
-                TransformationPart(),
-                UVPart(),
-                VertexPart(),
-                UnkPart4(),
-                UnkPart2(),
-                CrpBasePart(),
-                CrpVertexColorPart(),
-            ],
-            choice_index=lambda ctx, **_: _determine_part_type(ctx),
-            **kwargs,
-        )
+# parts of an article, picked by identifier (`MagicDispatchBlock`: the first block in order whose `identifier`
+# validator accepts it; an unknown identifier raises)
+def crp_part_block() -> MagicDispatchBlock:
+    return MagicDispatchBlock(
+        possible_blocks=[
+            TextPart4(),
+            CullingPart(),
+            TextPart2(),
+            EffectPart(),
+            NormalPart(),
+            TrianglePart(),
+            TransformationPart(),
+            UVPart(),
+            VertexPart(),
+            UnkPart4(),
+            UnkPart2(),
+            CrpBasePart(),
+            CrpVertexColorPart(),
+        ]
+    )
 
 
 class ArticlePart(DeclarativeCompoundBlock):
@@ -1034,83 +917,17 @@ class ArticlePart(DeclarativeCompoundBlock):
                 'local_offset + this article index - len(articles) - len(common_parts)'
             },
         )
-        parts = (ArrayBlock(child=PartBlock(), length=(0, '?')), {'usage': 'ui'})
+        parts = (ArrayBlock(child=crp_part_block(), length=(0, '?')), {'usage': 'ui'})
 
 
-def determine_common_part_type(ctx):
-    (TEXT4, MAT, FSH, TEXT2, UNK4, UNK2, SIM_D, SIM_T) = range(8)
-    try:
-        first_part = ctx.buffer.read(2).decode('utf-8')
-    except UnicodeDecodeError:
-        first_part = None
-    try:
-        second_part = ctx.buffer.read(2).decode('utf-8')
-    except UnicodeDecodeError:
-        second_part = None
-    ctx.buffer.seek(-4, SEEK_CUR)
-    if second_part == 'tm':
-        return MAT
-    elif second_part == 'fs':
-        return FSH
-    elif second_part == 'ns':
-        return TEXT2
-    elif first_part is not None:
-        id = first_part + second_part
-        if id == 'cseD':
-            return TEXT4
-        if id == 'DmiS':
-            return SIM_D
-        if id == 'TmiS':
-            return SIM_T
-    return UNK4
+def determine_num_parts(ctx, **_):
+    """Parts up to the last one of an article: article i's parts start at chunk 1 + i + `local_offset`"""
+    part_ends = [a['local_offset'] + a['num_parts'] + i for (i, a) in enumerate(ctx.data('articles'))]
+    return max(part_ends) - len(ctx.data('articles')) - len(ctx.data('common_parts'))
 
 
-def _determine_part_type(ctx):
-    (TEXT4, CULL, TEXT2, FX, NRML, TRNGL, TRANSF, UV, VRTX, UNK4, UNK2, BASE, COLORS) = range(13)
-    try:
-        first_part = ctx.buffer.read(2).decode('utf-8')
-    except UnicodeDecodeError:
-        first_part = None
-    try:
-        second_part = ctx.buffer.read(2).decode('utf-8')
-    except UnicodeDecodeError:
-        second_part = None
-    ctx.buffer.seek(-4, SEEK_CUR)
-
-    if second_part == 'n$':
-        return CULL
-    elif second_part == 'rt':
-        return TRANSF
-    elif second_part == 'tv':
-        return VRTX
-    elif second_part == 'mn':
-        return NRML
-    elif second_part == 'vu':
-        return UV
-    elif second_part == 'rp':
-        return TRNGL
-    elif second_part == 'fe':
-        return FX
-    elif second_part == 'ns':
-        return TEXT2
-    elif second_part == 'fd':
-        return COLORS
-    elif second_part == 'zd':
-        return UNK2
-    elif first_part is not None:
-        id = first_part + second_part
-        if id == 'esaB':
-            return BASE
-        if id == '\x00\x00\x00\x00' or id == 'minA' or id == 'tqnA':
-            return UNK4
-        elif id == 'emaN':
-            return TEXT4
-    raise BlockDefinitionException(f'Unknown part type: {first_part}{second_part}')
-
-
-def determine_num_parts(ctx):
-    last_used_part_indices = [a['local_offset'] + a['num_parts'] + i for (i, a) in enumerate(ctx.data('articles'))]
-    return max(last_used_part_indices) - len(ctx.data('articles')) - len(ctx.data('common_parts')) + 1
+# CRP part data starting at a 4 KB boundary, and the file end
+_CRP_PAGE = 0x1000
 
 
 class CrpGeometry(DeclarativeCompoundBlock):
@@ -1166,7 +983,7 @@ class CrpGeometry(DeclarativeCompoundBlock):
         )
         common_parts = (
             ArrayBlock(
-                child=DelegateBlock(
+                child=MagicDispatchBlock(
                     possible_blocks=[
                         TextPart4(),
                         MaterialPart(),
@@ -1176,8 +993,7 @@ class CrpGeometry(DeclarativeCompoundBlock):
                         UnkPart2(),
                         CrpSimDPart(),
                         CrpSimTPart(),
-                    ],
-                    choice_index=lambda ctx, **_: determine_common_part_type(ctx),
+                    ]
                 ),
                 length='num_common_parts',
             ),
@@ -1198,8 +1014,8 @@ class CrpGeometry(DeclarativeCompoundBlock):
         )
         parts = (
             ArrayBlock(
-                child=PartBlock(),
-                length=(lambda ctx: determine_num_parts(ctx), '1 + last referenced part index in articles data'),
+                child=crp_part_block(),
+                length=(determine_num_parts, '1 + index of the last article part'),
             ),
             {
                 'usage': 'io,doc',
@@ -1220,46 +1036,62 @@ class CrpGeometry(DeclarativeCompoundBlock):
             },
         )
         raw_data = (
-            BytesBlock(length=lambda ctx: ctx.read_bytes_remaining),
+            BytesBlock(length=REMAINING),
             {
                 'usage': 'doc',
-                'description': 'Raw data region, where part data is stored. Part data offset and lengthes are stored in the PartBlock.',
+                'description': 'Data of the parts, at the offset and length of each part: 16-byte aligned, in no fixed '
+                'order, some starting at a 4 KB boundary, zeros between; the file ends on a 4 KB boundary. The '
+                'converter writes the data in the order of the offsets read, aligned the same way',
             },
         )
 
+    def _part_chunks(self, data) -> list:
+        """(chunk index, path, part block, part data) of every common part and part, in chunk order: the header is
+        chunk 0, the articles follow; each chunk is 16 bytes"""
+        res = []
+        chunk = 1 + len(data['articles'])
+        for field in ('common_parts', 'parts'):
+            delegate = self.field_blocks_map[field].child
+            for i, part in enumerate(data[field]):
+                res.append((chunk, f'{field}/{i}', delegate.possible_blocks[part['choice_index']], part['data']))
+                chunk += 1
+        return res
+
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
+        start = ctx.buffer.tell()
         data = super().read(ctx, name, read_bytes_amount)
-        misc_part_block = self.field_blocks_map.get('common_parts').child
         self_ctx = ctx.get_or_create_child(name, self, read_bytes_amount)
-
-        raw_data_offset = ctx.buffer.tell()
-        raw_data_len = ctx.read_bytes_remaining
-
-        for i, misc_part in enumerate(data['common_parts']):
-            misc_block = misc_part_block.possible_blocks[misc_part['choice_index']]
-            data_block = misc_block.field_blocks_map.get('data')
-            if not data_block:
-                continue
-            ctx.buffer.seek(
-                raw_data_offset
-                + misc_part['data']['offset']
-                - 16 * (len(data['parts']) + len(data['common_parts']) - i)
-            )
-            misc_part['data']['data'] = data_block.read(
-                self_ctx.child(f'common_parts/{i}'), 'data', read_bytes_amount=misc_part['data']['len']
-            )
-        part_block = self.field_blocks_map.get('parts').child
-        for i, part in enumerate(data['parts']):
-            block = part_block.possible_blocks[part['choice_index']]
-            data_block = block.field_blocks_map.get('data')
-            if not data_block:
-                continue
-            ctx.buffer.seek(raw_data_offset + part['data']['offset'] - 16 * (len(data['parts']) - i))
-            part['data']['data'] = data_block.read(
-                self_ctx.child(f'parts/{i}'), 'data', read_bytes_amount=part['data']['len']
+        end = ctx.buffer.tell() + ctx.read_bytes_remaining
+        for chunk, path, block, part in self._part_chunks(data):
+            ctx.buffer.seek(start + 16 * chunk + part['offset'])
+            part['data'] = block.field_blocks_map['data'].read(
+                self_ctx.child(path), 'data', read_bytes_amount=part['len']
             )
         for i, article in enumerate(data['articles']):
             offs = article['local_offset'] - len(data['articles']) - len(data['common_parts']) + i
             article['parts'] = data['parts'][offs : offs + article['num_parts']]
-        ctx.buffer.seek(raw_data_offset + raw_data_len)
+        ctx.buffer.seek(end)
         return data
+
+    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
+        """The chunks, then the data of the parts in the order of the offsets read (`raw_data`): 16-byte aligned,
+        data read at a 4 KB boundary starting at one again, the file padded to 4 KB. A part's data takes its `len`
+        bytes (a material or effect reads past a shorter `len`)"""
+        res = bytearray(super().write(data, ctx, name))
+        self_ctx = WriteContext(data=data, name=name, block=self, parent=ctx)
+        for chunk, path, block, part in sorted(self._part_chunks(data), key=lambda x: 16 * x[0] + x[3]['offset']):
+            header = 16 * chunk
+            # the data length as written: the 24 bits above the info byte `unk0`
+            length = int.from_bytes(res[header + 5 : header + 8], 'little')
+            alignment = _CRP_PAGE if (header + part['offset']) % _CRP_PAGE == 0 else 16
+            position = -(-len(res) // alignment) * alignment
+            res += bytes(position - len(res))
+            part_ctx = WriteContext(data=part, name=path, block=block, parent=self_ctx)
+            packed = block.field_blocks_map['data'].pack(part['data'], ctx=part_ctx, name='data')
+            res += packed[:length].ljust(length, b'\0')
+            res[header + 12 : header + 16] = (position - header).to_bytes(4, 'little')
+        res += bytes(-len(res) % _CRP_PAGE)
+        return bytes(res)
+
+    def estimate_packed_size(self, data, ctx: WriteContext = None) -> int:
+        return len(self.write(data, ctx))

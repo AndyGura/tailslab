@@ -145,6 +145,10 @@ When you do:
   lambdas: offsets and sizes are then filled in after the write instead of estimated (skill `nfs-resource-formats`).
   A Black Box chunk is a `ChunkBlock` of `resources/blackbox/chunks.py` (`CHUNK_ID`, `ALIGNMENT`: the id, length and
   0x11 filler fields), its records `records_to_chunk_end(child[, size])`, its sub-chunks `chunks_field(...)`.
+- A record whose type is a magic id or type tag at a fixed offset (a `switch (id)` over a union in decompiled code) is
+  a `MagicDispatchBlock(possible_blocks, field='identifier', fallback=None)` (`library/read_blocks/delegates.py`): each
+  block's id field has an `Eq` / `Or` validator, the first block in order accepting the bytes is read (`fallback`: the
+  index of an unknown-record block, else an unknown id raises). No hand-written choice function.
 - Resource ids (`library/utils/id.py`, `frontend/src/app/utils/join-id.ts`, the same rules): a file's id is
   `path_to_name` of its path (`__` escaped as `_%5F`, `:` as `---DRIVE`), a resource in it adds `__` and its path in
   the file's data (`children/3/item/data`), which never contains `__` nor starts with `_`; ids split at their last
@@ -597,6 +601,12 @@ When you do:
   with unsaved changes). Their derived values follow the field descriptions: keep the two in sync.
 - In the CRP, the track parts `DmiS` / `TmiS` (road spline slices and sections), `esaB` (`CrpBasePart`: flags, bounds,
   object tag, levels of detail) and `fd` (vertex colours) are parsed.
+- CRP layout (`CrpGeometry`): 16-byte chunks (header, articles, common parts, parts; parts picked by identifier,
+  `MagicDispatchBlock`), then the part data at each part's `offset` / `len`: 16-byte aligned, in no fixed order, some at
+  4 KB boundaries, zeros between, the file padded to 4 KB. `write` lays the data out again in the order of the offsets
+  read (data read at a 4 KB boundary starts at one again; a part writes `len` bytes, the materials and effects read
+  past a shorter one): all 63 game CRPs and `test/samples/356b.crp` write back byte-exact. The array parts share their
+  fields through `crp_array_part_fields`.
 - CRP `pr` parts (`TrianglePartData`): the info row blocks are picked by `row_type` (`vt`, `nm`, `uv`, `fd`, `n$`),
   not by position; one index table per index row (`index_table`, `uv_index_table`), and a row's `index_stream` picks
   the table its indices come from, 0xffff = consecutive (`crp_stream_indices` in `serializers/geometries.py`, as

@@ -84,6 +84,10 @@ new parsing primitives. Skim the cheat-sheet below before reaching for `read-blo
   known before parsing) `data` is a lazy part in lazy read context, seeded by `part_seed(ctx, block)`. `AutoDetectBlock(possible_blocks)` — auto-detect via
   `library.probe_block_class` (used e.g. inside `ShpiBlock` item slots).
   `EnumLookupDelegateBlock(enum_field, blocks)` — picks by looking up a sibling enum field's value.
+  `MagicDispatchBlock(possible_blocks, field='identifier', fallback=None)` — picks by a magic id: the first block in
+  order whose `field` (an `Eq` / `Or` validator on it, after fixed-size fields only) accepts the bytes at its offset;
+  `fallback` = index of an unknown-record block (it needs no such field), else an unknown id raises. NFS5 CRP parts
+  (`resources/eac/geometries/nfs5.py`, 2-char ids after a 16-bit index and 4-char ids in one list).
 - `ArchiveBlock` (`library.read_blocks.archives`) — base for name/offset-indexed archives; see the
   ShpiBlock walkthrough below.
 
@@ -455,6 +459,13 @@ files: `extrablocks`), are read with `read_items_at_offsets` and written back fr
   Offsets relative to something else (the file start, another struct) or counts the loader derives
   with more arithmetic are lambdas. A Black Box chunk's struct (the loader skips 8 bytes of chunk header, often
   aligns to 16 bytes) is a `ChunkBlock` (cheat-sheet, "Black Box chunks").
+- A union picked by a type tag or magic id (`switch (chunk->id)`, a table of handlers by id) is a
+  `MagicDispatchBlock` of one block per case, each with the id field validated (`Eq('tv')`, `Or([...])` for a case
+  taking several ids), listed in the order the loader tests them; the validators then document the ids too.
+- Field groups many structs share (a chunk header, an index bit field): one module-level `(block, extras)` tuple per
+  field, assigned in each `Fields` class (`offset = _PART_OFFSET`); a run of fields, from a helper returning the
+  tuples, unpacked in the class body (`unk0, len, num_data, offset, data = crp_array_part_fields(...)`), so the field
+  names stay in the class.
 - Write throwaway probe scripts (in the scratchpad) that run over every file of that kind in
   `games/<game>/` or the samples, and print value ranges and counts per field rather than dumping
   one file. Field descriptions like "always 44.703" or "values from 35 to 60" come from that.

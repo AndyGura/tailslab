@@ -27,6 +27,7 @@ from .delegates import (
     DelegateBlock,
     AutoDetectBlock,
     EnumLookupDelegateBlock,
+    MagicDispatchBlock,
 )
 from .strings import UTF8Block
 from .references import CountOf, OffsetOf, SizeOf, OwnSize, ItemOffsetsOf
