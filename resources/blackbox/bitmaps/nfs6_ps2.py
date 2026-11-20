@@ -1,19 +1,19 @@
 from library.read_blocks import ArrayBlock, BytesBlock, DeclarativeCompoundBlock, IntegerBlock
 from library.read_blocks.misc.value_validators import Eq
 from library.read_blocks.strings import UTF8Block
-from resources.blackbox.chunks import container_chunk_length, nfsu_sub_chunks_field
-from resources.blackbox.geometries.nfsu import _CHUNK_ID_DESCR, _CHUNK_LENGTH_DESCR, _ELEVENS_DESCR, elevens_length
+from resources.blackbox.chunks import ChunkBlock, chunk_rest, chunks_field, records_to_chunk_end
 
 # NFS Hot Pursuit 2 (PS2) texture packs: TRACKS/TEX<track>TRACK.BIN, TEX<track>LOCATION.BIN, GLOBAL/*.BIN, loader
 # SLUS_203.62 0x10082c. Pixels are palette indexes, 8 or 4 bits, stored as uploaded to GS memory (see
 # library/utils/ps2.py), palettes are 32-bit RGBA with alpha 0x80 = opaque, 256-colour ones in CSM1 order
 
 
-class Nfs6Ps2TexturePackHeader(DeclarativeCompoundBlock):
+class Nfs6Ps2TexturePackHeader(ChunkBlock):
     block_description = 'Texture pack header: name and original file path'
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x30300002)), {'description': _CHUNK_ID_DESCR})
+    CHUNK_ID = 0x30300002
+
+    class Fields(ChunkBlock.Fields):
         chunk_length = (IntegerBlock(length=4, value_validator=Eq(84)), {'usage': 'io,doc'})
         name = (UTF8Block(length=16), {'description': 'Texture pack name, e.g. "TRACK"'})
         file_path = (
@@ -128,47 +128,38 @@ class Nfs6Ps2TextureInfo(DeclarativeCompoundBlock):
         unk6 = (BytesBlock(length=44), {'is_unknown': True})
 
 
-class Nfs6Ps2TextureInfos(DeclarativeCompoundBlock):
+class Nfs6Ps2TextureInfos(ChunkBlock):
     block_description = 'Texture infos, one per texture'
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x30300003)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('textures')) * 164),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
-        )
+    CHUNK_ID = 0x30300003
+
+    class Fields(ChunkBlock.Fields):
         textures = (
-            ArrayBlock(child=Nfs6Ps2TextureInfo(), length=lambda ctx: ctx.data('chunk_length') // 164),
+            records_to_chunk_end(Nfs6Ps2TextureInfo(), 164),
             {'description': 'Texture infos'},
         )
 
 
-class Nfs6Ps2TextureData(DeclarativeCompoundBlock):
+class Nfs6Ps2TextureData(ChunkBlock):
     block_description = 'Palettes and pixels of all textures of the pack. Texture infos point to it'
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x30300004)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('elevens')) + len(ctx.data('data'))),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
-        )
-        elevens = (
-            BytesBlock(length=(lambda ctx: elevens_length(ctx, 0x80), 'up to 128-bytes alignment')),
-            {'usage': 'io,doc', 'description': _ELEVENS_DESCR},
-        )
+    CHUNK_ID = 0x30300004
+    ALIGNMENT = 0x80
+
+    class Fields(ChunkBlock.Fields):
         data = (
-            BytesBlock(length=lambda ctx: ctx.data('chunk_length') - len(ctx.data('elevens'))),
+            chunk_rest(),
             {'description': 'Palettes and pixels'},
         )
 
 
-class Nfs6Ps2TexturePack(DeclarativeCompoundBlock):
+class Nfs6Ps2TexturePack(ChunkBlock):
     block_description = 'Texture pack (TPK): header, texture infos and their pixel data'
     serializer = 'Nfs6Ps2TexturePackSerializer'
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0xB0300001)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = container_chunk_length()
-        sub_chunks = nfsu_sub_chunks_field(
+    CHUNK_ID = 0xB0300001
+
+    class Fields(ChunkBlock.Fields):
+        sub_chunks = chunks_field(
             [Nfs6Ps2TexturePackHeader(), Nfs6Ps2TextureInfos(), Nfs6Ps2TextureData()], 'Child chunks'
         )

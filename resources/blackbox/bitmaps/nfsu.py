@@ -7,13 +7,14 @@ from library.read_blocks import (
 )
 from library.read_blocks.misc.value_validators import Eq
 from library.read_blocks.strings import UTF8Block
-from resources.blackbox.chunks import container_chunk_length, nfsu_sub_chunks_field
-from resources.blackbox.geometries.nfsu import (
-    _CHUNK_ID_DESCR,
-    _CHUNK_LENGTH_DESCR,
-    _ELEVENS_DESCR,
+from resources.blackbox.chunks import (
+    ChunkBlock,
     ZeroChunk,
-    elevens_length,
+    chunk_rest,
+    chunks_field,
+    peek_chunk_length,
+    peek_chunk_payload,
+    records_to_chunk_end,
 )
 
 # Image compression types (TEXCOMP_* of the game), as found in texture info entries
@@ -31,11 +32,12 @@ NFSU_TEXTURE_COMPRESSION_TYPES = [
 ]
 
 
-class NfsuTexturePackHeader(DeclarativeCompoundBlock):
+class NfsuTexturePackHeader(ChunkBlock):
     block_description = 'Texture pack header: name and original file path'
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x33310001)), {'description': _CHUNK_ID_DESCR})
+    CHUNK_ID = 0x33310001
+
+    class Fields(ChunkBlock.Fields):
         chunk_length = (IntegerBlock(length=4, value_validator=Eq(124)), {'usage': 'io,doc'})
         version = (IntegerBlock(length=4), {'description': 'Texture pack version, 4 in NFSU, 5 in NFSU2'})
         name = (UTF8Block(length=28), {'description': 'Texture pack name, e.g. "TRACK"'})
@@ -47,20 +49,14 @@ class NfsuTexturePackHeader(DeclarativeCompoundBlock):
         unk = (BytesBlock(length=24), {'is_unknown': True})
 
 
-class NfsuTextureHashes(DeclarativeCompoundBlock):
+class NfsuTextureHashes(ChunkBlock):
     block_description = 'Hashes of texture names, one per texture'
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x33310002)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('hashes')) * 8),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
-        )
+    CHUNK_ID = 0x33310002
+
+    class Fields(ChunkBlock.Fields):
         hashes = (
-            ArrayBlock(
-                child=ArrayBlock(child=IntegerBlock(length=4), length=2),
-                length=lambda ctx: ctx.data('chunk_length') // 8,
-            ),
+            records_to_chunk_end(ArrayBlock(child=IntegerBlock(length=4), length=2), 8),
             {'description': 'Texture name hash and zero, per texture'},
         )
 
@@ -127,36 +123,66 @@ class NfsuCompressedTexture(DeclarativeCompoundBlock):
         unk = (IntegerBlock(length=4), {'is_unknown': True})
 
 
-class NfsuCompressedTextures(DeclarativeCompoundBlock):
+class NfsuCompressedTextures(ChunkBlock):
     block_description = (
         'NFSU2 compressed texture pack: locations of textures, one per texture. Every '
         'texture is compressed separately (JDLZ or HUFF) and holds its image data, followed by its texture info '
         '(124 bytes) and pixel format (32 bytes). Such a pack has no texture infos and formats chunks'
     )
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x33310003)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('textures')) * 24),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
-        )
+    CHUNK_ID = 0x33310003
+
+    class Fields(ChunkBlock.Fields):
         textures = (
-            ArrayBlock(child=NfsuCompressedTexture(), length=lambda ctx: ctx.data('chunk_length') // 24),
+            records_to_chunk_end(NfsuCompressedTexture(), 24),
             {'description': 'Compressed textures'},
         )
 
 
-class NfsuTextureInfos(DeclarativeCompoundBlock):
-    block_description = 'Texture infos, one per texture'
+class NfsuTextureLocation(DeclarativeCompoundBlock):
+    block_description = 'Where the data of a texture is in the texture data chunk (NFSU, 20 bytes)'
 
     class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x33310004)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('textures')) * 124),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
+        name_hash = (IntegerBlock(length=4), {'description': 'Hash of the texture name'})
+        offset = (
+            IntegerBlock(length=4),
+            {'description': 'Offset of the texture data: the data of the next texture starts at `offset + size`'},
         )
+        size = (IntegerBlock(length=4), {'description': 'Size of the texture data in bytes'})
+        flags = (IntegerBlock(length=4), {'is_unknown': True, 'description': '0x100 in every file'})
+        unk = (IntegerBlock(length=4), {'is_unknown': True, 'description': '0 in every file'})
+
+
+class NfsuTextureLocations(ChunkBlock):
+    block_description = (
+        'NFSU texture pack: where the data of each texture is (20-byte records; NFSU2 and NFSMW keep their '
+        'compressed textures table under this id, `NfsuCompressedTextures`). Not read by the converter: the texture '
+        'infos give the data offsets'
+    )
+
+    CHUNK_ID = 0x33310003
+
+    class Fields(ChunkBlock.Fields):
+        textures = (records_to_chunk_end(NfsuTextureLocation(), 20), {'description': 'Texture data locations'})
+
+    def matches_chunk(self, ctx) -> bool:
+        # NFSU2's 24-byte records have other values there
+        payload = peek_chunk_payload(ctx, peek_chunk_length(ctx))
+        return (
+            len(payload) > 0
+            and len(payload) % 20 == 0
+            and all(payload[i + 12 : i + 20] == b'\0\1\0\0\0\0\0\0' for i in range(0, len(payload), 20))
+        )
+
+
+class NfsuTextureInfos(ChunkBlock):
+    block_description = 'Texture infos, one per texture'
+
+    CHUNK_ID = 0x33310004
+
+    class Fields(ChunkBlock.Fields):
         textures = (
-            ArrayBlock(child=NfsuTextureInfo(), length=lambda ctx: ctx.data('chunk_length') // 124),
+            records_to_chunk_end(NfsuTextureInfo(), 124),
             {'description': 'Texture infos'},
         )
 
@@ -176,28 +202,25 @@ class NfsuTextureFormat(DeclarativeCompoundBlock):
         unk1 = (BytesBlock(length=8), {'is_unknown': True})
 
 
-class NfsuTextureFormats(DeclarativeCompoundBlock):
+class NfsuTextureFormats(ChunkBlock):
     block_description = 'Pixel formats of textures, one per texture'
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x33310005)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('formats')) * 32),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
-        )
+    CHUNK_ID = 0x33310005
+
+    class Fields(ChunkBlock.Fields):
         formats = (
-            ArrayBlock(child=NfsuTextureFormat(), length=lambda ctx: ctx.data('chunk_length') // 32),
+            records_to_chunk_end(NfsuTextureFormat(), 32),
             {'description': 'Formats'},
         )
 
 
-class NfsuTexturePackInfo(DeclarativeCompoundBlock):
+class NfsuTexturePackInfo(ChunkBlock):
     block_description = 'Texture pack info container: header, hashes, infos, formats'
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0xB3310000)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = container_chunk_length()
-        sub_chunks = nfsu_sub_chunks_field(
+    CHUNK_ID = 0xB3310000
+
+    class Fields(ChunkBlock.Fields):
+        sub_chunks = chunks_field(
             [
                 NfsuTexturePackHeader(),
                 NfsuTextureHashes(),
@@ -205,49 +228,42 @@ class NfsuTexturePackInfo(DeclarativeCompoundBlock):
                 NfsuTextureInfos(),
                 NfsuTextureFormats(),
                 ZeroChunk(),
+                NfsuTextureLocations(),
             ],
             'Child chunks',
         )
 
 
-class NfsuTextureData(DeclarativeCompoundBlock):
+class NfsuTextureData(ChunkBlock):
     block_description = 'Pixel data of all textures of the pack. Texture infos point to it'
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x33320002)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('elevens')) + len(ctx.data('data'))),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
-        )
-        elevens = (
-            BytesBlock(length=(lambda ctx: elevens_length(ctx, 0x80), 'up to 128-bytes alignment')),
-            {'usage': 'io,doc', 'description': _ELEVENS_DESCR},
-        )
+    CHUNK_ID = 0x33320002
+    ALIGNMENT = 0x80
+
+    class Fields(ChunkBlock.Fields):
         data = (
-            BytesBlock(length=lambda ctx: ctx.data('chunk_length') - len(ctx.data('elevens'))),
+            chunk_rest(),
             {'description': 'Image data and palettes'},
         )
 
 
-class NfsuTexturePackDataContainer(DeclarativeCompoundBlock):
+class NfsuTexturePackDataContainer(ChunkBlock):
     block_description = 'Texture pack data container'
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0xB3320000)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = container_chunk_length()
-        sub_chunks = nfsu_sub_chunks_field([NfsuTextureData(), ZeroChunk()], 'Child chunks')
+    CHUNK_ID = 0xB3320000
+
+    class Fields(ChunkBlock.Fields):
+        sub_chunks = chunks_field([NfsuTextureData(), ZeroChunk()], 'Child chunks')
 
 
-class NfsuTexturePack(DeclarativeCompoundBlock):
+class NfsuTexturePack(ChunkBlock):
     block_description = (
         'Texture pack (TPK): a container of texture infos and their pixel data. Standalone '
         'in car TEXTURES.BIN and TRACKS/TEXnnnnTRACK.BIN, embedded in track bundles'
     )
     serializer = 'NfsuTexturePackSerializer'
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0xB3300000)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = container_chunk_length()
-        sub_chunks = nfsu_sub_chunks_field(
-            [NfsuTexturePackInfo(), NfsuTexturePackDataContainer(), ZeroChunk()], 'Child chunks'
-        )
+    CHUNK_ID = 0xB3300000
+
+    class Fields(ChunkBlock.Fields):
+        sub_chunks = chunks_field([NfsuTexturePackInfo(), NfsuTexturePackDataContainer(), ZeroChunk()], 'Child chunks')

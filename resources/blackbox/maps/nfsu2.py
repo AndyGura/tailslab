@@ -1,13 +1,11 @@
 from typing import Optional
 
 from library.read_blocks import ArrayBlock, BytesBlock, DeclarativeCompoundBlock, DecimalBlock, IntegerBlock, CountOf
-from library.read_blocks.misc.value_validators import Eq
 from library.context import WriteContext
 from library.exceptions import DataIntegrityException
 from library.read_blocks.strings import NullTerminatedUTF8Block
-from resources.blackbox.chunks import peek_chunk_length, peek_chunk_payload
-from resources.blackbox.geometries.nfsu import _CHUNK_ID_DESCR, _CHUNK_LENGTH_DESCR
 from resources.eac.fields.misc import Point2D
+from resources.blackbox.chunks import RecordsChunk, is_name_bytes, records_to_chunk_end
 
 # NFS Underground 2 road network: roads chunk 0x34121 of TRACKS/ROUTESLxRx/Routes*.bin (RoutesAll.bin: every road of
 # the location), with NFSU's chunk id but a shorter layout (140-byte road headers, 56-byte nodes, no heights)
@@ -118,59 +116,25 @@ class Nfsu2Road(DeclarativeCompoundBlock):
         return super().write({**data, 'name_padding': padding}, ctx, name)
 
 
-def _peek_bytes(ctx, length: int) -> bytes:
-    """`length` bytes at the buffer position. Buffer position is not changed"""
-    pos = ctx.buffer.tell()
-    try:
-        return ctx.buffer.read(length)
-    finally:
-        ctx.buffer.seek(pos)
-
-
-def _is_name(b: bytes) -> bool:
-    """Null-terminated printable ASCII text (leftover bytes after it allowed)"""
-    return b'\0' in b and all(0x20 <= x < 0x7F for x in b.split(b'\0', 1)[0])
-
-
-def nfsu2_roads_amount(payload: bytes) -> Optional[int]:
-    """Amount of roads in a roads chunk payload, None if it is not a whole number of NFSU2 roads"""
-    pos = count = 0
-    while pos + NFSU2_ROAD_HEADER_SIZE <= len(payload):
-        if payload[pos : pos + 8] != b'\x0b\0\0\0\x0b\0\0\0' or not _is_name(payload[pos + 16 : pos + 48]):
-            return None
-        pos += NFSU2_ROAD_HEADER_SIZE + NFSU2_ROAD_NODE_SIZE * int.from_bytes(payload[pos + 52 : pos + 54], 'little')
-        count += 1
-    return count if pos == len(payload) else None
-
-
-class Nfsu2Roads(DeclarativeCompoundBlock):
+class Nfsu2Roads(RecordsChunk):
     block_description = (
         'Roads of an NFS Underground 2 location (TRACKS/ROUTESLxRx/RoutesAll.bin: every '
         'road; RoutesFreeRoam.bin, Routes<race>F.bin / B.bin: a part of them). Chunks 0x34122 / 0x34123 '
         'next to it (links between roads?) are not decoded'
     )
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034121)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = (
-            IntegerBlock(
-                length=4,
-                programmatic_value=lambda ctx: sum(
-                    NFSU2_ROAD_HEADER_SIZE + NFSU2_ROAD_NODE_SIZE * len(x['nodes']) for x in ctx.data('roads')
-                ),
-            ),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
-        )
-        roads = (
-            ArrayBlock(
-                child=Nfsu2Road(),
-                length=(
-                    lambda ctx: nfsu2_roads_amount(_peek_bytes(ctx, ctx.data('chunk_length'))),
-                    'until the end of chunk',
-                ),
-            ),
-            {'description': 'Roads'},
-        )
+    CHUNK_ID = 0x00034121
+    RECORD_HEADER_SIZE = NFSU2_ROAD_HEADER_SIZE
+    MIN_RECORDS = 1
 
-    def matches_chunk(self, ctx) -> bool:
-        return bool(nfsu2_roads_amount(peek_chunk_payload(ctx, peek_chunk_length(ctx))))
+    @staticmethod
+    def record_size(payload: bytes, pos: int) -> Optional[int]:
+        # the name: null-terminated, leftover bytes after it
+        if payload[pos : pos + 8] != b'\x0b\0\0\0\x0b\0\0\0' or not is_name_bytes(
+            payload[pos + 16 : pos + 48], leftovers=True
+        ):
+            return None
+        return NFSU2_ROAD_HEADER_SIZE + NFSU2_ROAD_NODE_SIZE * int.from_bytes(payload[pos + 52 : pos + 54], 'little')
+
+    class Fields(RecordsChunk.Fields):
+        roads = (records_to_chunk_end(Nfsu2Road()), {'description': 'Roads'})

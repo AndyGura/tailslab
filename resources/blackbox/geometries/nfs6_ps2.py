@@ -9,46 +9,35 @@ from library.read_blocks import (
 )
 from library.read_blocks.misc.value_validators import Eq
 from library.read_blocks.strings import UTF8Block
-from resources.blackbox.chunks import container_chunk_length, nfsu_sub_chunks_field
-from resources.blackbox.geometries.nfsu import _CHUNK_ID_DESCR, _CHUNK_LENGTH_DESCR, _ELEVENS_DESCR, elevens_length
 from resources.eac.fields.misc import Point3D
+from resources.blackbox.chunks import ChunkBlock, chunk_rest, chunks_field, records_to_chunk_end
 
 # NFS Hot Pursuit 2 (PS2, Black Box) meshes ("solids"): loader SLUS_203.62 0x1036c8. Vertex data is a VIF code stream
 # for the VU1 microprogram of the game (.vutext, uploaded at VU1 address 0): see `nfs6_ps2_mesh` in
 # serializers/geometries.py for its layout
 
 
-def _elevens_field():
-    return (
-        BytesBlock(length=(lambda ctx: elevens_length(ctx), 'up to 16-bytes alignment')),
-        {'usage': 'io,doc', 'description': _ELEVENS_DESCR},
-    )
-
-
-class Nfs6Ps2SolidPackHeader(DeclarativeCompoundBlock):
+class Nfs6Ps2SolidPackHeader(ChunkBlock):
     block_description = 'Mesh pack header: path of the pack in the development tools'
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034001)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = (IntegerBlock(length=4), {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR})
+    CHUNK_ID = 0x00034001
+
+    class Fields(ChunkBlock.Fields):
         file_path = (
             UTF8Block(length='chunk_length'),
             {'description': 'Path of the pack, e.g. "TRACK11\\Pipeline\\Scenery\\eLabScenery0.bin"'},
         )
 
 
-class Nfs6Ps2MeshHeader(DeclarativeCompoundBlock):
+class Nfs6Ps2MeshHeader(ChunkBlock):
     block_description = (
         'Mesh header: id, name, amounts, bounding box and the transformation of the mesh in the modelling tool'
     )
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034003)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('elevens')) + 192),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
-        )
-        elevens = _elevens_field()
+    CHUNK_ID = 0x00034003
+    ALIGNMENT = 0x10
+
+    class Fields(ChunkBlock.Fields):
         runtime_pointers = (
             BytesBlock(length=8),
             {'description': 'List links, written by the game when the mesh is loaded', 'is_unknown': True},
@@ -85,20 +74,14 @@ class Nfs6Ps2MeshHeader(DeclarativeCompoundBlock):
         unk4 = (BytesBlock(length=32), {'is_unknown': True})
 
 
-class Nfs6Ps2MeshTextures(DeclarativeCompoundBlock):
+class Nfs6Ps2MeshTextures(ChunkBlock):
     block_description = 'Textures of the mesh, referenced by index by draw groups'
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034006)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('textures')) * 8),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
-        )
+    CHUNK_ID = 0x00034006
+
+    class Fields(ChunkBlock.Fields):
         textures = (
-            ArrayBlock(
-                child=ArrayBlock(child=IntegerBlock(length=4), length=2),
-                length=lambda ctx: ctx.data('chunk_length') // 8,
-            ),
+            records_to_chunk_end(ArrayBlock(child=IntegerBlock(length=4), length=2), 8),
             {
                 'description': 'Texture name hash (`name_hash` of the texture in a texture pack) and a value written '
                 'by the game, per texture'
@@ -149,66 +132,47 @@ class Nfs6Ps2MeshDrawGroup(DeclarativeCompoundBlock):
         unk3 = (BytesBlock(length=16), {'is_unknown': True})
 
 
-class Nfs6Ps2MeshDrawGroups(DeclarativeCompoundBlock):
+class Nfs6Ps2MeshDrawGroups(ChunkBlock):
     block_description = 'Draw groups of the mesh'
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034004)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = (
-            IntegerBlock(
-                length=4, programmatic_value=lambda ctx: len(ctx.data('elevens')) + len(ctx.data('draw_groups')) * 64
-            ),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
-        )
-        elevens = _elevens_field()
+    CHUNK_ID = 0x00034004
+    ALIGNMENT = 0x10
+
+    class Fields(ChunkBlock.Fields):
         draw_groups = (
-            ArrayBlock(
-                child=Nfs6Ps2MeshDrawGroup(),
-                length=lambda ctx: (ctx.data('chunk_length') - len(ctx.data('elevens'))) // 64,
-            ),
+            records_to_chunk_end(Nfs6Ps2MeshDrawGroup(), 64),
             {'description': 'Draw groups'},
         )
 
 
-class Nfs6Ps2MeshVifData(DeclarativeCompoundBlock):
+class Nfs6Ps2MeshVifData(ChunkBlock):
     block_description = (
         'Vertex data: a VIF code stream (UNPACK commands, MSCAL starting the VU1 microprogram after every packet)'
     )
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034005)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('elevens')) + len(ctx.data('data'))),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
-        )
-        elevens = _elevens_field()
+    CHUNK_ID = 0x00034005
+    ALIGNMENT = 0x10
+
+    class Fields(ChunkBlock.Fields):
         data = (
-            BytesBlock(length=lambda ctx: ctx.data('chunk_length') - len(ctx.data('elevens'))),
+            chunk_rest(),
             {'description': 'VIF codes and their data'},
         )
 
 
-class Nfs6Ps2MeshLightingMaterials(DeclarativeCompoundBlock):
+class Nfs6Ps2MeshLightingMaterials(ChunkBlock):
     block_description = (
         'Lighting materials of the mesh (`Nfs6Ps2LightingMaterial` of GLOBAL/GLOBALB), '
         'referenced by index by draw groups (`material_index`). Looked up by name hash when the mesh is loaded '
         '(SLUS_203.62 0x10c458), an unknown hash takes the material "Default"'
     )
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x0003401D)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = (
-            IntegerBlock(
-                length=4, programmatic_value=lambda ctx: len(ctx.data('elevens')) + len(ctx.data('materials')) * 8
-            ),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
-        )
-        elevens = _elevens_field()
+    CHUNK_ID = 0x0003401D
+    ALIGNMENT = 0x10
+
+    class Fields(ChunkBlock.Fields):
         materials = (
-            ArrayBlock(
-                child=ArrayBlock(child=IntegerBlock(length=4), length=2),
-                length=lambda ctx: (ctx.data('chunk_length') - len(ctx.data('elevens'))) // 8,
-            ),
+            records_to_chunk_end(ArrayBlock(child=IntegerBlock(length=4), length=2), 8),
             {
                 'description': 'Material name hash (`bin_hash`, the `name_hash` of a lighting material) and a value '
                 'written by the game (the material pointer), per material'
@@ -216,13 +180,13 @@ class Nfs6Ps2MeshLightingMaterials(DeclarativeCompoundBlock):
         )
 
 
-class Nfs6Ps2Mesh(DeclarativeCompoundBlock):
+class Nfs6Ps2Mesh(ChunkBlock):
     block_description = 'Mesh: header, textures, draw groups and VIF data'
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x80034002)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = container_chunk_length()
-        sub_chunks = nfsu_sub_chunks_field(
+    CHUNK_ID = 0x80034002
+
+    class Fields(ChunkBlock.Fields):
+        sub_chunks = chunks_field(
             [
                 Nfs6Ps2MeshHeader(),
                 Nfs6Ps2MeshTextures(),
@@ -234,13 +198,13 @@ class Nfs6Ps2Mesh(DeclarativeCompoundBlock):
         )
 
 
-class Nfs6Ps2SolidPack(DeclarativeCompoundBlock):
+class Nfs6Ps2SolidPack(ChunkBlock):
     block_description = 'Mesh pack (Black Box "solid list"): a header and meshes, found by their mesh id'
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x80034000)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = container_chunk_length()
-        sub_chunks = nfsu_sub_chunks_field([Nfs6Ps2SolidPackHeader(), Nfs6Ps2Mesh()], 'Header and meshes')
+    CHUNK_ID = 0x80034000
+
+    class Fields(ChunkBlock.Fields):
+        sub_chunks = chunks_field([Nfs6Ps2SolidPackHeader(), Nfs6Ps2Mesh()], 'Header and meshes')
 
 
 class Nfs6Ps2LightingParameters(DeclarativeCompoundBlock):
@@ -319,22 +283,16 @@ class Nfs6Ps2LightingMaterial(DeclarativeCompoundBlock):
         )
 
 
-class Nfs6Ps2LightingMaterials(DeclarativeCompoundBlock):
+class Nfs6Ps2LightingMaterials(ChunkBlock):
     block_description = (
         'Lighting materials (GLOBAL/GLOBALB, loader SLUS_203.62 0x114f38), found by name '
         'hash by the meshes (`Nfs6Ps2MeshLightingMaterials`)'
     )
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x0003401E)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = (
-            IntegerBlock(
-                length=4,
-                programmatic_value=lambda ctx: len(ctx.data('elevens')) + 16 + 0x140 * len(ctx.data('materials')),
-            ),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
-        )
-        elevens = _elevens_field()
+    CHUNK_ID = 0x0003401E
+    ALIGNMENT = 0x10
+
+    class Fields(ChunkBlock.Fields):
         unk = (BytesBlock(length=8), {'is_unknown': True})
         version = (IntegerBlock(length=4, value_validator=Eq(1)), {'description': 'Always 1, the game checks it'})
         num_materials = (
@@ -353,40 +311,16 @@ class Nfs6Ps2LightingMaterials(DeclarativeCompoundBlock):
 # and Voronoi planes. Pointers between the features are indexes in the images (ConvertToPointers 0x1d3e68)
 
 
-def _collision_elements_fields(chunk_id: int, items_field: str, item_block, item_size: int, items_description: str):
-    return {
-        'chunk_id': (IntegerBlock(length=4, value_validator=Eq(chunk_id)), {'description': _CHUNK_ID_DESCR}),
-        'chunk_length': (
-            IntegerBlock(
-                length=4,
-                programmatic_value=lambda ctx: len(ctx.data('elevens')) + item_size * len(ctx.data(items_field)),
-            ),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
-        ),
-        'elevens': _elevens_field(),
-        items_field: (
-            ArrayBlock(
-                child=item_block,
-                length=lambda ctx: (ctx.data('chunk_length') - len(ctx.data('elevens'))) // item_size,
-            ),
-            {'description': items_description},
-        ),
-    }
-
-
-class Nfs6Ps2Polyhedron(DeclarativeCompoundBlock):
+class Nfs6Ps2Polyhedron(ChunkBlock):
     block_description = (
         'A collision polyhedron (PipelinePolyhedron object, 0x60 bytes, used in place; '
         'PipelinePolyhedron::MemoryImageLoad). Its features are the next four sub-chunks'
     )
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034021)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('elevens')) + 0x60),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
-        )
-        elevens = _elevens_field()
+    CHUNK_ID = 0x00034021
+    ALIGNMENT = 0x10
+
+    class Fields(ChunkBlock.Fields):
         list_node = (
             ArrayBlock(child=IntegerBlock(length=4), length=2),
             {
@@ -527,47 +461,47 @@ class Nfs6Ps2PolyhedronPlane(DeclarativeCompoundBlock):
         )
 
 
-class Nfs6Ps2PolyhedronVertices(DeclarativeCompoundBlock):
+class Nfs6Ps2PolyhedronVertices(ChunkBlock):
     block_description = 'Vertices of a collision polyhedron'
 
-    Fields = type(
-        'Fields',
-        (DeclarativeCompoundBlock.Fields,),
-        _collision_elements_fields(0x00034024, 'vertices', Nfs6Ps2PolyhedronVertex(), 0x14, 'Vertices'),
-    )
+    CHUNK_ID = 0x00034024
+    ALIGNMENT = 0x10
+
+    class Fields(ChunkBlock.Fields):
+        vertices = (records_to_chunk_end(Nfs6Ps2PolyhedronVertex(), 0x14), {'description': 'Vertices'})
 
 
-class Nfs6Ps2PolyhedronEdges(DeclarativeCompoundBlock):
+class Nfs6Ps2PolyhedronEdges(ChunkBlock):
     block_description = 'Edges of a collision polyhedron'
 
-    Fields = type(
-        'Fields',
-        (DeclarativeCompoundBlock.Fields,),
-        _collision_elements_fields(0x00034023, 'edges', Nfs6Ps2PolyhedronEdge(), 0xC, 'Edges'),
-    )
+    CHUNK_ID = 0x00034023
+    ALIGNMENT = 0x10
+
+    class Fields(ChunkBlock.Fields):
+        edges = (records_to_chunk_end(Nfs6Ps2PolyhedronEdge(), 0xC), {'description': 'Edges'})
 
 
-class Nfs6Ps2PolyhedronFaces(DeclarativeCompoundBlock):
+class Nfs6Ps2PolyhedronFaces(ChunkBlock):
     block_description = 'Faces of a collision polyhedron'
 
-    Fields = type(
-        'Fields',
-        (DeclarativeCompoundBlock.Fields,),
-        _collision_elements_fields(0x00034022, 'faces', Nfs6Ps2PolyhedronFace(), 0x18, 'Faces'),
-    )
+    CHUNK_ID = 0x00034022
+    ALIGNMENT = 0x10
+
+    class Fields(ChunkBlock.Fields):
+        faces = (records_to_chunk_end(Nfs6Ps2PolyhedronFace(), 0x18), {'description': 'Faces'})
 
 
-class Nfs6Ps2PolyhedronPlanes(DeclarativeCompoundBlock):
+class Nfs6Ps2PolyhedronPlanes(ChunkBlock):
     block_description = 'Voronoi planes of a collision polyhedron, the planes of each feature one after the other'
 
-    Fields = type(
-        'Fields',
-        (DeclarativeCompoundBlock.Fields,),
-        _collision_elements_fields(0x00034025, 'planes', Nfs6Ps2PolyhedronPlane(), 0x18, 'Voronoi planes'),
-    )
+    CHUNK_ID = 0x00034025
+    ALIGNMENT = 0x10
+
+    class Fields(ChunkBlock.Fields):
+        planes = (records_to_chunk_end(Nfs6Ps2PolyhedronPlane(), 0x18), {'description': 'Voronoi planes'})
 
 
-class Nfs6Ps2CollisionVolumes(DeclarativeCompoundBlock):
+class Nfs6Ps2CollisionVolumes(ChunkBlock):
     block_description = (
         'Collision volumes: convex polyhedra for V-Clip collision tests, five sub-chunks per '
         'polyhedron (LoaderCollisionVolumes SLUS_203.62 0x218e10). A car\'s GEOMETRY has its hull "<model>_CV"; '
@@ -575,10 +509,10 @@ class Nfs6Ps2CollisionVolumes(DeclarativeCompoundBlock):
         'game takes a box (RectPolyhedron)'
     )
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x80034020)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = container_chunk_length()
-        sub_chunks = nfsu_sub_chunks_field(
+    CHUNK_ID = 0x80034020
+
+    class Fields(ChunkBlock.Fields):
+        sub_chunks = chunks_field(
             [
                 Nfs6Ps2Polyhedron(),
                 Nfs6Ps2PolyhedronVertices(),

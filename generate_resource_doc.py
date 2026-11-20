@@ -1117,6 +1117,8 @@ EXPORT_RESOURCES = {
                 blackbox_bitmaps_nfsu.NfsuTexturePack(),
                 blackbox_bitmaps_nfsu.NfsuTexturePackHeader(),
                 blackbox_bitmaps_nfsu.NfsuTextureHashes(),
+                blackbox_bitmaps_nfsu.NfsuTextureLocations(),
+                blackbox_bitmaps_nfsu.NfsuTextureLocation(),
                 blackbox_bitmaps_nfsu.NfsuTextureInfos(),
                 blackbox_bitmaps_nfsu.NfsuTextureInfo(),
                 blackbox_bitmaps_nfsu.NfsuTextureFormats(),

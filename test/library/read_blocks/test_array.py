@@ -10,6 +10,16 @@ from library.read_blocks.numbers import IntegerBlock
 
 
 class TestArray(unittest.TestCase):
+    def test_byte_length(self):
+        item = LengthPrefixedArrayBlock(length_block=IntegerBlock(length=1), child=IntegerBlock(length=1))
+        field = ArrayBlock(child=item, byte_length=(lambda ctx: 5, 'five bytes'))
+        val = field.unpack(ReadContext(BytesIO(bytes([2, 7, 8, 1, 9, 99]))))
+        self.assertEqual(val, [[7, 8], [9]])
+        self.assertEqual(field.pack(val), bytes([2, 7, 8, 1, 9]))
+        self.assertEqual((field.length_doc_str, field.size_doc_str), ('five bytes', 'five bytes'))
+        self.assertNotIn('length', field.schema)
+        self.assertEqual(field.new_data(), [])
+
     def test_array_unpack(self):
         field = ArrayBlock(length=3, child=IntegerBlock(length=1))
         val = field.unpack(ReadContext(BytesIO(bytes([92, 129, 13]))))

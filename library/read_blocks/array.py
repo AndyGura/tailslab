@@ -12,11 +12,14 @@ from library.utils.docs import multiply_doc_numbers
 
 
 class ArrayBlock(DataBlockWithChildren, DataBlock, ABC):
-    # `length`: a block parameter (library/read_blocks/references.py)
-    def __init__(self, child: DataBlock, length, **kwargs):
+    # `length`: the number of items, a block parameter (library/read_blocks/references.py). `byte_length` instead (a
+    # block parameter too): the items take that many bytes, read one by one until they are read (items of any size up
+    # to the end of a record, without counting them first)
+    def __init__(self, child: DataBlock, length=None, byte_length=None, **kwargs):
         super().__init__(**kwargs)
         self.child = child
         self._length = length
+        self.byte_length = byte_length
 
     @property
     def schema(self) -> Dict:
@@ -25,18 +28,20 @@ class ArrayBlock(DataBlockWithChildren, DataBlock, ABC):
             'block_description': f'Array of `{self.length_doc_str}` items',
             'child_schema': self.child.schema,
         }
-        if is_static_param(self._length):
+        if self.byte_length is None and is_static_param(self._length):
             schema['length'] = self._length[0] if isinstance(self._length, tuple) else self._length
         return schema
 
     # For auto-generated documentation only
     @property
     def length_doc_str(self):
-        return param_doc(self._length)
+        return param_doc(self._length if self.byte_length is None else self.byte_length)
 
     # For auto-generated documentation only
     @property
     def size_doc_str(self):
+        if self.byte_length is not None:
+            return param_doc(self.byte_length)
         if self._length == 0:
             return '0'
         # when set to 0 and added some label, assume that it has some custom logic
@@ -124,6 +129,11 @@ class ArrayBlock(DataBlockWithChildren, DataBlock, ABC):
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None, resolved_length=None):
         res = []
         self_ctx = ctx.get_or_create_child(name, self, read_bytes_amount, res)
+        if self.byte_length is not None and resolved_length is None:
+            end = ctx.buffer.tell() + param_value(self.byte_length, ctx)
+            while ctx.buffer.tell() < end:
+                res.append(self.child.unpack(ctx=self_ctx, name=str(len(res))))
+            return res
         self_len = self.resolve_length(ctx) if resolved_length is None else resolved_length
         if self.child.__class__ == IntegerBlock and self.child.length == 1 and not self.child.is_signed:
             res = list(ctx.buffer.read(self_len))

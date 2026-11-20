@@ -600,7 +600,7 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
         and length >= 8
         and (file_path.upper().endswith(('.BUN', '.BIN')) or '.LZC' in file_path.upper())
     ):
-        from resources.blackbox.maps.nfsu import walk_nfsu_chunk_ids
+        from resources.blackbox.chunks import walk_nfsu_chunk_ids
 
         chunk_ids = walk_nfsu_chunk_ids(buffer, length)
         if chunk_ids:

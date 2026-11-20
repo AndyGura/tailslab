@@ -76,6 +76,11 @@ Commonly overridden:
   (`ArrayBlock.item_by_item_io` likewise). `CompoundBlock.io_field_blocks` = the `(name, block)` of
   the fields with io usage (`is_io_usage`), computed in `__init__`: use it instead of filtering
   `field_blocks` by `usage`.
+- `DeclarativeCompoundBlock.declared_fields()` (classmethod) builds the field list from the `Fields` class (the
+  fields of its own body: `CompoundBlockFields.fields`, cached per class); a base class adding fields to every
+  subclass overrides it (`ChunkBlock` in `resources/blackbox/chunks.py`: the chunk header).
+- `ArrayBlock(child, byte_length=...)` (a block parameter): items read one by one until they took that many bytes,
+  for items of any size up to the end of a record; documented by the parameter's doc text (size and length).
 - Block parameters (`library/read_blocks/references.py`): the `length` of `BytesBlock` / `ArrayBlock`
   / `SubByteArrayBlock` / `UTF8Block` and `Padding(to=...)` are a number, a field path (`'num_items'`,
   `'../count'`: `ctx.data` of it, documented as the path), a `lambda ctx: ...`, or one of these with

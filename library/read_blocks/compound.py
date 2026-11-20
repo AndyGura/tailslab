@@ -382,18 +382,19 @@ class BitFlagsBlock(SubByteCompoundBlock):
 
 
 class CompoundBlockFields(ABC):
+    # the fields declared in the class body itself; cached per class (a subclass does not take its base's cache)
     @class_property
     def fields(cls) -> List[Tuple[str, DataBlock]]:
-        try:
-            return cls.__fields_cache
-        except AttributeError:
-            cls.__fields_cache = [
+        cache = cls.__dict__.get('_fields_cache')
+        if cache is None:
+            cache = [
                 (key, value)
                 for (key, value) in cls.__dict__.items()
                 if isinstance(value, DataBlock)
                 or (type(value) is tuple and len(value) > 0 and isinstance(value[0], DataBlock))
             ]
-            return cls.__fields_cache
+            cls._fields_cache = cache
+        return cache
 
 
 class DeclarativeCompoundBlock(CompoundBlock):
@@ -401,10 +402,13 @@ class DeclarativeCompoundBlock(CompoundBlock):
         pass
 
     def __init__(self, **kwargs):
-        super().__init__(
-            fields=[
-                (name, *declaration) if type(declaration) is tuple else (name, declaration, {})
-                for name, declaration in self.__class__.Fields.fields
-            ],
-            **kwargs,
-        )
+        super().__init__(fields=self.declared_fields(), **kwargs)
+
+    # the fields of the block, (name, block, extras): those of its `Fields` class; a base class adding fields to every
+    # subclass's (chunk headers) overrides it
+    @classmethod
+    def declared_fields(cls) -> List[Tuple[str, DataBlock, FieldExtras]]:
+        return [
+            (name, *declaration) if type(declaration) is tuple else (name, declaration, {})
+            for name, declaration in cls.Fields.fields
+        ]

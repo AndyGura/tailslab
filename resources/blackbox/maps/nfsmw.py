@@ -1,11 +1,9 @@
 from typing import List, Optional
 
-from library.read_blocks import ArrayBlock, BytesBlock, DeclarativeCompoundBlock, DecimalBlock, IntegerBlock, OwnSize
-from library.read_blocks.misc.value_validators import Eq
+from library.read_blocks import ArrayBlock, BytesBlock, DeclarativeCompoundBlock, DecimalBlock, IntegerBlock
 from library.read_blocks.strings import UTF8Block
-from resources.blackbox.chunks import peek_chunk_payload
-from resources.blackbox.geometries.nfsu import _CHUNK_ID_DESCR, _CHUNK_LENGTH_DESCR, _ELEVENS_DESCR, elevens_length
 from resources.eac.fields.misc import Point3D
+from resources.blackbox.chunks import ChunkBlock, chunk_payload_remaining, chunk_rest, peek_bytes, peek_chunk_payload
 
 # NFS Most Wanted road network (TRACKS/L2RA.BUN chunk 0x3b800): a "CARP" pack, a table of 16-byte entries (a tree of
 # tagged containers and data blocks) followed by the data blocks, each padded with 0xAA bytes to 16 bytes. Positions
@@ -183,15 +181,6 @@ NFSMW_ROAD_SEGMENT_LENGTH_UNIT = 65.536
 NFSMW_ROAD_SEGMENT_HANDLE_UNIT = 131.072
 
 
-def peek_bytes(ctx, length: int) -> bytes:
-    """`length` bytes at the buffer position. Buffer position is not changed"""
-    pos = ctx.buffer.tell()
-    try:
-        return ctx.buffer.read(length)
-    finally:
-        ctx.buffer.seek(pos)
-
-
 def _nfsmw_carp_table_amount(table: bytes) -> int:
     """Amount of entries of a "CARP" table: up to the first data block or the 0xAA filler"""
     end = len(table) // _ENTRY_SIZE
@@ -244,7 +233,7 @@ def nfsmw_road_network_table_tags(payload: bytes) -> Optional[List[str]]:
     return [table[i * _ENTRY_SIZE : i * _ENTRY_SIZE + 4].decode('latin-1') for i in range(amount)]
 
 
-class NfsmwRoadNetwork(DeclarativeCompoundBlock):
+class NfsmwRoadNetwork(ChunkBlock):
     block_description = (
         'NFSMW road network of the city (TRACKS/L2RA.BUN), a "CARP" pack: a table of '
         'entries, then the data blocks it points at. Every road of the city as cubic Bezier segments between '
@@ -253,23 +242,15 @@ class NfsmwRoadNetwork(DeclarativeCompoundBlock):
         'checkpoints and barriers in GLOBAL/gameplay.bin)'
     )
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x0003B800)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = (
-            IntegerBlock(length=4, programmatic_value=OwnSize() - 8),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
-        )
-        elevens = (
-            BytesBlock(length=(lambda ctx: elevens_length(ctx), 'up to 16-bytes alignment')),
-            {'usage': 'io,doc', 'description': _ELEVENS_DESCR},
-        )
+    CHUNK_ID = 0x0003B800
+    ALIGNMENT = 0x10
+
+    class Fields(ChunkBlock.Fields):
         entries = (
             ArrayBlock(
                 child=NfsmwCarpEntry(),
                 length=(
-                    lambda ctx: _nfsmw_carp_table_amount(
-                        peek_bytes(ctx, ctx.data('chunk_length') - len(ctx.data('elevens')))
-                    ),
+                    lambda ctx: _nfsmw_carp_table_amount(peek_bytes(ctx, chunk_payload_remaining(ctx))),
                     'up to the first data block',
                 ),
             ),
@@ -307,20 +288,7 @@ class NfsmwRoadNetwork(DeclarativeCompoundBlock):
             ArrayBlock(child=NfsmwRoadSegment(), length=_records_amount(_SEGMENTS)),
             {'description': 'Segments (RNsg)'},
         )
-        end_filler = (
-            BytesBlock(
-                length=(
-                    lambda ctx: (
-                        ctx.data('chunk_length')
-                        - len(ctx.data('elevens'))
-                        - _entry_data_start(ctx.data('entries'), _SEGMENTS)
-                        - ctx.data('entries')[_SEGMENTS]['size']
-                    ),
-                    'up to the end of chunk',
-                )
-            ),
-            {'usage': 'io,doc', 'description': 'Filler (0xAA bytes) up to the end of chunk'},
-        )
+        end_filler = (chunk_rest(), {'usage': 'io,doc', 'description': 'Filler (0xAA bytes) up to the end of chunk'})
 
     def matches_chunk(self, ctx) -> bool:
         # the layout of the fields: this table only
