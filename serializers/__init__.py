@@ -63,6 +63,8 @@ from .tnfs_saturn import (
     TnfsSaturnGtrExecutableSerializer,
     TnfsSaturnPcxListSerializer,
     TnfsSaturnRlePictureSerializer,
+    TnfsSaturnSizedRleImageListSerializer,
+    TnfsSaturnSizedRleImageSerializer,
     TnfsSaturnSpriteBanksSerializer,
 )
 

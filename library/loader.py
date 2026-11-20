@@ -113,12 +113,18 @@ def _is_ea_audio_stream(buffer, length) -> bool:
     return is_ea_audio_stream(buffer, length)
 
 
+def _is_tnfs_saturn_sized_rle_image_list(buffer, length) -> bool:
+    from resources.eac.tnfs_saturn import is_tnfs_saturn_sized_rle_image_list
+
+    return is_tnfs_saturn_sized_rle_image_list(buffer, length)
+
+
 # this looks like a mess, but it is intended to be like that: by using local imports we dramatically increase
 # performance, because we spawn process per file, and it doesn't need to load all those classes every time
 def _tnfs_saturn_block_class(buffer, file_path: str, length):
     """Block class of a file of the Sega Saturn TNFS port Over Drivin' GT-R, None for another file: the executable
-    `0`, car bundles `*.ALL`, run-length encoded pictures and tone banks `*.BIN`, car showcase pictures, menu art and
-    sprite banks `*.DAT`, and `*.PCX`"""
+    `0`, car bundles `*.ALL`, run-length encoded pictures and tone banks `*.BIN`, 8-bit pictures `*.IM`, car showcase
+    pictures, menu art, sprite banks and 8-bit pictures `*.DAT`, and `*.PCX`"""
     if length is None:
         return None
     name = _file_or_archive_item_name(file_path).upper()
@@ -146,11 +152,20 @@ def _tnfs_saturn_block_class(buffer, file_path: str, length):
 
         if is_saturn_tone_bank(_peek(buffer, 1024), length):
             return SaturnToneBank
+    elif name.endswith('.IM') and length >= 520 and int.from_bytes(_peek(buffer, 4), 'big') == length:
+        from resources.eac.tnfs_saturn import TnfsSaturnSizedRleImage, is_tnfs_saturn_sized_rle_image
+
+        if is_tnfs_saturn_sized_rle_image(_peek(buffer, length)):
+            return TnfsSaturnSizedRleImage
     elif name.endswith('.DAT') and length >= 8 and _peek(buffer, 7)[4:7] == b'\x0a\x05\x01':
         from resources.eac.tnfs_saturn import TnfsSaturnPcxList, is_tnfs_saturn_pcx_list
 
         if is_tnfs_saturn_pcx_list(buffer, length):
             return TnfsSaturnPcxList
+    elif name.endswith('.DAT') and length >= 520 and _is_tnfs_saturn_sized_rle_image_list(buffer, length):
+        from resources.eac.tnfs_saturn import TnfsSaturnSizedRleImageList
+
+        return TnfsSaturnSizedRleImageList
     elif name.endswith('.DAT') and length >= 20 and _peek(buffer, 2) == b'\0\0':
         from resources.eac.tnfs_saturn import tnfs_saturn_dat_block_class
 

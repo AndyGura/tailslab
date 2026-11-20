@@ -774,21 +774,23 @@ When you do:
 
 - The Japanese Saturn TNFS port with 8 Nissans; files keep the PC cars' names (SUPRA = PGC10, DIABLO = BCNR33, PORSCHE =
   240ZG, VETTE = KPGC110, TESTA = 300ZX, VIPER = BNR32, NSX = 180SX, RX7 = Silvia). Big-endian (SH-2) everywhere. Blocks:
-  `resources/eac/tnfs_saturn.py` (bundles, executable, picture lists, menu art), `TnfsSaturnOrix*` in
+  `resources/eac/tnfs_saturn.py` (bundles, executable, picture lists, menu art, 8-bit pictures), `TnfsSaturnOrix*` in
   `geometries/tnfs.py`, the Sega sound driver tone bank in `resources/common/audios/saturn_tone_bank.py`, `PcxImage` in
   `resources/common/bitmaps`.
   The loader picks them in `_tnfs_saturn_block_class` (by name and content; ORIX by version 800 stored big-endian).
   Big-endian copies of PC layouts are made with `big_endian_copy` (`resources/eac/fields/byte_order.py`). The car
   formats are not traced in the Saturn executable: descriptions say what the files show ("checked") and keep the PC /
-  PSX meanings. The menu art and pictures are traced in it (nfs-web's Ghidra project `decomp/tnfs_saturn_gtr`, auto
-  analysis, addresses in the descriptions).
+  PSX meanings. The menu art, the pictures and the in-car view are traced in it (nfs-web's Ghidra project
+  `decomp/tnfs_saturn_gtr`, addresses in the descriptions).
 - `CARS/<car>.ALL` / `CAR2/<car>.ALL` (`TnfsSaturnCarBundle`, second paint in CAR2): PBS (`TnfsSaturnCarPhysics`, PC
   layout big-endian), two texture banks (high / low-poly: 12-byte entries made of VDP1 command fields, 4-bit pixels high
   nibble first, 16 RGB555 colours per texture; draw mode bit 0x40 (SPD) clear = colour index 0 transparent), then in
-  CARS the cockpit (`u32 size` (counting itself) + RLE picture, twice: dashboard 352x240, steering wheel 176x176; PCX-style
-  RLE, zero padding to 4 bytes). `TnfsSaturnCarBundleSerializer` writes `physics.PBS.json`, `textures/` and
-  `low_poly_textures/` (PNGs named as the GLB images, `Tir1`/`Tyr1`.. exported `tyr1`.., `car_colors.json`),
-  `dashboard.png`, `steering_wheel.png`.
+  CARS the cockpit (`u32 size` (counting itself) + `TnfsSaturnRleImage`, twice: dashboard 352x240, steering wheel
+  176x176; PCX-style RLE, each row encoded on its own, zero padding to 4 bytes). `TnfsSaturnCarBundleSerializer` writes
+  `physics.PBS.json`, `textures/` and `low_poly_textures/` (PNGs named as the GLB images, `Tir1`/`Tyr1`.. exported
+  `tyr1`.., `car_colors.json`), `dashboard.png`, `steering_wheel.png` (nfs-web reads them: keep them byte-identical).
+  How the game draws the cockpit (320x224 race screen; dashboard = VDP2 NBG0 scrolled by the sway, wheel = RBG0
+  rotation parameter B, mirror = a VDP1 clipping window) is in the `TnfsSaturnCockpit` descriptions.
 - `MODELS/<car>/high.orix` / `low.orix` (sliced from the executable, pointer table 0x84f14): `TnfsSaturnOrixGeometry`, the
   PSX ORIX big-endian without CRC footer; the polygon's first 8 bytes are reversed (draw type word first) and the
   material colour slot holds an RGB value. `TnfsSaturnOrixGeometrySerializer` exports them as the PC / PSX models
@@ -797,9 +799,13 @@ When you do:
   (`tnfs_wheel_labels_by_position`: the PGC10 labels its left front wheel `rt_frnt`). `car_colors.json`
   (`serializers/misc/tnfs_saturn_car_colors.py`): pure green (green >= 29) colours drawn = brake light marker (5 cars,
   colour 0 of the rear light texture; colour 0 of a cut-out texture is not drawn and not counted), off / on colours of the PSX game; not verified in the Saturn code.
-- `0` (`TnfsSaturnGtrExecutable`): model pointers, 9 car AI records (`TnfsSaturnCarAiAndCrashBody`: PDN big-endian, top
-  speeds in whole mph 16.16, `gear_count` 16.16) and their pointer table (entry 13 + model id, 21 = Warrior). Exported
-  as PC PDN JSON per car slot (`pc_data`: PC raw top speed = mph x 29124); the Warrior's equals PC TRAFFC.PDN.json.
+- `0` (`TnfsSaturnGtrExecutable`): the in-car view's 9 cockpit records by car model id (`TnfsSaturnCockpitRecord`,
+  0x715b0: needle colour, lengths, centres, angle scale / offset, the steering wheel's place and pivot) and the 8
+  speedometer tops (0x71864), model pointers, 9 car AI records (`TnfsSaturnCarAiAndCrashBody`: PDN big-endian, top
+  speeds in whole mph 16.16, `gear_count` 16.16) and their pointer table (entry 13 + model id, 21 = Warrior); the bytes
+  between them stay raw (`code`, `code_after_*`, `rest`). Exported as PC PDN JSON per car slot (`pc_data`: PC raw top
+  speed = mph x 29124); the Warrior's equals PC TRAFFC.PDN.json. The cockpit records are not exported (nfs-web keeps
+  its own constants).
 - `SOUNDS/*.BIN` (`SaturnToneBank`): one voice; player banks notes 50 (stereo engine on, two layers panned L/R), 51
   (engine off), 52 (horn loop), 53 (gear one-shot); opponent banks 40 (horn, half rate) and 41 (engine). Roles from the
   data only. `SaturnToneBankSerializer` writes the PC car bank names, 16-bit WAVs at 44100 x 2^((note - base note) / 12)
@@ -821,9 +827,15 @@ When you do:
 - `UIDATA/ELOAD/<car>/<n>.BIN`, `ELOAD/LOAD.BIN`, `ECREDITS/0<n>.BIN` (`TnfsSaturnRlePicture`): 0x0408, 0, u32 decoded
   size, word RLE (i16 n < 0: -n literal RGB555 words; else the next word n + 2 times) of a 320-wide picture, to
   `<name>.png` (RGB).
-- Not parsed: `DASH/*`, `HORIZON/*.IM`, `TRACKS/*.ALL`, the traffic cars `CARS/<car>` (no extension), `REPLAY/*`, the
-  raw PCM and driver files of `SOUNDS/`, `IP.BIN`, `PARAMETERS/*`; `TGQ/*.TGQ` (movies) go through `AsfAudio` (their
-  `1SNh` sound only).
+- `HORIZON/*.IM`, `DASH/*.IM` (`TnfsSaturnSizedRleImage`: u32 size = the file length + `TnfsSaturnRleImage`; picked by
+  the loader by name, size and a complete decode) and `DASH/EMEM3.DAT` (`TnfsSaturnSizedRleImageList`: two of them):
+  horizons (512 wide, by time of day), the chase view HUD layouts, the speeding ticket, the backup memory messages.
+  `TnfsSaturnSizedRleImageSerializer` writes `<name>.png`, `TnfsSaturnSizedRleImageListSerializer` `<index>.png` (RGBA,
+  colour 0 transparent). The game's loader `Vdp2_LoadRleBitmap` 0x0605e83c decodes row by row (a row ends at its width),
+  so `tnfs_saturn_rle_pixels` does too; no file has a run across a row end.
+- Not parsed: `DASH/EMISC.DAT`, `TRACKS/*.ALL`, the traffic cars `CARS/<car>` (no extension), `REPLAY/*`, the raw PCM
+  and driver files of `SOUNDS/`, `IP.BIN`, `PARAMETERS/*`; `TGQ/*.TGQ` (movies) go through `AsfAudio` (their `1SNh`
+  sound only).
 
 ## SHPI images (`EacImage`, `resources/eac/bitmaps.py`, all games up to NFS6)
 

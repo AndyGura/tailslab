@@ -1,6 +1,7 @@
 """Sega Saturn TNFS port Over Drivin' GT-R (Japan; the 8 cars replaced by 8 Nissans): car bundles `CARS/<car>.ALL`
-and `CAR2/<car>.ALL`, the executable `0` (car AI records), car showcase pictures `UIDATA/*.DAT`, the menu art
-`UIDATA/FRONTEND.DAT` / `SHOWCASE.DAT` and the run-length encoded pictures of `UIDATA/ELOAD` and `UIDATA/ECREDITS`.
+and `CAR2/<car>.ALL`, the executable `0` (in-car view records, car AI records), car showcase pictures `UIDATA/*.DAT`,
+the menu art `UIDATA/FRONTEND.DAT` / `SHOWCASE.DAT`, the run-length encoded pictures of `UIDATA/ELOAD` and
+`UIDATA/ECREDITS`, and the 8-bit pictures `HORIZON/*.IM`, `DASH/*.IM` and `DASH/EMEM3.DAT`.
 Big-endian (SH-2) copies of the PC / PSX layouts where there are ones. "Checked" in the descriptions: against every file
 of the game folder (`games/tnfs_saturn_gtr`). The car formats are not traced in the Saturn executable: their field
 meanings are the PC / PSX game's. The menu art and pictures are (nfs-web's Ghidra project `decomp/tnfs_saturn_gtr`,
@@ -45,6 +46,12 @@ TNFS_SATURN_GTR_CARS = [
 # executable `0`: loaded at 0x06010000, a pointer is the load address + the file offset
 TNFS_SATURN_GTR_LOAD_ADDRESS = 0x06010000
 TNFS_SATURN_GTR_EXECUTABLE_LENGTH = 598912
+# the in-car view's records by car model id (`g_cockpit_table` 0x060815b0, 0x20 bytes each) and the speedometer's
+# top by car model id 0..7 (`g_speedo_clamp` 0x06081864, s32)
+TNFS_SATURN_GTR_COCKPIT_RECORDS_OFFSET = 0x715B0
+TNFS_SATURN_GTR_COCKPIT_RECORDS = 9
+TNFS_SATURN_GTR_SPEEDOMETER_TOPS_OFFSET = 0x71864
+TNFS_SATURN_GTR_SPEEDOMETER_TOPS = 8
 TNFS_SATURN_GTR_MODEL_POINTERS_OFFSET = 0x84F14
 TNFS_SATURN_GTR_CAR_AI_OFFSET = 0x84F90
 TNFS_SATURN_GTR_CAR_AI_POINTERS_OFFSET = 0x85FBC
@@ -272,8 +279,17 @@ class TnfsSaturnRleImage(DeclarativeCompoundBlock):
     block_description = (
         'An 8-bit picture: size, a 256-colour palette (Saturn 16-bit RGB) and run-length encoded '
         'pixels as in PCX files: a byte from 0xC0 up repeats the next byte (b & 0x3F) times, any other byte is one '
-        'pixel; rows of `width` pixels top to bottom, the runs go on over row ends. The last pixel is followed by '
-        'zeros up to a multiple of 4 bytes (checked)'
+        'pixel. Rows of `width` pixels top to bottom, each encoded on its own: no run crosses a row end (checked). '
+        '0..3 zero bytes follow the last run: in the cockpit pictures of the car bundles they make the picture and '
+        'its size field a multiple of 4 bytes (checked), in the `.IM` pictures not always (`HORIZON/AL1RISE.IM` '
+        'ends with its last run, 45677 bytes). Always after a big-endian u32 size counting itself and the picture. '
+        'The game loads them with `Vdp2_LoadRleBitmap` 0x0605e83c (bank, palette, colours, x, y, file; '
+        "`DASH/EMEM3.DAT`'s with its decoding from memory, 0x0605e6f0): it reads the size, then the rest of the "
+        'picture into memory, decodes it row by row into a 512-byte line buffer (a row ends when it has `width` '
+        'pixels) and copies the rows to VDP2 VRAM from 0x25e00000 + bank x 0x20000 + x + 512 y, 512 bytes apart; '
+        'then the colours into colour RAM from colour palette x 256: '
+        '`colours` of them as they are, or all 256 recomputed per channel when `colours` is negative (0x0605e4b8, '
+        'not read further)'
     )
 
     def __init__(self, data_length, **kwargs):
@@ -286,31 +302,67 @@ class TnfsSaturnRleImage(DeclarativeCompoundBlock):
         height = (IntegerBlock(length=2, byte_order='big'), {'description': 'Height in pixels'})
         palette = (
             ArrayBlock(child=IntegerBlock(length=2, byte_order='big'), length=256),
-            {'description': 'Colours (Saturn 16-bit RGB, bit 15 set). Colour 0 is the see-through one'},
+            {
+                'description': 'Colours (Saturn 16-bit RGB: bits 0-4 red, 5-9 green, 10-14 blue; bit 15 clear in every '
+                'colour, checked). Colour 0 is see-through in the cockpit pictures (the windscreen of the dashboard, '
+                'around the steering wheel)'
+            },
         )
         data = (
             BytesBlock(length=(lambda ctx: ctx.block.data_length(ctx), 'the size before the picture - 520')),
-            {'description': 'Run-length encoded pixels, then zeros up to a multiple of 4 bytes'},
+            {'description': 'Run-length encoded pixels, then 0..3 zero bytes'},
         )
+
+
+def _tnfs_saturn_rle_rows(stream: bytes, width: int, height: int):
+    """(row of colour indices, offset in `stream` after it) of every row of a `TnfsSaturnRleImage`'s runs, as
+    `Vdp2_LoadRleBitmap` decodes them: a row ends when it has `width` pixels (a run past it is cut); a row the runs
+    leave short (the end of `stream`) is padded with colour 0"""
+    i = 0
+    for _ in range(height):
+        row = []
+        while len(row) < width and i < len(stream):
+            value = stream[i]
+            i += 1
+            if value >= 0xC0:
+                if i >= len(stream):
+                    break
+                row.extend([stream[i]] * (value & 0x3F))
+                i += 1
+            else:
+                row.append(value)
+        row = row[:width]
+        yield row + [0] * (width - len(row)), i
 
 
 def tnfs_saturn_rle_pixels(data: dict) -> List[int]:
     """Colour index of every pixel of a `TnfsSaturnRleImage`"""
-    stream = data['data']
-    count = data['width'] * data['height']
     pixels = []
+    for row, _ in _tnfs_saturn_rle_rows(data['data'], data['width'], data['height']):
+        pixels.extend(row)
+    return pixels
+
+
+def tnfs_saturn_rle_end(stream: bytes, width: int, height: int) -> Optional[int]:
+    """Offset in `stream` after the runs of a `width` x `height` `TnfsSaturnRleImage`, None when `stream` ends before
+    the last row is complete"""
     i = 0
-    while len(pixels) < count and i < len(stream):
-        value = stream[i]
-        i += 1
-        if value >= 0xC0:
-            pixels.extend([stream[i]] * (value & 0x3F))
+    end = len(stream)
+    for _ in range(height):
+        count = 0
+        while count < width:
+            if i >= end:
+                return None
+            value = stream[i]
             i += 1
-        else:
-            pixels.append(value)
-    if len(pixels) < count:
-        pixels.extend([0] * (count - len(pixels)))
-    return pixels[:count]
+            if value >= 0xC0:
+                if i >= end:
+                    return None
+                count += value & 0x3F
+                i += 1
+            else:
+                count += 1
+    return i
 
 
 def tnfs_saturn_rle_image(data: dict):
@@ -327,7 +379,13 @@ def tnfs_saturn_rle_image(data: dict):
 class TnfsSaturnCockpit(DeclarativeCompoundBlock):
     block_description = (
         'Cockpit view pictures of a car: the dashboard (352x240, colour 0 = the see-through '
-        'windscreen) and the steering wheel (176x176, colour 0 transparent), each after its size'
+        'windscreen) and the steering wheel (176x176, colour 0 transparent), each after its size. `Car_Load` '
+        '0x06032458 loads them through `Vdp2_LoadRleBitmap` for the player of a one-view race only '
+        '(`g_split_screen` 0x06082294 = 0). The race screen is 320x224 (every TVMD write is 0x8000): the 3D view '
+        "shows through the windscreen, the car's cockpit record in the executable (`TnfsSaturnCockpitRecord`) "
+        'places the needles and the wheel, and the rear view is drawn through a VDP1 user clipping window of 64x23 '
+        "at the dashboard's (16, 26) at rest, the glass of every car's mirror frame (`Cockpit_DrawMirrorView` "
+        '0x0602d1d8)'
     )
 
     class Fields(DeclarativeCompoundBlock.Fields):
@@ -337,7 +395,12 @@ class TnfsSaturnCockpit(DeclarativeCompoundBlock):
         )
         dashboard = (
             TnfsSaturnRleImage(data_length=lambda ctx: ctx.data('../dashboard_size') - 520),
-            {'description': 'The dashboard, 352x240'},
+            {
+                'description': "The dashboard, 352x240: VDP2's NBG0, an 8-bit bitmap in VRAM bank 0 (palette 0). "
+                "`Cockpit_Update` 0x0601e97c scrolls it by (16 - sway x, -sway y), and the sway's y is -8 at rest: at "
+                "rest the screen shows the dashboard's (16, 8)..(336, 232), the 16 pixels on each side and 8 rows at "
+                'the top and bottom are the room the dash sways in. Colour 0 is the see-through windscreen'
+            },
         )
         steering_wheel_size = (
             IntegerBlock(length=4, byte_order='big', programmatic_value=SizeOf('steering_wheel') + 4),
@@ -345,7 +408,14 @@ class TnfsSaturnCockpit(DeclarativeCompoundBlock):
         )
         steering_wheel = (
             TnfsSaturnRleImage(data_length=lambda ctx: ctx.data('../steering_wheel_size') - 520),
-            {'description': 'The steering wheel, 176x176'},
+            {
+                'description': "The steering wheel, 176x176: VDP2's RBG0 rotation parameter B (the screen's lines "
+                "from 112 down), VRAM bank 3, palette 1. It turns about its pixel (89, 89) by the front wheels' angle "
+                "(steer_angle >> 14, 1024ths of a turn), placed by the car's cockpit record "
+                '(`TnfsSaturnCockpitRecord`). Colour 0 transparent. Its pixels use colours 224..255 and 0 only '
+                "(checked): RBG0's other picture, the horizon (rotation parameter A, `TnfsSaturnSizedRleImage`), is "
+                'loaded into the same palette with 224 colours and uses colours 1..223'
+            },
         )
 
 
@@ -373,7 +443,10 @@ class TnfsSaturnCarBundle(DeclarativeCompoundBlock):
         )
         cockpit = (
             TrailingOptionalBlock(child=TnfsSaturnCockpit()),
-            {'description': 'Cockpit view pictures, in `CARS/<car>.ALL` only'},
+            {
+                'description': 'Cockpit view pictures, in `CARS/<car>.ALL` only; loaded for the player of a one-view '
+                'race only'
+            },
         )
 
 
@@ -382,20 +455,165 @@ def is_tnfs_saturn_car_bundle(head: bytes) -> bool:
     return len(head) >= 1912 and sum(head[:1880]) == int.from_bytes(head[1908:1912], 'big')
 
 
+def _needle_fields(gauge: str, angle: str, negative_offset: str) -> dict:
+    """The six fields of a needle of `TnfsSaturnCockpitRecord`"""
+    return {
+        f'{gauge}_x_length': (
+            IntegerBlock(length=1),
+            {
+                'description': f"Length L1 of the {gauge} needle's x part (the high byte of a big-endian short): the "
+                'needle goes from the centre to centre + (-(L1 sin a + L1 cos a), L2 cos a - L2 sin a)'
+            },
+        ),
+        f'{gauge}_y_length': (
+            IntegerBlock(length=1),
+            {'description': f"Length L2 of the {gauge} needle's y part (the low byte)"},
+        ),
+        f'{gauge}_x': (
+            IntegerBlock(length=2, byte_order='big', is_signed=True),
+            {'description': f"The {gauge}'s centre x on the screen, + the sway's x: at rest the dashboard's x + 16"},
+        ),
+        f'{gauge}_y': (
+            IntegerBlock(length=2, byte_order='big', is_signed=True),
+            {
+                'description': f"The {gauge}'s centre y on the screen, + the sway's y (-8 at rest): at rest the "
+                "dashboard's y"
+            },
+        ),
+        f'{gauge}_scale': (
+            IntegerBlock(length=2, byte_order='big', is_signed=True),
+            {'description': f'Needle angle a = {angle}'},
+        ),
+        f'{gauge}_offset': (
+            IntegerBlock(length=2, byte_order='big', is_signed=True),
+            {'description': f'Added to the needle angle, 1024ths of a turn; can be negative ({negative_offset})'},
+        ),
+    }
+
+
+def _tnfs_saturn_cockpit_record_fields():
+    fields = {
+        'needle_color': (
+            IntegerBlock(length=2, byte_order='big'),
+            {
+                'description': 'Needle colour (Saturn 16-bit RGB): `Race_InitCockpit` puts it into colour RAM colour '
+                '0x7f0, the needles are VDP1 lines of colour code 0x27f0. 0x0016 (red) but model 0 (0x2d6b, grey) and '
+                'models 2 and 3 (0x5ad6, light grey)'
+            },
+        ),
+        **_needle_fields(
+            'tachometer',
+            'rpm x scale / max rpm + offset, in 1024ths of a turn (max rpm: the PBS one, the rpm clamped to it)',
+            '-174 in model 1',
+        ),
+        **_needle_fields(
+            'speedometer',
+            "min(speed, top) x scale / min(the car's top speed, top) + offset, in 1024ths of a turn (the speeds in "
+            "the display unit, km/h or mph; top: the model's entry of the executable's `speedometer_tops`)",
+            '-38 in model 5',
+        ),
+        'steering_wheel_left': (
+            IntegerBlock(length=2, byte_order='big', is_signed=True),
+            {
+                'description': "Where the steering wheel picture goes: rotation parameter B's Xst = -(left + sway x / "
+                "2) << 16, its left edge at screen x left + sway x / 2, at rest the dashboard's x left + 16. 72 but "
+                'model 3 (74)'
+            },
+        ),
+        'steering_wheel_top': (
+            IntegerBlock(length=2, byte_order='big', is_signed=True),
+            {
+                'description': "Yst = -(top + sway y) << 16: the wheel picture's top edge at screen y top + sway y, at "
+                "rest the dashboard's y top. 128 but model 6 (136)"
+            },
+        ),
+        'steering_wheel_pivot_x': (
+            IntegerBlock(length=2, byte_order='big', is_signed=True),
+            {
+                'description': "The wheel's rotation centre x in its picture (rotation parameter B's Px and Cx): 89 in "
+                'every record'
+            },
+        ),
+        'steering_wheel_pivot_y': (
+            IntegerBlock(length=2, byte_order='big', is_signed=True),
+            {'description': 'The rotation centre y (Py and Cy): 89 in every record'},
+        ),
+        'unknown': (
+            IntegerBlock(length=2, byte_order='big'),
+            {'description': '0 in every record', 'is_unknown': True},
+        ),
+    }
+    return type('Fields', (DeclarativeCompoundBlock.Fields,), fields)
+
+
+class TnfsSaturnCockpitRecord(DeclarativeCompoundBlock):
+    block_description = (
+        "A car model's in-car view record of Over Drivin' GT-R's executable (`g_cockpit_table` "
+        '0x060815b0, 0x20 bytes, big-endian, signed 16-bit unless said): the needles drawn over the dashboard and '
+        'where the steering wheel goes, in screen pixels of the 320x224 race screen. `Race_InitCockpit` 0x0601c7f0 '
+        "takes the record of the player's car model and sets the needle colour and the wheel's rotation "
+        "parameters; `Cockpit_Update` 0x0601e97c adds the dash's sway every frame and `Cockpit_DrawNeedles` "
+        '0x0601e7a4 draws the needles as VDP1 lines: the angle a (`math_div`), its sine and cosine (1024-entry 16.16 '
+        'tables at 0x0607fa60 / 0x0607fe60), each product with a length >> 16; down-left at a = 0, clockwise as a '
+        "grows. The sway is (0, -8) at rest, so a centre (x, y) is the dashboard picture's (x + 16, y). The "
+        "Warrior's record (model 8) has tachometer lengths 29, 11 and no speedometer (all 0: a digital speedometer)"
+    )
+
+    Fields = _tnfs_saturn_cockpit_record_fields()
+
+
 class TnfsSaturnGtrExecutable(DeclarativeCompoundBlock):
     block_description = (
         "The executable `0` of Over Drivin' GT-R (SH-2, big-endian, 598912 bytes, loaded at "
-        '0x06010000: a pointer is 0x06010000 + the file offset). Only the car tables are parsed: the car model '
-        'pointers, the car AI records and their pointers. Also in it: the car models themselves (ORIX, '
-        '`TnfsSaturnOrixGeometry`), the short car names at 0x47df0 (`SILVIA`, `180SX`, `BNR32`, `300ZX`, '
-        '`KPGC110`, `240ZG`, `BCNR33`, `PGC10`) and the names the model loader looks up (0x222c4..0x2242c)'
+        '0x06010000: a pointer is 0x06010000 + the file offset). Only the car tables are parsed: the cockpit records '
+        'and the speedometer tops of the in-car view, the car model pointers, the car AI records and their '
+        'pointers. Also in it: the car models themselves (ORIX, `TnfsSaturnOrixGeometry`), the short car names at '
+        '0x47df0 (`SILVIA`, `180SX`, `BNR32`, `300ZX`, `KPGC110`, `240ZG`, `BCNR33`, `PGC10`) and the names the model '
+        'loader looks up (0x222c4..0x2242c)'
     )
     serializer = 'TnfsSaturnGtrExecutableSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         code = (
-            BytesBlock(length=TNFS_SATURN_GTR_MODEL_POINTERS_OFFSET),
-            {'description': 'Code and data before the car model pointers'},
+            BytesBlock(length=TNFS_SATURN_GTR_COCKPIT_RECORDS_OFFSET),
+            {'description': 'Code and data before the cockpit records'},
+        )
+        cockpit_records = (
+            ArrayBlock(child=TnfsSaturnCockpitRecord(), length=TNFS_SATURN_GTR_COCKPIT_RECORDS),
+            {
+                'description': 'The in-car view records by car model id (`g_cockpit_table` 0x060815b0): 0 SUPRA (PGC10), '
+                '1 DIABLO (BCNR33), 2 PORSCHE (240ZG), 3 VETTE (KPGC110), 4 TESTA (300ZX), 5 VIPER (BNR32), 6 NSX '
+                '(180SX), 7 RX7 (Silvia), 8 the Warrior. Read by `Race_InitCockpit` 0x0601c7f0 and '
+                '`Cockpit_DrawNeedles` 0x0601e7a4'
+            },
+        )
+        code_after_cockpit_records = (
+            BytesBlock(
+                length=TNFS_SATURN_GTR_SPEEDOMETER_TOPS_OFFSET
+                - TNFS_SATURN_GTR_COCKPIT_RECORDS_OFFSET
+                - 0x20 * TNFS_SATURN_GTR_COCKPIT_RECORDS
+            ),
+            {'description': 'Code and data between the cockpit records and the speedometer tops'},
+        )
+        speedometer_tops = (
+            ArrayBlock(
+                child=IntegerBlock(length=4, byte_order='big', is_signed=True),
+                length=TNFS_SATURN_GTR_SPEEDOMETER_TOPS,
+            ),
+            {
+                'description': "The speedometer's top by car model id 0..7 (`g_speedo_clamp` 0x06081864): 240 for 0 "
+                'and 3 (PGC10, KPGC110), 180 for the others. Read by `Cockpit_DrawNeedles` 0x0601e7a4, which clamps the '
+                "speed and the car's top speed to it (both in the display unit, km/h or mph) before the needle angle; "
+                'it draws no speedometer for model 8 (the Warrior)'
+            },
+        )
+        code_after_speedometer_tops = (
+            BytesBlock(
+                length=TNFS_SATURN_GTR_MODEL_POINTERS_OFFSET
+                - TNFS_SATURN_GTR_SPEEDOMETER_TOPS_OFFSET
+                - 4 * TNFS_SATURN_GTR_SPEEDOMETER_TOPS
+            ),
+            {'description': 'Code and data between the speedometer tops and the car model pointers'},
         )
         model_pointers = (
             ArrayBlock(child=IntegerBlock(length=4, byte_order='big'), length=31),
@@ -1005,3 +1223,149 @@ def is_tnfs_saturn_rle_picture(data: bytes) -> bool:
         return False
     colors, read = tnfs_saturn_rle_picture_colors(data[8:], decoded_size)
     return len(colors) == decoded_size // 2 and read == len(data) - 8
+
+
+# --- size-prefixed 8-bit RLE pictures (`HORIZON/*.IM`, `DASH/*.IM`, `DASH/EMEM3.DAT`) ---
+
+# the most pixels per row and rows `Vdp2_LoadRleBitmap` takes: its line buffer and the VRAM lines are 512 bytes
+TNFS_SATURN_RLE_IMAGE_MAX_SIZE = 512
+# width, height and palette between a picture's size field and its runs
+TNFS_SATURN_RLE_IMAGE_HEADER_SIZE = 4 + 4 + 512
+
+
+class TnfsSaturnSizedRleImage(DeclarativeCompoundBlock):
+    block_description = (
+        "An 8-bit run-length encoded picture of Over Drivin' GT-R after its size (`TnfsSaturnRleImage`, the "
+        "layout of the cockpit pictures): the files `HORIZON/*.IM` and `DASH/*.IM` (the size is the file's length, "
+        'every file decodes completely: checked), the pictures of `DASH/EMEM3.DAT`. Colour 0 is green 0x03E0 in '
+        'every file. Horizons `HORIZON/<prefix>RISE.IM`, `HORZ.IM`, `SET.IM` (the prefixes of `TRACKS/<prefix>.ALL`: '
+        'AL1..AL3, CL1..CL3, CY1..CY3, TR1..TR4, and TR5, which has no track file): 512 wide, 78..152 rows, sky and '
+        "land; RISE mostly with yellow and orange skies, SET red and purple ones; TR4's three files are the same "
+        "(dark mountains under a night sky), so are TR5's (sand dunes, the sun in a blue sky). `Horizon_Load` "
+        '0x060253c0 loads `HORIZON\\%sRISE.IM`, `%sHORZ.IM` or `%sSET.IM` (strings 0x06025354, 0x06025368, '
+        '0x0602537c) by the time of day byte 0x060fd267: 0 RISE, 1 HORZ, 2 SET, any other value HORZ and the log '
+        'line "error bad time of day"; `Vdp2_LoadRleBitmap`(2, 1, 224, 0): VRAM bank 2, 224 colours into palette 1. '
+        "Bank 2 is the race screen's RBG0 rotation parameter A, which draws the screen's lines above 112 (parameter "
+        'B, bank 3, the steering wheel below, also palette 1: its colours are 224..255). The horizons use colours '
+        '1..223 (checked): no pixel has colour 0, which would be see-through (inferred: the two parameters share '
+        "RBG0's one transparency switch, and the wheel's colour 0 is see-through). HUD `DASH/HUD0E.IM`..`HUD5E.IM`: "
+        "352x240, the chase view HUD's six layouts, colour 0 around labels, a rev bar arc of coloured blocks and a "
+        'dark box: 0 GEAR, TIME, DIST, POS.; 1 LAP for DIST; 2 and 3 RECORD and SPLIT for POS.; 4 and 5 two '
+        'layouts one over the other (POS., TIME, DIST or LAP, GEAR). `Race_InitCockpit` 0x0601c7f0 loads '
+        '`DASH\\HUD<n>E.IM` (string 0x06081730): 0 / 1 when the int at 0x060c3a4c is not 0, 2 / 3 when it is, 4 / '
+        '5 in a split-screen race (`g_split_screen` 0x06082294), the odd one for track numbers (short 0x060fd25a) '
+        'from 9; it also loads `DASH\\EMISC.DAT` (0x06081740, not parsed). `DASH/ETICKET.IM`: 320x224, a police '
+        'officer holding out a speeding ticket, a patrol car behind (string 0x06080ea0, no direct code reference '
+        "found). `DASH/EMEM2A.IM`, `2B`, `2C`: 320x224, yellow Japanese text on black: a problem with the console's "
+        'own RAM (2A), the cartridge RAM (2B), an external device such as a floppy drive (2C): delete (initialise) every '
+        'save on the save data management screen. Loaded by 0x060406a8 (strings 0x06096f90..0x06096fb0): '
+        '`Vdp2_LoadRleBitmap`(1, 0, 256, 0, 0, file), the one of the int at 0x060bae94 (0, 1, 2). The E of '
+        '`HUD<n>E`, `EMEM` and `EMISC` is replaced by the byte at 0x060fd263 before the file is opened. '
+        'HUD0E, HUD3E and the EMEM pictures store every pixel as a run of one'
+    )
+    serializer = 'TnfsSaturnSizedRleImageSerializer'
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        size = (
+            IntegerBlock(length=4, byte_order='big', programmatic_value=SizeOf('image') + 4),
+            {'description': "Length of this field and `image` in bytes: the file's length for a `.IM` file"},
+        )
+        image = (
+            TnfsSaturnRleImage(data_length=lambda ctx: ctx.data('../size') - 520),
+            {'description': 'The picture'},
+        )
+
+
+def _is_tnfs_saturn_sized_rle_image_head(head: bytes, length: int) -> bool:
+    """The first 8 bytes of a `TnfsSaturnSizedRleImage` with `length` bytes from its start: a size from the header's up
+    to `length`, a width and height `Vdp2_LoadRleBitmap` takes"""
+    if len(head) < 8:
+        return False
+    size = int.from_bytes(head[:4], 'big')
+    width = int.from_bytes(head[4:6], 'big')
+    height = int.from_bytes(head[6:8], 'big')
+    return (
+        TNFS_SATURN_RLE_IMAGE_HEADER_SIZE <= size <= length
+        and 0 < width <= TNFS_SATURN_RLE_IMAGE_MAX_SIZE
+        and 0 < height <= TNFS_SATURN_RLE_IMAGE_MAX_SIZE
+    )
+
+
+def _tnfs_saturn_sized_rle_image_end(data: bytes, pos: int) -> Optional[int]:
+    """End of the `TnfsSaturnSizedRleImage` at `pos` of `data` when there is one: a size within `data`, a width and
+    height `Vdp2_LoadRleBitmap` takes, runs that decode completely before the size's end, followed by 0..3 zero bytes"""
+    if not _is_tnfs_saturn_sized_rle_image_head(data[pos : pos + 8], len(data) - pos):
+        return None
+    end = pos + int.from_bytes(data[pos : pos + 4], 'big')
+    width = int.from_bytes(data[pos + 4 : pos + 6], 'big')
+    height = int.from_bytes(data[pos + 6 : pos + 8], 'big')
+    stream = data[pos + TNFS_SATURN_RLE_IMAGE_HEADER_SIZE : end]
+    runs_end = tnfs_saturn_rle_end(stream, width, height)
+    if runs_end is None or len(stream) - runs_end > 3 or any(stream[runs_end:]):
+        return None
+    return end
+
+
+def is_tnfs_saturn_sized_rle_image(data: bytes) -> bool:
+    """The whole file is one `TnfsSaturnSizedRleImage`"""
+    return _tnfs_saturn_sized_rle_image_end(data, 0) == len(data)
+
+
+def tnfs_saturn_sized_rle_image_ends(data: bytes) -> Optional[List[int]]:
+    """End offsets of the `TnfsSaturnSizedRleImage`s back to back from the start of `data` when it is made of them up
+    to its end, else None"""
+    ends = []
+    pos = 0
+    while pos < len(data):
+        pos = _tnfs_saturn_sized_rle_image_end(data, pos)
+        if pos is None:
+            return None
+        ends.append(pos)
+    return ends or None
+
+
+def is_tnfs_saturn_sized_rle_image_list(buffer, length: int) -> bool:
+    """The file (the buffer at its start, `length` bytes) is made of `TnfsSaturnSizedRleImage`s back to back"""
+    start = buffer.tell()
+    try:
+        if not _is_tnfs_saturn_sized_rle_image_head(buffer.read(8), length):
+            return False
+        buffer.seek(start)
+        return tnfs_saturn_sized_rle_image_ends(buffer.read(length)) is not None
+    finally:
+        buffer.seek(start)
+
+
+def _sized_rle_images_amount(ctx) -> int:
+    start = ctx.buffer.tell()
+    remaining = ctx.read_bytes_remaining
+    pos, amount = 0, 0
+    try:
+        while pos + 4 <= remaining:
+            ctx.buffer.seek(start + pos)
+            pos += int.from_bytes(ctx.buffer.read(4), 'big') or remaining
+            amount += 1
+    finally:
+        ctx.buffer.seek(start)
+    return amount
+
+
+class TnfsSaturnSizedRleImageList(DeclarativeCompoundBlock):
+    block_description = (
+        "Size-prefixed 8-bit pictures of Over Drivin' GT-R back to back up to the end of the file "
+        '(`TnfsSaturnSizedRleImage`): `DASH/EMEM3.DAT`, two 320x224 pictures, every pixel a run of one: yellow '
+        'Japanese text on black, a new save needs 52 free blocks, continue?, with YES and NO, YES highlighted in '
+        'the first, NO in the second. 0x060406a8 reads both into memory (0x0605e7e8: the size, then the rest) and '
+        'draws one or the other into VRAM bank 1 (0x0605e6f0, the decoding of `Vdp2_LoadRleBitmap` from memory, '
+        '256 colours into palette 0) as the pad moves the choice'
+    )
+    serializer = 'TnfsSaturnSizedRleImageListSerializer'
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        images = (
+            ArrayBlock(
+                child=TnfsSaturnSizedRleImage(),
+                length=(lambda ctx: _sized_rle_images_amount(ctx), 'up to the end of the file'),
+            ),
+            {'description': 'The pictures'},
+        )

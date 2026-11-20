@@ -259,3 +259,40 @@ class TnfsSaturnRlePictureSerializer(BaseFileSerializer):
         file_path = escaped_file_path(path, '.png')
         tnfs_saturn_rle_picture_image(data).save(file_path, 'PNG')
         return [file_path]
+
+
+class TnfsSaturnSizedRleImageSerializer(BaseFileSerializer):
+    """A size-prefixed 8-bit picture (`TnfsSaturnSizedRleImage`: `HORIZON/*.IM`, `DASH/*.IM`) to an RGBA PNG,
+    `<name>.png`, colour 0 transparent"""
+
+    ui = PNG_UI
+
+    def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
+        from resources.eac.tnfs_saturn import tnfs_saturn_rle_image
+        from serializers.misc.path_utils import escaped_file_path
+
+        super().serialize(data, path, id=id, block=block)
+        file_path = escaped_file_path(path, '.png')
+        tnfs_saturn_rle_image(data['image']).save(file_path, 'PNG')
+        return [file_path]
+
+
+class TnfsSaturnSizedRleImageListSerializer(BaseFileSerializer):
+    """Size-prefixed 8-bit pictures back to back (`TnfsSaturnSizedRleImageList`: `DASH/EMEM3.DAT`) to a folder of
+    `<index>.png` (RGBA, colour 0 transparent)"""
+
+    ui = DIRECTORY_UI
+
+    def __init__(self):
+        super().__init__(is_dir=True)
+
+    def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
+        from resources.eac.tnfs_saturn import tnfs_saturn_rle_image
+
+        super().serialize(data, path)
+        output = []
+        for i, picture in enumerate(data['images']):
+            file_path = path_join(path, f'{i}.png')
+            tnfs_saturn_rle_image(picture['image']).save(file_path, 'PNG')
+            output.append(file_path)
+        return output
