@@ -272,6 +272,7 @@ class OripGeometry(DeclarativeCompoundBlock):
         'replace the geometry, the rest (material names and colours, morphs, fx points) follows the replaced '
         'model and the wheel quads'
     )
+    serializer = 'OripGeometrySerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(value_validator=Eq('ORIP'), length=4), {'description': 'Resource ID'})
@@ -565,11 +566,6 @@ class OripGeometry(DeclarativeCompoundBlock):
             },
         )
 
-    def serializer_class(self):
-        from serializers import OripGeometrySerializer
-
-        return OripGeometrySerializer
-
 
 # "Verified" in the ORIX descriptions below: read in the PSX executable (SLUS-00204, tnfs-1995 Ghidra project:
 # `oriload` 0x80081610, `tnfs_ori_inst` 0x800819ac, `orisetdefaulmaterialtextures` 0x80081e28, `buildprimlist`
@@ -745,6 +741,7 @@ class OrixGeometry(DeclarativeCompoundBlock):
         "cop's pure red and pure blue entries exchange red (0x001F) and blue (0x7C00) every 16 clock units "
         'during a chase (verified). Exported to OBJ + MTL'
     )
+    serializer = 'OrixGeometrySerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(value_validator=Eq('ORIX'), length=4), {'description': 'Resource ID'})
@@ -967,11 +964,6 @@ class OrixGeometry(DeclarativeCompoundBlock):
         footer_length = CRCF_FOOTER_LENGTH if data.get('crc_footer') is not None else 0
         return super().estimate_packed_size(data, ctx) + footer_length
 
-    def serializer_class(self):
-        from serializers import OrixGeometrySerializer
-
-        return OrixGeometrySerializer
-
 
 # "Checked" in the Saturn descriptions below: against every ORIX of Over Drivin' GT-R (the 8 cars' high and low-poly
 # models, `games/tnfs_saturn_gtr/MODELS`, sliced from the executable). The field meanings are the PSX ORIX's, verified
@@ -1186,6 +1178,7 @@ class TnfsSaturnOrixGeometry(OrixGeometry):
     )
 
     Fields = _tnfs_saturn_orix_fields()
+    serializer = 'TnfsSaturnOrixGeometrySerializer'
 
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
         return DeclarativeCompoundBlock.read(self, ctx, name, read_bytes_amount)
@@ -1195,8 +1188,3 @@ class TnfsSaturnOrixGeometry(OrixGeometry):
 
     def estimate_packed_size(self, data, ctx: WriteContext = None):
         return DeclarativeCompoundBlock.estimate_packed_size(self, data, ctx)
-
-    def serializer_class(self):
-        from serializers import TnfsSaturnOrixGeometrySerializer
-
-        return TnfsSaturnOrixGeometrySerializer

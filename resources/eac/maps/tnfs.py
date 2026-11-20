@@ -414,6 +414,8 @@ class AIEntry(DeclarativeCompoundBlock):
 
 
 class TriMap(DeclarativeCompoundBlock, SpatialEditable):
+    serializer = 'TriMapSerializer'
+
     @property
     def schema(self) -> Dict:
         return {
@@ -557,11 +559,6 @@ class TriMap(DeclarativeCompoundBlock, SpatialEditable):
             ArrayBlock(child=TerrainEntry(), length=lambda ctx: ctx.data('num_chunks')),
             {'description': 'Terrain chunks, one per 4 road spline points'},
         )
-
-    def serializer_class(self):
-        from serializers import TriMapSerializer
-
-        return TriMapSerializer
 
     def action_reverse_track(self, read_data, **kwargs):
         # FIXME lanes are a bit off: CY1.TRI now has both lanes oncoming, and racers drive on right verge. Traffic never appears

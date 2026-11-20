@@ -144,6 +144,7 @@ class GeoGeometry(DeclarativeCompoundBlock):
         '<name>.QFS next to the GEO file (NFS2), or CARMODEL/PC/<name>.QFS for GEO '
         'items of CARDATA.VIV (NFS2SE)'
     )
+    serializer = 'GeoGeometrySerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk0 = (
@@ -191,8 +192,3 @@ class GeoGeometry(DeclarativeCompoundBlock):
                 '25: Low-Poly Side Part<br/>'
             },
         )
-
-    def serializer_class(self):
-        from serializers import GeoGeometrySerializer
-
-        return GeoGeometrySerializer

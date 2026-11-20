@@ -919,6 +919,7 @@ class Nfs4FrdMap(DeclarativeCompoundBlock):
         'tracks in meters: every position and distance of the file x 1.3 (`NFS4_TRACK_SCALE`). Cars are not '
         'scaled: their FCE models have real sizes in both games'
     )
+    serializer = 'Nfs4FrdMapSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk = (
@@ -980,11 +981,6 @@ class Nfs4FrdMap(DeclarativeCompoundBlock):
             {'description': 'Extra objects not attached to any track block. Special/physics props (type 6) live here'},
         )
 
-    def serializer_class(self):
-        from serializers import Nfs4FrdMapSerializer
-
-        return Nfs4FrdMapSerializer
-
 
 class Nfs4HeightsSim(DeclarativeCompoundBlock):
     block_description = (
@@ -992,6 +988,7 @@ class Nfs4HeightsSim(DeclarativeCompoundBlock):
         'nfs4.exe 0x439c10): one float per `vroad` record of the FRD ([Nfs4VRoadBlock](#nfs4vroadblock)), the '
         'file is 4 bytes per slice in every NFS4 track. Without the file the game uses 10.0 for every slice'
     )
+    serializer = 'JsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         heights = (
@@ -1006,11 +1003,6 @@ class Nfs4HeightsSim(DeclarativeCompoundBlock):
                 'the NFS4 tracks'
             },
         )
-
-    def serializer_class(self):
-        from serializers import JsonSerializer
-
-        return JsonSerializer
 
 
 def _spd_num_slices(size: int) -> int:
@@ -1032,6 +1024,7 @@ class Nfs4SpeedFile(DeclarativeCompoundBlock):
         '(missing) lanes, 0x41c550 / 0x41e0d0; without the file it uses speed 64, lane 7 and offset 0. France also '
         'has a `spdB.bin` of the same layout that nfs4.exe does not load'
     )
+    serializer = 'JsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         speeds = (
@@ -1075,8 +1068,3 @@ class Nfs4SpeedFile(DeclarativeCompoundBlock):
                 'AI cars and by the car reset when no lane of the slice is free (0x448c20)'
             },
         )
-
-    def serializer_class(self):
-        from serializers import JsonSerializer
-
-        return JsonSerializer

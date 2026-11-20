@@ -4,6 +4,8 @@ from library.exceptions import EndOfBufferException
 
 
 class TargaImage(BytesBlock):
+    serializer = 'TargaImageSerializer'
+
     def __init__(self):
         super().__init__(length=lambda ctx: ctx.read_bytes_remaining)
 
@@ -15,8 +17,3 @@ class TargaImage(BytesBlock):
         if len(res) < read_bytes_amount:
             raise EndOfBufferException(ctx=ctx.get_or_create_child(name, self))
         return res
-
-    def serializer_class(self):
-        from serializers import TargaImageSerializer
-
-        return TargaImageSerializer

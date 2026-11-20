@@ -30,7 +30,7 @@ Every supported file format is described **once**, in Python, as a tree of `Data
 That single declaration drives, with no separate work:
 
 - binary parsing (`read`) and serialization back to bytes (`write`)
-- conversion to/from common formats, via the block's `serializer_class()`
+- conversion to/from common formats, via the block's serializer (its `serializer` class attribute)
 - the GUI editor: `block.schema` (incl. `block_class_mro`, a `__`-joined class-name chain) picks
   which Angular component renders the field
 - the Markdown reference docs in `resources/*.md`, generated from the same `schema`/`description` text
@@ -55,7 +55,7 @@ docs and a working GUI editor for free.
 | `resources/blackbox/` | Blackbox-studio (later NFS titles) formats, NFS Underground 1, 2 and Most Wanted, NFS Hot Pursuit 2 PS2 (`nfs6_ps2.py` modules, see its section below): `chunks.py` (generic id+length chunk dispatch helpers), `geometries/` (car and world geometry packs), `bitmaps/` (texture packs, TPK), `maps/` (chunk bundles, scenery, streaming sections; `NfsuTrackBundle` is a race's `TRACKBnnnn.lzc` or an NFSU2/NFSMW location bundle `LxRA.BUN`), `audios/` (NFS HP2 PS2 music `JUKEBOXM.JBC`), `archives.py` (JDLZ-compressed files). |
 | `resources/eac/fields/` | Small reusable domain blocks: `Point2D`/`Point3D`/`RGBBlock`, angle/time fields. |
 | `resources/*.md` | **Auto-generated** per-game docs (`generate_resource_doc.py`). Never hand-edit — edit the block definitions/descriptions and regenerate. |
-| `serializers/` | Turn parsed block data into common output formats and back. One serializer class per resource kind, returned by a block's `serializer_class()`. |
+| `serializers/` | Turn parsed block data into common output formats and back. One serializer class per resource kind, named by a block's `serializer` class attribute and exported by `serializers/__init__.py`. |
 | `api/` | Python↔JS bridge (pywebview/eel) exposing library + serializers to the GUI. |
 | `frontend/` | Angular GUI. `.../editor/library/*.block-ui` = generic components, one per `read_blocks` base class. `.../editor/eac/*` and `.../editor/common/*` = bespoke rich viewers (image, 3D geometry, map, audio, font, hex/targa, TNFS / NFS2 / NFS3 car specs) and widgets they share (`curve-editor` = editable SVG charts, `stat-tiles`). `common/obj-viewer/viewer-sky.ts` = the baked gg-web-engine procedural sky every 3D viewer uses as background and environment light (a track's own skybox sphere is drawn over it). `src/nfs-three-lib/` = three.js code shared with nfs-web, copied there as it is. |
 | `actions/` | OS-integration entry points (convert all, open in GUI editor, uncompress) wired to file-manager context menus / installers. |

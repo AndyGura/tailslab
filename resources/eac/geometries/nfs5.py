@@ -1133,6 +1133,7 @@ class CrpGeometry(DeclarativeCompoundBlock):
         '"TmiS"), the collision faces (from the `pr` parts of collidable articles, with the `mt` surface '
         'flags) and the object tags (`animdefs.txt`)'
     )
+    serializer = 'CrpGeometrySerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (
@@ -1261,8 +1262,3 @@ class CrpGeometry(DeclarativeCompoundBlock):
             article['parts'] = data['parts'][offs : offs + article['num_parts']]
         ctx.buffer.seek(raw_data_offset + raw_data_len)
         return data
-
-    def serializer_class(self):
-        from serializers import CrpGeometrySerializer
-
-        return CrpGeometrySerializer

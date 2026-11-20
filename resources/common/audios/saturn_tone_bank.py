@@ -223,6 +223,7 @@ class SaturnToneBank(DeclarativeCompoundBlock):
         'Cars sharing a real engine share the engine samples (BNR32 / BCNR33, PGC10 / KPGC110, Silvia / 180SX). '
         'The roles are guesses from the data: the game code is not disassembled'
     )
+    serializer = 'SaturnToneBankSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         mixer_offset = (IntegerBlock(length=2, byte_order='big'), {'description': 'Offset of `mixers`'})
@@ -262,11 +263,6 @@ class SaturnToneBank(DeclarativeCompoundBlock):
                 'start of the bank'
             },
         )
-
-    def serializer_class(self):
-        from serializers import SaturnToneBankSerializer
-
-        return SaturnToneBankSerializer
 
 
 def saturn_tone_bank_header_size(data: dict) -> int:

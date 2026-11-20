@@ -842,6 +842,7 @@ class MapColFile(DeclarativeCompoundBlock):
         'polygons of the TRK file), track-wide props with their 3D models and collision '
         'data (road centre line for the physics engine)'
     )
+    serializer = 'JsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(length=4, value_validator=Eq('COLL')), {'description': 'Resource ID'})
@@ -876,11 +877,6 @@ class MapColFile(DeclarativeCompoundBlock):
                 'usage': 'ui',
             },
         )
-
-    def serializer_class(self):
-        from serializers import JsonSerializer
-
-        return JsonSerializer
 
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
         data = super().read(ctx, name, read_bytes_amount)

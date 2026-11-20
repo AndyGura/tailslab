@@ -28,6 +28,7 @@ def _fit_name_padding(padding: bytes, name: str, field_length: int) -> bytes:
 
 class Nfs6Ps2JukeboxTrack(DeclarativeCompoundBlock):
     block_description = 'A song of the jukebox: a stereo PS-ADPCM stream with a "VAGp" header (big endian numbers)'
+    serializer = 'Nfs6Ps2JukeboxTrackSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(length=4, value_validator=Eq('VAGp')), {'description': 'Resource ID'})
@@ -55,11 +56,6 @@ class Nfs6Ps2JukeboxTrack(DeclarativeCompoundBlock):
                 'terminator frame `00 07 77 77..`; zeros follow up to the next track',
             },
         )
-
-    def serializer_class(self):
-        from serializers import Nfs6Ps2JukeboxTrackSerializer
-
-        return Nfs6Ps2JukeboxTrackSerializer
 
 
 class Nfs6Ps2JukeboxGroup(DeclarativeCompoundBlock):
@@ -132,6 +128,7 @@ class Nfs6Ps2Jukebox(ArchiveBlock):
         "PC game's `audio/music`. Header, a group of tracks, a 0x60-byte entry per track, then the tracks, each "
         'one 0x800-aligned after its 0x30-byte header. Converted to a folder of WAV files named after the tracks'
     )
+    serializer = 'Nfs6Ps2JukeboxSerializer'
 
     def __init__(self, **kwargs):
         super().__init__(
@@ -277,11 +274,6 @@ class Nfs6Ps2Jukebox(ArchiveBlock):
             ctx=ctx,
             name=name,
         )
-
-    def serializer_class(self):
-        from serializers import Nfs6Ps2JukeboxSerializer
-
-        return Nfs6Ps2JukeboxSerializer
 
 
 def _track_block_index(ctx, **_) -> int:

@@ -4,13 +4,11 @@ from typing import Dict, List
 from library.context import ReadContext, WriteContext
 from library.read_blocks import (
     CompoundBlock,
-    DeclarativeCompoundBlock,
     UTF8Block,
     IntegerBlock,
     ArrayBlock,
     AutoDetectBlock,
     BytesBlock,
-    LengthPrefixedArrayBlock,
 )
 from library.read_blocks.archives import ArchiveBlock, pre_items_payload_length, slot_lengths
 from library.read_blocks.misc.value_validators import Eq
@@ -32,6 +30,8 @@ def determine_shpi_length(ctx):
 
 
 class ShpiBlock(ArchiveBlock):
+    serializer = 'ShpiArchiveSerializer'
+
     @property
     def schema(self) -> Dict:
         return {
@@ -384,8 +384,3 @@ class ShpiBlock(ArchiveBlock):
                 bitmap.append(255 if not a else index_of_special.get(rgb, index))
             result.append(bitmap)
         return result, colors
-
-    def serializer_class(self):
-        from serializers import ShpiArchiveSerializer
-
-        return ShpiArchiveSerializer

@@ -1211,6 +1211,7 @@ class NfsuBinGeometry(DeclarativeCompoundBlock):
         'container, followed by a mesh descriptor per mesh (car part, scenery object), '
         'interleaved with zero-id padding chunks'
     )
+    serializer = 'NfsuBinGeometrySerializer'
 
     def __init__(self, whole_file: bool = True, **kwargs):
         # car GEOMETRY.BIN: chunks after the pack (e.g. 0x80034020) are read as its own chunks, until the end of file
@@ -1258,8 +1259,3 @@ class NfsuBinGeometry(DeclarativeCompoundBlock):
                 'chunk id'
             },
         )
-
-    def serializer_class(self):
-        from serializers.geometries import NfsuBinGeometrySerializer
-
-        return NfsuBinGeometrySerializer

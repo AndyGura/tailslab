@@ -143,6 +143,7 @@ class PsxImage(DeclarativeCompoundBlock):
         'top row, left to right); one with the transposed flag is stored transposed (shown pixel (x, y) = stored '
         'pixel (y, x), also `height` wide). The converter exports images as they are shown'
     )
+    serializer = 'PsxImageSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (
@@ -218,8 +219,3 @@ class PsxImage(DeclarativeCompoundBlock):
             TrailingOptionalBlock(child=PsxClut(), criteria=(_clut_criteria, '`next_offset` points to a CLUT (0x23)')),
             {'description': 'The CLUT of a 4-bit or 8-bit image'},
         )
-
-    def serializer_class(self):
-        from serializers import PsxImageSerializer
-
-        return PsxImageSerializer

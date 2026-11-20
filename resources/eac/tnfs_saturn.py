@@ -372,6 +372,7 @@ class TnfsSaturnCarBundle(DeclarativeCompoundBlock):
         "VIPER = Skyline GT-R BNR32, NSX = 180SX Type X, RX7 = Silvia K's). The car models are in the executable "
         '(`TnfsSaturnOrixGeometry`)'
     )
+    serializer = 'TnfsSaturnCarBundleSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         physics = (TnfsSaturnCarPhysics(), {'description': 'Player car physics'})
@@ -388,11 +389,6 @@ class TnfsSaturnCarBundle(DeclarativeCompoundBlock):
             {'description': 'Cockpit view pictures, in `CARS/<car>.ALL` only'},
         )
 
-    def serializer_class(self):
-        from serializers import TnfsSaturnCarBundleSerializer
-
-        return TnfsSaturnCarBundleSerializer
-
 
 def is_tnfs_saturn_car_bundle(head: bytes) -> bool:
     """Starts with a big-endian PBS whose checksum is right"""
@@ -407,6 +403,7 @@ class TnfsSaturnGtrExecutable(DeclarativeCompoundBlock):
         '`TnfsSaturnOrixGeometry`), the short car names at 0x47df0 (`SILVIA`, `180SX`, `BNR32`, `300ZX`, '
         '`KPGC110`, `240ZG`, `BCNR33`, `PGC10`) and the names the model loader looks up (0x222c4..0x2242c)'
     )
+    serializer = 'TnfsSaturnGtrExecutableSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         code = (
@@ -439,11 +436,6 @@ class TnfsSaturnGtrExecutable(DeclarativeCompoundBlock):
             BytesBlock(length=(lambda ctx: ctx.read_bytes_remaining, 'up to the end of the file')),
             {'description': 'Code and data after the car AI pointers'},
         )
-
-    def serializer_class(self):
-        from serializers import TnfsSaturnGtrExecutableSerializer
-
-        return TnfsSaturnGtrExecutableSerializer
 
 
 def tnfs_saturn_gtr_car_ai_records(data: dict) -> Dict[str, int]:
@@ -513,6 +505,7 @@ class TnfsSaturnPcxList(DeclarativeCompoundBlock):
         'the page background with empty text boxes, the others are photos and panels (192x96, 304x84, 304x52...). '
         'The car cards are plain PCX files, `UIDATA/<maker>/MAIN.PCX`'
     )
+    serializer = 'TnfsSaturnPcxListSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         pictures = (
@@ -522,11 +515,6 @@ class TnfsSaturnPcxList(DeclarativeCompoundBlock):
             ),
             {'description': 'The pictures, back to back'},
         )
-
-    def serializer_class(self):
-        from serializers import TnfsSaturnPcxListSerializer
-
-        return TnfsSaturnPcxListSerializer
 
 
 def is_tnfs_saturn_pcx_list(buffer, length: int) -> bool:
@@ -778,6 +766,7 @@ class TnfsSaturnFrontendArt(DeclarativeCompoundBlock):
         'opponent pictures). The PCX files have no palette: theirs are in `palettes` (see '
         '`TNFS_SATURN_FRONTEND_PCX_PALETTES`). The last bank is the title screen (0x060456b8)'
     )
+    serializer = 'TnfsSaturnFrontendArtSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         sprite_banks = (
@@ -810,11 +799,6 @@ class TnfsSaturnFrontendArt(DeclarativeCompoundBlock):
             },
         )
 
-    def serializer_class(self):
-        from serializers import TnfsSaturnFrontendArtSerializer
-
-        return TnfsSaturnFrontendArtSerializer
-
 
 def _sprite_banks_amount(ctx) -> int:
     return len(_walk_sprite_banks(ctx.buffer, ctx.read_bytes_remaining))
@@ -826,6 +810,7 @@ class TnfsSaturnSpriteBanks(DeclarativeCompoundBlock):
         "Drivin' GT-R (3 banks: the car showcase pages' titles, tabs, photos and panels; read by the showcase code "
         "near 0x0604d5dc). Its palettes are in `UIDATA/FRONTEND.DAT`'s palette table (palettes 16..252)"
     )
+    serializer = 'TnfsSaturnSpriteBanksSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         sprite_banks = (
@@ -835,11 +820,6 @@ class TnfsSaturnSpriteBanks(DeclarativeCompoundBlock):
             ),
             {'description': 'The sprite banks'},
         )
-
-    def serializer_class(self):
-        from serializers import TnfsSaturnSpriteBanksSerializer
-
-        return TnfsSaturnSpriteBanksSerializer
 
 
 def _walk_sprite_banks(buffer, length: int) -> List[int]:
@@ -978,6 +958,7 @@ class TnfsSaturnRlePicture(DeclarativeCompoundBlock):
         'colour n + 2 times. The colours (Saturn 16-bit RGB, bit 15 clear in every one) make rows of 320 pixels '
         'top to bottom; every file decodes to exactly `decoded_size` bytes and ends there (checked: 320x224)'
     )
+    serializer = 'TnfsSaturnRlePictureSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         magic = (
@@ -996,11 +977,6 @@ class TnfsSaturnRlePicture(DeclarativeCompoundBlock):
             BytesBlock(length=(lambda ctx: ctx.read_bytes_remaining, 'up to the end of the file')),
             {'description': 'The runs'},
         )
-
-    def serializer_class(self):
-        from serializers import TnfsSaturnRlePictureSerializer
-
-        return TnfsSaturnRlePictureSerializer
 
 
 def tnfs_saturn_rle_picture_colors(data: bytes, decoded_size: int) -> Tuple[List[int], int]:

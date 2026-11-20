@@ -271,6 +271,7 @@ class ShpiText(DeclarativeCompoundBlock):
         'additive), `INFRONT` (drawn after the clouds) (nfs3.exe 0x47a970, nfs4.exe 0x4c9050, which reads it '
         'only when `Tr.ini` has no `hasSun=1`). Elsewhere the purpose is unclear'
     )
+    serializer = 'ShpiTextSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (IntegerBlock(length=1, value_validator=Eq(0x6F)), {'description': 'Resource ID'})
@@ -280,13 +281,10 @@ class ShpiText(DeclarativeCompoundBlock):
         )
         text = (LengthPrefixedUtf8Block(length_block=IntegerBlock(length=4)), {'description': 'Text contents'})
 
-    def serializer_class(self):
-        from serializers import ShpiTextSerializer
-
-        return ShpiTextSerializer
-
 
 class EacPalette(DeclarativeCompoundBlock):
+    serializer = 'PaletteSerializer'
+
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (
             EnumByteBlock(
@@ -395,11 +393,6 @@ class EacPalette(DeclarativeCompoundBlock):
     def new_data(self, patch=None):
         return {**super().new_data(), 'last_color_transparent': False}
 
-    def serializer_class(self):
-        from serializers import PaletteSerializer
-
-        return PaletteSerializer
-
     def get_child_block(self, name: str) -> 'DataBlock':
         if name == 'last_color_transparent':
             return None
@@ -481,6 +474,8 @@ class EacPalette(DeclarativeCompoundBlock):
 
 
 class EacImage(DeclarativeCompoundBlock):
+    serializer = 'ImageSerializer'
+
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (
             EnumByteBlock(
@@ -962,11 +957,6 @@ class EacImage(DeclarativeCompoundBlock):
                 copied['resource_id'], copied['width'], copied['height'], copied['mipmaps']
             )
         return super().write(copied, ctx, name)
-
-    def serializer_class(self):
-        from serializers import ImageSerializer
-
-        return ImageSerializer
 
     def _get_channel_mask_offset(self, channel):
         if channel == 'alpha':

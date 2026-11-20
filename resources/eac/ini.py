@@ -587,6 +587,8 @@ class IniFile(DeclarativeCompoundBlock):
     """Base of typed INI files: subclasses set `Fields = ini_fields_class([...])` with `IniSection` and
     `IniSectionGroup` fields. Reads and writes the whole remaining buffer as Latin-1 text"""
 
+    serializer = 'IniFileSerializer'
+
     class Fields(DeclarativeCompoundBlock.Fields):
         pass
 
@@ -600,11 +602,6 @@ class IniFile(DeclarativeCompoundBlock):
     @property
     def size_doc_str(self):
         return '?'
-
-    def serializer_class(self):
-        from serializers import IniFileSerializer
-
-        return IniFileSerializer
 
     def sections_and_groups(self):
         return [

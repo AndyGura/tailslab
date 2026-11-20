@@ -243,6 +243,7 @@ class NfsuTexturePack(DeclarativeCompoundBlock):
         'Texture pack (TPK): a container of texture infos and their pixel data. Standalone '
         'in car TEXTURES.BIN and TRACKS/TEXnnnnTRACK.BIN, embedded in track bundles'
     )
+    serializer = 'NfsuTexturePackSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0xB3300000)), {'description': _CHUNK_ID_DESCR})
@@ -250,8 +251,3 @@ class NfsuTexturePack(DeclarativeCompoundBlock):
         sub_chunks = nfsu_sub_chunks_field(
             [NfsuTexturePackInfo(), NfsuTexturePackDataContainer(), ZeroChunk()], 'Child chunks'
         )
-
-    def serializer_class(self):
-        from serializers.bitmaps import NfsuTexturePackSerializer
-
-        return NfsuTexturePackSerializer

@@ -18,6 +18,7 @@ class Nfs5SkyBin(DeclarativeCompoundBlock):
         '`autobahn_lightning.bin` / `industrial_lightning.bin` (5216 bytes) '
         'are another format, not read'
     )
+    serializer = 'JsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         version = (IntegerBlock(length=4), {'description': '9, 7 in `Monaco.bin` and `default.bin` (the old ones)'})
@@ -114,8 +115,3 @@ class Nfs5SkyBin(DeclarativeCompoundBlock):
                 'end of the 3544-byte files), then 0xCB filler',
             },
         )
-
-    def serializer_class(self):
-        from serializers import JsonSerializer
-
-        return JsonSerializer

@@ -22,6 +22,8 @@ from .compressed_block import EacCompressedBlock
 
 
 class WwwwBlock(ArchiveBlock):
+    serializer = 'WwwwArchiveSerializer'
+
     @property
     def schema(self) -> Dict:
         # this schema has recursion problem. Workaround applied here
@@ -177,11 +179,6 @@ class WwwwBlock(ArchiveBlock):
             and len(child['post_offset_payload']) == 0
         )
 
-    def serializer_class(self):
-        from serializers import WwwwArchiveSerializer
-
-        return WwwwArchiveSerializer
-
 
 class BigfItemDescriptionBlock(DeclarativeCompoundBlock):
     block_description = 'Description of a single item of BIGF archive'
@@ -199,6 +196,8 @@ class BigfItemDescriptionBlock(DeclarativeCompoundBlock):
 
 
 class BigfBlock(ArchiveBlock):
+    serializer = 'BigfArchiveSerializer'
+
     @property
     def schema(self) -> Dict:
         # this schema has recursion problem. Workaround applied here
@@ -427,11 +426,6 @@ class BigfBlock(ArchiveBlock):
         del data['data_bytes']
         return ret
 
-    def serializer_class(self):
-        from serializers import BigfArchiveSerializer
-
-        return BigfArchiveSerializer
-
 
 class C0fbItemDescriptionBlock(DeclarativeCompoundBlock):
     block_description = 'Description of a single item of C0FB archive'
@@ -537,6 +531,7 @@ class SoundBank(DeclarativeCompoundBlock):
         'car bank, the opponent banks, the collision bank (`COLL*`), then `NFS_FMMB`, and a bank loaded later '
         'replaces the ids it has'
     )
+    serializer = 'SoundBankSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         items_descr = (
@@ -579,11 +574,6 @@ class SoundBank(DeclarativeCompoundBlock):
         """`items_descr` index of every entry of `items` / `children`, which are in file order, not index order"""
         used = [(i, offset) for (i, offset) in enumerate(data['items_descr']) if offset > 0]
         return [i for (i, _) in sorted(used, key=lambda x: x[1])]
-
-    def serializer_class(self):
-        from serializers import SoundBankSerializer
-
-        return SoundBankSerializer
 
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
         bnk_start = ctx.buffer.tell()
@@ -647,6 +637,7 @@ class EaSoundBank(DeclarativeCompoundBlock):
         '`careng.bnk` has more engine samples at higher indices (presumably one per RPM range). `W*.BNK` of NFS2 '
         'SE are car speech'
     )
+    serializer = 'EaSoundBankSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(length=4, value_validator=Eq('BNKl')), {'description': 'Resource ID'})
@@ -750,8 +741,3 @@ class EaSoundBank(DeclarativeCompoundBlock):
 
     def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
         return super().write(self._native_data(data), ctx, name)
-
-    def serializer_class(self):
-        from serializers import EaSoundBankSerializer
-
-        return EaSoundBankSerializer

@@ -329,6 +329,7 @@ class EaFieldDescriptions(EaFieldDescriptionBody):
         'then one record per field (type, name, size), groups of fields as `Chain` records holding a body of '
         'their own. Field names and types of the data files come from them'
     )
+    serializer = 'EaFieldDescriptionsSerializer'
 
     def __init__(self, **kwargs):
         super().__init__(depth=0, **kwargs)
@@ -340,11 +341,6 @@ class EaFieldDescriptions(EaFieldDescriptionBody):
         res['dat_block'] = target.__class__.__name__ if target is not None else None
         res['dat_fields'] = block_layout(target) if target is not None else []
         return res
-
-    def serializer_class(self):
-        from serializers.misc.ea_field_descriptions import EaFieldDescriptionsSerializer
-
-        return EaFieldDescriptionsSerializer
 
 
 def is_ea_field_descriptions(header: bytes, length: Optional[int]) -> bool:

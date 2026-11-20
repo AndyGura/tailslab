@@ -118,6 +118,7 @@ class Fce3Geometry(DeclarativeCompoundBlock):
         'X points right, Y up, Z forward. The unit is meter. Texture is a TGA image car00.tga, which is located '
         'next to car.fce in car.viv'
     )
+    serializer = 'Fce3GeometrySerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk0 = (IntegerBlock(length=4), {'is_unknown': True})
@@ -249,8 +250,3 @@ class Fce3Geometry(DeclarativeCompoundBlock):
             BytesBlock(length=(lambda ctx: 12 * ctx.data('num_vertices'), '12 * num_vertices')),
             {'is_unknown': True},
         )
-
-    def serializer_class(self):
-        from serializers import Fce3GeometrySerializer
-
-        return Fce3GeometrySerializer

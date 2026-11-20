@@ -43,6 +43,7 @@ class Nfs5Junctions(DeclarativeCompoundBlock):
         'castle 24, coastal 6, farmland 14, foothills 6, forest 6, industrial 26, monaco1..5 4 / 6 / 11 / 10 / '
         '6, skidpad 1)'
     )
+    serializer = 'JsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         junctions = (
@@ -52,11 +53,6 @@ class Nfs5Junctions(DeclarativeCompoundBlock):
             ),
             {'description': 'The junctions'},
         )
-
-    def serializer_class(self):
-        from serializers import JsonSerializer
-
-        return JsonSerializer
 
 
 class Nfs5WallEdge(DeclarativeCompoundBlock):
@@ -94,6 +90,7 @@ class Nfs5WallEdges(DeclarativeCompoundBlock):
         '0x487e80 into the collision tree (`WTreeElem_Edge`). A cache: without the file the game builds the edges '
         'from all faces of the CRP (0x488590, pass 0 of 0x4750b0)'
     )
+    serializer = 'JsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk0 = (
@@ -111,8 +108,3 @@ class Nfs5WallEdges(DeclarativeCompoundBlock):
             ),
             {'description': 'The edges'},
         )
-
-    def serializer_class(self):
-        from serializers import JsonSerializer
-
-        return JsonSerializer

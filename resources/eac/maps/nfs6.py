@@ -78,13 +78,9 @@ class Nfs6AiPaths(DeclarativeCompoundBlock):
         'paths of the police helicopter. Opening it shows the route in 3D: the compartments listed in '
         'drvpath.ini next to it ("compNN.o" files in the parent folder)'
     )
+    serializer = 'Nfs6AiPathsSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         version = (IntegerBlock(length=4), {'is_unknown': True, 'description': 'Always 1'})
         road_paths = (Nfs6AiPathGraph(), {'description': 'Roads for AI cars'})
         helicopter_paths = (Nfs6AiPathGraph(), {'description': 'Flight paths of police helicopter'})
-
-    def serializer_class(self):
-        from serializers import Nfs6AiPathsSerializer
-
-        return Nfs6AiPathsSerializer

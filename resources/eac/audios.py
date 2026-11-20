@@ -191,6 +191,8 @@ class SoundBankHeaderEntry(DeclarativeCompoundBlock):
 
 
 class EacsAudioFile(DeclarativeCompoundBlock):
+    serializer = 'EacsAudioSerializer'
+
     @property
     def schema(self) -> Dict:
         return {
@@ -226,11 +228,6 @@ class EacsAudioFile(DeclarativeCompoundBlock):
             },
         )
 
-    def serializer_class(self):
-        from serializers import EacsAudioSerializer
-
-        return EacsAudioSerializer
-
     def action_silence(self, read_data, **kwargs):
         read_data['wave_data'] = b'\x00' * len(read_data['wave_data'])
 
@@ -241,6 +238,7 @@ class AsfAudio(DeclarativeCompoundBlock):
         'Has some explanation [here](https://wiki.multimedia.cx/index.php/Electronic_'
         'Arts_Formats_(2))'
     )
+    serializer = 'FfmpegSupportedAudioSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(value_validator=Eq('1SNh'), length=4), {'description': 'Resource ID'})
@@ -299,11 +297,6 @@ class AsfAudio(DeclarativeCompoundBlock):
             ),
             {'description': 'Wave data is here'},
         )
-
-    def serializer_class(self):
-        from serializers import FfmpegSupportedAudioSerializer
-
-        return FfmpegSupportedAudioSerializer
 
 
 EA_SOUND_PATCH_TAGS = [
@@ -629,17 +622,13 @@ class EaAudioStreams(DeclarativeCompoundBlock):
         'per stream and `playthrough.wav` (the streams in the order of the `.LIN`, else `.MAP` file next to it, '
         'see `EaMusicMap`; all streams in file order without one)'
     )
+    serializer = 'EaAudioStreamsSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         streams = (
             ArrayBlock(child=EaAudioStream(), length=(_ea_audio_streams_count, 'streams up to the end of file')),
             {'description': 'Audio streams'},
         )
-
-    def serializer_class(self):
-        from serializers import EaAudioStreamsSerializer
-
-        return EaAudioStreamsSerializer
 
 
 class EaMusicMapBranch(DeclarativeCompoundBlock):
@@ -686,6 +675,7 @@ class EaMusicMap(DeclarativeCompoundBlock):
         'current node. Layout from [vgmstream](https://github.com/vgmstream/vgmstream) '
         '(`ea_schl_map_mpf_mus.c`), the node fields from the files'
     )
+    serializer = 'JsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(value_validator=Eq('PFDx'), length=4), {'description': 'Resource ID'})
@@ -724,8 +714,3 @@ class EaMusicMap(DeclarativeCompoundBlock):
             ),
             {'description': 'Offset of the audio stream of each node in the `.MUS` file'},
         )
-
-    def serializer_class(self):
-        from serializers import JsonSerializer
-
-        return JsonSerializer

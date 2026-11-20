@@ -256,6 +256,7 @@ class TrkMap(DeclarativeCompoundBlock):
         'with props. Polygon texture values index the textures_map extrablock of the '
         'accompanying COL file, which points to images in <track>0.QFS'
     )
+    serializer = 'TrkMapSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(length=4, value_validator=Eq('TRAC')), {'description': 'Resource ID'})
@@ -288,8 +289,3 @@ class TrkMap(DeclarativeCompoundBlock):
             ArrayBlock(child=TrkSuperBlock(), length=lambda ctx: ctx.data('num_superblocks')),
             {'description': 'Superblocks'},
         )
-
-    def serializer_class(self):
-        from serializers import TrkMapSerializer
-
-        return TrkMapSerializer

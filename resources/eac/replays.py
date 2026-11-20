@@ -617,6 +617,7 @@ class TnfsReplay(DeclarativeCompoundBlock):
         'are in units of the 60/s game clock, which starts at 300 (5 s) for the race. The recording buffer is '
         'circular (8 minutes) and not cleared between races: data past `world_state.end_clock` is stale'
     )
+    serializer = 'JsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         setup = (TnfsReplaySetup(), {'description': 'Race settings'})
@@ -627,8 +628,3 @@ class TnfsReplay(DeclarativeCompoundBlock):
             {'description': 'State of the race that is not stored in the cars, every keyframe'},
         )
         stats = (ArrayBlock(child=TnfsReplayStats(), length=REPLAY_CARS), {'description': 'Stats of the cars'})
-
-    def serializer_class(self):
-        from serializers import JsonSerializer
-
-        return JsonSerializer

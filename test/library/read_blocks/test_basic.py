@@ -1,6 +1,7 @@
 import unittest
 from library.read_blocks.basic import BytesBlock
 from library.read_blocks.numbers import IntegerBlock
+from serializers import JsonSerializer, PlainBinarySerializer
 
 
 class DescribedInteger(IntegerBlock):
@@ -15,6 +16,14 @@ class DescribedIntegerSchemaOverride(DescribedInteger):
     @property
     def schema(self):
         return {**super().schema, 'block_description': 'Described by the schema override'}
+
+
+class SerializedInteger(IntegerBlock):
+    serializer = 'JsonSerializer'
+
+
+class SerializedIntegerSubclass(SerializedInteger):
+    pass
 
 
 class DescribedIntegerWithSchema(IntegerBlock):
@@ -61,3 +70,15 @@ class TestClassBlockDescription(unittest.TestCase):
 
     def test_base_class_untouched(self):
         self.assertEqual(IntegerBlock(length=1).schema['block_description'], '1-byte unsigned integer')
+
+
+class TestSerializerAttribute(unittest.TestCase):
+    def test_none_by_default(self):
+        self.assertIsNone(IntegerBlock(length=1).serializer_class())
+
+    def test_named_serializer(self):
+        self.assertIs(SerializedInteger(length=1).serializer_class(), JsonSerializer)
+        self.assertIs(SerializedIntegerSubclass(length=1).serializer_class(), JsonSerializer)
+
+    def test_framework_serializer(self):
+        self.assertIs(BytesBlock(length=1).serializer_class(), PlainBinarySerializer)

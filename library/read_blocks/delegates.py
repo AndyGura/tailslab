@@ -1,15 +1,16 @@
 import traceback
 from typing import List, Dict, Tuple, Any
 
-import config
 from library.context import ReadContext, WriteContext, DocumentationContext
 from library.exceptions import DataIntegrityException
 from library.lazy import lazy_unpack, unloaded_slot
-from library.read_blocks.basic import DataBlock, BytesBlock
+from library.read_blocks.basic import DataBlock
 from library.utils.id import join_id
 
 
 class DelegateBlock(DataBlock):
+    serializer = 'DelegateBlockSerializer'
+
     # `part_length(ctx) -> int`: exact amount of bytes the delegated data takes, known before reading it. When given,
     # the data is read as an unloaded `LazyDict` in lazy read context (see library/lazy.py), seeded with values from
     # `part_seed(ctx, block) -> dict`
@@ -85,11 +86,6 @@ class DelegateBlock(DataBlock):
             patch = {}
         choice_index = patch.get('choice_index', 0)
         return {'choice_index': choice_index, 'data': self.possible_blocks[choice_index].new_data()}
-
-    def serializer_class(self):
-        from serializers import DelegateBlockSerializer
-
-        return DelegateBlockSerializer
 
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
         delegated_block_index = self.choice_index

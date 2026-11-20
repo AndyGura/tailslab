@@ -10,6 +10,9 @@ from library.utils import represent_value_as_str
 
 class DataBlock(ABC):
     root_read_ctx = ReadContext()
+    # name of the block's serializer class in the `serializers` package (conversion in the GUI / CLI), None: not
+    # convertible on its own; override `serializer_class` for a serializer depending on the block's settings
+    serializer: str = None
 
     # a class attribute `block_description = '...'` is the description of the class's blocks (docs and GUI): their
     # schema gets it over what the class's own schema or its base classes give, as a `schema` override setting it would
@@ -65,7 +68,11 @@ class DataBlock(ABC):
         raise BlockDefinitionException('Cannot generate new data for block.')
 
     def serializer_class(self):
-        return None
+        if self.serializer is None:
+            return None
+        import serializers
+
+        return getattr(serializers, self.serializer)
 
     @abstractmethod
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
@@ -121,6 +128,8 @@ class DataBlockWithChildren(ABC):
 
 
 class BytesBlock(DataBlock):
+    serializer = 'PlainBinarySerializer'
+
     def __init__(self, length, allow_negative_length=False, **kwargs):
         super().__init__(**kwargs)
         self._length = length
@@ -149,11 +158,6 @@ class BytesBlock(DataBlock):
             **super().schema,
             'block_description': descr,
         }
-
-    def serializer_class(self):
-        from serializers import PlainBinarySerializer
-
-        return PlainBinarySerializer
 
     def resolve_length(self, ctx):
         self_len = self._length

@@ -137,6 +137,8 @@ def calc_ffn_block_size(ctx):
 
 
 class FfnFont(DeclarativeCompoundBlock):
+    serializer = 'FfnFontSerializer'
+
     @property
     def schema(self) -> Dict:
         return {
@@ -358,8 +360,3 @@ class FfnFont(DeclarativeCompoundBlock):
         else:
             assert data['definitions_ptr'] <= data['bdata_ptr']
         return data
-
-    def serializer_class(self):
-        from serializers import FfnFontSerializer
-
-        return FfnFontSerializer

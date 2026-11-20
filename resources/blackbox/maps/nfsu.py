@@ -785,6 +785,8 @@ class NfsuChunkBundle(DeclarativeCompoundBlock):
 
 
 class NfsuTrackBundle(NfsuChunkBundle):
+    serializer = 'NfsuTrackBundleSerializer'
+
     @property
     def schema(self) -> Dict:
         return {
@@ -793,11 +795,6 @@ class NfsuTrackBundle(NfsuChunkBundle):
             'TRACKS/L4RA.BUN, NFSMW TRACKS/L2RA.BUN): a chunk bundle with the streaming sections table of the world, which is stored in '
             'TRACKS/STREAM*.BUN. ' + super().schema['block_description'],
         }
-
-    def serializer_class(self):
-        from serializers.maps import NfsuTrackBundleSerializer
-
-        return NfsuTrackBundleSerializer
 
 
 def walk_nfsu_chunk_ids(buffer, length: int):

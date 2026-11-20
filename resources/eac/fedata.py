@@ -196,6 +196,7 @@ class Nfs3CarFeData(DeclarativeCompoundBlock):
         "The executable is VEG's Modern Patch build, whose car list loader has patched code (nops at 0x43a210..), "
         'the fields are read as retail'
     )
+    serializer = 'CarFeDataSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         car_id = (
@@ -316,11 +317,6 @@ class Nfs3CarFeData(DeclarativeCompoundBlock):
             {'description': 'The spec sheet texts (40 in every file; text 2 also becomes the car list name)'},
         )
 
-    def serializer_class(self):
-        from serializers import CarFeDataSerializer
-
-        return CarFeDataSerializer
-
 
 _NFS4_FLAGS = [
     (0, 'bonus'),
@@ -375,6 +371,7 @@ class Nfs4CarFeData(DeclarativeCompoundBlock):
         '`format_version` is not 10 drops the car from the list. Run time slots of the record (list link, names, '
         'colour choices...) are zeros in the files. All texts are Latin-1'
     )
+    serializer = 'CarFeDataSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         game = (
@@ -512,11 +509,6 @@ class Nfs4CarFeData(DeclarativeCompoundBlock):
             FeDataTextTable(table_offset=0x3BE, text_names=NFS4_FEDATA_TEXTS),
             {'description': 'The spec sheet texts (41 in every file; text 2 also becomes the car list name)'},
         )
-
-    def serializer_class(self):
-        from serializers import CarFeDataSerializer
-
-        return CarFeDataSerializer
 
 
 def is_nfs3_fedata(head: bytes) -> bool:

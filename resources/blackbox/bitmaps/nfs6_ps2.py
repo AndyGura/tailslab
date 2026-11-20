@@ -164,6 +164,7 @@ class Nfs6Ps2TextureData(DeclarativeCompoundBlock):
 
 class Nfs6Ps2TexturePack(DeclarativeCompoundBlock):
     block_description = 'Texture pack (TPK): header, texture infos and their pixel data'
+    serializer = 'Nfs6Ps2TexturePackSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0xB0300001)), {'description': _CHUNK_ID_DESCR})
@@ -171,8 +172,3 @@ class Nfs6Ps2TexturePack(DeclarativeCompoundBlock):
         sub_chunks = nfsu_sub_chunks_field(
             [Nfs6Ps2TexturePackHeader(), Nfs6Ps2TextureInfos(), Nfs6Ps2TextureData()], 'Child chunks'
         )
-
-    def serializer_class(self):
-        from serializers.bitmaps import Nfs6Ps2TexturePackSerializer
-
-        return Nfs6Ps2TexturePackSerializer

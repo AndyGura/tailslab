@@ -5,11 +5,7 @@ from library.read_blocks import DataBlock
 
 class FfmpegSupportedVideo(DataBlock):
     block_description = 'A video file, which is supported by FFMPEG and can be converted using only it'
-
-    def serializer_class(self):
-        from serializers import FfmpegSupportedVideoSerializer
-
-        return FfmpegSupportedVideoSerializer
+    serializer = 'FfmpegSupportedVideoSerializer'
 
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
         return name

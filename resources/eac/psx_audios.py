@@ -161,6 +161,7 @@ class TnfsPsxPatchBank(DeclarativeCompoundBlock):
         'the gear shift; opponent banks 0x41 the horn, 0x43 / 0x45 the engine; `ZCOLLISN` the collision bank '
         'ids. The bank loader FUN_800b90e0 checks both magics and turns the offsets into pointers'
     )
+    serializer = 'CompleteJsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(length=4, value_validator=Eq('BXSP')), {'description': 'Resource ID'})
@@ -196,11 +197,6 @@ class TnfsPsxPatchBank(DeclarativeCompoundBlock):
     def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
         packed = super().write({**data, 'crc_footer': None}, ctx, name)
         return with_crc_footer(packed, data.get('crc_footer'))
-
-    def serializer_class(self):
-        from serializers import CompleteJsonSerializer
-
-        return CompleteJsonSerializer
 
 
 def tnfs_psx_bank_patches(data: dict) -> Dict[int, dict]:
@@ -247,6 +243,7 @@ class TnfsPsxVagSample(DeclarativeCompoundBlock):
         'after it) and the frame `00 07 77..`. An item of `TnfsPsxVagBank`, or a file of its own '
         '(`ZSFXLEVL.VAG` of the Japanese disc, with a CRC footer)'
     )
+    serializer = 'TnfsPsxVagSampleSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(length=4, value_validator=Eq('VAGp')), {'description': 'Resource ID'})
@@ -306,11 +303,6 @@ class TnfsPsxVagSample(DeclarativeCompoundBlock):
         packed = super().write({**data, 'crc_footer': None}, ctx, name)
         return with_crc_footer(packed, data.get('crc_footer'))
 
-    def serializer_class(self):
-        from serializers import TnfsPsxVagSampleSerializer
-
-        return TnfsPsxVagSampleSerializer
-
 
 class TnfsPsxVagBank(DeclarativeCompoundBlock):
     block_description = (
@@ -318,6 +310,7 @@ class TnfsPsxVagBank(DeclarativeCompoundBlock):
         '`.VH` of the same name (`TnfsPsxPatchBank`), back to back. Converted to a folder with a WAV per sample '
         'id of the `.VH` (see `TnfsPsxVagBankSerializer`)'
     )
+    serializer = 'TnfsPsxVagBankSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(length=4, value_validator=Eq('Bgav')), {'description': 'Resource ID'})
@@ -353,11 +346,6 @@ class TnfsPsxVagBank(DeclarativeCompoundBlock):
     def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
         packed = super().write({**data, 'crc_footer': None}, ctx, name)
         return with_crc_footer(packed, data.get('crc_footer'))
-
-    def serializer_class(self):
-        from serializers import TnfsPsxVagBankSerializer
-
-        return TnfsPsxVagBankSerializer
 
 
 def tnfs_psx_vag_samples_length(samples: list) -> int:

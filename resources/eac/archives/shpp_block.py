@@ -53,6 +53,8 @@ class ShppBlock(ShpiBlock):
     """The PlayStation counterpart of SHPI (`.PSH` files of the PSX TNFS): the same header and directory, with PSX
     images (`PsxImage`, each with its CLUT) as items"""
 
+    serializer = 'ShppArchiveSerializer'
+
     @property
     def schema(self) -> Dict:
         return {
@@ -138,8 +140,3 @@ class ShppBlock(ShpiBlock):
     def estimate_packed_size(self, data, ctx: WriteContext = None):
         footer_length = CRCF_FOOTER_LENGTH if data.get('crc_footer') is not None else 0
         return super().estimate_packed_size(data, ctx) + footer_length
-
-    def serializer_class(self):
-        from serializers import ShppArchiveSerializer
-
-        return ShppArchiveSerializer

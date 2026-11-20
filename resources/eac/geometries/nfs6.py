@@ -78,6 +78,7 @@ class EaglModel(DeclarativeCompoundBlock):
         'little-endian MIPS ELF relocatable object file with model data in ".data" section, where named symbols '
         'point to render methods, vertex/index buffers and texture references'
     )
+    serializer = 'EaglModelSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         magic = (IntegerBlock(length=4, value_validator=Eq(0x464C457F)), {'description': 'ELF magic "\\x7fELF"'})
@@ -123,11 +124,6 @@ class EaglModel(DeclarativeCompoundBlock):
                 'section header slot of absent relocations section',
             },
         )
-
-    def serializer_class(self):
-        from serializers import EaglModelSerializer
-
-        return EaglModelSerializer
 
 
 @dataclass

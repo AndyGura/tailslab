@@ -676,6 +676,7 @@ class FrdMap(DeclarativeCompoundBlock):
         'objects) are stored as extra objects. Polygon textures are referenced through '
         'the `texture_blocks` table, which points to images in <track>0.QFS'
     )
+    serializer = 'FrdMapSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk = (BytesBlock(length=28), {'description': 'Unknown header', 'is_unknown': True})
@@ -711,11 +712,6 @@ class FrdMap(DeclarativeCompoundBlock):
             },
         )
 
-    def serializer_class(self):
-        from serializers import FrdMapSerializer
-
-        return FrdMapSerializer
-
 
 class Nfs3SimHeights(DeclarativeCompoundBlock):
     block_description = (
@@ -723,6 +719,7 @@ class Nfs3SimHeights(DeclarativeCompoundBlock):
         'by nfs3.exe 0x41e2f0): one float per COL collision_data record ([Nfs3CollisionExtraDataRecord]'
         '(#nfs3collisionextradatarecord)), the file is 4 bytes per slice in every NFS3 track'
     )
+    serializer = 'JsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         heights = (
@@ -735,11 +732,6 @@ class Nfs3SimHeights(DeclarativeCompoundBlock):
                 'type 2 in its collision_data record; newton, nfs3.exe 0x4a21a0). 4.25..33.75 in the NFS3 tracks'
             },
         )
-
-    def serializer_class(self):
-        from serializers import JsonSerializer
-
-        return JsonSerializer
 
 
 def _speeds_num_slices(size: int) -> int:
@@ -763,6 +755,7 @@ class Nfs3SpeedsFile(DeclarativeCompoundBlock):
         '0x56f22c). The game finds the lanes at (n + 1) / 2, not at n / 2 + 1 where the file has them: the same '
         'place for an odd n, one byte earlier for an even n (TRK005, TRK006, TRK008), see `lanes`'
     )
+    serializer = 'JsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         speeds = (
@@ -799,11 +792,6 @@ class Nfs3SpeedsFile(DeclarativeCompoundBlock):
             },
         )
 
-    def serializer_class(self):
-        from serializers import JsonSerializer
-
-        return JsonSerializer
-
 
 class Nfs3CanKeyframe(DeclarativeCompoundBlock):
     block_description = 'A keyframe of a CAN animation path, 20 bytes'
@@ -837,6 +825,7 @@ class Nfs3CanAnimation(DeclarativeCompoundBlock):
         'below 25 m/s, else path 3 (0x437ed0). The `.CAN` files of NFS2 and NFS2 SE (GAMEDATA/TRACKS/DATA) have '
         'the same layout (their use there is not verified)'
     )
+    serializer = 'JsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         size = (
@@ -864,8 +853,3 @@ class Nfs3CanAnimation(DeclarativeCompoundBlock):
             ArrayBlock(child=Nfs3CanKeyframe(), length=lambda ctx: ctx.data('num_keyframes')),
             {'description': 'Keyframes'},
         )
-
-    def serializer_class(self):
-        from serializers import JsonSerializer
-
-        return JsonSerializer

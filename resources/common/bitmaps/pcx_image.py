@@ -8,8 +8,4 @@ class PcxImage(TargaImage):
         "A PCX image file (ZSoft Paintbrush; Over Drivin' GT-R: version 5, 8 bits per pixel, "
         'run-length encoded, 256-colour palette at the end), kept as its bytes'
     )
-
-    def serializer_class(self):
-        from serializers import PcxImageSerializer
-
-        return PcxImageSerializer
+    serializer = 'PcxImageSerializer'

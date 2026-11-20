@@ -6,6 +6,7 @@ import unittest
 
 import numpy as np
 
+from library.loader import path_to_name
 from library.utils.nfs5_sky_to_spherical import (
     Nfs5SkyLayer,
     Nfs5SkySettings,
@@ -129,9 +130,11 @@ class TestNfs5SkyFiles(unittest.TestCase):
             sky = os.path.join(tmp, 'GameData', 'Track', 'Sky')
             os.makedirs(sky)
             open(os.path.join(sky, 'forest.txt'), 'w').close()
-            self.assertTrue(is_nfs5_sky_archive(os.path.join(sky, 'Forest.fsh')))
-            self.assertFalse(is_nfs5_sky_archive(os.path.join(sky, 'Alps.fsh')))
-            self.assertFalse(is_nfs5_sky_archive(os.path.join(sky, 'Forest.fsh') + '__children/0/item/data'))
+            # ids as the loader makes them: a temporary folder name can hold `__`
+            forest = path_to_name(os.path.join(sky, 'Forest.fsh'))
+            self.assertTrue(is_nfs5_sky_archive(forest))
+            self.assertFalse(is_nfs5_sky_archive(path_to_name(os.path.join(sky, 'Alps.fsh'))))
+            self.assertFalse(is_nfs5_sky_archive(forest + '__children/0/item/data'))
 
 
 class TestNfs5Dome(unittest.TestCase):

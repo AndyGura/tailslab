@@ -1681,11 +1681,7 @@ class Nfs6Ps2ChunkBundle(DeclarativeCompoundBlock):
         '(track paths and routes, start grid markers, ground polygons, collision volumes, car types) and the '
         'lighting materials and paints are decoded, other chunks are kept as raw bytes'
     )
-
-    def serializer_class(self):
-        from serializers.nfs6_ps2_car_specs import Nfs6Ps2ChunkBundleSerializer
-
-        return Nfs6Ps2ChunkBundleSerializer
+    serializer = 'Nfs6Ps2ChunkBundleSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunks = (
@@ -1698,6 +1694,8 @@ class Nfs6Ps2ChunkBundle(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2TrackBundle(Nfs6Ps2ChunkBundle):
+    serializer = 'Nfs6Ps2TrackBundleSerializer'
+
     @property
     def schema(self) -> Dict:
         return {
@@ -1708,11 +1706,6 @@ class Nfs6Ps2TrackBundle(Nfs6Ps2ChunkBundle):
             'Textures are in TRACKS/TEX<track>LOCATION.BIN and TEX<track>TRACK.BIN. '
             + super().schema['block_description'],
         }
-
-    def serializer_class(self):
-        from serializers.maps import Nfs6Ps2TrackBundleSerializer
-
-        return Nfs6Ps2TrackBundleSerializer
 
 
 def is_nfs6_ps2_bundle(chunk_ids) -> bool:
@@ -1726,6 +1719,8 @@ def is_nfs6_ps2_track_bundle(chunk_ids) -> bool:
 
 
 class Nfs6Ps2CarGeometry(Nfs6Ps2ChunkBundle):
+    serializer = 'Nfs6Ps2CarSerializer'
+
     @property
     def schema(self) -> Dict:
         return {
@@ -1734,11 +1729,6 @@ class Nfs6Ps2CarGeometry(Nfs6Ps2ChunkBundle):
             'its collision hull. Textures are in CARS/TEXTURES.BIN and GLOBAL/GLOBALB.LZC, wheel positions and '
             'physics values in the car types table of GLOBALB. ' + super().schema['block_description'],
         }
-
-    def serializer_class(self):
-        from serializers.geometries import Nfs6Ps2CarSerializer
-
-        return Nfs6Ps2CarSerializer
 
 
 def is_nfs6_ps2_car_bundle(chunk_ids) -> bool:

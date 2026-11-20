@@ -79,6 +79,7 @@ class PlayerCarPhysics(DeclarativeCompoundBlock):
         '99e955994ebbcf970532406a197b580e) and [marcos2250](https://github.com/marcos2250/tnfs-1995/blob/main/'
         'tnfs_files.c)'
     )
+    serializer = 'JsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         mass_front = (
@@ -525,11 +526,6 @@ class PlayerCarPhysics(DeclarativeCompoundBlock):
             },
         )
 
-    def serializer_class(self):
-        from serializers import JsonSerializer
-
-        return JsonSerializer
-
 
 class CarAiAndCrashBody(DeclarativeCompoundBlock):
     block_description = (
@@ -538,6 +534,7 @@ class CarAiAndCrashBody(DeclarativeCompoundBlock):
         'Loaded by `tnfs_ai_pdn_file` (SE 0x40fa3c, DOS 0x47425, PSX 0x8001eaa8), applied by `tnfs_ai_init_car` '
         '(SE 0x4407b8). Angles are 24-bit (0x1000000 = full turn)'
     )
+    serializer = 'JsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         half_width = (
@@ -623,11 +620,6 @@ class CarAiAndCrashBody(DeclarativeCompoundBlock):
                 '(the cop never honks); 7 and 9 unused'
             },
         )
-
-    def serializer_class(self):
-        from serializers import JsonSerializer
-
-        return JsonSerializer
 
 
 # PBS fields the 3DO physics item doesn't have
@@ -875,6 +867,7 @@ class Nfs2CarPhysics(DeclarativeCompoundBlock):
         'elements, `CArray` = bytes), which also embed a copy of the file. Ranges in the descriptions are those of '
         "the game's 146 files (NFS2 and NFS2 SE, loose, `.QDA` and `CARDATA.VIV`)"
     )
+    serializer = 'Nfs2DataJsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         mass = (
@@ -1152,11 +1145,6 @@ class Nfs2CarPhysics(DeclarativeCompoundBlock):
             },
         )
 
-    def serializer_class(self):
-        from serializers.misc.nfs2_data_json import Nfs2DataJsonSerializer
-
-        return Nfs2DataJsonSerializer
-
 
 def _des(text: str, more: str = ''):
     return {'description': f'`.DES`: "{text}"' + (f'. {more}' if more else '')}
@@ -1399,6 +1387,7 @@ class Nfs2SimTune(DeclarativeCompoundBlock):
         "types and order come from the developers' field descriptions `GAMEDATA/CARMODEL/PC/SIMTUNE.DES` "
         '(`Fixed` = 16.16 fixed point, `Integer` = int), which also embed a copy of the file'
     )
+    serializer = 'Nfs2DataJsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         simulation = (
@@ -1412,11 +1401,6 @@ class Nfs2SimTune(DeclarativeCompoundBlock):
                 '(`.DES` heading "ARCADE MODE")'
             },
         )
-
-    def serializer_class(self):
-        from serializers.misc.nfs2_data_json import Nfs2DataJsonSerializer
-
-        return Nfs2DataJsonSerializer
 
 
 def _ai_accel_table():
@@ -1477,6 +1461,7 @@ class Nfs2CarAi(DeclarativeCompoundBlock):
         '"Arcade Mode Levers" (`Nfs2CarAiLevers`) in the middle; it also embeds a copy of `mcf1.dat`. Five '
         'cars (futr, dayt, chev, musc, mcf1) have identical files'
     )
+    serializer = 'Nfs2DataJsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         ai_shift_duration = (
@@ -1566,11 +1551,6 @@ class Nfs2CarAi(DeclarativeCompoundBlock):
                 '`new_slack_probability` (`Nfs2Personality`) instead. 40 in every file',
             },
         )
-
-    def serializer_class(self):
-        from serializers.misc.nfs2_data_json import Nfs2DataJsonSerializer
-
-        return Nfs2DataJsonSerializer
 
 
 class Nfs2TrafficGluePair(DeclarativeCompoundBlock):
@@ -1724,6 +1704,7 @@ class Nfs2TrafficConfig(DeclarativeCompoundBlock):
         'Parameters", "Glue Factors" and "AI Physics Configuration Parameters"; it also embeds a copy of the '
         'file. `MTRAF.BAT` there compiled it into the exe (`bin2src trafcfg.dat trafcfg.c`)'
     )
+    serializer = 'Nfs2DataJsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         opp_desired_ahead = (
@@ -1811,11 +1792,6 @@ class Nfs2TrafficConfig(DeclarativeCompoundBlock):
             Nfs2AiControl(),
             {'description': '`.DES` chain "Out Of Control AI Physics parameters", 0x4d800c'},
         )
-
-    def serializer_class(self):
-        from serializers.misc.nfs2_data_json import Nfs2DataJsonSerializer
-
-        return Nfs2DataJsonSerializer
 
 
 class Nfs2PersonalityGrid(DeclarativeCompoundBlock):
@@ -2014,6 +1990,7 @@ class Nfs2Personalities(DeclarativeCompoundBlock):
         'Assignments" and "Personalities" (one chain per personality, named after the letter and a '
         'description); it also embeds a copy of the file'
     )
+    serializer = 'Nfs2DataJsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         grid = (Nfs2PersonalityGrid(), {'description': '`.DES` chain "Grid Assignments"'})
@@ -2032,11 +2009,6 @@ class Nfs2Personalities(DeclarativeCompoundBlock):
         car_k = _personality('k')
         car_l = _personality('l')
         car_m = _personality('m', 'Every slot of the single race row with one AI racer')
-
-    def serializer_class(self):
-        from serializers.misc.nfs2_data_json import Nfs2DataJsonSerializer
-
-        return Nfs2DataJsonSerializer
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -2680,15 +2652,11 @@ class Nfs3CarPhysics(DeclarativeCompoundBlock):
     )
 
     Fields = _nfs3_carp_fields_class()
+    serializer = 'Nfs3CarPhysicsSerializer'
 
     @property
     def size_doc_str(self):
         return '?'
-
-    def serializer_class(self):
-        from serializers import Nfs3CarPhysicsSerializer
-
-        return Nfs3CarPhysicsSerializer
 
     def new_data(self, patch=None):
         res = {}
@@ -3308,11 +3276,7 @@ class Nfs4CarPhysics(Nfs3CarPhysics):
     )
 
     Fields = _nfs4_carp_fields_class()
-
-    def serializer_class(self):
-        from serializers import Nfs3CarPhysicsSerializer
-
-        return Nfs3CarPhysicsSerializer
+    serializer = 'Nfs3CarPhysicsSerializer'
 
     @classmethod
     def carp_exe_read(cls, raw: bytes) -> dict:
@@ -3401,6 +3365,7 @@ class Nfs5CarPhysics(DeclarativeCompoundBlock):
         'scale, +0x1c0 tyre type: 0 road, 1 rain, 2 race). The physics reads the specs from 0x49fd30 on, the '
         "rigid body update ('newton') from 0x499a70"
     )
+    serializer = 'CompleteJsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         name = (
@@ -3653,11 +3618,6 @@ class Nfs5CarPhysics(DeclarativeCompoundBlock):
             },
         )
 
-    def serializer_class(self):
-        from serializers import CompleteJsonSerializer
-
-        return CompleteJsonSerializer
-
 
 class Nfs5CarAi(DeclarativeCompoundBlock):
     block_description = (
@@ -3667,6 +3627,7 @@ class Nfs5CarAi(DeclarativeCompoundBlock):
         'when missing) into the AI specs at car+0x764 for every car; only the AI target speed 0x40b650 reads '
         'them (AI racers, a car the AI drives for the player). Track slices are 6 m apart on every track'
     )
+    serializer = 'CompleteJsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         name = (UTF8Block(length=32), {'description': 'Name ("Porsche 356 Family"), read by no code'})
@@ -3695,11 +3656,6 @@ class Nfs5CarAi(DeclarativeCompoundBlock):
             ArrayBlock(child=_f32(), length=4),
             {'description': 'Zeros in every file, read by no code (the AI specs are read by 0x40b650 only)'},
         )
-
-    def serializer_class(self):
-        from serializers import CompleteJsonSerializer
-
-        return CompleteJsonSerializer
 
 
 def _bytes(n: int, text: str):
@@ -3913,17 +3869,13 @@ class Nfs5CarParts(DeclarativeCompoundBlock):
         'NFS5 car parts, `FEData/Data/nfs5.prt`: 683 [Nfs5CarPart](#nfs5carpart) records, '
         'no header (read whole by Porsche.exe `Cars_LoadParts` 0x49c3a0 and `FEParts_Init` 0x517ad0)'
     )
+    serializer = 'CompleteJsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         parts = (
             ArrayBlock(child=Nfs5CarPart(), length=(lambda ctx: ctx.read_bytes_remaining // 0x168, 'file size / 360')),
             {'description': 'The parts'},
         )
-
-    def serializer_class(self):
-        from serializers import CompleteJsonSerializer
-
-        return CompleteJsonSerializer
 
 
 class Nfs5DashGauge(DeclarativeCompoundBlock):
@@ -4231,6 +4183,7 @@ class Nfs5Cars(DeclarativeCompoundBlock):
         'NFS5 car database, `FEData/Data/nfs5.car`: 109 [Nfs5CarRecord](#nfs5carrecord) '
         'records of 0x670 bytes, no header (cars, traffic, cops)'
     )
+    serializer = 'CompleteJsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         cars = (
@@ -4239,8 +4192,3 @@ class Nfs5Cars(DeclarativeCompoundBlock):
             ),
             {'description': 'The cars'},
         )
-
-    def serializer_class(self):
-        from serializers import CompleteJsonSerializer
-
-        return CompleteJsonSerializer

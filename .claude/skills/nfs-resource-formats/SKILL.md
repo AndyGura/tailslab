@@ -264,9 +264,9 @@ plumbing. To build one (see `ShpiBlock` in `resources/eac/archives/shpi_block.py
    a bespoke viewer for it.
 3. **Serialize it**: add a serializer class (subclass `BaseFileSerializer` from
    `serializers/base.py`) under `serializers/<area>.py`, implement `serialize()` (and
-   `deserialize()`/`ui_serialization()` if it should round-trip from the GUI convert panel), return
-   it from the block's `serializer_class()`, and import the new serializer class in
-   `serializers/__init__.py`.
+   `deserialize()`/`ui_serialization()` if it should round-trip from the GUI convert panel), name it
+   in the block's `serializer` class attribute (`serializer = 'SomeThingSerializer'`), and import the
+   new serializer class in `serializers/__init__.py` (the attribute is looked up there).
    For 3D formats, give each `SubMesh` a `texture_id`, list those ids in `Scene.mtl_texture_names`
    and set `Scene.mtl_texture_path_func`; the exported `.mtl` then carries the textures to every
    consumer (GUI OBJ preview, Blender, glb). `Scene.mtl_texture_alpha_modes` (texture name ->

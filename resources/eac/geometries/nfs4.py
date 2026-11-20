@@ -161,6 +161,7 @@ class Fce4Geometry(DeclarativeCompoundBlock):
         'car.viv. Alpha channel of the texture defines which car color is applied to the pixel: 224 primary, '
         '164 interior, 96 secondary, 32 driver hair color'
     )
+    serializer = 'Fce4GeometrySerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         version = (
@@ -344,8 +345,3 @@ class Fce4Geometry(DeclarativeCompoundBlock):
             ),
             {'is_unknown': True},
         )
-
-    def serializer_class(self):
-        from serializers import Fce4GeometrySerializer
-
-        return Fce4GeometrySerializer

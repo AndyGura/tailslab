@@ -45,8 +45,11 @@ Commonly overridden:
 - `size_doc_str` (property) — a short string used only for documentation (`"4"`, `"0..4"`,
   `"width*height"`, `"?"` if unknowable). Must tolerate being evaluated with a
   `DocumentationContext` (see below) — arithmetic/comparison ops only, no branching on real values.
-- `serializer_class()` — return a `ResourceSerializer` subclass to make this block convertible from
-  the GUI/CLI; return `None` (default) if it isn't independently convertible.
+- `serializer` (class attribute) — the name of a `ResourceSerializer` subclass in the `serializers`
+  package (`serializer = 'ImageSerializer'`) to make this block convertible from the GUI/CLI; `None`
+  (default) if it isn't independently convertible. `DataBlock.serializer_class()` resolves the name
+  (`BytesBlock`: `PlainBinarySerializer`, `DelegateBlock`: `DelegateBlockSerializer`); override
+  `serializer_class()` only for a serializer that depends on the block's settings.
 - For container blocks, subclass `DataBlockWithChildren` too and implement
   `get_child_block(name)`, `get_child_block_with_data(unpacked_data, name)`, and
   `offset_to_child_when_packed(data, child_name, ctx)` — these back the GUI's per-field navigation
@@ -163,9 +166,10 @@ Format-specific serializers (PNG export, OBJ export, WAV export, ...) belong in
 `nfs-resource-formats`. `ui_serialization()`'s return shape drives the GUI "convert" panel:
 `{file_type, is_directory, output_file_name_suffix, reversible, reversible_settings_patch}`
 (`None` hides the block from the convert UI). The only wiring point back into the system is a
-`DataBlock` subclass's own `serializer_class()` returning your class directly — `get_serializer()`
-in `serializers/__init__.py` just calls that — so a new serializer module needs an import added to
-`serializers/__init__.py` for its class(es) to be importable/discoverable, but no separate registry.
+`DataBlock` subclass's `serializer` attribute naming your class — `get_serializer()` in
+`serializers/__init__.py` calls `serializer_class()`, which looks the name up in the `serializers`
+package — so a new serializer class needs an import in `serializers/__init__.py`, but no separate
+registry.
 
 ## Spatial edits and partial chunk export (3D track viewer)
 

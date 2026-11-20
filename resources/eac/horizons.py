@@ -47,16 +47,13 @@ def _rgb(values, i) -> Rgb:
 
 
 class _HrzText(DeclarativeCompoundBlock):
+    serializer = 'EacHorizonSettingsSerializer'
+
     class Fields(DeclarativeCompoundBlock.Fields):
         text = (
             UTF8Block(length=(_whole_file, 'the whole file')),
             {'description': 'The settings text: C comments (`/* ... */`) and comma separated numbers'},
         )
-
-    def serializer_class(self):
-        from serializers import EacHorizonSettingsSerializer
-
-        return EacHorizonSettingsSerializer
 
     def parse(self, text: str):
         raise NotImplementedError
@@ -451,14 +448,10 @@ class Nfs4TrackIni(DeclarativeCompoundBlock):
         'sections: `[lightning]`, `[weather]`, `[light]`, `[special]`, `[track glows]`. See '
         '`library/utils/eac_horizon_to_spherical.py`'
     )
+    serializer = 'EacHorizonSettingsSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         text = (UTF8Block(length=(_whole_file, 'the whole file')), {'description': 'The INI text'})
-
-    def serializer_class(self):
-        from serializers import EacHorizonSettingsSerializer
-
-        return EacHorizonSettingsSerializer
 
     def parse(self, text: str):
         return parse_nfs4_sky_settings(text)

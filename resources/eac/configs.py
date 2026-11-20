@@ -140,6 +140,8 @@ class TrackStats(DeclarativeCompoundBlock):
 
 
 class TnfsConfigDat(DeclarativeCompoundBlock):
+    serializer = 'JsonSerializer'
+
     class Fields(DeclarativeCompoundBlock.Fields):
         player_name = (
             UTF8Block(length=42),
@@ -175,8 +177,3 @@ class TnfsConfigDat(DeclarativeCompoundBlock):
             },
         )
         unk3 = (BytesBlock(length=1), {'is_unknown': True})
-
-    def serializer_class(self):
-        from serializers import JsonSerializer
-
-        return JsonSerializer

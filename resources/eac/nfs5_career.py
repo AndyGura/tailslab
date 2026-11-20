@@ -190,6 +190,7 @@ class Nfs5FactoryMissions(DeclarativeCompoundBlock):
         'NFS5 Factory Driver missions, `FEData/Data/nfs5.fac`: 34 '
         '[Nfs5FactoryMission](#nfs5factorymission) records of 0xf0 bytes (`Factory_LoadMissions` 0x51aba0)'
     )
+    serializer = 'CompleteJsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         missions = (
@@ -198,11 +199,6 @@ class Nfs5FactoryMissions(DeclarativeCompoundBlock):
             ),
             {'description': 'The missions'},
         )
-
-    def serializer_class(self):
-        from serializers import CompleteJsonSerializer
-
-        return CompleteJsonSerializer
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -372,6 +368,7 @@ class Nfs5Tournaments(DeclarativeCompoundBlock):
         'NFS5 Evolution tournaments, `FEData/Data/nfs5.trn`: 35 '
         '[Nfs5Tournament](#nfs5tournament) records of 0xd40 bytes (`Tourn_Load` 0x502ff0)'
     )
+    serializer = 'CompleteJsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         tournaments = (
@@ -380,11 +377,6 @@ class Nfs5Tournaments(DeclarativeCompoundBlock):
             ),
             {'description': 'The tournaments'},
         )
-
-    def serializer_class(self):
-        from serializers import CompleteJsonSerializer
-
-        return CompleteJsonSerializer
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -424,6 +416,7 @@ class Nfs5Personalities(DeclarativeCompoundBlock):
         'NFS5 AI personalities, `FEData/Data/nfs5.per`: 35 [Nfs5Personality](#nfs5personality) '
         'records of 0x2c bytes (`FE_LoadPersonalities` 0x4e2f30)'
     )
+    serializer = 'CompleteJsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         personalities = (
@@ -432,8 +425,3 @@ class Nfs5Personalities(DeclarativeCompoundBlock):
             ),
             {'description': 'The personalities'},
         )
-
-    def serializer_class(self):
-        from serializers import CompleteJsonSerializer
-
-        return CompleteJsonSerializer

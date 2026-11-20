@@ -176,6 +176,7 @@ class TnfsPsxHorizonInfo(DeclarativeCompoundBlock):
         '`hrz7`..`hrz0` mirrored). Unlike the PC there is no ring type (the PSX always draws the ring) and no '
         'time of day values. See `library/utils/tnfs_psx_horizon_to_spherical.py` for how the game draws them'
     )
+    serializer = 'TnfsPsxHorizonInfoSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         text = (
@@ -190,11 +191,6 @@ class TnfsPsxHorizonInfo(DeclarativeCompoundBlock):
     def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
         packed = super().write({**data, 'crc_footer': None}, ctx, name)
         return with_crc_footer(packed, data.get('crc_footer'))
-
-    def serializer_class(self):
-        from serializers import TnfsPsxHorizonInfoSerializer
-
-        return TnfsPsxHorizonInfoSerializer
 
 
 GOURAUD_RECORD_LENGTH = 14
@@ -250,6 +246,7 @@ class TnfsPsxGouraudColors(DeclarativeCompoundBlock):
         "its material's `color` on every corner. A record of another polygon is not used (the KHGC211's "
         'polygon 0). None of these polygons is semi-transparent. Only the high-poly models have such polygons'
     )
+    serializer = 'JsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         records = (
@@ -275,8 +272,3 @@ class TnfsPsxGouraudColors(DeclarativeCompoundBlock):
     def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
         packed = super().write({**data, 'crc_footer': None}, ctx, name)
         return with_crc_footer(packed, data.get('crc_footer'))
-
-    def serializer_class(self):
-        from serializers import JsonSerializer
-
-        return JsonSerializer
