@@ -64,11 +64,12 @@ cd frontend && npm run test -- --watch=false --no-progress --browsers=ChromeHead
 Plus the golden-corpus round-trip snippet (`TEST_ENVIRONMENT.md`) — not part of the committed
 suite, but cheap enough to run every time regardless of scope.
 
-If `library/read_blocks/**` or a widely-shared `resources/` module changed, additionally un-skip
-and run `test/resources/test_games_directory.py::test_all_game_files_should_remain_the_same`
-locally (it's `@unittest.skip`'d for CI cost reasons, not because it's unreliable) against
-whatever `games/` directory is available — this is the only check with real-world format-variety
-coverage at scale. Re-apply the skip afterward; don't commit it un-skipped.
+If `library/read_blocks/**` or a widely-shared `resources/` module changed, and before every
+release, additionally run `test/resources/test_games_directory.py` locally with
+`NFS_GAMES_ROUNDTRIP=1` (opt-in because it takes more than 10 minutes, not because it's
+unreliable) against whatever `games/` directory is available — this is the only check with
+real-world format-variety coverage at scale. It fails on fewer passed files per extension than the
+committed `game_files_stats.txt`; commit the updated stats and failures files.
 
 ### 6. Run the broader exploratory pass around changed areas
 Bring up the environment from `TEST_ENVIRONMENT.md` and manually/agent-drive the affected screens

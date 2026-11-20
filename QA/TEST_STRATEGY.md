@@ -87,9 +87,8 @@ Rank by **user impact × how silently it could regress**, not by feature size:
   add the specific `TEST_PLAN.md` scenarios for whatever area changed.
 - **Before a release**: full `TEST_PLAN.md` pass + a `games/`-directory-scale corpus round-trip if
   `library/read_blocks` or a widely-shared `resources/` module changed (see
-  `test/resources/test_games_directory.py`, currently `@unittest.skip`'d because it's slow —
-  un-skip it locally for a release check, don't enable it in CI without discussing the runtime
-  cost).
+  `test/resources/test_games_directory.py`, opt-in with `NFS_GAMES_ROUNDTRIP=1` because it takes
+  more than 10 minutes; don't enable it in CI without discussing the runtime cost).
 - **After a significant architectural change** (e.g. bridge/API shape, build tooling, Angular
   version): re-verify the whole `TEST_ENVIRONMENT.md` setup still works *before* trusting any GUI
   test result from it — the setup itself is a dependency.

@@ -101,6 +101,20 @@ docs and a working GUI editor for free.
 - CI (`.github/workflows/pull_request_build.yml`) runs exactly the two test commands above —
   keep both green before considering a change done.
 
+## Releases
+
+- A push to main whose commit message contains `[release]` runs `.github/workflows/release.yml`: it tags
+  `v<version>` (`version.py`), builds the Windows installer + portable `.exe` and the macOS `.dmg` (PyInstaller
+  `tailslab.spec`; the Linux build is commented out), publishes them as a GitHub release, then commits the patch version
+  bump (`chore: bump version to <n> [skip ci]`). `build-extras.yml` skips `[release]` commits.
+- Before a release (`QA/REGRESSION.md` derives the full scope from the diff): both test suites; the games round-trip
+  (`NFS_GAMES_ROUNDTRIP=1`, "Conventions worth knowing"), its `game_files_stats.txt` / `game_files_failures.txt`
+  committed with no regressions; `test/test_gui_golden_corpus.sh` (every sample opens); `run.py convert` of `games/`
+  at the previous tag and at HEAD, the outputs differing only by what the release changes. The binaries (installing,
+  starting, the version in the menu, opening files from the file manager) are checked by hand on each platform.
+- A problem found in a release is fixed on a hotfix branch: a failing test for it first where possible, then that fix
+  only, no other changes; merged to main and released.
+
 ## Keep this file and the skills current
 
 This file and the two skills (`read-block-framework`, `nfs-resource-formats`) are meant to track

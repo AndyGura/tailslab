@@ -266,8 +266,8 @@ fallback path in `library/read_blocks/delegates.py`) — these are noise, not fa
 the script's own `bad` list.
 
 For the much larger, git-ignored `games/` directory (full real game installs — not tracked in git,
-personal/local only), see `test/resources/test_games_directory.py` (currently
-`@unittest.skip`'d because it's slow — a few minutes over ~8,000 files). **If you add a file from
+personal/local only), see `test/resources/test_games_directory.py` (opt-in with
+`NFS_GAMES_ROUNDTRIP=1` because it takes more than 10 minutes). **If you add a file from
 `games/` to any git-tracked test fixture location (e.g. `test/golden_corpus/`), copy it in
 explicitly** — `games/` itself is `.gitignore`d, so referencing a path under it from a checked-in
 test would break for anyone else who clones the repo.
