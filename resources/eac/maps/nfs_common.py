@@ -9,6 +9,8 @@ from library.read_blocks import (
     BytesBlock,
     FixedPointBlock,
     SubByteCompoundBlock,
+    CountOf,
+    OwnSize,
 )
 from library.read_blocks.misc.value_validators import Eq
 from resources.eac.fields.misc import RGBBlock, Point3D, Quaternion
@@ -241,7 +243,7 @@ class AnimatedPropPosition(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         num_frames = (
-            IntegerBlock(length=2, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('frames'))),
+            IntegerBlock(length=2, is_signed=False, programmatic_value=CountOf('frames')),
             {'description': 'An amount of frames'},
         )
         anim_delay = (
@@ -253,7 +255,7 @@ class AnimatedPropPosition(DeclarativeCompoundBlock):
             },
         )
         frames = (
-            ArrayBlock(length=lambda ctx: ctx.data('num_frames'), child=AnimatedPropPositionFrame()),
+            ArrayBlock(length='num_frames', child=AnimatedPropPositionFrame()),
             {'description': 'Animation frames, played in a loop'},
         )
 
@@ -288,11 +290,7 @@ class PropExtraDataRecord(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         block_size = (
-            IntegerBlock(
-                length=2,
-                is_signed=False,
-                programmatic_value=lambda ctx: ctx.block.estimate_packed_size(ctx.get_full_data()),
-            ),
+            IntegerBlock(length=2, is_signed=False, programmatic_value=OwnSize()),
             {'description': 'Block size in bytes'},
         )
         type = (
@@ -357,30 +355,25 @@ class PropDescriptionExtraDataRecord(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         block_size = (
-            IntegerBlock(
-                length=4,
-                is_signed=False,
-                programmatic_value=lambda ctx: ctx.block.estimate_packed_size(ctx.get_full_data()),
-            ),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=OwnSize()),
             {'description': 'Block size in bytes'},
         )
         num_vertices = (
-            IntegerBlock(length=2, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('vertices'))),
+            IntegerBlock(length=2, is_signed=False, programmatic_value=CountOf('vertices')),
             {'description': 'Amount of vertices'},
         )
         num_polygons = (
-            IntegerBlock(length=2, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('polygons'))),
+            IntegerBlock(length=2, is_signed=False, programmatic_value=CountOf('polygons')),
             {'description': 'Amount of polygons'},
         )
         vertices = (
             ArrayBlock(
-                child=Point3D(child=FixedPointBlock(length=2, fraction_bits=8, is_signed=True)),
-                length=lambda ctx: ctx.data('num_vertices'),
+                child=Point3D(child=FixedPointBlock(length=2, fraction_bits=8, is_signed=True)), length='num_vertices'
             ),
             {'description': 'Vertices, relative to the prop position'},
         )
         polygons = (
-            ArrayBlock(child=ColPolygon(), length=lambda ctx: ctx.data('num_polygons')),
+            ArrayBlock(child=ColPolygon(), length='num_polygons'),
             {
                 'description': 'Polygons. Textures are referenced through the textures_map of the COL file, '
                 'the same way as for terrain polygons'
@@ -774,11 +767,7 @@ class ColExtraBlock(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         block_size = (
-            IntegerBlock(
-                length=4,
-                is_signed=False,
-                programmatic_value=lambda ctx: ctx.block.estimate_packed_size(ctx.get_full_data()),
-            ),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=OwnSize()),
             {'description': 'Block size in bytes'},
         )
         type = (
@@ -807,25 +796,25 @@ class ColExtraBlock(DeclarativeCompoundBlock):
         )
         unk = (IntegerBlock(length=1, value_validator=Eq(0)), {'is_unknown': True})
         num_data_records = (
-            IntegerBlock(length=2, programmatic_value=lambda ctx: len(ctx.data('data_records'))),
+            IntegerBlock(length=2, programmatic_value=CountOf('data_records')),
             {'description': 'Amount of data records'},
         )
         data_records = (
             EnumLookupDelegateBlock(
                 enum_field='type',
                 blocks=[
-                    ArrayBlock(child=TexturesMapExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
-                    ArrayBlock(child=IntegerBlock(length=2), length=lambda ctx: ctx.data('num_data_records')),
-                    ArrayBlock(child=PolygonMapExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
-                    ArrayBlock(child=MedianExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
-                    ArrayBlock(child=PropExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
-                    ArrayBlock(child=PropDescriptionExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
-                    ArrayBlock(child=RoadLineExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
-                    ArrayBlock(child=TrackObjectExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
-                    ArrayBlock(child=RoadVectorsExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
-                    ArrayBlock(child=CollisionExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
-                    ArrayBlock(child=PropExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
-                    ArrayBlock(child=PropExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
+                    ArrayBlock(child=TexturesMapExtraDataRecord(), length='num_data_records'),
+                    ArrayBlock(child=IntegerBlock(length=2), length='num_data_records'),
+                    ArrayBlock(child=PolygonMapExtraDataRecord(), length='num_data_records'),
+                    ArrayBlock(child=MedianExtraDataRecord(), length='num_data_records'),
+                    ArrayBlock(child=PropExtraDataRecord(), length='num_data_records'),
+                    ArrayBlock(child=PropDescriptionExtraDataRecord(), length='num_data_records'),
+                    ArrayBlock(child=RoadLineExtraDataRecord(), length='num_data_records'),
+                    ArrayBlock(child=TrackObjectExtraDataRecord(), length='num_data_records'),
+                    ArrayBlock(child=RoadVectorsExtraDataRecord(), length='num_data_records'),
+                    ArrayBlock(child=CollisionExtraDataRecord(), length='num_data_records'),
+                    ArrayBlock(child=PropExtraDataRecord(), length='num_data_records'),
+                    ArrayBlock(child=PropExtraDataRecord(), length='num_data_records'),
                     BytesBlock(length=lambda ctx: ctx.data('block_size') - 8),
                 ],
             ),
@@ -848,16 +837,12 @@ class MapColFile(DeclarativeCompoundBlock):
         resource_id = (UTF8Block(length=4, value_validator=Eq('COLL')), {'description': 'Resource ID'})
         unk = (IntegerBlock(length=4, value_validator=Eq(11)), {'is_unknown': True})
         block_size = (
-            IntegerBlock(
-                length=4,
-                is_signed=False,
-                programmatic_value=lambda ctx: ctx.block.estimate_packed_size(ctx.get_full_data()),
-            ),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=OwnSize()),
             {'description': 'File size in bytes'},
         )
         num_extrablocks = (IntegerBlock(length=4, is_signed=False), {'description': 'Number of extrablocks'})
         extrablock_offsets = (
-            ArrayBlock(child=IntegerBlock(length=4, is_signed=False), length=lambda ctx: ctx.data('num_extrablocks')),
+            ArrayBlock(child=IntegerBlock(length=4, is_signed=False), length='num_extrablocks'),
             {'description': 'Offset to each of the extrablocks'},
         )
         extrablocks_bytes = (
@@ -911,18 +896,18 @@ class Nfs3ColExtraBlock(ColExtraBlock):
             EnumLookupDelegateBlock(
                 enum_field='type',
                 blocks=[
-                    ArrayBlock(child=Nfs3TexturesMapExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
-                    ArrayBlock(child=IntegerBlock(length=2), length=lambda ctx: ctx.data('num_data_records')),
-                    ArrayBlock(child=PolygonMapExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
-                    ArrayBlock(child=MedianExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
-                    ArrayBlock(child=PropExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
-                    ArrayBlock(child=PropDescriptionExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
-                    ArrayBlock(child=RoadLineExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
-                    ArrayBlock(child=TrackObjectExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
-                    ArrayBlock(child=RoadVectorsExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
-                    ArrayBlock(child=Nfs3CollisionExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
-                    ArrayBlock(child=PropExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
-                    ArrayBlock(child=PropExtraDataRecord(), length=lambda ctx: ctx.data('num_data_records')),
+                    ArrayBlock(child=Nfs3TexturesMapExtraDataRecord(), length='num_data_records'),
+                    ArrayBlock(child=IntegerBlock(length=2), length='num_data_records'),
+                    ArrayBlock(child=PolygonMapExtraDataRecord(), length='num_data_records'),
+                    ArrayBlock(child=MedianExtraDataRecord(), length='num_data_records'),
+                    ArrayBlock(child=PropExtraDataRecord(), length='num_data_records'),
+                    ArrayBlock(child=PropDescriptionExtraDataRecord(), length='num_data_records'),
+                    ArrayBlock(child=RoadLineExtraDataRecord(), length='num_data_records'),
+                    ArrayBlock(child=TrackObjectExtraDataRecord(), length='num_data_records'),
+                    ArrayBlock(child=RoadVectorsExtraDataRecord(), length='num_data_records'),
+                    ArrayBlock(child=Nfs3CollisionExtraDataRecord(), length='num_data_records'),
+                    ArrayBlock(child=PropExtraDataRecord(), length='num_data_records'),
+                    ArrayBlock(child=PropExtraDataRecord(), length='num_data_records'),
                     BytesBlock(length=lambda ctx: ctx.data('block_size') - 8),
                 ],
             ),

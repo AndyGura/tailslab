@@ -6,12 +6,20 @@ from typing import Dict, Any, Tuple, Optional
 from library.context import ReadContext, WriteContext, DocumentationContext
 from library.exceptions import DataIntegrityException, BlockDefinitionException, EndOfBufferException
 from library.read_blocks.misc.value_validators import ValueValidator
+from library.read_blocks.references import is_static_param, param_doc, param_value
 from library.read_blocks.struct_record import StructRecord
 from library.utils import represent_value_as_str
 
 
 # cached properties computed from a block's settings
-CACHED_LAYOUT_PROPERTIES = ('fixed_size', 'struct_format', 'struct_raw', 'struct_record', 'struct_fields')
+CACHED_LAYOUT_PROPERTIES = (
+    'fixed_size',
+    'struct_format',
+    'struct_raw',
+    'struct_record',
+    'struct_fields',
+    'back_patched_fields',
+)
 
 
 class DataBlock(ABC):
@@ -178,6 +186,7 @@ class DataBlockWithChildren(ABC):
 class BytesBlock(DataBlock):
     serializer = 'PlainBinarySerializer'
 
+    # `length`: a block parameter (library/read_blocks/references.py)
     def __init__(self, length, allow_negative_length=False, **kwargs):
         super().__init__(**kwargs)
         self._length = length
@@ -186,16 +195,7 @@ class BytesBlock(DataBlock):
     # For auto-generated documentation only
     @property
     def size_doc_str(self):
-        if isinstance(self._length, tuple):
-            (_, doc_str) = self._length
-            return doc_str
-        if callable(self._length):
-            try:
-                return str(self._length(DocumentationContext()))
-            except:
-                return 'custom_func'
-        else:
-            return str(self._length)
+        return param_doc(self._length)
 
     @property
     def schema(self) -> Dict:
@@ -208,13 +208,7 @@ class BytesBlock(DataBlock):
         }
 
     def resolve_length(self, ctx):
-        self_len = self._length
-        if isinstance(self_len, tuple):
-            # cut off the documentation
-            (self_len, _) = self_len
-        if callable(self_len):
-            self_len = self_len(ctx)
-        return self_len
+        return param_value(self._length, ctx)
 
     def new_data(self, patch=None):
         if self.value_validator:
@@ -223,7 +217,7 @@ class BytesBlock(DataBlock):
         if isinstance(self_len, tuple):
             # cut off the documentation
             (self_len, _) = self_len
-        if callable(self_len) or self_len is None:
+        if not is_static_param(self_len) or self_len is None:
             return b''
         return bytes([0] * self_len)
 
@@ -248,8 +242,7 @@ class BytesBlock(DataBlock):
 
 class Padding(BytesBlock):
     def __init__(self, to, is_global=False, **kwargs):
-        # handle case where 'to' is a tuple (lambda, description)
-        to_lambda = to[0] if isinstance(to, tuple) else to
+        # `to`: a block parameter (library/read_blocks/references.py)
         if isinstance(to, tuple):
             to_descr = to[1]
         elif callable(to):
@@ -258,13 +251,10 @@ class Padding(BytesBlock):
             except:
                 to_descr = '?'
         else:
-            to_descr = str(to)
+            to_descr = param_doc(to)
         super().__init__(
             length=(
-                lambda ctx: (
-                    (to_lambda(ctx) if callable(to_lambda) else to_lambda)
-                    - (ctx.buffer.tell() if is_global else ctx.local_buffer_pos)
-                ),
+                lambda ctx: param_value(to, ctx) - (ctx.buffer.tell() if is_global else ctx.local_buffer_pos),
                 f'up to offset {to_descr}',
             ),
             **kwargs,

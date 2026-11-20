@@ -8,6 +8,7 @@ from library.context import ReadContext, WriteContext
 from library.exceptions import BlockDefinitionException, DataIntegrityException
 from library.read_blocks.basic import DataBlock, DataBlockWithChildren
 from library.read_blocks.numbers import IntegerBlock
+from library.read_blocks.references import LayoutReference, OffsetOf, OwnSize
 from library.read_blocks.struct_record import join_struct_formats
 from library.utils.docs import add_doc_numbers
 
@@ -201,6 +202,33 @@ class CompoundBlock(DataBlockWithChildren, DataBlock, ABC):
             ctx=ctx, message=f'Cannot calculate offset to child "{child_name}". Child with such name not found'
         )
 
+    # The io fields whose programmatic value is a `LayoutReference` that `write` takes from the written bytes: fields
+    # of a fixed size, referring to io fields. Own size and offsets only where the class sizes the block as `write`
+    # writes it (else they are estimated, as any programmatic value)
+    @cached_property
+    def back_patched_fields(self) -> Dict[str, LayoutReference]:
+        cls = type(self)
+        io_names = {name for name, _ in self.io_field_blocks}
+        res = {}
+        for name, field in self.io_field_blocks:
+            reference = field.programmatic_value
+            if (
+                not isinstance(reference, LayoutReference)
+                or field.fixed_size is None
+                or not io_names.issuperset(reference.names)
+                or (
+                    isinstance(reference, OwnSize)
+                    and cls.estimate_packed_size is not CompoundBlock.estimate_packed_size
+                )
+                or (
+                    isinstance(reference, OffsetOf)
+                    and cls.offset_to_child_when_packed is not CompoundBlock.offset_to_child_when_packed
+                )
+            ):
+                continue
+            res[name] = reference
+        return res
+
     def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
         record = self.struct_record
         if record is not None:
@@ -211,8 +239,25 @@ class CompoundBlock(DataBlockWithChildren, DataBlock, ABC):
                 pass
         self_ctx = WriteContext(data=data, name=name, block=self, parent=ctx)
         self_ctx.result = bytes()
+        back_patched = self.back_patched_fields
+        if not back_patched:
+            for name, field in self.io_field_blocks:
+                self_ctx.result += field.pack(data=data.get(name), ctx=self_ctx, name=name)
+            return self_ctx.result
+        # (start, end) of each field: back-patched fields are zeros until the others are written
+        spans = {}
         for name, field in self.io_field_blocks:
-            self_ctx.result += field.pack(data=data.get(name), ctx=self_ctx, name=name)
+            start = len(self_ctx.result)
+            if name in back_patched:
+                self_ctx.result += bytes(field.fixed_size)
+            else:
+                self_ctx.result += field.pack(data=data.get(name), ctx=self_ctx, name=name)
+            spans[name] = (start, len(self_ctx.result))
+        res = bytearray(self_ctx.result)
+        for name, reference in back_patched.items():
+            start, end = spans[name]
+            res[start:end] = self.field_blocks_map[name].write(reference.from_spans(spans, len(res)), self_ctx, name)
+        self_ctx.result = bytes(res)
         return self_ctx.result
 
 

@@ -8,6 +8,7 @@ from library.read_blocks import (
     FixedPointBlock,
     OptionalBlock,
     SubByteCompoundBlock,
+    CountOf,
 )
 from resources.eac.fields.misc import Point3D, Quaternion
 
@@ -575,12 +576,12 @@ class Nfs4AnimExtra(DeclarativeCompoundBlock):
         anim_type = (IntegerBlock(length=1, is_signed=False), {'is_unknown': True})
         anim_id = (IntegerBlock(length=1, is_signed=False), {'is_unknown': True})
         num_keyframes = (
-            IntegerBlock(length=2, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('keyframes'))),
+            IntegerBlock(length=2, is_signed=False, programmatic_value=CountOf('keyframes')),
             {'usage': 'io,doc', 'description': 'Amount of keyframes'},
         )
         delay = (IntegerBlock(length=2, is_signed=False), {'description': 'Animation delay/period'})
         keyframes = (
-            ArrayBlock(child=Nfs4AnimKeyframe(), length=lambda ctx: ctx.data('num_keyframes')),
+            ArrayBlock(child=Nfs4AnimKeyframe(), length='num_keyframes'),
             {'description': 'Animation keyframes'},
         )
 
@@ -935,11 +936,11 @@ class Nfs4FrdMap(DeclarativeCompoundBlock):
             {'description': 'Number of the last track block: the number of blocks - 1'},
         )
         num_vroad = (
-            IntegerBlock(length=4, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('vroad'))),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=CountOf('vroad')),
             {'description': 'Number of virtual road records: the number of track slices'},
         )
         vroad = (
-            ArrayBlock(child=Nfs4VRoadBlock(), length=lambda ctx: ctx.data('num_vroad')),
+            ArrayBlock(child=Nfs4VRoadBlock(), length='num_vroad'),
             {
                 'description': 'Virtual road: one record per track slice, 8 slices per block (`num_slices` of the '
                 'block headers). heights.sim, spdFA.bin and spdRA.bin have one value per record'
@@ -957,11 +958,7 @@ class Nfs4FrdMap(DeclarativeCompoundBlock):
             {'description': 'Track block geometry and extra data'},
         )
         num_global_objects_0 = (
-            IntegerBlock(
-                length=4,
-                is_signed=False,
-                programmatic_value=lambda ctx: len(ctx.data('global_objects_0/object_headers')),
-            ),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=CountOf('global_objects_0/object_headers')),
             {'usage': 'io,doc', 'description': 'Amount of objects in `global_objects_0`'},
         )
         global_objects_0 = (
@@ -969,11 +966,7 @@ class Nfs4FrdMap(DeclarativeCompoundBlock):
             {'description': 'Extra objects not attached to any track block'},
         )
         num_global_objects_1 = (
-            IntegerBlock(
-                length=4,
-                is_signed=False,
-                programmatic_value=lambda ctx: len(ctx.data('global_objects_1/object_headers')),
-            ),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=CountOf('global_objects_1/object_headers')),
             {'usage': 'io,doc', 'description': 'Amount of objects in `global_objects_1`'},
         )
         global_objects_1 = (

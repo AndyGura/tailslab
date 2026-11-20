@@ -1,11 +1,13 @@
 from typing import Dict
 
-from library.context import ReadContext, WriteContext, DocumentationContext
+from library.context import ReadContext, WriteContext
 from library.exceptions import DataIntegrityException, EndOfBufferException
 from library.read_blocks.basic import DataBlock
+from library.read_blocks.references import is_static_param, param_doc, param_value
 
 
 class UTF8Block(DataBlock):
+    # `length`: a block parameter (library/read_blocks/references.py)
     def __init__(self, length, **kwargs):
         super().__init__(**kwargs)
         self._length = length
@@ -20,33 +22,15 @@ class UTF8Block(DataBlock):
     # For auto-generated documentation only
     @property
     def size_doc_str(self):
-        if isinstance(self._length, tuple):
-            (_, doc_str) = self._length
-            return doc_str
-        if callable(self._length):
-            try:
-                return str(self._length(DocumentationContext()))
-            except:
-                return 'custom_func'
-        return str(self._length)
+        return param_doc(self._length)
 
     def resolve_length(self, ctx):
-        self_len = self._length
-        if isinstance(self_len, tuple):
-            # cut off the documentation
-            (self_len, _) = self_len
-        if callable(self_len):
-            self_len = self_len(ctx)
-        return self_len
+        return param_value(self._length, ctx)
 
     def _get_static_length(self):
-        self_len = self._length
-        if isinstance(self_len, tuple):
-            # cut off the documentation
-            (self_len, _) = self_len
-        if callable(self_len):
+        if not is_static_param(self._length):
             return None
-        return self_len
+        return self._length[0] if isinstance(self._length, tuple) else self._length
 
     def new_data(self, patch=None):
         if self.value_validator:

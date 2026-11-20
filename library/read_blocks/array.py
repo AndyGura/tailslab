@@ -3,14 +3,16 @@ from functools import cached_property
 from math import ceil
 from typing import Dict, Tuple, Any, Optional
 
-from library.context import ReadContext, WriteContext, DocumentationContext
+from library.context import ReadContext, WriteContext
 from library.exceptions import EndOfBufferException
 from library.read_blocks.basic import DataBlock, DataBlockWithChildren
 from library.read_blocks.numbers import IntegerBlock
+from library.read_blocks.references import is_static_param, param_doc, param_value
 from library.utils.docs import multiply_doc_numbers
 
 
 class ArrayBlock(DataBlockWithChildren, DataBlock, ABC):
+    # `length`: a block parameter (library/read_blocks/references.py)
     def __init__(self, child: DataBlock, length, **kwargs):
         super().__init__(**kwargs)
         self.child = child
@@ -23,26 +25,14 @@ class ArrayBlock(DataBlockWithChildren, DataBlock, ABC):
             'block_description': f'Array of `{self.length_doc_str}` items',
             'child_schema': self.child.schema,
         }
-        len = self._length
-        if isinstance(len, tuple):
-            # cut off the documentation
-            (len, _) = len
-        if not callable(len):
-            schema['length'] = len
+        if is_static_param(self._length):
+            schema['length'] = self._length[0] if isinstance(self._length, tuple) else self._length
         return schema
 
     # For auto-generated documentation only
     @property
     def length_doc_str(self):
-        if isinstance(self._length, tuple):
-            (_, doc_str) = self._length
-            return doc_str
-        if callable(self._length):
-            try:
-                return str(self._length(DocumentationContext()))
-            except:
-                return 'custom_func'
-        return str(self._length)
+        return param_doc(self._length)
 
     # For auto-generated documentation only
     @property
@@ -57,13 +47,7 @@ class ArrayBlock(DataBlockWithChildren, DataBlock, ABC):
         return multiply_doc_numbers(length_doc, child_size_doc)
 
     def resolve_length(self, ctx):
-        self_len = self._length
-        if isinstance(self_len, tuple):
-            # cut off the documentation
-            (self_len, _) = self_len
-        if callable(self_len):
-            self_len = self_len(ctx)
-        return self_len
+        return param_value(self._length, ctx)
 
     # the length when it is the same for every array: a positive number (0 marks arrays filled by custom code)
     @property
@@ -133,7 +117,7 @@ class ArrayBlock(DataBlockWithChildren, DataBlock, ABC):
         if isinstance(self_len, tuple):
             # cut off the documentation
             (self_len, _) = self_len
-        if callable(self_len) or self_len is None:
+        if not is_static_param(self_len) or self_len is None:
             return []
         return [self.child.new_data()] * self_len
 
@@ -270,15 +254,7 @@ class SubByteArrayBlock(DataBlock):
     # For auto-generated documentation only
     @property
     def length_doc_str(self):
-        if isinstance(self._length, tuple):
-            (_, doc_str) = self._length
-            return doc_str
-        if callable(self._length):
-            try:
-                return str(self._length(DocumentationContext()))
-            except:
-                return 'custom_func'
-        return str(self._length)
+        return param_doc(self._length)
 
     # For auto-generated documentation only
     @property
@@ -290,13 +266,7 @@ class SubByteArrayBlock(DataBlock):
             return f'ceil(({length_doc})*{self.bits_per_value}/8)'
 
     def resolve_length(self, ctx):
-        self_len = self._length
-        if isinstance(self_len, tuple):
-            # cut off the documentation
-            (self_len, _) = self_len
-        if callable(self_len):
-            self_len = self_len(ctx)
-        return self_len
+        return param_value(self._length, ctx)
 
     def get_child_block_with_data(self, unpacked_data: list, name: str) -> Tuple['DataBlock', Any]:
         return None, unpacked_data[int(name)]
@@ -308,7 +278,7 @@ class SubByteArrayBlock(DataBlock):
         if isinstance(self_len, tuple):
             # cut off the documentation
             (self_len, _) = self_len
-        if callable(self_len):
+        if not is_static_param(self_len):
             return []
         return [0] * self_len
 

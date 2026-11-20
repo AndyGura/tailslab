@@ -122,8 +122,7 @@ class GeoMesh(DeclarativeCompoundBlock):
         )
         vertices = (
             ArrayBlock(
-                length=lambda ctx: ctx.data('num_vrtx'),
-                child=Point3D(child=FixedPointBlock(length=2, fraction_bits=8, is_signed=True)),
+                length='num_vrtx', child=Point3D(child=FixedPointBlock(length=2, fraction_bits=8, is_signed=True))
             ),
             {'description': 'Vertex coordinates. The unit is meter'},
         )
@@ -132,7 +131,7 @@ class GeoMesh(DeclarativeCompoundBlock):
             {'description': 'Data offset, happens when `num_vrtx` is odd'},
         )
         polygons = (
-            ArrayBlock(length=lambda ctx: ctx.data('num_plgn'), child=GeoPolygon()),
+            ArrayBlock(length='num_plgn', child=GeoPolygon()),
             {'description': 'Array of mesh polygons'},
         )
 

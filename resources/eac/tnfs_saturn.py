@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Tuple
 
 from library.context import ReadContext, WriteContext
 from library.read_blocks import (
+    SizeOf,
     ArrayBlock,
     BytesBlock,
     DeclarativeCompoundBlock,
@@ -19,6 +20,7 @@ from library.read_blocks import (
     IntegerBlock,
     TrailingOptionalBlock,
     UTF8Block,
+    CountOf,
 )
 from library.read_blocks.misc.value_validators import Eq
 from library.utils import transform_bitness
@@ -206,30 +208,30 @@ class TnfsSaturnTextureBank(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         num_textures = (
-            IntegerBlock(length=4, byte_order='big', programmatic_value=lambda ctx: len(ctx.data('textures'))),
+            IntegerBlock(length=4, byte_order='big', programmatic_value=CountOf('textures')),
             {'description': 'Number of textures'},
         )
         textures = (
-            ArrayBlock(child=TnfsSaturnTextureEntry(), length=lambda ctx: ctx.data('num_textures')),
+            ArrayBlock(child=TnfsSaturnTextureEntry(), length='num_textures'),
             {
                 'description': 'The textures: high-poly banks have `J000`.. (the polygon textures of the model), the tyres '
                 '`Tir1`..`Tir4` (`Tyr1`..`Tyr4` in the PGC10) and a few more (`null`); low-poly banks `J000`..`J007`'
             },
         )
         pixels_size = (
-            IntegerBlock(length=4, byte_order='big', programmatic_value=lambda ctx: len(ctx.data('pixels'))),
+            IntegerBlock(length=4, byte_order='big', programmatic_value=CountOf('pixels')),
             {'description': 'Length of `pixels` in bytes'},
         )
         pixels = (
-            BytesBlock(length=(lambda ctx: ctx.data('pixels_size'), 'pixels_size')),
+            BytesBlock(length='pixels_size'),
             {'description': 'Pixels of every texture, 4 bits each'},
         )
         num_colors = (
-            IntegerBlock(length=4, byte_order='big', programmatic_value=lambda ctx: len(ctx.data('colors'))),
+            IntegerBlock(length=4, byte_order='big', programmatic_value=CountOf('colors')),
             {'description': 'Number of colours: 16 per texture'},
         )
         colors = (
-            ArrayBlock(child=IntegerBlock(length=2, byte_order='big'), length=lambda ctx: ctx.data('num_colors')),
+            ArrayBlock(child=IntegerBlock(length=2, byte_order='big'), length='num_colors'),
             {'description': 'Colour lookup tables, 16 colours per texture, in texture order'},
         )
 
@@ -333,13 +335,7 @@ class TnfsSaturnCockpit(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         dashboard_size = (
-            IntegerBlock(
-                length=4,
-                byte_order='big',
-                programmatic_value=lambda ctx: (
-                    4 + ctx.block.field_blocks_map['dashboard'].estimate_packed_size(ctx.data('dashboard'))
-                ),
-            ),
+            IntegerBlock(length=4, byte_order='big', programmatic_value=SizeOf('dashboard') + 4),
             {'description': 'Length of this field and `dashboard` in bytes'},
         )
         dashboard = (
@@ -347,13 +343,7 @@ class TnfsSaturnCockpit(DeclarativeCompoundBlock):
             {'description': 'The dashboard, 352x240'},
         )
         steering_wheel_size = (
-            IntegerBlock(
-                length=4,
-                byte_order='big',
-                programmatic_value=lambda ctx: (
-                    4 + ctx.block.field_blocks_map['steering_wheel'].estimate_packed_size(ctx.data('steering_wheel'))
-                ),
-            ),
+            IntegerBlock(length=4, byte_order='big', programmatic_value=SizeOf('steering_wheel') + 4),
             {'description': 'Length of this field and `steering_wheel` in bytes: the rest of the file'},
         )
         steering_wheel = (
@@ -474,11 +464,11 @@ class TnfsSaturnPcxListEntry(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         size = (
-            IntegerBlock(length=4, byte_order='big', programmatic_value=lambda ctx: len(ctx.data('pcx'))),
+            IntegerBlock(length=4, byte_order='big', programmatic_value=CountOf('pcx')),
             {'description': 'Length of `pcx` in bytes'},
         )
         pcx = (
-            BytesBlock(length=(lambda ctx: ctx.data('size'), 'size')),
+            BytesBlock(length='size'),
             {'description': 'A PCX file (version 5, 8 bits, 256-colour palette at the end)'},
         )
 
@@ -627,19 +617,19 @@ class TnfsSaturnSpriteBank(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         num_sprites = (
-            IntegerBlock(length=4, byte_order='big', programmatic_value=lambda ctx: len(ctx.data('sprites'))),
+            IntegerBlock(length=4, byte_order='big', programmatic_value=CountOf('sprites')),
             {'description': 'Number of sprites'},
         )
         sprites = (
-            ArrayBlock(child=TnfsSaturnSpriteEntry(), length=lambda ctx: ctx.data('num_sprites')),
+            ArrayBlock(child=TnfsSaturnSpriteEntry(), length='num_sprites'),
             {'description': 'The sprites'},
         )
         pixels_size = (
-            IntegerBlock(length=4, byte_order='big', programmatic_value=lambda ctx: len(ctx.data('pixels'))),
+            IntegerBlock(length=4, byte_order='big', programmatic_value=CountOf('pixels')),
             {'description': 'Length of `pixels` in bytes'},
         )
         pixels = (
-            BytesBlock(length=(lambda ctx: ctx.data('pixels_size'), 'pixels_size')),
+            BytesBlock(length='pixels_size'),
             {'description': 'Pixels of every sprite'},
         )
 
@@ -696,19 +686,19 @@ class TnfsSaturnFontBank(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         num_glyphs = (
-            IntegerBlock(length=4, byte_order='big', programmatic_value=lambda ctx: len(ctx.data('glyphs'))),
+            IntegerBlock(length=4, byte_order='big', programmatic_value=CountOf('glyphs')),
             {'description': 'Number of glyphs'},
         )
         glyphs = (
-            ArrayBlock(child=TnfsSaturnFontGlyph(), length=lambda ctx: ctx.data('num_glyphs')),
+            ArrayBlock(child=TnfsSaturnFontGlyph(), length='num_glyphs'),
             {'description': 'The glyphs'},
         )
         pixels_size = (
-            IntegerBlock(length=4, byte_order='big', programmatic_value=lambda ctx: len(ctx.data('pixels'))),
+            IntegerBlock(length=4, byte_order='big', programmatic_value=CountOf('pixels')),
             {'description': 'Length of `pixels` in bytes'},
         )
         pixels = (
-            BytesBlock(length=(lambda ctx: ctx.data('pixels_size'), 'pixels_size')),
+            BytesBlock(length='pixels_size'),
             {'description': 'Pixels of every glyph, 4 bits each'},
         )
 

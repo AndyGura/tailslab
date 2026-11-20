@@ -4,6 +4,7 @@ from typing import Dict
 
 from library.context import ReadContext, WriteContext
 from library.read_blocks import (
+    SizeOf,
     DeclarativeCompoundBlock,
     UTF8Block,
     IntegerBlock,
@@ -13,6 +14,7 @@ from library.read_blocks import (
     EnumByteBlock,
     OptionalBlock,
     BitFlagsBlock,
+    CountOf,
 )
 from library.read_blocks.misc.value_validators import Eq
 
@@ -211,7 +213,7 @@ class EacsAudioFile(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         header = (EacsAudioHeader(), {'description': 'EACS header: sampling rate, resolution, channels, loop settings'})
-        offset = (Padding(to=lambda ctx: ctx.data('header/wave_data_offset'), is_global=True), {'is_unknown': True})
+        offset = (Padding(to='header/wave_data_offset', is_global=True), {'is_unknown': True})
         wave_data = (
             BytesBlock(
                 length=(
@@ -384,7 +386,7 @@ class EaSoundPatchTag(DeclarativeCompoundBlock):
         )
         value = (
             OptionalBlock(
-                BytesBlock(length=(lambda ctx: ctx.data('value_length'), 'value_length')),
+                BytesBlock(length='value_length'),
                 criteria=(
                     lambda ctx: ctx.data('tag') not in EA_SOUND_PATCH_MARKERS,
                     'tag is not padding, info_start, layer_end or end',
@@ -562,14 +564,7 @@ class EaAudioStream(DeclarativeCompoundBlock):
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(value_validator=Eq('SCHl'), length=4), {'description': 'Header chunk id'})
         header_length = (
-            IntegerBlock(
-                length=4,
-                programmatic_value=lambda ctx: (
-                    8
-                    + ctx.block.field_blocks_map['header'].estimate_packed_size(ctx.data('header'))
-                    + len(ctx.data('header_padding'))
-                ),
-            ),
+            IntegerBlock(length=4, programmatic_value=SizeOf('header', 'header_padding') + 8),
             {'description': 'Length of the header chunk, including the chunk id and this field'},
         )
         header = (
@@ -682,25 +677,23 @@ class EaMusicMap(DeclarativeCompoundBlock):
         version = (IntegerBlock(length=1), {'description': 'Version, 0 or 1'})
         start_node = (IntegerBlock(length=1), {'description': 'Index of the node the music starts with'})
         num_nodes = (
-            IntegerBlock(length=1, programmatic_value=lambda ctx: len(ctx.data('nodes'))),
+            IntegerBlock(length=1, programmatic_value=CountOf('nodes')),
             {'description': 'Amount of nodes'},
         )
         num_events = (IntegerBlock(length=1), {'description': 'Amount of events per section, 16 in NFS2 SE'})
         unk0 = (BytesBlock(length=3), {'is_unknown': True, 'description': 'Zeros'})
         num_sections = (
-            IntegerBlock(length=1, programmatic_value=lambda ctx: len(ctx.data('events'))),
+            IntegerBlock(length=1, programmatic_value=CountOf('events')),
             {'description': 'Amount of sections (rows of `events`)'},
         )
         nodes = (
-            ArrayBlock(child=EaMusicMapNode(), length=(lambda ctx: ctx.data('num_nodes'), 'num_nodes')),
+            ArrayBlock(child=EaMusicMapNode(), length='num_nodes'),
             {'description': 'Nodes'},
         )
         events = (
             ArrayBlock(
-                child=ArrayBlock(
-                    child=IntegerBlock(length=1), length=(lambda ctx: ctx.data('../num_events'), 'num_events')
-                ),
-                length=(lambda ctx: ctx.data('num_sections'), 'num_sections'),
+                child=ArrayBlock(child=IntegerBlock(length=1), length=('../num_events', 'num_events')),
+                length='num_sections',
             ),
             {
                 'description': 'For each section, the node each game event jumps to (0 for an event without a '
@@ -708,9 +701,6 @@ class EaMusicMap(DeclarativeCompoundBlock):
             },
         )
         stream_offsets = (
-            ArrayBlock(
-                child=IntegerBlock(length=4, byte_order='big'),
-                length=(lambda ctx: ctx.data('num_nodes'), 'num_nodes'),
-            ),
+            ArrayBlock(child=IntegerBlock(length=4, byte_order='big'), length='num_nodes'),
             {'description': 'Offset of the audio stream of each node in the `.MUS` file'},
         )

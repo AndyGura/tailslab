@@ -1,7 +1,7 @@
 from io import SEEK_CUR
 from typing import Dict, List
 
-from library.read_blocks import ArrayBlock, DataBlock, DelegateBlock, IntegerBlock
+from library.read_blocks import ArrayBlock, DataBlock, DelegateBlock, IntegerBlock, SizeOf
 from resources.blackbox.geometries.nfsu import _CHUNK_LENGTH_DESCR, UnknownChunk, determine_chunks_amount
 
 # Black Box bundles (NFS Underground *.BUN, *.BIN, uncompressed *.lzc) are trees of chunks: 32-bit chunk id,
@@ -105,11 +105,6 @@ def nfsu_sub_chunks_field(possible_blocks: List[DataBlock], description: str):
 def container_chunk_length():
     """Field with length of a container chunk, computed from its `sub_chunks` on write"""
     return (
-        IntegerBlock(
-            length=4,
-            programmatic_value=lambda ctx: ctx.block.field_blocks_map['sub_chunks'].estimate_packed_size(
-                ctx.data('sub_chunks')
-            ),
-        ),
+        IntegerBlock(length=4, programmatic_value=SizeOf('sub_chunks')),
         {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
     )

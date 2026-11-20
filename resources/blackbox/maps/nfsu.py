@@ -8,6 +8,7 @@ from library.read_blocks import (
     DecimalBlock,
     FixedPointBlock,
     IntegerBlock,
+    CountOf,
 )
 from library.read_blocks.misc.value_validators import Eq
 from library.read_blocks.strings import UTF8Block
@@ -673,7 +674,7 @@ class NfsuRoad(DeclarativeCompoundBlock):
             },
         )
         num_nodes = (
-            IntegerBlock(length=2, programmatic_value=lambda ctx: len(ctx.data('nodes'))),
+            IntegerBlock(length=2, programmatic_value=CountOf('nodes')),
             {'usage': 'io,doc', 'description': 'Amount of nodes'},
         )
         unk2 = (IntegerBlock(length=2), {'is_unknown': True, 'description': 'Always `num_nodes`'})
@@ -692,7 +693,7 @@ class NfsuRoad(DeclarativeCompoundBlock):
             {'is_unknown': True, 'description': 'Lane records: 4, a separator, 4, a separator, an end'},
         )
         unk5 = (BytesBlock(length=16), {'is_unknown': True})
-        nodes = (ArrayBlock(child=NfsuRoadNode(), length=lambda ctx: ctx.data('num_nodes')), {'description': 'Nodes'})
+        nodes = (ArrayBlock(child=NfsuRoadNode(), length='num_nodes'), {'description': 'Nodes'})
 
 
 def _peek_bytes(ctx, length: int) -> bytes:

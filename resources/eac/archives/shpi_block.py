@@ -9,6 +9,8 @@ from library.read_blocks import (
     ArrayBlock,
     AutoDetectBlock,
     BytesBlock,
+    CountOf,
+    OwnSize,
 )
 from library.read_blocks.archives import ArchiveBlock, pre_items_payload_length, slot_lengths
 from library.read_blocks.misc.value_validators import Eq
@@ -111,11 +113,11 @@ class ShpiBlock(ArchiveBlock):
     class Fields(ArchiveBlock.Fields):
         resource_id = (UTF8Block(length=4, value_validator=Eq('SHPI')), {'description': 'Resource ID'})
         length = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: ctx.block.estimate_packed_size(ctx.get_full_data())),
+            IntegerBlock(length=4, programmatic_value=OwnSize()),
             {'description': 'The length of this SHPI block in bytes'},
         )
         num_items = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('items_descr'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('items_descr')),
             {'usage': 'io,doc', 'description': 'An amount of items'},
         )
         shpi_dir = (
@@ -130,7 +132,7 @@ class ShpiBlock(ArchiveBlock):
                     'string, last 4 bytes is an unsigned integer '
                     '(little-endian)',
                 ),
-                length=lambda ctx: ctx.data('num_items'),
+                length='num_items',
             ),
             {
                 'usage': 'io,doc',

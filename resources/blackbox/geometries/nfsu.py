@@ -11,6 +11,8 @@ from library.read_blocks import (
     DelegateBlock,
     DecimalBlock,
     CompoundBlock,
+    CountOf,
+    SizeOf,
 )
 from library.read_blocks.misc.value_validators import Eq, Or
 from library.read_blocks.strings import NullTerminatedUTF8Block, UTF8Block
@@ -41,11 +43,11 @@ class ZeroChunk(DeclarativeCompoundBlock):
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, is_signed=False, value_validator=Eq(0)), {'description': _CHUNK_ID_DESCR})
         chunk_length = (
-            IntegerBlock(length=4, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('payload'))),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=CountOf('payload')),
             {'description': _CHUNK_LENGTH_DESCR},
         )
         payload = (
-            BytesBlock(length=lambda ctx: ctx.data('chunk_length')),
+            BytesBlock(length='chunk_length'),
             {'usage': 'io,doc', 'description': 'Filler bytes'},
         )
 
@@ -56,10 +58,10 @@ class UnknownChunk(DeclarativeCompoundBlock):
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, is_signed=False), {'description': _CHUNK_ID_DESCR})
         chunk_length = (
-            IntegerBlock(length=4, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('payload'))),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=CountOf('payload')),
             {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
         )
-        payload = (BytesBlock(length=lambda ctx: ctx.data('chunk_length')), {'description': 'Raw chunk payload'})
+        payload = (BytesBlock(length='chunk_length'), {'description': 'Raw chunk payload'})
 
 
 class Chunk80034020(DeclarativeCompoundBlock):
@@ -71,10 +73,10 @@ class Chunk80034020(DeclarativeCompoundBlock):
             {'description': _CHUNK_ID_DESCR},
         )
         chunk_length = (
-            IntegerBlock(length=4, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('payload'))),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=CountOf('payload')),
             {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
         )
-        payload = (BytesBlock(length=lambda ctx: ctx.data('chunk_length')), {'is_unknown': True})
+        payload = (BytesBlock(length='chunk_length'), {'is_unknown': True})
 
 
 class NfsuMeshChunk(DeclarativeCompoundBlock):
@@ -149,10 +151,7 @@ class NfsuMeshFacesChunk(DeclarativeCompoundBlock):
             {'description': _ELEVENS_DESCR},
         )
         faces = (
-            ArrayBlock(
-                child=ArrayBlock(child=IntegerBlock(length=2), length=3),
-                length=lambda ctx: ctx.data('../0/data/faces_amount'),
-            ),
+            ArrayBlock(child=ArrayBlock(child=IntegerBlock(length=2), length=3), length='../0/data/faces_amount'),
             {'description': 'Triangles: 3 vertex indexes each, pointing to the vertices chunk of the same mesh'},
         )
         padding = (
@@ -276,9 +275,9 @@ class MeshVerticesChunk(DeclarativeCompoundBlock):
         vertices = (
             DelegateBlock(
                 possible_blocks=[
-                    ArrayBlock(child=NfsuVertex(), length=lambda ctx: ctx.data('../0/data/vertex_amount')),
-                    ArrayBlock(child=NfsuVertexNoNormal(), length=lambda ctx: ctx.data('../0/data/vertex_amount')),
-                    ArrayBlock(child=NfsuVertexSkinned(), length=lambda ctx: ctx.data('../0/data/vertex_amount')),
+                    ArrayBlock(child=NfsuVertex(), length='../0/data/vertex_amount'),
+                    ArrayBlock(child=NfsuVertexNoNormal(), length='../0/data/vertex_amount'),
+                    ArrayBlock(child=NfsuVertexSkinned(), length='../0/data/vertex_amount'),
                     BytesBlock(length=lambda ctx: ctx.data('chunk_length') - len(ctx.data('elevens'))),
                 ],
                 choice_index=(lambda ctx, **_: _vertex_layout_index(ctx), 'depends on chunk_length'),
@@ -682,13 +681,7 @@ class NfsmwMeshVerticesChunk(DeclarativeCompoundBlock):
             {'description': _CHUNK_ID_DESCR},
         )
         chunk_length = (
-            IntegerBlock(
-                length=4,
-                programmatic_value=lambda ctx: (
-                    len(ctx.data('elevens'))
-                    + ctx.block.field_blocks_map['vertices'].estimate_packed_size(ctx.data('vertices'))
-                ),
-            ),
+            IntegerBlock(length=4, programmatic_value=SizeOf('elevens', 'vertices')),
             {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
         )
         elevens = (
@@ -750,13 +743,7 @@ class Chunk80134100(DeclarativeCompoundBlock):
             {'description': _CHUNK_ID_DESCR},
         )
         chunk_length = (
-            IntegerBlock(
-                length=4,
-                is_signed=False,
-                programmatic_value=lambda ctx: ctx.block.field_blocks_map['sub_chunks'].estimate_packed_size(
-                    ctx.data('sub_chunks')
-                ),
-            ),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=SizeOf('sub_chunks')),
             {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
         )
         sub_chunks = (
@@ -1006,10 +993,10 @@ class Chunk001340XX(DeclarativeCompoundBlock):
             {'description': 'Upper 3 bytes of the chunk id'},
         )
         chunk_length = (
-            IntegerBlock(length=4, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('payload'))),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=CountOf('payload')),
             {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
         )
-        payload = (BytesBlock(length=lambda ctx: ctx.data('chunk_length')), {'is_unknown': True})
+        payload = (BytesBlock(length='chunk_length'), {'is_unknown': True})
 
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
         data = super().read(ctx, name, read_bytes_amount)
@@ -1031,10 +1018,10 @@ class Chunk80134008(DeclarativeCompoundBlock):
             {'description': _CHUNK_ID_DESCR},
         )
         chunk_length = (
-            IntegerBlock(length=4, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('payload'))),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=CountOf('payload')),
             {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
         )
-        payload = (BytesBlock(length=lambda ctx: ctx.data('chunk_length')), {'is_unknown': True})
+        payload = (BytesBlock(length='chunk_length'), {'is_unknown': True})
 
 
 class NfsuMeshDescriptorChunk(DeclarativeCompoundBlock):
@@ -1051,13 +1038,7 @@ class NfsuMeshDescriptorChunk(DeclarativeCompoundBlock):
             {'description': _CHUNK_ID_DESCR},
         )
         chunk_length = (
-            IntegerBlock(
-                length=4,
-                is_signed=False,
-                programmatic_value=lambda ctx: ctx.block.field_blocks_map['sub_chunks'].estimate_packed_size(
-                    ctx.data('sub_chunks')
-                ),
-            ),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=SizeOf('sub_chunks')),
             {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
         )
         sub_chunks = (
@@ -1097,13 +1078,7 @@ class Chunk80134001(DeclarativeCompoundBlock):
             {'description': _CHUNK_ID_DESCR},
         )
         chunk_length = (
-            IntegerBlock(
-                length=4,
-                is_signed=False,
-                programmatic_value=lambda ctx: ctx.block.field_blocks_map['sub_chunks'].estimate_packed_size(
-                    ctx.data('sub_chunks')
-                ),
-            ),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=SizeOf('sub_chunks')),
             {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
         )
         # always 3 or 4 blocks
@@ -1139,10 +1114,10 @@ class Chunk80134020(DeclarativeCompoundBlock):
             {'description': _CHUNK_ID_DESCR},
         )
         chunk_length = (
-            IntegerBlock(length=4, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('payload'))),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=CountOf('payload')),
             {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
         )
-        payload = (BytesBlock(length=lambda ctx: ctx.data('chunk_length')), {'is_unknown': True})
+        payload = (BytesBlock(length='chunk_length'), {'is_unknown': True})
 
 
 def _block_chunk_id(block):

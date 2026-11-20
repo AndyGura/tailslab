@@ -113,7 +113,7 @@ class EaglModel(DeclarativeCompoundBlock):
             },
         )
         section_headers = (
-            ArrayBlock(child=EaglSectionHeader(), length=lambda ctx: ctx.data('section_headers_count')),
+            ArrayBlock(child=EaglSectionHeader(), length='section_headers_count'),
             {'description': 'Section headers table'},
         )
         trailing_bytes = (

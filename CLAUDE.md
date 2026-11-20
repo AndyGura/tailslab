@@ -138,6 +138,10 @@ When you do:
   time). Follow that pattern there rather than importing at module top level.
 - Field extras dict (third tuple element in `Fields`) keys: `description`, `is_unknown`,
   `custom_offset`, `usage` (comma-separated subset of `ui`/`io`/`doc`, default = everywhere).
+- Count, offset and size fields (header members of a structure, from a file or a decompiled struct) use the field
+  references `CountOf('x')`, `OffsetOf('x')`, `SizeOf('x', ...)`, `OwnSize()` (`+ n` / `- n`) as programmatic values,
+  and a length that is a sibling field is its path (`ArrayBlock(length='num_x')`, `Padding(to='x_ptr')`), not
+  lambdas: offsets and sizes are then filled in after the write instead of estimated (skill `nfs-resource-formats`).
 - Resource ids (`library/utils/id.py`, `frontend/src/app/utils/join-id.ts`, the same rules): a file's id is
   `path_to_name` of its path (`__` escaped as `_%5F`, `:` as `---DRIVE`), a resource in it adds `__` and its path in
   the file's data (`children/3/item/data`), which never contains `__` nor starts with `_`; ids split at their last

@@ -16,6 +16,7 @@ from library.read_blocks import (
     IntegerBlock,
     TrailingOptionalBlock,
     UTF8Block,
+    CountOf,
 )
 from library.read_blocks.misc.value_validators import Eq, Or
 from resources.eac.psx import CRCF_FOOTER_LENGTH, PsxCrcFooter, crc_footer_at, with_crc_footer
@@ -166,7 +167,7 @@ class TnfsPsxPatchBank(DeclarativeCompoundBlock):
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(length=4, value_validator=Eq('BXSP')), {'description': 'Resource ID'})
         patch_count = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('patches'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('patches')),
             {'usage': 'io,doc', 'description': 'Number of patches'},
         )
         sample_count = (
@@ -186,7 +187,7 @@ class TnfsPsxPatchBank(DeclarativeCompoundBlock):
             {'description': 'Index of the patch of each sample id 0..127, -1 = none'},
         )
         patches = (
-            ArrayBlock(child=TnfsPsxPatch(), length=lambda ctx: ctx.data('patch_count')),
+            ArrayBlock(child=TnfsPsxPatch(), length='patch_count'),
             {'description': 'The patches'},
         )
         crc_footer = (
@@ -321,7 +322,7 @@ class TnfsPsxVagBank(DeclarativeCompoundBlock):
             {'usage': 'io,doc', 'description': 'Length of the file without the CRC footer'},
         )
         sample_count = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('samples'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('samples')),
             {'usage': 'io,doc', 'description': 'Number of samples'},
         )
         data_size = (
@@ -332,7 +333,7 @@ class TnfsPsxVagBank(DeclarativeCompoundBlock):
             },
         )
         samples = (
-            ArrayBlock(child=TnfsPsxVagSample(), length=lambda ctx: ctx.data('sample_count')),
+            ArrayBlock(child=TnfsPsxVagSample(), length='sample_count'),
             {
                 'description': 'The samples, each at an offset (from the start of the file) a patch of the `.VH` '
                 'gives, a multiple of 16'

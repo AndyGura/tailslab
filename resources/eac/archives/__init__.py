@@ -10,6 +10,7 @@ from library.read_blocks import (
     AutoDetectBlock,
     BytesBlock,
     OptionalBlock,
+    CountOf,
 )
 from library.read_blocks.archives import ArchiveBlock, pre_items_payload_length, slot_lengths
 from library.read_blocks.misc.value_validators import Eq
@@ -75,11 +76,11 @@ class WwwwBlock(ArchiveBlock):
     class Fields(ArchiveBlock.Fields):
         resource_id = (UTF8Block(value_validator=Eq('wwww'), length=4), {'description': 'Resource ID'})
         num_items = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('items_descr'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('items_descr')),
             {'description': 'An amount of items'},
         )
         items_descr = (
-            ArrayBlock(child=IntegerBlock(length=4), length=lambda ctx: ctx.data('num_items')),
+            ArrayBlock(child=IntegerBlock(length=4), length='num_items'),
             {
                 'usage': 'io,doc',
                 'description': 'An array of offsets to items data in file, relatively to wwww block start '
@@ -292,7 +293,7 @@ class BigfBlock(ArchiveBlock):
             },
         )
         num_items = (
-            IntegerBlock(length=4, byte_order='big', programmatic_value=lambda ctx: len(ctx.data('items_descr'))),
+            IntegerBlock(length=4, byte_order='big', programmatic_value=CountOf('items_descr')),
             {'description': 'An amount of items'},
         )
         header_length = (
@@ -308,7 +309,7 @@ class BigfBlock(ArchiveBlock):
             },
         )
         items_descr = (
-            ArrayBlock(length=lambda ctx: ctx.data('num_items'), child=BigfItemDescriptionBlock()),
+            ArrayBlock(length='num_items', child=BigfItemDescriptionBlock()),
             {'usage': 'io,doc', 'description': 'Descriptions of items: offset, length and name of each of them'},
         )
         pre_items_payload = (
@@ -482,11 +483,11 @@ class C0fbBlock(BigfBlock):
             },
         )
         num_items = (
-            IntegerBlock(length=2, byte_order='big', programmatic_value=lambda ctx: len(ctx.data('items_descr'))),
+            IntegerBlock(length=2, byte_order='big', programmatic_value=CountOf('items_descr')),
             {'description': 'An amount of items'},
         )
         items_descr = (
-            ArrayBlock(length=lambda ctx: ctx.data('num_items'), child=C0fbItemDescriptionBlock()),
+            ArrayBlock(length='num_items', child=C0fbItemDescriptionBlock()),
             {'usage': 'io,doc', 'description': 'Descriptions of items: offset, length and name of each of them'},
         )
         pre_items_payload = (
@@ -648,7 +649,7 @@ class EaSoundBank(DeclarativeCompoundBlock):
             },
         )
         num_items = (
-            IntegerBlock(length=2, programmatic_value=lambda ctx: len(ctx.data('items_descr'))),
+            IntegerBlock(length=2, programmatic_value=CountOf('items_descr')),
             {'description': 'Amount of slots in `items_descr`'},
         )
         header_length = (
@@ -671,7 +672,7 @@ class EaSoundBank(DeclarativeCompoundBlock):
             {'is_unknown': True},
         )
         items_descr = (
-            ArrayBlock(child=IntegerBlock(length=4), length=lambda ctx: ctx.data('num_items')),
+            ArrayBlock(child=IntegerBlock(length=4), length='num_items'),
             {
                 'description': 'Offset of every patch, relative to its own position in this table, the array index '
                 'being the sample index used by the game. 0 is an empty slot'

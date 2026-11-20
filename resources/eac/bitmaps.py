@@ -19,6 +19,7 @@ from library.read_blocks import (
     TrailingOptionalBlock,
     LengthPrefixedArrayBlock,
     Padding,
+    CountOf,
 )
 from library.read_blocks.misc.value_validators import Eq
 from library.read_blocks.strings import LengthPrefixedUtf8Block
@@ -309,12 +310,12 @@ class EacPalette(DeclarativeCompoundBlock):
             },
         )
         num_colors = (
-            IntegerBlock(length=2, programmatic_value=lambda ctx: len(ctx.data('colors/data'))),
+            IntegerBlock(length=2, programmatic_value=CountOf('colors/data')),
             {'usage': 'io,doc', 'description': 'Amount of colors'},
         )
         unk1 = (BytesBlock(length=2), {'is_unknown': True})
         num_colors1 = (
-            IntegerBlock(length=2, programmatic_value=lambda ctx: len(ctx.data('colors/data'))),
+            IntegerBlock(length=2, programmatic_value=CountOf('colors/data')),
             {'usage': 'io,doc', 'description': 'Equals to num_colors, except for some CRP structures in NFS5'},
         )
         unk2 = (BytesBlock(length=6), {'is_unknown': True})
@@ -322,15 +323,11 @@ class EacPalette(DeclarativeCompoundBlock):
             EnumLookupDelegateBlock(
                 enum_field='resource_id',
                 blocks=[
-                    ArrayBlock(
-                        length=lambda ctx: ctx.data('num_colors'), child=IntegerBlock(length=3, byte_order='big')
-                    ),
-                    ArrayBlock(
-                        length=lambda ctx: ctx.data('num_colors'), child=IntegerBlock(length=3, byte_order='big')
-                    ),
-                    ArrayBlock(length=lambda ctx: ctx.data('num_colors'), child=IntegerBlock(length=2)),
-                    ArrayBlock(length=lambda ctx: ctx.data('num_colors'), child=IntegerBlock(length=4)),
-                    ArrayBlock(length=lambda ctx: ctx.data('num_colors'), child=IntegerBlock(length=2)),
+                    ArrayBlock(length='num_colors', child=IntegerBlock(length=3, byte_order='big')),
+                    ArrayBlock(length='num_colors', child=IntegerBlock(length=3, byte_order='big')),
+                    ArrayBlock(length='num_colors', child=IntegerBlock(length=2)),
+                    ArrayBlock(length='num_colors', child=IntegerBlock(length=4)),
+                    ArrayBlock(length='num_colors', child=IntegerBlock(length=2)),
                 ],
             ),
             {
@@ -569,7 +566,7 @@ class EacImage(DeclarativeCompoundBlock):
         )
         pad = (
             TrailingOptionalBlock(
-                child=Padding(to=lambda ctx: ctx.data('next_offset'), is_global=False),
+                child=Padding(to='next_offset', is_global=False),
                 criteria=(image_padding_criteria, 'next_offset points past the pixels'),
             ),
             {

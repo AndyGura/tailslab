@@ -11,6 +11,7 @@ from library.read_blocks import (
     DelegateBlock,
     DecimalBlock,
     SubByteCompoundBlock,
+    CountOf,
 )
 from library.read_blocks.misc.value_validators import Eq, Or
 from library.read_blocks.strings import NullTerminatedUTF8Block
@@ -46,7 +47,7 @@ class UnkPart2(DeclarativeCompoundBlock):
             IntegerBlock(length=4),
             {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
         )
-        data = (BytesBlock(length=lambda ctx: ctx.data('len')), {'usage': 'ui'})
+        data = (BytesBlock(length='len'), {'usage': 'ui'})
 
 
 class UnkPart4(DeclarativeCompoundBlock):
@@ -70,7 +71,7 @@ class UnkPart4(DeclarativeCompoundBlock):
             IntegerBlock(length=4),
             {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
         )
-        data = (BytesBlock(length=lambda ctx: ctx.data('len')), {'usage': 'ui'})
+        data = (BytesBlock(length='len'), {'usage': 'ui'})
 
 
 class MaterialPartData(DeclarativeCompoundBlock):
@@ -148,14 +149,14 @@ class FSHPart(DeclarativeCompoundBlock):
             {'usage': 'io,doc', 'description': 'Data length in bytes'},
         )
         num_data = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('data'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('data')),
             {'description': 'Number of SHPI blocks'},
         )
         offset = (
             IntegerBlock(length=4),
             {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
         )
-        data = (ArrayBlock(child=ShpiBlock(), length=lambda ctx: ctx.data('num_data')), {'usage': 'ui'})
+        data = (ArrayBlock(child=ShpiBlock(), length='num_data'), {'usage': 'ui'})
 
 
 class TextPart2(DeclarativeCompoundBlock):
@@ -228,14 +229,14 @@ class CullingPart(DeclarativeCompoundBlock):
             {'description': 'Data length in bytes'},
         )
         num_data = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('data'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('data')),
             {'description': 'Number of culling part data blocks'},
         )
         offset = (
             IntegerBlock(length=4),
             {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
         )
-        data = (ArrayBlock(length=lambda ctx: ctx.data('num_data'), child=CullingPartData()), {'usage': 'ui'})
+        data = (ArrayBlock(length='num_data', child=CullingPartData()), {'usage': 'ui'})
 
 
 class TransformationPart(DeclarativeCompoundBlock):
@@ -309,14 +310,14 @@ class VertexPart(DeclarativeCompoundBlock):
             {'usage': 'io,doc', 'description': 'Data length in bytes'},
         )
         num_vertices = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('data'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('data')),
             {'description': 'Number of vertices'},
         )
         offset = (
             IntegerBlock(length=4),
             {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
         )
-        data = (ArrayBlock(length=lambda ctx: ctx.data('num_vertices'), child=VertexData()), {'usage': 'ui'})
+        data = (ArrayBlock(length='num_vertices', child=VertexData()), {'usage': 'ui'})
 
 
 class NormalPartData(DeclarativeCompoundBlock):
@@ -349,14 +350,14 @@ class NormalPart(DeclarativeCompoundBlock):
             {'description': 'Data length in bytes'},
         )
         num_data = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('data'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('data')),
             {'description': 'Number of normals'},
         )
         offset = (
             IntegerBlock(length=4),
             {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
         )
-        data = (ArrayBlock(length=lambda ctx: ctx.data('num_data'), child=NormalPartData()), {'usage': 'ui'})
+        data = (ArrayBlock(length='num_data', child=NormalPartData()), {'usage': 'ui'})
 
 
 class UVData(DeclarativeCompoundBlock):
@@ -389,14 +390,14 @@ class UVPart(DeclarativeCompoundBlock):
             {'description': 'Data length in bytes'},
         )
         num_data = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('data'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('data')),
             {'description': 'Amount of UVData blocks, equals to len / 8'},
         )
         offset = (
             IntegerBlock(length=4),
             {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
         )
-        data = (ArrayBlock(length=lambda ctx: ctx.data('num_data'), child=UVData()), {'usage': 'ui'})
+        data = (ArrayBlock(length='num_data', child=UVData()), {'usage': 'ui'})
 
 
 _ROW_TYPE_DESCRIPTION = (
@@ -584,7 +585,7 @@ class TrianglePartData(DeclarativeCompoundBlock):
         )
         info_rows = (
             ArrayBlock(
-                length=lambda ctx: ctx.data('num_info_rows'),
+                length='num_info_rows',
                 child=DelegateBlock(
                     possible_blocks=[
                         CullingInfoRow(),
@@ -607,7 +608,7 @@ class TrianglePartData(DeclarativeCompoundBlock):
             },
         )
         index_rows = (
-            ArrayBlock(length=lambda ctx: ctx.data('num_index_rows'), child=IndexRow()),
+            ArrayBlock(length='num_index_rows', child=IndexRow()),
             {
                 'description': 'Descriptors of the index streams, one per index table: `vI` (vertex and normal '
                 'indices) and `uI` (UV indices); cars also have parts with `uI` alone (129) and tracks with `vI` '
@@ -777,7 +778,7 @@ class CrpBasePartData(DeclarativeCompoundBlock):
         unk0 = (IntegerBlock(length=4), {'is_unknown': True, 'description': '0 in every file'})
         unk1 = (IntegerBlock(length=4), {'is_unknown': True, 'description': '0 in every file'})
         num_lods = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('lods'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('lods')),
             {'description': 'Number of `lods` records (1..7)'},
         )
         unk2 = (IntegerBlock(length=4), {'is_unknown': True, 'description': '1 on tracks, 0 or 1 on cars'})
@@ -809,7 +810,7 @@ class CrpBasePartData(DeclarativeCompoundBlock):
         )
         unk4 = (BytesBlock(length=28), {'is_unknown': True, 'description': 'Zeros on tracks, data on cars'})
         lods = (
-            ArrayBlock(child=CrpBaseLodRecord(), length=lambda ctx: ctx.data('num_lods')),
+            ArrayBlock(child=CrpBaseLodRecord(), length='num_lods'),
             {'description': 'Levels of detail of the article'},
         )
 
@@ -849,7 +850,7 @@ class CrpVertexColorPart(DeclarativeCompoundBlock):
             {'description': 'Data length in bytes'},
         )
         num_data = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('data'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('data')),
             {'description': 'Number of colours'},
         )
         offset = (
@@ -857,7 +858,7 @@ class CrpVertexColorPart(DeclarativeCompoundBlock):
             {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
         )
         data = (
-            ArrayBlock(length=lambda ctx: ctx.data('num_data'), child=IntegerBlock(length=4)),
+            ArrayBlock(length='num_data', child=IntegerBlock(length=4)),
             {'usage': 'ui', 'description': 'Colours (BGRA)'},
         )
 
@@ -929,7 +930,7 @@ class CrpSimDPart(DeclarativeCompoundBlock):
             {'description': 'Data length in bytes'},
         )
         num_data = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('data'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('data')),
             {'description': 'Number of slices'},
         )
         offset = (
@@ -937,7 +938,7 @@ class CrpSimDPart(DeclarativeCompoundBlock):
             {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
         )
         data = (
-            ArrayBlock(length=lambda ctx: ctx.data('num_data'), child=CrpSplineSlice()),
+            ArrayBlock(length='num_data', child=CrpSplineSlice()),
             {'usage': 'ui', 'description': 'Slices'},
         )
 
@@ -965,7 +966,7 @@ class CrpSimTPart(DeclarativeCompoundBlock):
             {'description': 'Data length in bytes'},
         )
         num_data = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('data'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('data')),
             {'description': 'Number of sections'},
         )
         offset = (
@@ -973,7 +974,7 @@ class CrpSimTPart(DeclarativeCompoundBlock):
             {'usage': 'io,doc', 'description': 'Data offset (Relative from current block offset)'},
         )
         data = (
-            ArrayBlock(length=lambda ctx: ctx.data('num_data'), child=IntegerBlock(length=4, is_signed=True)),
+            ArrayBlock(length='num_data', child=IntegerBlock(length=4, is_signed=True)),
             {'usage': 'ui', 'description': 'Slice count of each section'},
         )
 
@@ -1149,7 +1150,7 @@ class CrpGeometry(DeclarativeCompoundBlock):
             },
         )
         num_common_parts = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('common_parts'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('common_parts')),
             {'description': 'Number of common parts: the children the chunk search looks through'},
         )
         articles_offset = (
@@ -1178,7 +1179,7 @@ class CrpGeometry(DeclarativeCompoundBlock):
                     ],
                     choice_index=lambda ctx, **_: determine_common_part_type(ctx),
                 ),
-                length=lambda ctx: ctx.data('num_common_parts'),
+                length='num_common_parts',
             ),
             {
                 'description': 'Array of common parts. They are ordered by type (identifier). The order is:<br/>'

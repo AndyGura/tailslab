@@ -179,7 +179,7 @@ class Nfs6Ps2Jukebox(ArchiveBlock):
         unk1 = (BytesBlock(length=12), {'is_unknown': True, 'description': 'Zeros'})
         group = (Nfs6Ps2JukeboxGroup(), {'description': 'The group of the tracks'})
         items_descr = (
-            ArrayBlock(child=Nfs6Ps2JukeboxEntry(), length=lambda ctx: ctx.data('group/num_tracks')),
+            ArrayBlock(child=Nfs6Ps2JukeboxEntry(), length='group/num_tracks'),
             {'usage': 'io,doc', 'description': 'The tracks: offset, length and name of each one'},
         )
         pre_items_payload = (

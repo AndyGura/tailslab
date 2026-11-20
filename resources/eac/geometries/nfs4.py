@@ -6,6 +6,7 @@ from library.read_blocks import (
     BitFlagsBlock,
     BytesBlock,
     DecimalBlock,
+    CountOf,
 )
 from resources.eac.fields.misc import Point3D
 from resources.eac.geometries.nfs3 import FceColor
@@ -138,7 +139,7 @@ def _standard_offset(ctx, table: str) -> int:
 
 def _vector_table(description: str):
     return (
-        ArrayBlock(child=Point3D(child=DecimalBlock(length=4)), length=lambda ctx: ctx.data('num_vertices')),
+        ArrayBlock(child=Point3D(child=DecimalBlock(length=4)), length='num_vertices'),
         {'description': description},
     )
 
@@ -170,11 +171,11 @@ class Fce4Geometry(DeclarativeCompoundBlock):
         )
         unk0 = (IntegerBlock(length=4), {'is_unknown': True})
         num_triangles = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('triangles'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('triangles')),
             {'usage': 'io,doc', 'description': 'Number of triangles in the model'},
         )
         num_vertices = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('vertices'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('vertices')),
             {'usage': 'io,doc', 'description': 'Number of vertices in the model'},
         )
         num_arts = (
@@ -299,7 +300,7 @@ class Fce4Geometry(DeclarativeCompoundBlock):
         vertices = _vector_table('Vertex positions, relative to position of their part')
         normals = _vector_table('Vertex normals')
         triangles = (
-            ArrayBlock(child=Fce4Triangle(), length=lambda ctx: ctx.data('num_triangles')),
+            ArrayBlock(child=Fce4Triangle(), length='num_triangles'),
             {'description': 'Triangles'},
         )
         reserve1 = (
@@ -323,7 +324,7 @@ class Fce4Geometry(DeclarativeCompoundBlock):
             {'is_unknown': True},
         )
         animation_flags = (
-            ArrayBlock(child=IntegerBlock(length=4), length=lambda ctx: ctx.data('num_vertices')),
+            ArrayBlock(child=IntegerBlock(length=4), length='num_vertices'),
             {
                 'description': 'Vertex animation flags. Used by driver part ":OD": vertex with value 4 does not '
                 'move, vertex with value 0 rotates together with steering wheel'

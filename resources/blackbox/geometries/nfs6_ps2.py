@@ -5,6 +5,7 @@ from library.read_blocks import (
     DeclarativeCompoundBlock,
     FixedPointBlock,
     IntegerBlock,
+    CountOf,
 )
 from library.read_blocks.misc.value_validators import Eq
 from library.read_blocks.strings import UTF8Block
@@ -31,7 +32,7 @@ class Nfs6Ps2SolidPackHeader(DeclarativeCompoundBlock):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034001)), {'description': _CHUNK_ID_DESCR})
         chunk_length = (IntegerBlock(length=4), {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR})
         file_path = (
-            UTF8Block(length=lambda ctx: ctx.data('chunk_length')),
+            UTF8Block(length='chunk_length'),
             {'description': 'Path of the pack, e.g. "TRACK11\\Pipeline\\Scenery\\eLabScenery0.bin"'},
         )
 
@@ -337,11 +338,11 @@ class Nfs6Ps2LightingMaterials(DeclarativeCompoundBlock):
         unk = (BytesBlock(length=8), {'is_unknown': True})
         version = (IntegerBlock(length=4, value_validator=Eq(1)), {'description': 'Always 1, the game checks it'})
         num_materials = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('materials'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('materials')),
             {'description': 'Amount of materials'},
         )
         materials = (
-            ArrayBlock(child=Nfs6Ps2LightingMaterial(), length=lambda ctx: ctx.data('num_materials')),
+            ArrayBlock(child=Nfs6Ps2LightingMaterial(), length='num_materials'),
             {'description': 'Materials'},
         )
 

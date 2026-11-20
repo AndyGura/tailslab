@@ -13,7 +13,16 @@ from typing import Dict, List, Optional
 
 from library.context import ReadContext, WriteContext
 from library.exceptions import DataIntegrityException, EndOfBufferException
-from library.read_blocks import ArrayBlock, BytesBlock, CompoundBlock, DelegateBlock, IntegerBlock, UTF8Block
+from library.read_blocks import (
+    ArrayBlock,
+    BytesBlock,
+    CompoundBlock,
+    DelegateBlock,
+    IntegerBlock,
+    UTF8Block,
+    CountOf,
+    SizeOf,
+)
 
 DES_BODY_HEADER_LENGTH = 94
 DES_RECORD_TYPE_LENGTH = 10
@@ -172,12 +181,12 @@ class EaFieldDescriptionRecord(CompoundBlock):
         if depth + 1 < DES_MAX_DEPTH:
             chain_body = EaFieldDescriptionBody(depth=depth + 1)
         else:
-            chain_body = BytesBlock(length=(lambda ctx: ctx.data('extra_length'), 'extra_length'))
+            chain_body = BytesBlock(length='extra_length')
         extra = DelegateBlock(
             possible_blocks=[
                 chain_body,
                 EaFieldDescriptionShape(),
-                BytesBlock(length=(lambda ctx: ctx.data('extra_length'), 'extra_length')),
+                BytesBlock(length='extra_length'),
             ],
             choice_index=(_record_extra_choice, '`Chain`: a body; `Array` / `CArray`: the shape; else bytes'),
         )
@@ -230,11 +239,7 @@ class EaFieldDescriptionRecord(CompoundBlock):
                 ),
                 (
                     'extra_length',
-                    IntegerBlock(
-                        length=4,
-                        is_signed=True,
-                        programmatic_value=lambda ctx: extra.estimate_packed_size(ctx.data('extra'), ctx),
-                    ),
+                    IntegerBlock(length=4, is_signed=True, programmatic_value=SizeOf('extra')),
                     {
                         'usage': 'io,doc',
                         'custom_offset': 94,
@@ -283,21 +288,17 @@ class EaFieldDescriptionBody(CompoundBlock):
                 ),
                 (
                     'data_size',
-                    IntegerBlock(length=4, is_signed=True, programmatic_value=lambda ctx: len(ctx.data('data'))),
+                    IntegerBlock(length=4, is_signed=True, programmatic_value=CountOf('data')),
                     {'usage': 'io,doc', 'description': 'Size of `data`: the size of the described data or group'},
                 ),
                 (
                     'records_size',
-                    IntegerBlock(
-                        length=4,
-                        is_signed=True,
-                        programmatic_value=lambda ctx: records.estimate_packed_size(ctx.data('records'), ctx),
-                    ),
+                    IntegerBlock(length=4, is_signed=True, programmatic_value=SizeOf('records')),
                     {'usage': 'io,doc', 'description': 'Size of `records` in bytes'},
                 ),
                 (
                     'data',
-                    BytesBlock(length=(lambda ctx: ctx.data('data_size'), 'data_size')),
+                    BytesBlock(length='data_size'),
                     {
                         'description': 'Copy of the described data (of the group, in a `Chain`) as the tool saved it: '
                         'the `.DAT` of the time, which can differ from the shipped one'

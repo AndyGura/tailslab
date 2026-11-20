@@ -7,6 +7,8 @@ from library.read_blocks import (
     ArrayBlock,
     FixedPointBlock,
     Padding,
+    CountOf,
+    OwnSize,
 )
 from library.read_blocks.misc.value_validators import Eq
 from resources.eac.fields.misc import Point3D
@@ -29,19 +31,11 @@ class TrkBlock(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         block_size = (
-            IntegerBlock(
-                length=4,
-                is_signed=False,
-                programmatic_value=lambda ctx: ctx.block.estimate_packed_size(ctx.get_full_data()),
-            ),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=OwnSize()),
             {'description': 'Block size in bytes'},
         )
         block_size_2 = (
-            IntegerBlock(
-                length=4,
-                is_signed=False,
-                programmatic_value=lambda ctx: ctx.block.estimate_packed_size(ctx.get_full_data()),
-            ),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=OwnSize()),
             {'description': 'Block size in bytes (duplicated)'},
         )
         num_extrablocks = (IntegerBlock(length=2, is_signed=False), {'description': 'Number of extrablocks'})
@@ -131,7 +125,7 @@ class TrkBlock(DeclarativeCompoundBlock):
             },
         )
         low_polygons = (
-            ArrayBlock(child=ColPolygon(), length=lambda ctx: ctx.data('num_low_polygons')),
+            ArrayBlock(child=ColPolygon(), length='num_low_polygons'),
             {
                 'description': 'Polygon set 0: the terrain of the low level of detail (level 0, the farthest blocks), '
                 'drawn with `low_extra_polygons` (block drawing nfs2sen.exe 0x4361a0: set 2 * level, then set 2 * '
@@ -140,7 +134,7 @@ class TrkBlock(DeclarativeCompoundBlock):
             },
         )
         low_extra_polygons = (
-            ArrayBlock(child=ColPolygon(), length=lambda ctx: ctx.data('num_low_extra_polygons')),
+            ArrayBlock(child=ColPolygon(), length='num_low_extra_polygons'),
             {
                 'description': 'Polygon set 1: what the low level of detail draws over its terrain: guard rails, '
                 'trusses, fences (textures such as RGRA, TRUS, FENC), about a tenth of `low_polygons`. Vertex '
@@ -148,21 +142,21 @@ class TrkBlock(DeclarativeCompoundBlock):
             },
         )
         medium_polygons = (
-            ArrayBlock(child=ColPolygon(), length=lambda ctx: ctx.data('num_medium_polygons')),
+            ArrayBlock(child=ColPolygon(), length='num_medium_polygons'),
             {
                 'description': 'Polygon set 2: the terrain of the medium level of detail (level 1), twice as many '
                 'polygons as `low_polygons`, drawn with `medium_extra_polygons`. Vertex indexes below nv8 + nv2'
             },
         )
         medium_extra_polygons = (
-            ArrayBlock(child=ColPolygon(), length=lambda ctx: ctx.data('num_medium_extra_polygons')),
+            ArrayBlock(child=ColPolygon(), length='num_medium_extra_polygons'),
             {
                 'description': 'Polygon set 3: rails, trusses and fences of the medium level of detail, like '
                 '`low_extra_polygons`. Vertex indexes below nv8 + nv2'
             },
         )
         high_polygons = (
-            ArrayBlock(child=ColPolygon(), length=lambda ctx: ctx.data('num_high_polygons')),
+            ArrayBlock(child=ColPolygon(), length='num_high_polygons'),
             {
                 'description': 'Polygon set 4: the terrain of the high level of detail (level 2, the nearest '
                 'blocks, full detail), twice as many polygons as `medium_polygons`, drawn with '
@@ -174,7 +168,7 @@ class TrkBlock(DeclarativeCompoundBlock):
             },
         )
         high_extra_polygons = (
-            ArrayBlock(child=ColPolygon(), length=lambda ctx: ctx.data('num_high_extra_polygons')),
+            ArrayBlock(child=ColPolygon(), length='num_high_extra_polygons'),
             {
                 'description': 'Polygon set 5: rails, trusses and fences of the high level of detail, like '
                 '`low_extra_polygons`'
@@ -188,7 +182,7 @@ class TrkBlock(DeclarativeCompoundBlock):
             },
         )
         extrablock_offsets = (
-            ArrayBlock(child=IntegerBlock(length=4, is_signed=False), length=lambda ctx: ctx.data('num_extrablocks')),
+            ArrayBlock(child=IntegerBlock(length=4, is_signed=False), length='num_extrablocks'),
             {'description': 'Offset to each of the extrablocks'},
         )
         extrablocks = (
@@ -230,11 +224,7 @@ class TrkSuperBlock(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         block_size = (
-            IntegerBlock(
-                length=4,
-                is_signed=False,
-                programmatic_value=lambda ctx: ctx.block.estimate_packed_size(ctx.get_full_data()),
-            ),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=OwnSize()),
             {'description': 'Superblock size in bytes'},
         )
         num_blocks = (
@@ -243,10 +233,10 @@ class TrkSuperBlock(DeclarativeCompoundBlock):
         )
         unk = (IntegerBlock(length=4), {'is_unknown': True})
         block_offsets = (
-            ArrayBlock(child=IntegerBlock(length=4, is_signed=False), length=lambda ctx: ctx.data('num_blocks')),
+            ArrayBlock(child=IntegerBlock(length=4, is_signed=False), length='num_blocks'),
             {'description': 'Offset to each of the blocks'},
         )
-        blocks = (ArrayBlock(child=TrkBlock(), length=lambda ctx: ctx.data('num_blocks')), {'description': 'Blocks'})
+        blocks = (ArrayBlock(child=TrkBlock(), length='num_blocks'), {'description': 'Blocks'})
 
 
 class TrkMap(DeclarativeCompoundBlock):
@@ -262,18 +252,17 @@ class TrkMap(DeclarativeCompoundBlock):
         resource_id = (UTF8Block(length=4, value_validator=Eq('TRAC')), {'description': 'Resource ID'})
         unk0 = (BytesBlock(length=20), {'is_unknown': True})
         num_superblocks = (
-            IntegerBlock(length=4, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('superblock_offsets'))),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=CountOf('superblock_offsets')),
             {'description': 'Number of superblocks (nsblk)'},
         )
         num_blocks = (IntegerBlock(length=4, is_signed=False), {'description': 'Number of blocks (nblk)'})
         superblock_offsets = (
-            ArrayBlock(child=IntegerBlock(length=4, is_signed=False), length=lambda ctx: ctx.data('num_superblocks')),
+            ArrayBlock(child=IntegerBlock(length=4, is_signed=False), length='num_superblocks'),
             {'description': 'Offset to each of the superblocks'},
         )
         block_positions = (
             ArrayBlock(
-                child=Point3D(child=FixedPointBlock(length=4, fraction_bits=16, is_signed=True)),
-                length=lambda ctx: ctx.data('num_blocks'),
+                child=Point3D(child=FixedPointBlock(length=4, fraction_bits=16, is_signed=True)), length='num_blocks'
             ),
             {
                 'description': 'Positions of blocks in the world: a point on the road at the start of each '
@@ -282,10 +271,10 @@ class TrkMap(DeclarativeCompoundBlock):
             },
         )
         skip_bytes = (
-            Padding(to=(lambda ctx: ctx.data('superblock_offsets/0'), 'superblock_offsets[0]')),
+            Padding(to=('superblock_offsets/0', 'superblock_offsets[0]')),
             {'description': 'Useless padding'},
         )
         superblocks = (
-            ArrayBlock(child=TrkSuperBlock(), length=lambda ctx: ctx.data('num_superblocks')),
+            ArrayBlock(child=TrkSuperBlock(), length='num_superblocks'),
             {'description': 'Superblocks'},
         )

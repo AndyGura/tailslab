@@ -1,6 +1,6 @@
 from typing import Optional
 
-from library.read_blocks import ArrayBlock, BytesBlock, DeclarativeCompoundBlock, DecimalBlock, IntegerBlock
+from library.read_blocks import ArrayBlock, BytesBlock, DeclarativeCompoundBlock, DecimalBlock, IntegerBlock, CountOf
 from library.read_blocks.misc.value_validators import Eq
 from library.context import WriteContext
 from library.exceptions import DataIntegrityException
@@ -74,7 +74,7 @@ class Nfsu2Road(DeclarativeCompoundBlock):
         )
         unk3 = (DecimalBlock(length=4), {'is_unknown': True, 'description': 'Always 1.0'})
         num_nodes = (
-            IntegerBlock(length=2, programmatic_value=lambda ctx: len(ctx.data('nodes'))),
+            IntegerBlock(length=2, programmatic_value=CountOf('nodes')),
             {'usage': 'io,doc', 'description': 'Amount of nodes'},
         )
         unk4 = (IntegerBlock(length=2), {'is_unknown': True, 'description': 'Always `num_nodes`'})
@@ -105,7 +105,7 @@ class Nfsu2Road(DeclarativeCompoundBlock):
         )
         unk9 = (BytesBlock(length=8), {'is_unknown': True, 'description': 'Bytes 0 or 1'})
         nodes = (
-            ArrayBlock(child=Nfsu2RoadNode(), length=lambda ctx: ctx.data('num_nodes')),
+            ArrayBlock(child=Nfsu2RoadNode(), length='num_nodes'),
             {'description': 'Nodes'},
         )
 

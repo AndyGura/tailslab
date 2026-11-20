@@ -1,12 +1,6 @@
 from typing import List, Optional
 
-from library.read_blocks import (
-    ArrayBlock,
-    BytesBlock,
-    DeclarativeCompoundBlock,
-    DecimalBlock,
-    IntegerBlock,
-)
+from library.read_blocks import ArrayBlock, BytesBlock, DeclarativeCompoundBlock, DecimalBlock, IntegerBlock, OwnSize
 from library.read_blocks.misc.value_validators import Eq
 from library.read_blocks.strings import UTF8Block
 from resources.blackbox.chunks import peek_chunk_payload
@@ -262,9 +256,7 @@ class NfsmwRoadNetwork(DeclarativeCompoundBlock):
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x0003B800)), {'description': _CHUNK_ID_DESCR})
         chunk_length = (
-            IntegerBlock(
-                length=4, programmatic_value=lambda ctx: ctx.block.estimate_packed_size(ctx.get_full_data()) - 8
-            ),
+            IntegerBlock(length=4, programmatic_value=OwnSize() - 8),
             {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
         )
         elevens = (

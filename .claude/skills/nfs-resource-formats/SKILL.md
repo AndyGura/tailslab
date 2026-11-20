@@ -34,9 +34,11 @@ new parsing primitives. Skim the cheat-sheet below before reaching for `read-blo
   values pass through as their stringified number unless `raise_error_on_unknown`.
 - `UTF8Block(length)` / `NullTerminatedUTF8Block(length)` / `LengthPrefixedUtf8Block(length_block)`
   (`library.read_blocks.strings`) — fixed/null-terminated/length-prefixed text.
-- `BytesBlock(length, allow_negative_length=False)` — raw bytes; `length` may be an int, a
-  `lambda ctx: ...`, or `(lambda ctx: ..., "doc string")` to control what `size_doc_str` shows.
-  `Padding(to, is_global=False)` — `BytesBlock` subclass that pads up to an absolute/local offset.
+- `BytesBlock(length, allow_negative_length=False)` — raw bytes; `length` may be an int, a field
+  path (`length='data_size'`), a `lambda ctx: ...`, or any of these as `(length, "doc string")` to
+  control what `size_doc_str` shows.
+  `Padding(to, is_global=False)` — `BytesBlock` subclass that pads up to an absolute/local offset
+  (`to='vertices_ptr'`: up to the offset an earlier pointer field holds).
 - A new leaf storing a value as an integer (angle, scaled number, code) subclasses `IntegerBlock` and
   overrides `from_raw(raw)` / `to_raw(value)` (see `resources/eac/fields/numbers.py`), not `read` /
   `write`: records made only of integer / float leaves (nested records and int-length arrays of them
@@ -46,7 +48,7 @@ new parsing primitives. Skim the cheat-sheet below before reaching for `read-blo
 **Containers**
 - `CompoundBlock(fields=[(name, block, extras), ...])` / `DeclarativeCompoundBlock` (fields declared
   as a nested `Fields` class — the pattern almost everything uses, see below).
-- `ArrayBlock(child, length)` — `length` int or `lambda ctx: ...`.
+- `ArrayBlock(child, length)` — `length` int, field path (`length='num_items'`) or `lambda ctx: ...`.
   `LengthPrefixedArrayBlock(length_block, child)` — length read from a leading field.
   `SubByteArrayBlock(length, bits_per_value, value_deserialize_func=None, value_serialize_func=None)`
   — packed sub-byte values (e.g. 4-bit-per-pixel bitmaps).
@@ -88,6 +90,21 @@ new parsing primitives. Skim the cheat-sheet below before reaching for `read-blo
 range (`Lte(60)` for a count of a 60-item array; an unsigned int needs no `Gte(0)`). Reading a value that fails the
 validator raises `DataIntegrityException`. The GUI shows `Eq` fields read-only and hides them with the hidden fields,
 `Or` as a select, and limits number inputs to the comparison bounds (`frontend/.../editor/value-validators.ts`).
+
+**Field references** (`library.read_blocks`, module `references.py`) — the `programmatic_value` of a
+header field that a writer recomputes from other fields of the same compound block:
+- `CountOf('polygons')` — number of items (or bytes, or characters) of a field; any `ctx.data` path
+  (`'vertices/data'`).
+- `OffsetOf('vertices')` — offset of a field from the start of the compound block.
+- `SizeOf('sub_chunks')`, `SizeOf('header', 'header_padding')` — packed size of fields together.
+- `OwnSize()` — packed size of the whole compound block.
+- `+ n` / `- n` adds a constant: a chunk length counting what follows it is `OwnSize() - 8`, a size
+  counting itself `SizeOf('dashboard') + 4`.
+
+The writer fills offsets and sizes in after writing the other fields, without the estimate pass a
+lambda calling `estimate_packed_size` / `offset_to_child_when_packed` costs (several per nesting
+level). They refer to fields by their name in the same compound; a value from another block, a
+condition or arithmetic beyond a constant stays a lambda (`lambda ctx: len(ctx.data('items')) * 8`).
 
 **Domain helpers** (`resources.eac.fields`): `Point2D(child, normalized=False)`,
 `Point3D(child, normalized=False)`, `Quaternion(child)` (x, y, z, w; NFS2/NFS3 animation keyframes use 2.14 fixed
@@ -133,14 +150,20 @@ class SomeThing(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         magic = (UTF8Block(length=4, value_validator=Eq('ABCD')), {'description': 'Magic header'})
+        size = (
+            IntegerBlock(length=4, programmatic_value=OwnSize()),
+            {'usage': 'io,doc', 'description': 'Size of the file in bytes'},
+        )
         count = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('items'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('items')),
             {'usage': 'io,doc', 'description': 'Number of items'},
         )
-        items = (
-            ArrayBlock(child=IntegerBlock(length=2), length=lambda ctx: ctx.data('count')),
-            {'description': 'The items'},
+        items_ptr = (
+            IntegerBlock(length=4, programmatic_value=OffsetOf('items')),
+            {'usage': 'io,doc', 'description': 'Offset of `items`'},
         )
+        unk_items = (Padding(to='items_ptr'), {'description': 'Bytes up to `items_ptr`, normally none'})
+        items = (ArrayBlock(child=IntegerBlock(length=2), length='count'), {'description': 'The items'})
 ```
 
 - `block_description` (class attribute) is the block's description in the docs and the GUI; a
@@ -155,12 +178,15 @@ class SomeThing(DeclarativeCompoundBlock):
   docs, flagged), `custom_offset` (docs only, for non-sequential layouts), `usage` — comma-separated
   subset of `ui`/`io`/`doc` (default = everywhere; e.g. `'io,doc'` hides a redundant length field
   from the editable GUI while keeping it in docs and round-trip I/O).
-- `programmatic_value=lambda ctx: ...` — field is still *read* normally, but on `write` its value is
+- `programmatic_value=...` — field is still *read* normally, but on `write` its value is
   recomputed from the rest of the tree instead of trusting stored data (use for lengths/counts that
-  must stay consistent after edits).
-- Length/condition lambdas can reach any already-parsed sibling/ancestor via `ctx.data('path')` /
-  `ctx.data('../parent_field')` — see `read-block-framework`'s context section; keep them
-  documentation-safe (pure arithmetic/comparisons).
+  must stay consistent after edits): a field reference (`CountOf`, `OffsetOf`, `SizeOf`, `OwnSize`,
+  cheat-sheet) where one fits, else `lambda ctx: ...`.
+- A length that is a sibling field is its path (`length='count'`, `length='../num_items'`), not
+  `lambda ctx: ctx.data('count')`. Length/condition lambdas can reach any already-parsed
+  sibling/ancestor via `ctx.data('path')` / `ctx.data('../parent_field')` — see
+  `read-block-framework`'s context section; keep them documentation-safe (pure
+  arithmetic/comparisons).
 
 ### Another platform's variant of an existing layout
 
@@ -382,6 +408,17 @@ plumbing. To build one (see `ShpiBlock` in `resources/eac/archives/shpi_block.py
 - Check for a standard container before reading hex: `file <sample>` and the first bytes. NFS6 `.o` is a
   plain ELF object, so a short `struct` parser of its symbol table and relocations named every
   structure and turned every pointer into a known target; guessing offsets would have taken far longer.
+- A structure from a decompiled executable (a Ghidra / IDA struct, a loader reading members one by
+  one) becomes one field per member, in order, and its header members map onto field references:
+  - `int num_x;` + `X *x;` / `int x_offset;` (relative to the struct start) → `CountOf('x')`,
+    `OffsetOf('x')`, then `Padding(to='x_offset')` before `x` (bytes the file may hold there) and
+    `ArrayBlock(child=..., length='num_x')`;
+  - a `size` / `length` member of the whole struct → `OwnSize()` (minus what it does not count:
+    `OwnSize() - 8` for a chunk length after an id and itself), of some members → `SizeOf(...)`;
+  - a byte count of a raw member → `BytesBlock(length='x_size')` with `CountOf('x')` on `x_size`.
+
+  Offsets relative to something else (the file start, another struct) or counts the loader derives
+  with more arithmetic are lambdas.
 - Write throwaway probe scripts (in the scratchpad) that run over every file of that kind in
   `games/<game>/` or the samples, and print value ranges and counts per field rather than dumping
   one file. Field descriptions like "always 44.703" or "values from 35 to 60" come from that.

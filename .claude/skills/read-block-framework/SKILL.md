@@ -76,6 +76,21 @@ Commonly overridden:
   (`ArrayBlock.item_by_item_io` likewise). `CompoundBlock.io_field_blocks` = the `(name, block)` of
   the fields with io usage (`is_io_usage`), computed in `__init__`: use it instead of filtering
   `field_blocks` by `usage`.
+- Block parameters (`library/read_blocks/references.py`): the `length` of `BytesBlock` / `ArrayBlock`
+  / `SubByteArrayBlock` / `UTF8Block` and `Padding(to=...)` are a number, a field path (`'num_items'`,
+  `'../count'`: `ctx.data` of it, documented as the path), a `lambda ctx: ...`, or one of these with
+  its doc text `(param, 'doc')`. A new block taking such a parameter resolves it with
+  `param_value(param, ctx)`, documents it with `param_doc(param)` and tells a fixed one with
+  `is_static_param(param)`, instead of unwrapping it itself.
+- Field references (same module), programmatic values computed from other fields of the compound:
+  `CountOf(path)` (`len(ctx.data(path))`), and the `LayoutReference`s `OffsetOf(name)`,
+  `SizeOf(*names)`, `OwnSize()`; `+ n` / `- n` adds a constant. `CompoundBlock.write` writes a
+  fixed-size field holding a `LayoutReference` as zeros, writes the other fields, then fills it from
+  where they were written (`back_patched_fields`, `from_spans`): no `estimate_packed_size` pass, so
+  nested size fields cost nothing extra. `ctx.result` holds those zeros until the end of the
+  compound's write. Called like any programmatic value (another block's `write` packing the field,
+  a class overriding `estimate_packed_size` for `OwnSize` or `offset_to_child_when_packed` for
+  `OffsetOf`, a reference to a non-io field), a reference estimates instead.
 - For container blocks, subclass `DataBlockWithChildren` too and implement
   `get_child_block(name)`, `get_child_block_with_data(unpacked_data, name)`, and
   `offset_to_child_when_packed(data, child_name, ctx)` — these back the GUI's per-field navigation

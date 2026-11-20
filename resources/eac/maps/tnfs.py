@@ -13,6 +13,7 @@ from library.read_blocks import (
     EnumLookupDelegateBlock,
     FixedPointBlock,
     SubByteCompoundBlock,
+    CountOf,
 )
 from library.read_blocks.misc.value_validators import Eq
 from library.spatial_edit import SpatialEditable, stored_value
@@ -485,7 +486,7 @@ class TriMap(DeclarativeCompoundBlock, SpatialEditable):
             },
         )
         num_chunks = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('terrain'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('terrain')),
             {'description': 'number of terrain chunks (max 600)'},
         )
         unk0 = (IntegerBlock(length=2, value_validator=Eq(6)), {'is_unknown': True})
@@ -530,25 +531,25 @@ class TriMap(DeclarativeCompoundBlock, SpatialEditable):
             },
         )
         num_prop_descr = (
-            IntegerBlock(length=4, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('prop_descr'))),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=CountOf('prop_descr')),
             {'description': 'Amount of prop descriptions'},
         )
         num_props = (
-            IntegerBlock(length=4, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('props'))),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=CountOf('props')),
             {'description': 'Amount of props'},
         )
         objs_hdr = (UTF8Block(length=4, value_validator=Eq('SJBO')), {'description': 'Header of the props section'})
         unk1 = (IntegerBlock(length=4, value_validator=Eq(0x428C)), {'is_unknown': True})
         unk2 = (IntegerBlock(length=4, value_validator=Eq(0)), {'is_unknown': True})
         prop_descr = (
-            ArrayBlock(child=PropDescr(), length=lambda ctx: ctx.data('num_prop_descr')),
+            ArrayBlock(child=PropDescr(), length='num_prop_descr'),
             {
                 'description': 'Prop descriptions: 3D models, bitmaps and two-sided bitmaps, which can be '
                 'placed on the map'
             },
         )
         props = (
-            ArrayBlock(child=MapProp(), length=lambda ctx: ctx.data('num_props')),
+            ArrayBlock(child=MapProp(), length='num_props'),
             {
                 'description': 'Props placed on the map. Unused trailing items have `road_point_idx` == -1. The '
                 'game engine refers to props (road objects) by their index in this array: `SignStatus` has 2 bytes '
@@ -556,7 +557,7 @@ class TriMap(DeclarativeCompoundBlock, SpatialEditable):
             },
         )
         terrain = (
-            ArrayBlock(child=TerrainEntry(), length=lambda ctx: ctx.data('num_chunks')),
+            ArrayBlock(child=TerrainEntry(), length='num_chunks'),
             {'description': 'Terrain chunks, one per 4 road spline points'},
         )
 

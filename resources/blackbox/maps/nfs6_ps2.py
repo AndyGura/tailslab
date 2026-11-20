@@ -9,6 +9,8 @@ from library.read_blocks import (
     EnumByteBlock,
     FixedPointBlock,
     IntegerBlock,
+    CountOf,
+    SizeOf,
 )
 from library.read_blocks.misc.value_validators import Eq
 from library.read_blocks.strings import UTF8Block
@@ -621,7 +623,7 @@ class Nfs6Ps2TrackRoute(DeclarativeCompoundBlock):
         )
         route_type = (IntegerBlock(length=4), {'description': '0 a lane, 1 a racing line'})
         num_points = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('points'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('points')),
             {'usage': 'io,doc', 'description': 'Amount of points'},
         )
         capacity = (
@@ -652,7 +654,7 @@ class Nfs6Ps2TrackRoute(DeclarativeCompoundBlock):
         )
         bbox_max = (Point2D(child=DecimalBlock(length=4)), {'description': 'Bounding box of the points'})
         points = (
-            ArrayBlock(child=Nfs6Ps2TrackRoutePoint(), length=lambda ctx: ctx.data('num_points')),
+            ArrayBlock(child=Nfs6Ps2TrackRoutePoint(), length='num_points'),
             {'description': 'Points'},
         )
 
@@ -666,12 +668,7 @@ class Nfs6Ps2TrackRoutes(DeclarativeCompoundBlock):
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034121)), {'description': _CHUNK_ID_DESCR})
         chunk_length = (
-            IntegerBlock(
-                length=4,
-                programmatic_value=lambda ctx: ctx.block.field_blocks_map['routes'].estimate_packed_size(
-                    ctx.data('routes')
-                ),
-            ),
+            IntegerBlock(length=4, programmatic_value=SizeOf('routes')),
             {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
         )
         routes = (
