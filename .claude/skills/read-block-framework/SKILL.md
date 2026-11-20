@@ -81,6 +81,8 @@ Commonly overridden:
   subclass overrides it (`ChunkBlock` in `resources/blackbox/chunks.py`: the chunk header).
 - `ArrayBlock(child, byte_length=...)` (a block parameter): items read one by one until they took that many bytes,
   for items of any size up to the end of a record; documented by the parameter's doc text (size and length).
+- `BytesBlock(length=REMAINING)`: the block takes the bytes it is read with (`read_bytes_amount`), else
+  the rest of its parent: the raw choice of archive items.
 - Block parameters (`library/read_blocks/references.py`): the `length` of `BytesBlock` / `ArrayBlock`
   / `SubByteArrayBlock` / `UTF8Block` and `Padding(to=...)` are a number, a field path (`'num_items'`,
   `'../count'`: `ctx.data` of it, documented as the path), a `lambda ctx: ...`, or one of these with
@@ -89,7 +91,9 @@ Commonly overridden:
   `is_static_param(param)`, instead of unwrapping it itself.
 - Field references (same module), programmatic values computed from other fields of the compound:
   `CountOf(path)` (`len(ctx.data(path))`), and the `LayoutReference`s `OffsetOf(name)`,
-  `SizeOf(*names)`, `OwnSize()`; `+ n` / `- n` adds a constant. `CompoundBlock.write` writes a
+  `SizeOf(*names)`, `OwnSize()`, `ItemOffsetsOf(name)` (an offset table: the offset of each item of an
+  array field; `CompoundBlock.write` packs that array item by item, `ArrayBlock.write_items`); `+ n` /
+  `- n` adds a constant. `CompoundBlock.write` writes a
   fixed-size field holding a `LayoutReference` as zeros, writes the other fields, then fills it from
   where they were written (`back_patched_fields`, `from_spans`): no `estimate_packed_size` pass, so
   nested size fields cost nothing extra. `ctx.result` holds those zeros until the end of the

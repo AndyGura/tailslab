@@ -8,7 +8,7 @@ from library.context import ReadContext, WriteContext
 from library.exceptions import BlockDefinitionException, DataIntegrityException
 from library.read_blocks.basic import DataBlock, DataBlockWithChildren
 from library.read_blocks.numbers import IntegerBlock
-from library.read_blocks.references import LayoutReference, OffsetOf, OwnSize
+from library.read_blocks.references import ItemOffsetsOf, LayoutReference, OffsetOf, OwnSize
 from library.read_blocks.struct_record import join_struct_formats
 from library.utils.docs import add_doc_numbers
 
@@ -203,8 +203,9 @@ class CompoundBlock(DataBlockWithChildren, DataBlock, ABC):
         )
 
     # The io fields whose programmatic value is a `LayoutReference` that `write` takes from the written bytes: fields
-    # of a fixed size, referring to io fields. Own size and offsets only where the class sizes the block as `write`
-    # writes it (else they are estimated, as any programmatic value)
+    # of a fixed size (an offset table of `ItemOffsetsOf`: as many integers as items), referring to io fields. Own size
+    # and offsets only where the class sizes the block as `write` writes it (else they are estimated, as any
+    # programmatic value)
     @cached_property
     def back_patched_fields(self) -> Dict[str, LayoutReference]:
         cls = type(self)
@@ -214,8 +215,12 @@ class CompoundBlock(DataBlockWithChildren, DataBlock, ABC):
             reference = field.programmatic_value
             if (
                 not isinstance(reference, LayoutReference)
-                or field.fixed_size is None
+                or (field.fixed_size is None and not isinstance(reference, ItemOffsetsOf))
                 or not io_names.issuperset(reference.names)
+                or (
+                    isinstance(reference, ItemOffsetsOf)
+                    and not hasattr(self.field_blocks_map[reference.names[0]], 'write_items')
+                )
                 or (
                     isinstance(reference, OwnSize)
                     and cls.estimate_packed_size is not CompoundBlock.estimate_packed_size
@@ -244,19 +249,32 @@ class CompoundBlock(DataBlockWithChildren, DataBlock, ABC):
             for name, field in self.io_field_blocks:
                 self_ctx.result += field.pack(data=data.get(name), ctx=self_ctx, name=name)
             return self_ctx.result
-        # (start, end) of each field: back-patched fields are zeros until the others are written
-        spans = {}
+        # (start, end) of each field, and of the items of arrays an offset table refers to: back-patched fields are
+        # zeros until the others are written
+        spans, item_spans = {}, {}
+        item_arrays = {
+            reference.names[0] for reference in back_patched.values() if isinstance(reference, ItemOffsetsOf)
+        }
         for name, field in self.io_field_blocks:
             start = len(self_ctx.result)
             if name in back_patched:
-                self_ctx.result += bytes(field.fixed_size)
+                self_ctx.result += back_patched[name].placeholder(field, data)
+            elif name in item_arrays:
+                parts = field.write_items(data.get(name), self_ctx, name)
+                item_spans[name] = []
+                position = start
+                for part in parts:
+                    item_spans[name].append((position, position + len(part)))
+                    position += len(part)
+                self_ctx.result += b''.join(parts)
             else:
                 self_ctx.result += field.pack(data=data.get(name), ctx=self_ctx, name=name)
             spans[name] = (start, len(self_ctx.result))
         res = bytearray(self_ctx.result)
         for name, reference in back_patched.items():
             start, end = spans[name]
-            res[start:end] = self.field_blocks_map[name].write(reference.from_spans(spans, len(res)), self_ctx, name)
+            value = reference.from_spans(spans, len(res), item_spans)
+            res[start:end] = self.field_blocks_map[name].write(value, self_ctx, name)
         self_ctx.result = bytes(res)
         return self_ctx.result
 

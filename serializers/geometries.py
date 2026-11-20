@@ -10,7 +10,7 @@ from PIL import Image
 
 from library.exceptions import DataIntegrityException
 from library.utils import path_join
-from library.utils.id import is_file_id, join_id, split_id, split_last_id_part
+from library.utils.id import is_file_id, join_id, parse_item_id, split_id, split_last_id_part
 from resources.eac.archives import ShpiBlock, ShppBlock
 from resources.eac.bitmaps import EacImage
 from serializers import BaseFileSerializer
@@ -212,14 +212,9 @@ class OripGeometrySerializer(BaseFileSerializer):
         scene.name = 'body'
         scene.obj_name = 'geometry'
         scene.mtl_name = 'material'
-        for c in textures_shpi_data['children']:
-            texture_block = (
-                textures_shpi_block.field_blocks_map['children']
-                .child.field_blocks_map['item']
-                .possible_blocks[c['item']['choice_index']]
-            )
+        for _, c, _, _ in textures_shpi_block.items(textures_shpi_data, EacImage):
             # "!..." items are no textures (the game skips them too), a CFM's !xxx is a palette typed as a bitmap
-            if isinstance(texture_block, EacImage) and not c['alias'].startswith('!'):
+            if not c['alias'].startswith('!'):
                 scene.mtl_texture_names.append(c['alias'])
         scene.mtl_texture_path_func = lambda name: f'assets/{orip_material_texture(name)}.png'
         for sub_model in sub_models.values():
@@ -926,14 +921,8 @@ class GeoGeometrySerializer(BaseFileSerializer):
         scene.name = 'body'
         scene.obj_name = 'geometry'
         scene.mtl_name = 'material'
-        for c in textures_shpi_data['children']:
-            texture_block = (
-                textures_shpi_block.field_blocks_map['children']
-                .child.field_blocks_map['item']
-                .possible_blocks[c['item']['choice_index']]
-            )
-            if isinstance(texture_block, EacImage):
-                scene.mtl_texture_names.append(c['alias'])
+        for _, c, _, _ in textures_shpi_block.items(textures_shpi_data, EacImage):
+            scene.mtl_texture_names.append(c['alias'])
         scene.mtl_texture_path_func = lambda name: f'assets/{name}.png'
 
         from serializers import ShpiArchiveSerializer
@@ -1146,10 +1135,7 @@ class CrpGeometrySerializer(BaseFileSerializer):
             exported_files = set(ShpiArchiveSerializer().serialize(fsh_data, textures_path, fsh_data_id, shpi_block))
             aliases = [child['alias'] for child in fsh_data['children']]
             images = []
-            for child in fsh_data['children']:
-                item_block = shpi_block.item_block.possible_blocks[child['item']['choice_index']]
-                if not isinstance(item_block, EacImage):
-                    continue
+            for _, child, item_block, _ in shpi_block.items(fsh_data, EacImage):
                 # reuse the image, exported by archive serializer, if its file name is unambiguous
                 png_path = escape_chars(path_join(textures_path, child['alias'].replace('/', '_'))) + '.png'
                 try:
@@ -1216,9 +1202,8 @@ class CrpGeometrySerializer(BaseFileSerializer):
                 (fsh_id, shpi_block, shpi_data), _ = require_resource(join_id(fsh_id, 'data'))
             if not isinstance(shpi_block, ShpiBlock):
                 continue
-            for child in shpi_data['children']:
-                item_block = shpi_block.item_block.possible_blocks[child['item']['choice_index']]
-                if isinstance(item_block, EacImage) and child['alias'] not in images:
+            for _, child, item_block, _ in shpi_block.items(shpi_data, EacImage):
+                if child['alias'] not in images:
                     images[child['alias']] = (
                         child['item']['data'],
                         item_block,
@@ -1730,12 +1715,12 @@ def _find_fce_siblings(id: str) -> Tuple[Optional[str], List[Tuple[str, bytes]]]
         return None, []
     file_name = None
     textures = []
-    match = re.fullmatch(r'(.*?)(?:__|/)children/(\d+)/item/data', id)
-    if match:
-        (_, _, archive_data), _ = require_resource(match.group(1))
+    item_id = parse_item_id(id)
+    if item_id:
+        (_, _, archive_data), _ = require_resource(item_id[0])
         children = (archive_data or {}).get('children', [])
-        if int(match.group(2)) < len(children):
-            file_name = children[int(match.group(2))]['alias']
+        if item_id[1] < len(children):
+            file_name = children[item_id[1]]['alias']
         for child in children:
             alias = child['alias'] or ''
             item_data = (child['item'] or {}).get('data')
@@ -1997,14 +1982,14 @@ def find_eagl_texture_archive(id: str, model_file_name: str = None) -> Optional[
     if not id:
         return None
     candidates = []
-    match = re.fullmatch(r'(.*?)(?:__|/)children/(\d+)/item/data', id)
-    if match:
-        (_, _, archive_data), _ = require_resource(match.group(1))
+    item_id = parse_item_id(id)
+    if item_id:
+        (_, _, archive_data), _ = require_resource(item_id[0])
         children = (archive_data or {}).get('children', [])
-        if model_file_name is None and int(match.group(2)) < len(children):
-            model_file_name = children[int(match.group(2))]['alias']
+        if model_file_name is None and item_id[1] < len(children):
+            model_file_name = children[item_id[1]]['alias']
         fsh_name = eagl_texture_archive_name(model_file_name)
-        candidates.append(lambda: _find_bigf_child(match.group(1), fsh_name))
+        candidates.append(lambda: _find_bigf_child(item_id[0], fsh_name))
         file_path = id_to_path(id)
     else:
         file_path = id_to_path(id)
@@ -2043,9 +2028,8 @@ def export_fsh_textures(
         return {}, {}
     fsh_id, shpi_block, shpi_data = archive
     images = {}
-    for child in shpi_data['children']:
-        item_block = shpi_block.item_block.possible_blocks[child['item']['choice_index']]
-        if isinstance(item_block, EacImage) and child['alias'] not in images:
+    for _, child, item_block, _ in shpi_block.items(shpi_data, EacImage):
+        if child['alias'] not in images:
             images[child['alias']] = (child['item']['data'], item_block, join_id(fsh_id, 'children', child['alias']))
     os.makedirs(path_join(path, 'textures'), exist_ok=True)
     names, alpha_modes = {}, {}
@@ -2138,13 +2122,13 @@ def _eagl_model_location(id: str) -> Tuple[Optional[str], Optional[str], str]:
     from library import require_resource
     from library.loader import id_to_path
 
-    match = re.fullmatch(r'(.*?)(?:__|/)children/(\d+)/item/data', id or '')
-    if not match:
+    item_id = parse_item_id(id)
+    if not item_id:
         return None, os.path.basename(id_to_path(id or '')), id_to_path(id or '')
-    (_, _, archive_data), _ = require_resource(match.group(1))
+    (_, _, archive_data), _ = require_resource(item_id[0])
     children = (archive_data or {}).get('children', [])
-    alias = children[int(match.group(2))]['alias'] if int(match.group(2)) < len(children) else None
-    return match.group(1), alias, id_to_path(id)
+    alias = children[item_id[1]]['alias'] if item_id[1] < len(children) else None
+    return item_id[0], alias, id_to_path(id)
 
 
 def is_nfs6_car_model(meshes) -> bool:

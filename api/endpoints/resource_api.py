@@ -234,28 +234,25 @@ class ResourceAPI:
         Returns:
             {'images': n, 'color_models': {resource_id: count}, 'with_mipmaps': n}
         """
+        from library.read_blocks.archives import ArchiveBlock
+        from library.utils.id import parse_item_id
         from resources.eac.bitmaps import EacImage
 
-        import re
-
-        # <archive>__children/<i>/item/data or <archive>/children/<i>/item/data
-        match = re.match(r'^(.*)(?:__|/)children/(\d+)/item/data$', image_id)
-        if not match:
-            return {'images': 0, 'color_models': {}, 'with_mipmaps': 0}
-        archive_id, own_index = match.group(1), match.group(2)
-        (_, archive_block, archive), _ = require_resource(archive_id)
-        possible_blocks = getattr(getattr(archive_block, 'item_block', None), 'possible_blocks', [])
         stats = {'images': 0, 'color_models': {}, 'with_mipmaps': 0}
-        for i, child in enumerate(archive.get('children', [])):
-            if str(i) == own_index:
-                continue
-            item = child['item']
-            if item is None or not isinstance(possible_blocks[item['choice_index']], EacImage):
+        item_id = parse_item_id(image_id)
+        if item_id is None:
+            return stats
+        archive_id, own_index = item_id
+        (_, archive_block, archive), _ = require_resource(archive_id)
+        if not isinstance(archive_block, ArchiveBlock):
+            return stats
+        for i, _, _, image in archive_block.items(archive, EacImage):
+            if i == own_index:
                 continue
             stats['images'] += 1
-            resource_id = item['data']['resource_id']
+            resource_id = image['resource_id']
             stats['color_models'][resource_id] = stats['color_models'].get(resource_id, 0) + 1
-            stats['with_mipmaps'] += item['data'].get('mipmaps') is not None
+            stats['with_mipmaps'] += image.get('mipmaps') is not None
         return stats
 
     def palette_usage(self, palette_id: str) -> List[int]:
@@ -266,8 +263,8 @@ class ResourceAPI:
         Returns:
             sorted indices
         """
-        import re
-
+        from library.read_blocks.archives import ArchiveBlock
+        from library.utils.id import parse_item_id
         from resources.eac.bitmaps import EacImage
         from resources.eac.utils import determine_palette_for_8_bit_bitmap
 
@@ -278,22 +275,17 @@ class ResourceAPI:
             (_, image_block, image), _ = require_resource(image_id)
             images.append(image)
         else:
-            match = re.match(r'^(.*)(?:__|/)children/\d+/item/data$', palette_id)
-            if not match:
+            item_id = parse_item_id(palette_id)
+            if item_id is None:
                 return []
-            (_, archive_block, archive), _ = require_resource(match.group(1))
-            possible_blocks = getattr(getattr(archive_block, 'item_block', None), 'possible_blocks', [])
-            for i, child in enumerate(archive.get('children', [])):
-                item = child['item']
-                if item is None or not isinstance(possible_blocks[item['choice_index']], EacImage):
-                    continue
-                image = item['data']
+            (_, archive_block, archive), _ = require_resource(item_id[0])
+            if not isinstance(archive_block, ArchiveBlock):
+                return []
+            for i, _, image_block, image in archive_block.items(archive, EacImage):
                 if image.get('resource_id') != '8Bit':
                     continue
-                image_id = join_id(match.group(1), 'children', str(i), 'item', 'data')
-                _, used_palette = determine_palette_for_8_bit_bitmap(
-                    possible_blocks[item['choice_index']], image, image_id
-                )
+                image_id = join_id(item_id[0], 'children', str(i), 'item', 'data')
+                _, used_palette = determine_palette_for_8_bit_bitmap(image_block, image, image_id)
                 if used_palette is palette:
                     images.append(image)
         used = set()

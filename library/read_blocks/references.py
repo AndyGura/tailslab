@@ -1,5 +1,5 @@
 from copy import copy
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 
 from library.context import DocumentationContext, WriteContext
 
@@ -39,6 +39,10 @@ def is_static_param(param) -> bool:
     if isinstance(param, tuple):
         param = param[0]
     return not isinstance(param, str) and not callable(param)
+
+
+# (start, end) of each field of a written compound block
+Spans = Dict[str, Tuple[int, int]]
 
 
 class FieldReference:
@@ -81,9 +85,14 @@ class LayoutReference(FieldReference):
     # names of the fields of the compound block it refers to
     names: Tuple[str, ...] = ()
 
-    def from_spans(self, spans: Dict[str, Tuple[int, int]], length: int) -> int:
-        """The value from the (start, end) of each written field and the length of the compound block"""
+    def from_spans(self, spans: Spans, length: int, item_spans: Dict[str, List[Tuple[int, int]]]):
+        """The value from the (start, end) of each written field, the length of the compound block and (for
+        `ItemOffsetsOf`) the (start, end) of each item of the arrays it refers to"""
         raise NotImplementedError
+
+    def placeholder(self, field, data) -> bytes:
+        """What the field is written as until the value is known: zeros of its size"""
+        return bytes(field.fixed_size)
 
 
 class OffsetOf(LayoutReference):
@@ -96,7 +105,7 @@ class OffsetOf(LayoutReference):
     def __call__(self, ctx: WriteContext) -> int:
         return ctx.block.offset_to_child_when_packed(ctx.get_full_data(), self.names[0]) + self.add
 
-    def from_spans(self, spans: Dict[str, Tuple[int, int]], length: int) -> int:
+    def from_spans(self, spans: Spans, length: int, item_spans) -> int:
         return spans[self.names[0]][0] + self.add
 
 
@@ -113,7 +122,7 @@ class SizeOf(LayoutReference):
             + self.add
         )
 
-    def from_spans(self, spans: Dict[str, Tuple[int, int]], length: int) -> int:
+    def from_spans(self, spans: Spans, length: int, item_spans) -> int:
         return sum(spans[name][1] - spans[name][0] for name in self.names) + self.add
 
 
@@ -123,5 +132,30 @@ class OwnSize(LayoutReference):
     def __call__(self, ctx: WriteContext) -> int:
         return ctx.block.estimate_packed_size(ctx.get_full_data()) + self.add
 
-    def from_spans(self, spans: Dict[str, Tuple[int, int]], length: int) -> int:
+    def from_spans(self, spans: Spans, length: int, item_spans) -> int:
         return length + self.add
+
+
+class ItemOffsetsOf(LayoutReference):
+    """Offsets of the items of the array field `name` from the start of the compound block, as a list: the value of
+    an offset table (an array of integers, one per item)"""
+
+    def __init__(self, name: str, add: int = 0):
+        super().__init__(add)
+        self.names = (name,)
+
+    def __call__(self, ctx: WriteContext) -> List[int]:
+        data = ctx.get_full_data()
+        array = ctx.block.get_child_block(self.names[0])
+        offset = ctx.block.offset_to_child_when_packed(data, self.names[0]) + self.add
+        res = []
+        for item in data[self.names[0]]:
+            res.append(offset)
+            offset += array.child.estimate_packed_size(item, ctx)
+        return res
+
+    def from_spans(self, spans: Spans, length: int, item_spans) -> List[int]:
+        return [start + self.add for start, _ in item_spans[self.names[0]]]
+
+    def placeholder(self, field, data) -> bytes:
+        return field.write([0] * len(data[self.names[0]]))

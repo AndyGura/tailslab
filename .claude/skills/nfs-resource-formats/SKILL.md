@@ -35,7 +35,8 @@ new parsing primitives. Skim the cheat-sheet below before reaching for `read-blo
 - `UTF8Block(length)` / `NullTerminatedUTF8Block(length)` / `LengthPrefixedUtf8Block(length_block)`
   (`library.read_blocks.strings`) — fixed/null-terminated/length-prefixed text.
 - `BytesBlock(length, allow_negative_length=False)` — raw bytes; `length` may be an int, a field
-  path (`length='data_size'`), a `lambda ctx: ...`, or any of these as `(length, "doc string")` to
+  path (`length='data_size'`), a `lambda ctx: ...`, `REMAINING` (the bytes the block is read with:
+  an archive item's slot, else the rest of the parent), or any of these as `(length, "doc string")` to
   control what `size_doc_str` shows.
   `Padding(to, is_global=False)` — `BytesBlock` subclass that pads up to an absolute/local offset
   (`to='vertices_ptr'`: up to the offset an earlier pointer field holds).
@@ -99,6 +100,8 @@ header field that a writer recomputes from other fields of the same compound blo
   (`'vertices/data'`).
 - `OffsetOf('vertices')` — offset of a field from the start of the compound block.
 - `SizeOf('sub_chunks')`, `SizeOf('header', 'header_padding')` — packed size of fields together.
+- `ItemOffsetsOf('blocks')` — the offset of each item of an array field (an offset table:
+  `ArrayBlock(child=IntegerBlock(length=4), length='num_blocks', programmatic_value=ItemOffsetsOf('blocks'))`).
 - `OwnSize()` — packed size of the whole compound block.
 - `+ n` / `- n` adds a constant: a chunk length counting what follows it is `OwnSize() - 8`, a size
   counting itself `SizeOf('dashboard') + 4`.
@@ -275,27 +278,39 @@ both do.
 
 ### Archives (name/offset-indexed containers)
 
-`ArchiveBlock` (base class) already handles the item/pre-offset-payload/post-offset-payload/alias
-plumbing. To build one (see `ShpiBlock` in `resources/eac/archives/shpi_block.py` as the reference):
-1. Pass `item_block=` (typically an `AutoDetectBlock` of the possible item types) to `super().__init__()`.
+`ArchiveBlock` (`library/read_blocks/archives.py`) reads, writes and sizes an archive: a header with a
+directory of items (`items_descr`), the items in `data_bytes`; the data has `children` (entries of `item`,
+`post_offset_payload`, `alias`) instead. To build one (references: `WwwwBlock`, `BigfBlock`, `ShpiBlock`,
+`Nfs6Ps2Jukebox`):
+1. Pass `item_block=` (typically an `AutoDetectBlock` of the possible item types, its last choice
+   `BytesBlock(length=(REMAINING, 'item_length'))`: an item no other block reads takes its slot) to
+   `super().__init__()`.
 2. Declare your own header fields normally (magic, length, item count, offset table, ...), marking
-   the raw offset-table/data-bytes fields `usage: 'io,doc'` (hidden from the edit UI).
+   `items_descr` and `data_bytes` (the last io field) `usage: 'io,doc'` (hidden from the edit UI).
 3. Add `children = (ArrayBlock(child=None, length=None), {'usage': 'ui'})` to `Fields` — this is the
    GUI-facing reconstructed item list.
 4. Declare `pre_items_payload` (a `BytesBlock` sized with `pre_items_payload_length(ctx, offsets)`) right
    before `data_bytes`: the bytes between the item descriptions and the first item (padding, or data no
-   offset points to). Override `read()` to build `children` from the offset table: `read_header()` reads
-   every io field before the items region (`data_bytes`, the last io field) without reading the region,
-   then one `read_entry(ctx, name, offset, length, item_length, alias)` per item, where `offset`/`length`
-   is the item's slot (up to the next item offset, see `slot_lengths`). Bytes after the item's own end
-   inside its slot become its `post_offset_payload`; an entry never has bytes before its item. In a lazy
-   read context `read_entry` returns an unloaded `LazyDict` (see "Lazy parts" in skill
-   `read-block-framework`), so item blocks must not depend on bytes outside their slot except via
-   header values (`ctx.data('items_descr')` etc. are kept for them).
-5. Override `write()` to flatten `children` back into the offset table + raw data bytes, taking each
-   entry's `(item, post)` bytes from `entry_bytes()` (an unloaded entry gives its original slot); item
-   offsets count `pre_items_payload`.
-6. Override `estimate_packed_size()` (header + `pre_items_payload` + `sum(self.entry_sizes(child))` per child).
+   offset points to).
+5. Implement `item_descriptions(header)`: one `ItemDescription(index, offset, alias, item_length, name)` per
+   entry, offsets relative to the archive start (None: an entry without data), in the order to read them,
+   and `make_items_descr(data, layouts, heap_offset)`: `items_descr` of the entries written at the
+   `EntryLayout`s (offset in `data_bytes`, item and slot length; add `heap_offset`). Each entry owns its
+   slot (up to the next item offset): bytes after the item's own end are its `post_offset_payload`; an
+   entry never has bytes before its item. Hooks for other layouts: `heap_order` (the order item data is
+   stored in, SHPI keeps the read one), `is_empty_entry` (WWWW offset 0), `slots_end` (BIGF: the length of
+   the header), `after_read` (more data from the header), `heap_offset` (a header whose estimate is not
+   its written size).
+In a lazy read context entries are unloaded `LazyDict`s (see "Lazy parts" in skill `read-block-framework`),
+written back as their original slot bytes, so item blocks must not depend on bytes outside their slot
+except via header values (`ctx.data('items_descr')` etc. are kept for them). Header fields sizing the
+archive (`OwnSize()`, a length) take the sizes of the entries `write` packed. `archive.items(data,
+EacImage)` iterates the entries of one item class (index, entry, block, item data); `parse_item_id(id)`
+(`library/utils/id.py`) gives the archive id and index of an item id.
+
+Items at the offsets of an offset table, kept as raw bytes plus a parsed "ui" array (TRK blocks, COL
+files: `extrablocks`), are read with `read_items_at_offsets` and written back from the parsed items with
+`pack_items_at_offsets` (an unchanged item keeps its bytes and the bytes after it).
 
 ## Registering a brand-new top-level file format
 

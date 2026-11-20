@@ -448,12 +448,9 @@ class TriMapSerializer(BaseFileSerializer):
                     mesh.texture_id = f'props/{descr["data"]["data"]["resource_id"]}/0/assets/' + texture
                     position_mesh(mesh)
                     meshes.append(mesh)
-                for ti, child in enumerate(shpi_data['children']):
-                    texture_block = shpi_block.item_block.possible_blocks[child['item']['choice_index']]
-                    from resources.eac.bitmaps import EacImage
+                from resources.eac.bitmaps import EacImage
 
-                    if not isinstance(texture_block, EacImage):
-                        continue
+                for _, child, _, _ in shpi_block.items(shpi_data, EacImage):
                     additional_textures.append(
                         f'props/{descr["data"]["data"]["resource_id"]}/0/assets/{child["alias"]}'
                     )
@@ -1418,9 +1415,8 @@ def _export_nfs2_line_textures(id: str, path: str, names: List[str]) -> List[str
         while not isinstance(shpi_block, ShpiBlock) and isinstance(shpi_data, dict) and 'choice_index' in shpi_data:
             (fsh_id, shpi_block, shpi_data), _ = require_resource(join_id(fsh_id, 'data'))
         os.makedirs(path_join(path, 'textures'), exist_ok=True)
-        for i, child in enumerate(shpi_data['children']):
-            item_block = shpi_block.item_block.possible_blocks[child['item']['choice_index']]
-            if child['alias'] not in names or not isinstance(item_block, EacImage):
+        for i, child, item_block, _ in shpi_block.items(shpi_data, EacImage):
+            if child['alias'] not in names:
                 continue
             image_id = join_id(fsh_id, 'children', str(i), 'item', 'data')
             image = ImageSerializer().to_png_image(child['item']['data'], item_block, image_id)

@@ -42,7 +42,7 @@ docs and a working GUI editor for free.
 
 | Path | What lives there |
 |---|---|
-| `library/read_blocks/` | Generic, reusable binary-parsing primitives — the framework. |
+| `library/read_blocks/` | Generic, reusable binary-parsing primitives — the framework. `archives.py`: `ArchiveBlock`, the read / write / size template of offset-table archives (WWWW, BIGF, SHPI, the NFS HP2 PS2 jukebox), skill `nfs-resource-formats`. |
 | `library/context.py` | `ReadContext`/`WriteContext`/`DocumentationContext` passed through the block tree while reading/writing/documenting. |
 | `library/lazy.py` | Lazy parts: `LazyDict` archive entries / bundle chunks parsed on first access, untouched ones written back as original bytes; file and memory sources. `require_file` is lazy by default (`lazy_loading` setting). The GUI receives unloaded parts as `__lazy__` markers and fetches them with `load_lazy_part` when shown. |
 | `library/loader.py` | File-type auto-detection (`probe_block_class`) by extension/magic bytes; top-level `require_file`/`require_resource` with an in-process file cache bounded by the `file_cache_size` setting (least recently required files dropped, `pin_file` keeps the GUI's open file). |
@@ -139,7 +139,8 @@ When you do:
 - Field extras dict (third tuple element in `Fields`) keys: `description`, `is_unknown`,
   `custom_offset`, `usage` (comma-separated subset of `ui`/`io`/`doc`, default = everywhere).
 - Count, offset and size fields (header members of a structure, from a file or a decompiled struct) use the field
-  references `CountOf('x')`, `OffsetOf('x')`, `SizeOf('x', ...)`, `OwnSize()` (`+ n` / `- n`) as programmatic values,
+  references `CountOf('x')`, `OffsetOf('x')`, `SizeOf('x', ...)`, `OwnSize()` (`+ n` / `- n`), `ItemOffsetsOf('x')`
+  (an offset table of the items of array `x`) as programmatic values,
   and a length that is a sibling field is its path (`ArrayBlock(length='num_x')`, `Padding(to='x_ptr')`), not
   lambdas: offsets and sizes are then filled in after the write instead of estimated (skill `nfs-resource-formats`).
   A Black Box chunk is a `ChunkBlock` of `resources/blackbox/chunks.py` (`CHUNK_ID`, `ALIGNMENT`: the id, length and
@@ -148,7 +149,8 @@ When you do:
   `path_to_name` of its path (`__` escaped as `_%5F`, `:` as `---DRIVE`), a resource in it adds `__` and its path in
   the file's data (`children/3/item/data`), which never contains `__` nor starts with `_`; ids split at their last
   `__` (a file name ending in `_` gives `TRACK___children/0`). Build ids with `path_to_name` + `join_id`, read them
-  with `split_id` / `is_file_id` / `id_to_path` / `split_last_id_part`, never by splitting `__` by hand.
+  with `split_id` / `is_file_id` / `id_to_path` / `split_last_id_part` / `parse_item_id` (archive id and index of
+  an archive item), never by splitting `__` by hand.
 - `frontend/src/nfs-three-lib/` (README there) is copied into the nfs-web game as it is: its files import only each
   other and `three`, `@gg-web-engine/core`, `rxjs`, nothing else of the frontend (a part they need is brought into it),
   and hold no specs (they are tested next to the GUI components using them). It has `TnfsCarMeshController` (and

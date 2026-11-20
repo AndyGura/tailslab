@@ -1,4 +1,4 @@
-from library.context import ReadContext
+from library.context import ReadContext, WriteContext
 from library.read_blocks import (
     DeclarativeCompoundBlock,
     UTF8Block,
@@ -12,6 +12,7 @@ from library.read_blocks import (
     CountOf,
     OwnSize,
 )
+from library.read_blocks.archives import pack_items_at_offsets, read_items_at_offsets
 from library.read_blocks.misc.value_validators import Eq
 from resources.eac.fields.misc import RGBBlock, Point3D, Quaternion
 
@@ -503,11 +504,11 @@ class RoadVectorsExtraDataRecord(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         normal = (
-            Point3D(child=FixedPointBlock(length=2, fraction_bits=15, is_signed=True), normalized=True),
+            Point3D(child=FixedPointBlock(length=2, fraction_bits=15, is_signed=True)),
             {'description': 'A normal vector of the road surface'},
         )
         forward = (
-            Point3D(child=FixedPointBlock(length=2, fraction_bits=15, is_signed=True), normalized=True),
+            Point3D(child=FixedPointBlock(length=2, fraction_bits=15, is_signed=True)),
             {'description': 'A forward vector of the road (direction of the track)'},
         )
 
@@ -527,15 +528,15 @@ class CollisionExtraDataRecord(DeclarativeCompoundBlock):
             {'description': 'A global position of track collision spline point (slice centre). The unit is meter'},
         )
         normal = (
-            Point3D(child=FixedPointBlock(length=1, fraction_bits=7, is_signed=True), normalized=True),
+            Point3D(child=FixedPointBlock(length=1, fraction_bits=7, is_signed=True)),
             {'description': 'A normal vector of road surface. NFS2 SE reads each signed byte as `value << 9` (16.16)'},
         )
         forward = (
-            Point3D(child=FixedPointBlock(length=1, fraction_bits=7, is_signed=True), normalized=True),
+            Point3D(child=FixedPointBlock(length=1, fraction_bits=7, is_signed=True)),
             {'description': 'A forward vector, read like `normal`'},
         )
         right = (
-            Point3D(child=FixedPointBlock(length=1, fraction_bits=7, is_signed=True), normalized=True),
+            Point3D(child=FixedPointBlock(length=1, fraction_bits=7, is_signed=True)),
             {'description': 'A right vector, read like `normal`'},
         )
         unk0 = (IntegerBlock(length=1), {'is_unknown': True})
@@ -759,6 +760,12 @@ class Nfs3CollisionExtraDataRecord(DeclarativeCompoundBlock):
         )
 
 
+def _num_data_records(ctx) -> int:
+    # records of an unknown type are kept as raw bytes: their number stays as read
+    records = ctx.data('data_records/data')
+    return len(records) if isinstance(records, list) else ctx.data('num_data_records')
+
+
 class ColExtraBlock(DeclarativeCompoundBlock):
     block_description = (
         'A typed container of data records. The same structure is used for extrablocks '
@@ -796,7 +803,7 @@ class ColExtraBlock(DeclarativeCompoundBlock):
         )
         unk = (IntegerBlock(length=1, value_validator=Eq(0)), {'is_unknown': True})
         num_data_records = (
-            IntegerBlock(length=2, programmatic_value=CountOf('data_records')),
+            IntegerBlock(length=2, programmatic_value=lambda ctx: _num_data_records(ctx)),
             {'description': 'Amount of data records'},
         )
         data_records = (
@@ -863,15 +870,31 @@ class MapColFile(DeclarativeCompoundBlock):
             },
         )
 
+    # extrablock offsets count from the end of the first 16 bytes
+    OFFSETS_BASE = 16
+
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
         data = super().read(ctx, name, read_bytes_amount)
-        data['extrablocks'] = []
         self_ctx = ctx.get_or_create_child(name, self, read_bytes_amount, data)
-        child_block = self.field_blocks_map.get('extrablocks').child
-        for i, offset in enumerate(data['extrablock_offsets']):
-            self_ctx.buffer.seek(self_ctx.read_start_offset + offset + 16)
-            data['extrablocks'].append(child_block.unpack(self_ctx, name=str(i)))
+        child = self.field_blocks_map['extrablocks'].child
+        data['extrablocks'] = read_items_at_offsets(
+            self_ctx, child, data['extrablock_offsets'], self_ctx.read_start_offset + self.OFFSETS_BASE
+        )
         return data
+
+    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
+        # the extrablocks as edited, in place of the bytes read
+        extrablocks = data['extrablocks']
+        written = {**data, 'num_extrablocks': len(extrablocks), 'extrablock_offsets': [0] * len(extrablocks)}
+        raw, offsets = pack_items_at_offsets(
+            self.field_blocks_map['extrablocks'].child,
+            extrablocks,
+            data['extrablock_offsets'],
+            data['extrablocks_bytes'],
+            self.offset_to_child_when_packed(data, 'extrablocks_bytes') - self.OFFSETS_BASE,
+            self.offset_to_child_when_packed(written, 'extrablocks_bytes') - self.OFFSETS_BASE,
+        )
+        return super().write({**written, 'extrablock_offsets': offsets, 'extrablocks_bytes': raw}, ctx, name)
 
 
 class Nfs3ColExtraBlock(ColExtraBlock):

@@ -1,7 +1,7 @@
 from io import SEEK_CUR
-from typing import Dict, List
+from typing import Dict, List, Optional
 
-from library.context import ReadContext, WriteContext
+from library.context import ReadContext
 from library.read_blocks import (
     CompoundBlock,
     UTF8Block,
@@ -11,8 +11,9 @@ from library.read_blocks import (
     BytesBlock,
     CountOf,
     OwnSize,
+    REMAINING,
 )
-from library.read_blocks.archives import ArchiveBlock, pre_items_payload_length, slot_lengths
+from library.read_blocks.archives import ArchiveBlock, EntryLayout, ItemDescription, pre_items_payload_length
 from library.read_blocks.misc.value_validators import Eq
 from library.utils.id import join_id
 from resources.eac.bitmaps import EacImage, EacPalette
@@ -88,22 +89,7 @@ class ShpiBlock(ArchiveBlock):
                 possible_blocks=[
                     EacImage(),
                     EacPalette(),
-                    BytesBlock(
-                        length=(
-                            lambda ctx: next(
-                                x
-                                for x in (
-                                    x['offset'] - ctx.local_buffer_pos
-                                    for x in (
-                                        sorted(ctx.data('items_descr'), key=lambda x: x['offset'])
-                                        + [{'offset': ctx.read_bytes_amount}]
-                                    )
-                                )
-                                if x > 0
-                            ),
-                            'item_length',
-                        )
-                    ),
+                    BytesBlock(length=(REMAINING, 'item_length')),
                 ]
             ),
             alias_field=UTF8Block(length=4),
@@ -180,50 +166,31 @@ class ShpiBlock(ArchiveBlock):
         image_ids = [x for x, _ in image_block.field_blocks_map['resource_id'].enum_names]
         return 'EacImage' if head[0] in image_ids else 'BytesBlock'
 
-    def estimate_packed_size(self, data, ctx: WriteContext = None):
-        total_length = 16
-        total_length += len(data.get('pre_items_payload', b''))
-        for i, child in enumerate(data['children']):
-            total_length += sum(self.entry_sizes(child, ctx))
-            if child['alias'] is not None:
-                total_length += 8
-        return total_length
-
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
+        # read with the block length of the header
         block_start = ctx.buffer.tell()
-
-        # read block length and use it here
         ctx.buffer.seek(4, SEEK_CUR)
         read_bytes_amount = self.field_blocks_map['length'].read(ctx)
         ctx.buffer.seek(block_start)
+        return super().read(ctx, name, read_bytes_amount)
 
-        res, self_ctx, region_start, region_length = self.read_header(ctx, name, read_bytes_amount)
-        end_pos = region_start + region_length
+    def item_descriptions(self, header: dict) -> List[ItemDescription]:
+        entries = sorted(enumerate(header['items_descr']), key=lambda x: x[1]['offset'])
+        return [ItemDescription(i, x['offset'], x['name'], name=f'{i}_{x["name"]}') for i, x in entries]
 
-        entries = sorted(list(enumerate(res['items_descr'])), key=lambda x: x[1]['offset'])
-        offsets = [block_start + x['offset'] for _, x in entries]
-        lengths = slot_lengths(offsets, end_pos)
-        # entries are parsed later in lazy mode: keep header (with io-only fields) for their contexts
-        entry_ctx = self_ctx.detached(ctx.buffer, data=dict(res)) if self_ctx.lazy else self_ctx
-        children = [None] * len(entries)
-        for i, ((descr_index, descr), offset, length) in enumerate(zip(entries, offsets, lengths)):
-            children[descr_index] = self.read_entry(
-                entry_ctx,
-                name=f'{descr_index}_{descr["name"]}',
-                offset=offset,
-                length=length,
-                alias=descr['name'],
-            )
-        res['children'] = children
+    def after_read(self, res: dict, descriptions: List[ItemDescription]):
         # the order of the item data, which is not always the directory order (TNFS SE menus have !pal last): kept,
         # so that a saved file keeps its layout
-        res[HEAP_ORDER_KEY] = [descr_index for descr_index, _ in entries]
-        ctx.buffer.seek(end_pos)
-        del res['items_descr']
-        return res
+        res[HEAP_ORDER_KEY] = [x.index for x in descriptions]
 
-    @staticmethod
-    def heap_order(data) -> List[int]:
+    def make_items_descr(self, data: dict, layouts: List[Optional[EntryLayout]], heap_offset: int) -> list:
+        return [
+            {'name': child['alias'], 'offset': heap_offset + layout.offset}
+            for child, layout in zip(data['children'], layouts)
+            if child['alias'] is not None
+        ]
+
+    def heap_order(self, data) -> List[int]:
         """Indices of the children in the order their data is stored: as read when it still covers every child (a
         moved item keeps the place of the data), else the directory order"""
         count = len(data['children'])
@@ -231,25 +198,6 @@ class ShpiBlock(ArchiveBlock):
         if order is not None and sorted(order) == list(range(count)):
             return list(order)
         return list(range(count))
-
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        data['data_bytes'] = b''
-        offsets = {}
-        for i in self.heap_order(data):
-            child = data['children'][i]
-            item_data, post = self.entry_bytes(child, ctx, str(i))
-            offsets[i] = len(data['data_bytes'])
-            data['data_bytes'] += item_data
-            data['data_bytes'] += post
-        children = [(child['alias'], offsets[i]) for i, child in enumerate(data['children'])]
-        data['items_descr'] = [{'name': name, 'offset': offset} for (name, offset) in children if name is not None]
-        heap_offset = 16 + len(data['items_descr']) * 8 + len(data.get('pre_items_payload', b''))
-        for x in data['items_descr']:
-            x['offset'] += heap_offset
-        ret = super().write(data=data, ctx=ctx, name=name)
-        del data['items_descr']
-        del data['data_bytes']
-        return ret
 
     def action_convert_to_8bit(self, read_data, name, palette_name, palette_type, num_colors, id, **kwargs):
         """All images become 8Bit on one new palette: each image drops its own palettes (an embedded palette is used

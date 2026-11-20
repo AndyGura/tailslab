@@ -7,6 +7,7 @@ from .basic import (
     DataBlock,
     BytesBlock,
     Padding,
+    REMAINING,
 )
 from .compound import (
     CompoundBlock,
@@ -28,4 +29,4 @@ from .delegates import (
     EnumLookupDelegateBlock,
 )
 from .strings import UTF8Block
-from .references import CountOf, OffsetOf, SizeOf, OwnSize
+from .references import CountOf, OffsetOf, SizeOf, OwnSize, ItemOffsetsOf

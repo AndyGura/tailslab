@@ -39,7 +39,8 @@ class DataBlock(ABC):
 
         def schema(self) -> Dict:
             base = own_schema.fget(self) if own_schema is not None else super(cls, self).schema
-            return {**base, 'block_description': description}
+            # an archive's stub for a nested reference to itself stays as it is
+            return base if base.get('is_recursive_ref') else {**base, 'block_description': description}
 
         cls.schema = property(schema)
 
@@ -183,6 +184,20 @@ class DataBlockWithChildren(ABC):
         return self.estimate_packed_size(data[:index], ctx)
 
 
+class Remaining:
+    """`BytesBlock(length=REMAINING)`: the block takes the bytes it is read with (`read_bytes_amount`: an archive
+    item takes its slot), else the rest of the block it is in"""
+
+    def __call__(self, ctx):
+        return ctx.read_bytes_remaining
+
+    def __repr__(self):
+        return 'REMAINING'
+
+
+REMAINING = Remaining()
+
+
 class BytesBlock(DataBlock):
     serializer = 'PlainBinarySerializer'
 
@@ -222,7 +237,11 @@ class BytesBlock(DataBlock):
         return bytes([0] * self_len)
 
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
-        self_len = self.resolve_length(ctx)
+        param = self._length[0] if isinstance(self._length, tuple) else self._length
+        if isinstance(param, Remaining) and read_bytes_amount is not None:
+            self_len = read_bytes_amount
+        else:
+            self_len = self.resolve_length(ctx)
         if self_len < 0:
             if self.allow_negative_length:
                 ctx.buffer.seek(self_len, SEEK_CUR)

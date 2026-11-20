@@ -1,4 +1,4 @@
-from library.context import ReadContext
+from library.context import ReadContext, WriteContext
 from library.read_blocks import (
     DeclarativeCompoundBlock,
     IntegerBlock,
@@ -9,7 +9,9 @@ from library.read_blocks import (
     Padding,
     CountOf,
     OwnSize,
+    ItemOffsetsOf,
 )
+from library.read_blocks.archives import pack_items_at_offsets, read_items_at_offsets
 from library.read_blocks.misc.value_validators import Eq
 from resources.eac.fields.misc import Point3D
 from resources.eac.maps.nfs_common import ColPolygon, ColExtraBlock
@@ -207,16 +209,27 @@ class TrkBlock(DeclarativeCompoundBlock):
 
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
         data = super().read(ctx, name, read_bytes_amount)
-        data['extrablocks'] = []
         self_ctx = ctx.get_or_create_child(name, self, read_bytes_amount, data)
         array_ctx = self_ctx.get_or_create_child('extrablocks', self, read_bytes_amount, data)
-        end_pos = ctx.buffer.tell()
-        child_block = self.field_blocks_map.get('extrablocks').child
-        for i, offset in enumerate(data['extrablock_offsets']):
-            ctx.buffer.seek(self_ctx.read_start_offset + offset)
-            data['extrablocks'].append(child_block.unpack(array_ctx, name=str(i)))
-        ctx.buffer.seek(end_pos)
+        child = self.field_blocks_map['extrablocks'].child
+        data['extrablocks'] = read_items_at_offsets(
+            array_ctx, child, data['extrablock_offsets'], self_ctx.read_start_offset
+        )
         return data
+
+    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
+        # the extrablocks as edited, in place of the bytes read (offsets from the block start)
+        extrablocks = data['extrablocks']
+        written = {**data, 'num_extrablocks': len(extrablocks), 'extrablock_offsets': [0] * len(extrablocks)}
+        raw, offsets = pack_items_at_offsets(
+            self.field_blocks_map['extrablocks'].child,
+            extrablocks,
+            data['extrablock_offsets'],
+            data['extrablocks_bytes'],
+            self.offset_to_child_when_packed(data, 'extrablocks_bytes'),
+            self.offset_to_child_when_packed(written, 'extrablocks_bytes'),
+        )
+        return super().write({**written, 'extrablock_offsets': offsets, 'extrablocks_bytes': raw}, ctx, name)
 
 
 class TrkSuperBlock(DeclarativeCompoundBlock):
@@ -228,13 +241,17 @@ class TrkSuperBlock(DeclarativeCompoundBlock):
             {'description': 'Superblock size in bytes'},
         )
         num_blocks = (
-            IntegerBlock(length=4, is_signed=False),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=CountOf('blocks')),
             {'description': 'Number of blocks in this superblock. Usually 8 or less in the last superblock'},
         )
         unk = (IntegerBlock(length=4), {'is_unknown': True})
         block_offsets = (
-            ArrayBlock(child=IntegerBlock(length=4, is_signed=False), length='num_blocks'),
-            {'description': 'Offset to each of the blocks'},
+            ArrayBlock(
+                child=IntegerBlock(length=4, is_signed=False),
+                length='num_blocks',
+                programmatic_value=ItemOffsetsOf('blocks'),
+            ),
+            {'description': 'Offset to each of the blocks from the superblock start'},
         )
         blocks = (ArrayBlock(child=TrkBlock(), length='num_blocks'), {'description': 'Blocks'})
 
@@ -257,8 +274,12 @@ class TrkMap(DeclarativeCompoundBlock):
         )
         num_blocks = (IntegerBlock(length=4, is_signed=False), {'description': 'Number of blocks (nblk)'})
         superblock_offsets = (
-            ArrayBlock(child=IntegerBlock(length=4, is_signed=False), length='num_superblocks'),
-            {'description': 'Offset to each of the superblocks'},
+            ArrayBlock(
+                child=IntegerBlock(length=4, is_signed=False),
+                length='num_superblocks',
+                programmatic_value=ItemOffsetsOf('superblocks'),
+            ),
+            {'description': 'Offset to each of the superblocks from the file start'},
         )
         block_positions = (
             ArrayBlock(

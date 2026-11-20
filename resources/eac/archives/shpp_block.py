@@ -9,6 +9,7 @@ from library.read_blocks import (
     IntegerBlock,
     TrailingOptionalBlock,
     UTF8Block,
+    REMAINING,
 )
 from library.read_blocks.archives import ArchiveBlock
 from library.read_blocks.misc.value_validators import Eq
@@ -26,17 +27,6 @@ class PsxShapeItemBlock(AutoDetectBlock):
         if len(head) == 1 and head[0] in [x for x, _ in PSX_IMAGE_IDS]:
             return self.get_choice_index_by_class_name('PsxImage')
         return self.get_choice_index_by_class_name('BytesBlock')
-
-
-def _item_length(ctx):
-    return next(
-        x
-        for x in (
-            x['offset'] - ctx.local_buffer_pos
-            for x in (sorted(ctx.data('items_descr'), key=lambda x: x['offset']) + [{'offset': ctx.read_bytes_amount}])
-        )
-        if x > 0
-    )
 
 
 def _in_wwww_archive(ctx) -> bool:
@@ -70,7 +60,7 @@ class ShppBlock(ShpiBlock):
             item_block=PsxShapeItemBlock(
                 possible_blocks=[
                     PsxImage(),
-                    BytesBlock(length=(_item_length, 'item_length')),
+                    BytesBlock(length=(REMAINING, 'item_length')),
                 ]
             ),
             alias_field=UTF8Block(length=4),

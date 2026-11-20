@@ -150,24 +150,22 @@ def is_nfs6_sky_archive(id: Optional[str]) -> bool:
 def serialize_nfs6_sky(items, path: str, id: str) -> List[str]:
     """`spherical.png` in the folder of the exported `sky.fsh` of a `persist.viv` (`items`: (alias, data, block) of
     its images), from `skyg.o` of the same archive. Nothing when the archive item is another FSH or has no sky model"""
-    import re
-
     import numpy as np
 
     from library import require_resource
     from library.utils import path_join
-    from library.utils.id import join_id
+    from library.utils.id import join_id, parse_item_id
     from resources.eac.bitmaps import EacImage
     from resources.eac.geometries.nfs6 import read_eagl_meshes
     from serializers import ImageSerializer
     from serializers.geometries import _find_bigf_child
 
-    match = re.fullmatch(r'(.*?)__children/(\d+)/item/data', id)
-    (_, _, archive_data), _ = require_resource(match.group(1))
+    archive_id, index = parse_item_id(id)
+    (_, _, archive_data), _ = require_resource(archive_id)
     children = (archive_data or {}).get('children', [])
-    if (children[int(match.group(2))]['alias'] or '').lower() != 'sky.fsh':
+    if (children[index]['alias'] or '').lower() != 'sky.fsh':
         return []
-    model_id = _find_bigf_child(match.group(1), 'skyg.o')
+    model_id = _find_bigf_child(archive_id, 'skyg.o')
     if model_id is None:
         return []
     (_, _, model_data), _ = require_resource(model_id)

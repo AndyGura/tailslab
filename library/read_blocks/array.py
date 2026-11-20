@@ -1,7 +1,7 @@
 from abc import ABC
 from functools import cached_property
 from math import ceil
-from typing import Dict, Tuple, Any, Optional
+from typing import Dict, Tuple, Any, Optional, List
 
 from library.context import ReadContext, WriteContext
 from library.exceptions import EndOfBufferException
@@ -179,8 +179,12 @@ class ArrayBlock(DataBlockWithChildren, DataBlock, ABC):
             except Exception:
                 # a missing value or one an item field cannot hold: the item by item write raises it with its context
                 pass
+        return b''.join(self.write_items(data, ctx, name))
+
+    def write_items(self, data, ctx: WriteContext = None, name: str = '') -> List[bytes]:
+        """The packed items, one by one (`write` joins them)"""
         self_ctx = WriteContext(data=data, block=self, parent=ctx, name=name)
-        return b''.join(self.child.pack(data=item, ctx=self_ctx, name=str(i)) for i, item in enumerate(data))
+        return [self.child.pack(data=item, ctx=self_ctx, name=str(i)) for i, item in enumerate(data)]
 
 
 # TODO maybe merge with LengthPrefixedUtf8Block, make abstract
