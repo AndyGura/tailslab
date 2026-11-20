@@ -1,5 +1,4 @@
 from os import SEEK_CUR
-from typing import Dict
 
 from library.context import ReadContext
 from library.exceptions import BlockDefinitionException
@@ -35,9 +34,7 @@ _CHUNK_COUNT_DESCRIPTION = 'Count of the chunk (records in its data, the meaning
 
 
 class UnkPart2(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Unknown part with index and 2-chars identifier'}
+    block_description = 'Unknown part with index and 2-chars identifier'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         idx = (IntegerBlock(length=2), {'description': 'A part index of the same identifier (in the same article)'})
@@ -53,9 +50,7 @@ class UnkPart2(DeclarativeCompoundBlock):
 
 
 class UnkPart4(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Unknown part with 4-chars identifier'}
+    block_description = 'Unknown part with 4-chars identifier'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         identifier = (
@@ -79,13 +74,10 @@ class UnkPart4(DeclarativeCompoundBlock):
 
 
 class MaterialPartData(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A material, data structure is mostly unknown. Triangle parts reference it by '
-            'index (`idx` of [MaterialPart](#materialpart))',
-        }
+    block_description = (
+        'A material, data structure is mostly unknown. Triangle parts reference it by '
+        'index (`idx` of [MaterialPart](#materialpart))'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         surface_flags = (
@@ -124,12 +116,7 @@ class MaterialPartData(DeclarativeCompoundBlock):
 
 
 class MaterialPart(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A part referencing to [MaterialPartData](#materialpartdata) block',
-        }
+    block_description = 'A part referencing to [MaterialPartData](#materialpartdata) block'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         idx = (IntegerBlock(length=2), {'description': 'A part index of the same identifier'})
@@ -145,12 +132,7 @@ class MaterialPart(DeclarativeCompoundBlock):
 
 
 class FSHPart(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A part referencing to an array of [ShpiBlock](#shpiblock) blocks',
-        }
+    block_description = 'A part referencing to an array of [ShpiBlock](#shpiblock) blocks'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         idx = (IntegerBlock(length=2), {'description': 'A part index of the same identifier'})
@@ -177,9 +159,7 @@ class FSHPart(DeclarativeCompoundBlock):
 
 
 class TextPart2(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'A part referencing to text with index and 2-chars identifier'}
+    block_description = 'A part referencing to text with index and 2-chars identifier'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         idx = (IntegerBlock(length=2), {'description': 'A part index of the same identifier (in the same article)'})
@@ -198,9 +178,7 @@ class TextPart2(DeclarativeCompoundBlock):
 
 
 class TextPart4(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'A part referencing to text with 4-chars identifier'}
+    block_description = 'A part referencing to text with 4-chars identifier'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         identifier = (UTF8Block(length=4, value_validator=Or(['emaN', 'cseD'])), {'description': 'Identifier'})
@@ -218,9 +196,7 @@ class TextPart4(DeclarativeCompoundBlock):
 
 
 class CullingPartData(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Polygon culling rule?'}
+    block_description = 'Polygon culling rule?'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         normal = (
@@ -231,12 +207,7 @@ class CullingPartData(DeclarativeCompoundBlock):
 
 
 class CullingPart(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A part referencing to an array of [CullingPartData](#cullingpartdata) blocks',
-        }
+    block_description = 'A part referencing to an array of [CullingPartData](#cullingpartdata) blocks'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         part_info = (
@@ -268,16 +239,13 @@ class CullingPart(DeclarativeCompoundBlock):
 
 
 class TransformationPart(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A part referencing to a transformation matrix. If exists, matrix should be '
-            'applied to the meshes of the same article with the same LOD. Matrix is a 4x4 '
-            'matrix in column-major order (elements 12, 13, 14 are the translation), where '
-            'each number is stored as 4-bytes float number (little-endian). On tracks, the `rt` part 0 of an '
-            'article puts it into the instance bundle (Porsche.exe 0x4781a0)',
-        }
+    block_description = (
+        'A part referencing to a transformation matrix. If exists, matrix should be '
+        'applied to the meshes of the same article with the same LOD. Matrix is a 4x4 '
+        'matrix in column-major order (elements 12, 13, 14 are the translation), where '
+        'each number is stored as 4-bytes float number (little-endian). On tracks, the `rt` part 0 of an '
+        'article puts it into the instance bundle (Porsche.exe 0x4781a0)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         part_info = (
@@ -306,9 +274,7 @@ class TransformationPart(DeclarativeCompoundBlock):
 
 
 class VertexData(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Represents single vertex'}
+    block_description = 'Represents single vertex'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (Point3D(child=DecimalBlock(length=4)), {'description': 'Position'})
@@ -316,16 +282,13 @@ class VertexData(DeclarativeCompoundBlock):
 
 
 class VertexPart(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A part referencing to an array of [VertexData](#vertexdata) blocks, representing'
-            ' mesh vertices. Every vertex part of an article produces a separate mesh, '
-            'combined with the triangle, UV and transformation parts of the same LOD. For a '
-            'damaged part (damage == 8) vertex positions are offsets, which are added to '
-            'vertices of the undamaged part with the same LOD and animation index',
-        }
+    block_description = (
+        'A part referencing to an array of [VertexData](#vertexdata) blocks, representing'
+        ' mesh vertices. Every vertex part of an article produces a separate mesh, '
+        'combined with the triangle, UV and transformation parts of the same LOD. For a '
+        'damaged part (damage == 8) vertex positions are offsets, which are added to '
+        'vertices of the undamaged part with the same LOD and animation index'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         part_info = (
@@ -363,12 +326,9 @@ class NormalPartData(DeclarativeCompoundBlock):
 
 
 class NormalPart(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A part referencing to an array of [NormalPartData](#normalpartdata) blocks, describing mesh normals',
-        }
+    block_description = (
+        'A part referencing to an array of [NormalPartData](#normalpartdata) blocks, describing mesh normals'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         part_info = (
@@ -400,9 +360,7 @@ class NormalPart(DeclarativeCompoundBlock):
 
 
 class UVData(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Texture coordinates of a vertex'}
+    block_description = 'Texture coordinates of a vertex'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         u = (DecimalBlock(length=4), {'description': 'U texture coordinate'})
@@ -410,12 +368,7 @@ class UVData(DeclarativeCompoundBlock):
 
 
 class UVPart(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A part referencing to an array of [UVData](#uvdata) blocks, representing texture coordinates',
-        }
+    block_description = 'A part referencing to an array of [UVData](#uvdata) blocks, representing texture coordinates'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         part_info = (
@@ -461,14 +414,11 @@ _INDEX_STREAM_DESCRIPTION = (
 
 
 class TriangleInfoRowBase(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Info row of [TrianglePartData](#trianglepartdata), 16 bytes: the layout of every '
-            'row, read for the stream types without a block of their own (4 `Base`, 5 `pr`, 6 `fe`; in no game '
-            'file)',
-        }
+    block_description = (
+        'Info row of [TrianglePartData](#trianglepartdata), 16 bytes: the layout of every '
+        'row, read for the stream types without a block of their own (4 `Base`, 5 `pr`, 6 `fe`; in no game '
+        'file)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk0 = (IntegerBlock(length=4), {'is_unknown': True})
@@ -487,12 +437,7 @@ class TriangleInfoRowBase(DeclarativeCompoundBlock):
 
 
 class CullingInfoRow(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Info row referencing the culling data used by the triangle part',
-        }
+    block_description = 'Info row referencing the culling data used by the triangle part'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk0 = (IntegerBlock(length=4), {'is_unknown': True})
@@ -507,13 +452,7 @@ class CullingInfoRow(DeclarativeCompoundBlock):
 
 
 class VertexInfoRow(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Info row referencing the vertex data (`vt` part, `row_type` 0) used by the '
-            'triangle part',
-        }
+    block_description = 'Info row referencing the vertex data (`vt` part, `row_type` 0) used by the triangle part'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk0 = (IntegerBlock(length=4), {'is_unknown': True})
@@ -532,13 +471,7 @@ class VertexInfoRow(DeclarativeCompoundBlock):
 
 
 class NormalInfoRow(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Info row referencing the normals data (`nm` part, `row_type` 1) used by the '
-            'triangle part',
-        }
+    block_description = 'Info row referencing the normals data (`nm` part, `row_type` 1) used by the triangle part'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk0 = (IntegerBlock(length=4), {'is_unknown': True})
@@ -550,12 +483,7 @@ class NormalInfoRow(DeclarativeCompoundBlock):
 
 
 class UVInfoRow(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Info row referencing the UV data (`uv` part, `row_type` 2) used by the triangle part',
-        }
+    block_description = 'Info row referencing the UV data (`uv` part, `row_type` 2) used by the triangle part'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk0 = (IntegerBlock(length=4), {'is_unknown': True})
@@ -567,13 +495,10 @@ class UVInfoRow(DeclarativeCompoundBlock):
 
 
 class VertexColorInfoRow(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Info row referencing the vertex colours ([CrpVertexColorPart](#crpvertexcolorpart) '
-            '`fd`, `row_type` 3, tracks only) used by the triangle part',
-        }
+    block_description = (
+        'Info row referencing the vertex colours ([CrpVertexColorPart](#crpvertexcolorpart) '
+        '`fd`, `row_type` 3, tracks only) used by the triangle part'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk0 = (IntegerBlock(length=4), {'is_unknown': True})
@@ -603,13 +528,10 @@ def determine_triangle_info_row_type(ctx, **_):
 
 
 class IndexRow(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Descriptor of an index stream (vertex indices or UV indices) of the triangle part: '
-            'the info rows refer to it by its position (`index_stream`)',
-        }
+    block_description = (
+        'Descriptor of an index stream (vertex indices or UV indices) of the triangle part: '
+        'the info rows refer to it by its position (`index_stream`)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         idx = (IntegerBlock(length=2), {'description': 'Row index'})
@@ -621,17 +543,14 @@ class IndexRow(DeclarativeCompoundBlock):
 
 
 class TrianglePartData(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A description of mesh geometry (faces): `num_data` positions forming primitives '
-            'of `primitive_type`, each corner taking its vertex, normal, UV and colour from the streams of the info '
-            'rows; primitive k uses the positions from step x k on (Porsche.exe 0x5a0bc0). The converter exports '
-            'triangle lists as they are, strips with every second triangle reversed (k odd: positions k + 1, k, '
-            'k + 2, as Direct3D draws strips; triangles repeating a vertex, the joints of the strips, left out), '
-            'quads as the triangles 0 1 2 and 0 2 3 (as the collision splits them, Porsche.exe 0x4750b0), no lines',
-        }
+    block_description = (
+        'A description of mesh geometry (faces): `num_data` positions forming primitives '
+        'of `primitive_type`, each corner taking its vertex, normal, UV and colour from the streams of the info '
+        'rows; primitive k uses the positions from step x k on (Porsche.exe 0x5a0bc0). The converter exports '
+        'triangle lists as they are, strips with every second triangle reversed (k odd: positions k + 1, k, '
+        'k + 2, as Direct3D draws strips; triangles repeating a vertex, the joints of the strips, left out), '
+        'quads as the triangles 0 1 2 and 0 2 3 (as the collision splits them, Porsche.exe 0x4750b0), no lines'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         primitive_type = (
@@ -724,12 +643,7 @@ class TrianglePartData(DeclarativeCompoundBlock):
 
 
 class TrianglePart(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A part referencing to [TrianglePartData](#TrianglePartData) block, describes mesh faces',
-        }
+    block_description = 'A part referencing to [TrianglePartData](#TrianglePartData) block, describes mesh faces'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         part_info = (
@@ -774,12 +688,7 @@ class EffectPartData(DeclarativeCompoundBlock):
 
 
 class EffectPart(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A part referencing to an array of [EffectPartData](#effectpartdata) blocks',
-        }
+    block_description = 'A part referencing to an array of [EffectPartData](#effectpartdata) blocks'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         part_info = (
@@ -805,13 +714,10 @@ class EffectPart(DeclarativeCompoundBlock):
 
 
 class CrpBaseLodRecord(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A level of detail of an article: the `pr` parts drawn at it and their vertex '
-            'data, 12 bytes (Porsche.exe 0x4750b0, 0x474cb0)',
-        }
+    block_description = (
+        'A level of detail of an article: the `pr` parts drawn at it and their vertex '
+        'data, 12 bytes (Porsche.exe 0x4750b0, 0x474cb0)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         has_faces = (
@@ -852,14 +758,11 @@ class CrpBaseLodRecord(DeclarativeCompoundBlock):
 
 
 class CrpBasePartData(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': "Base data of an article: flags, bounds, object tag and the article's levels of "
-            'detail; what Porsche.exe reads from it is cited per field (world loading 0x4750b0, 0x474cb0, 0x477f40, '
-            '0x4781a0, 0x47cce0)',
-        }
+    block_description = (
+        "Base data of an article: flags, bounds, object tag and the article's levels of "
+        'detail; what Porsche.exe reads from it is cited per field (world loading 0x4750b0, 0x474cb0, 0x477f40, '
+        '0x4781a0, 0x47cce0)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         flags = (
@@ -912,13 +815,7 @@ class CrpBasePartData(DeclarativeCompoundBlock):
 
 
 class CrpBasePart(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Base part "esaB" of an article, referencing a [CrpBasePartData](#crpbasepartdata) '
-            'block',
-        }
+    block_description = 'Base part "esaB" of an article, referencing a [CrpBasePartData](#crpbasepartdata) block'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         identifier = (UTF8Block(length=4, value_validator=Eq('esaB')), {'description': 'Identifier'})
@@ -936,15 +833,12 @@ class CrpBasePart(DeclarativeCompoundBlock):
 
 
 class CrpVertexColorPart(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Part "fd" (tracks only): vertex colours, one u32 per entry (B, G, R, A from the '
-            'low byte), one part per level of detail. The `fd` info rows of [TrianglePartData](#trianglepartdata) '
-            'index them; the collision faces keep each corner as 15-bit (b >> 3) << 10 | (g >> 3) << 5 | r >> 3 '
-            '(Porsche.exe 0x4750b0)',
-        }
+    block_description = (
+        'Part "fd" (tracks only): vertex colours, one u32 per entry (B, G, R, A from the '
+        'low byte), one part per level of detail. The `fd` info rows of [TrianglePartData](#trianglepartdata) '
+        'index them; the collision faces keep each corner as 15-bit (b >> 3) << 10 | (g >> 3) << 5 | r >> 3 '
+        '(Porsche.exe 0x4750b0)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         idx = (IntegerBlock(length=2), {'description': 'A part index of the same identifier (in the same article)'})
@@ -969,12 +863,7 @@ class CrpVertexColorPart(DeclarativeCompoundBlock):
 
 
 class CrpSplineSlice(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A slice of the road spline, 0x50 bytes, copied as it is by Porsche.exe 0x480140',
-        }
+    block_description = 'A slice of the road spline, 0x50 bytes, copied as it is by Porsche.exe 0x480140'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk0 = (IntegerBlock(length=4, is_signed=True), {'is_unknown': True, 'description': '0, -1 on 232 slices'})
@@ -1027,13 +916,10 @@ class CrpSplineSlice(DeclarativeCompoundBlock):
 
 
 class CrpSimDPart(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Common part "DmiS" (`SimD`, tracks only): the road spline, an array of '
-            '[CrpSplineSlice](#crpsplineslice) (Porsche.exe 0x480080)',
-        }
+    block_description = (
+        'Common part "DmiS" (`SimD`, tracks only): the road spline, an array of '
+        '[CrpSplineSlice](#crpsplineslice) (Porsche.exe 0x480080)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         identifier = (UTF8Block(length=4, value_validator=Eq('DmiS')), {'description': 'Identifier'})
@@ -1057,22 +943,19 @@ class CrpSimDPart(DeclarativeCompoundBlock):
 
 
 class CrpSimTPart(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Common part "TmiS" (`SimT`, tracks only): the sections of the road spline, an int32 '
-            'slice count per section, the sections following each other over the slices of "DmiS" (Alps: 1795 + '
-            '272 + 22 + 16 = 2105 slices). Without it (or with less than 2) the spline is one section. Porsche.exe '
-            '0x480080 reads it, then splits sections where another one ends within 16 m of it, more than 5 slices '
-            'from its ends (0x480900), and joins section ends within 16 m of each other into junctions (0x480b40), '
-            'whose branch weights come from `<track>.jnc` ([Nfs5Junctions](#nfs5junctions)). A section is driven '
-            'from its first slice to its last. The race goes from junction 0 (slice 0) along the longest walk '
-            'through the sections (0x481910 / 0x4819e0: the race length and progress, 0x416290) to the junction at '
-            'its end, or back to junction 0 on a circuit; the other sections are alternative roads, shortcuts and '
-            'branches. The HUD map (0x432230 / 0x433690) draws every section alike, each end linked to its '
-            'junction centre (the average of its end slices)',
-        }
+    block_description = (
+        'Common part "TmiS" (`SimT`, tracks only): the sections of the road spline, an int32 '
+        'slice count per section, the sections following each other over the slices of "DmiS" (Alps: 1795 + '
+        '272 + 22 + 16 = 2105 slices). Without it (or with less than 2) the spline is one section. Porsche.exe '
+        '0x480080 reads it, then splits sections where another one ends within 16 m of it, more than 5 slices '
+        'from its ends (0x480900), and joins section ends within 16 m of each other into junctions (0x480b40), '
+        'whose branch weights come from `<track>.jnc` ([Nfs5Junctions](#nfs5junctions)). A section is driven '
+        'from its first slice to its last. The race goes from junction 0 (slice 0) along the longest walk '
+        'through the sections (0x481910 / 0x4819e0: the race length and progress, 0x416290) to the junction at '
+        'its end, or back to junction 0 on a circuit; the other sections are alternative roads, shortcuts and '
+        'branches. The HUD map (0x432230 / 0x433690) draws every section alike, each end linked to its '
+        'junction centre (the average of its end slices)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         identifier = (UTF8Block(length=4, value_validator=Eq('TmiS')), {'description': 'Identifier'})
@@ -1119,13 +1002,10 @@ class PartBlock(DelegateBlock):
 
 
 class ArticlePart(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Article is a single logical part of a car or track. Contains meshes of the same '
-            'entity for various levels of details, damage status, animation indexes etc.',
-        }
+    block_description = (
+        'Article is a single logical part of a car or track. Contains meshes of the same '
+        'entity for various levels of details, damage status, animation indexes etc.'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(value_validator=Eq('itrA'), length=4), {'description': 'Resource ID'})
@@ -1233,29 +1113,26 @@ def determine_num_parts(ctx):
 
 
 class CrpGeometry(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A set of 3D meshes, used for cars and tracks. Materials are parsed only partially. '
-            'Contains many part blocks, '
-            '16-bytes each, splitted into 3 sections: articles, common_parts, parts, followed '
-            "by raw data. Each part, except articles, have an offset and length of it's data,"
-            ' located in "raw_data" byte array. The converter builds one mesh per vertex part '
-            'and texture of each article, named `<article name>_LOD<lod>_ai<animation index>_<texture>`, using '
-            'triangle, UV and transformation parts of the article with the same LOD (tracks: the first animation '
-            'frame, `ai0`, only; the frames are vertex parts of the same LOD). Car textures: every '
-            'FSH part is composed into a texture page (images are placed by their atlas position), '
-            "material references the page by index; mapping of FSH parts to pages is described in car's "
-            '.tpg file. Track textures: material references the texture by 4-char name in the FSH file, '
-            'which name is stored in TextPart2 "ns". Porsche.exe reads it as a tree of 16-byte EAGL chunks '
-            '{id, info, count, offset} (unpacked by 0x5713a0 from RefPack: byte 0 0x10, or 0x11 with 3 more header '
-            'bytes, byte 1 0xfb, the unpacked size big-endian at +2): the children of a container chunk (the '
-            'header, an article) are at offset x 16, the data of a part at offset bytes, both relative to the '
-            'chunk; parts are found by id (0x59f7c0 / 0x59f5e0). Track CRPs also hold the road spline ("DmiS", '
-            '"TmiS"), the collision faces (from the `pr` parts of collidable articles, with the `mt` surface '
-            'flags) and the object tags (`animdefs.txt`)',
-        }
+    block_description = (
+        'A set of 3D meshes, used for cars and tracks. Materials are parsed only partially. '
+        'Contains many part blocks, '
+        '16-bytes each, splitted into 3 sections: articles, common_parts, parts, followed '
+        "by raw data. Each part, except articles, have an offset and length of it's data,"
+        ' located in "raw_data" byte array. The converter builds one mesh per vertex part '
+        'and texture of each article, named `<article name>_LOD<lod>_ai<animation index>_<texture>`, using '
+        'triangle, UV and transformation parts of the article with the same LOD (tracks: the first animation '
+        'frame, `ai0`, only; the frames are vertex parts of the same LOD). Car textures: every '
+        'FSH part is composed into a texture page (images are placed by their atlas position), '
+        "material references the page by index; mapping of FSH parts to pages is described in car's "
+        '.tpg file. Track textures: material references the texture by 4-char name in the FSH file, '
+        'which name is stored in TextPart2 "ns". Porsche.exe reads it as a tree of 16-byte EAGL chunks '
+        '{id, info, count, offset} (unpacked by 0x5713a0 from RefPack: byte 0 0x10, or 0x11 with 3 more header '
+        'bytes, byte 1 0xfb, the unpacked size big-endian at +2): the children of a container chunk (the '
+        'header, an article) are at offset x 16, the data of a part at offset bytes, both relative to the '
+        'chunk; parts are found by id (0x59f7c0 / 0x59f5e0). Track CRPs also hold the road spline ("DmiS", '
+        '"TmiS"), the collision faces (from the `pr` parts of collidable articles, with the `mt` surface '
+        'flags) and the object tags (`animdefs.txt`)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (

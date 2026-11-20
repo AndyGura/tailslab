@@ -1,5 +1,3 @@
-from typing import Dict
-
 from library.read_blocks import (
     DeclarativeCompoundBlock,
     CompoundBlock,
@@ -60,16 +58,13 @@ def _object_header_field(*path: str):
 
 
 class Nfs4VRoadBlock(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Virtual road record of a track slice: the slice centre on the road with the road '
-            'frame, distances to the road edges, lanes and side types. One per slice, 8 slices per track block: block '
-            'b has the slices b * 8 .. b * 8 + `num_slices` - 1 of its header (nfs4.exe 0x439d60). nfs4.exe reads '
-            'these records in place from the loaded file (0x64f1a4); NFS4 has no COL file, this is its '
-            '`collision_data`',
-        }
+    block_description = (
+        'Virtual road record of a track slice: the slice centre on the road with the road '
+        'frame, distances to the road edges, lanes and side types. One per slice, 8 slices per track block: block '
+        'b has the slices b * 8 .. b * 8 + `num_slices` - 1 of its header (nfs4.exe 0x439d60). nfs4.exe reads '
+        'these records in place from the loaded file (0x64f1a4); NFS4 has no COL file, this is its '
+        '`collision_data`'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         ref_point = (
@@ -184,13 +179,9 @@ class Nfs4VRoadBlock(DeclarativeCompoundBlock):
 
 
 class Nfs4BlockCount(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Amount of items of an array of the track block and the slot the loader writes '
-            "the array's address into",
-        }
+    block_description = (
+        "Amount of items of an array of the track block and the slot the loader writes the array's address into"
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         num = (IntegerBlock(length=4, is_signed=False), {'description': 'Amount of items'})
@@ -204,9 +195,7 @@ class Nfs4BlockCount(DeclarativeCompoundBlock):
 
 
 class Nfs4NeighbourData(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Reference to a neighbouring track block'}
+    block_description = 'Reference to a neighbouring track block'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         block = (IntegerBlock(length=2, is_signed=True), {'description': 'Neighbouring block index, or -1'})
@@ -214,15 +203,12 @@ class Nfs4NeighbourData(DeclarativeCompoundBlock):
 
 
 class Nfs4TrkBlockHeader(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Metadata of a track block (segment of the track): position, bounds, neighbours '
-            'and the counts which define sizes of all arrays in the [Nfs4TrkBlock]'
-            '(#nfs4trkblock) with the same index. nfs4.exe copies the 0x5e8 bytes as they are (0x4327b0, 300 blocks '
-            'at most) and writes the addresses of the block arrays into the pointer slots',
-        }
+    block_description = (
+        'Metadata of a track block (segment of the track): position, bounds, neighbours '
+        'and the counts which define sizes of all arrays in the [Nfs4TrkBlock]'
+        '(#nfs4trkblock) with the same index. nfs4.exe copies the 0x5e8 bytes as they are (0x4327b0, 300 blocks '
+        'at most) and writes the addresses of the block arrays into the pointer slots'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         polygon_chunk_sizes = (
@@ -363,15 +349,12 @@ class Nfs4TrkBlockHeader(DeclarativeCompoundBlock):
 
 
 class Nfs4PolygonVroadData(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Road data of a high-res track polygon (chunk 4) of the block, 0x18 bytes: where '
-            "the polygon lies in the block's cell grid, its wall edges and surface, its normal and forward vectors. "
-            "nfs4.exe's track position search (0x439fe0) scans these records for the one whose cell range holds the "
-            'point and whose polygon holds it',
-        }
+    block_description = (
+        'Road data of a high-res track polygon (chunk 4) of the block, 0x18 bytes: where '
+        "the polygon lies in the block's cell grid, its wall edges and surface, its normal and forward vectors. "
+        "nfs4.exe's track position search (0x439fe0) scans these records for the one whose cell range holds the "
+        'point and whose polygon holds it'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         cell_z_min = (
@@ -440,13 +423,10 @@ class Nfs4PolygonVroadData(DeclarativeCompoundBlock):
 
 
 class Nfs4RefExtraObject(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Reference to an extra object (XOBJ) placed in the track block: what the car '
-            'collisions test (nfs4.exe 0x45d8c0)',
-        }
+    block_description = (
+        'Reference to an extra object (XOBJ) placed in the track block: what the car '
+        'collisions test (nfs4.exe 0x45d8c0)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         pt = (
@@ -494,12 +474,7 @@ class Nfs4RefExtraObject(DeclarativeCompoundBlock):
 
 
 class Nfs4RefExtraObject2(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Reference to a per-block object (POLYOBJ) placed in the track block',
-        }
+    block_description = 'Reference to a per-block object (POLYOBJ) placed in the track block'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk0 = (IntegerBlock(length=2), {'is_unknown': True})
@@ -514,14 +489,11 @@ class Nfs4RefExtraObject2(DeclarativeCompoundBlock):
 
 
 class Nfs4XObjHeader(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Header of an extra object: type, position and the counts which define the '
-            'sizes of the corresponding [Nfs4ExtraObject](#nfs4extraobject) arrays. nfs4.exe keeps the 0x34 bytes '
-            'in place and writes the addresses of the object data into the pointer slots (0x4325f0)',
-        }
+    block_description = (
+        'Header of an extra object: type, position and the counts which define the '
+        'sizes of the corresponding [Nfs4ExtraObject](#nfs4extraobject) arrays. nfs4.exe keeps the 0x34 bytes '
+        'in place and writes the addresses of the object data into the pointer slots (0x4325f0)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         type = (
@@ -579,9 +551,7 @@ class Nfs4XObjHeader(DeclarativeCompoundBlock):
 
 
 class Nfs4AnimKeyframe(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Animation keyframe of an extra object'}
+    block_description = 'Animation keyframe of an extra object'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         pt = (
@@ -598,9 +568,7 @@ class Nfs4AnimKeyframe(DeclarativeCompoundBlock):
 
 
 class Nfs4AnimExtra(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Animation of an extra object: a sequence of keyframes'}
+    block_description = 'Animation of an extra object: a sequence of keyframes'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk0 = (IntegerBlock(length=2), {'is_unknown': True})
@@ -618,13 +586,10 @@ class Nfs4AnimExtra(DeclarativeCompoundBlock):
 
 
 class Nfs4SpecialExtra(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Physics properties of a special extra object (movable prop, e.g. a barrel or a '
-            "cone), 0x48 bytes: nfs4.exe 0x431550 makes the object's rigid body of them",
-        }
+    block_description = (
+        'Physics properties of a special extra object (movable prop, e.g. a barrel or a '
+        "cone), 0x48 bytes: nfs4.exe 0x431550 makes the object's rigid body of them"
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         location = (
@@ -667,14 +632,11 @@ class Nfs4SpecialExtra(DeclarativeCompoundBlock):
 
 
 class Nfs4Polygon(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A single quad polygon of terrain or extra object, 13 bytes. UV coordinates are '
-            "not stored: `tex_flags` picks the polygon's corner UV-s from a table of the executable (nfs4.exe "
-            '0x434690 terrain, 0x434c20 objects)',
-        }
+    block_description = (
+        'A single quad polygon of terrain or extra object, 13 bytes. UV coordinates are '
+        "not stored: `tex_flags` picks the polygon's corner UV-s from a table of the executable (nfs4.exe "
+        '0x434690 terrain, 0x434c20 objects)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         vertices = (
@@ -753,14 +715,11 @@ class Nfs4Polygon(DeclarativeCompoundBlock):
 
 
 class Nfs4ExtraObject(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Extra object mesh: a standalone object placed on the track (billboard, animated '
-            'object, physics prop). Type, position and array sizes are defined by the '
-            '[Nfs4XObjHeader](#nfs4xobjheader) with the same index in the enclosing chunk',
-        }
+    block_description = (
+        'Extra object mesh: a standalone object placed on the track (billboard, animated '
+        'object, physics prop). Type, position and array sizes are defined by the '
+        '[Nfs4XObjHeader](#nfs4xobjheader) with the same index in the enclosing chunk'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         anim_data = (
@@ -812,18 +771,15 @@ class Nfs4XObjChunk(CompoundBlock):
 
 
 class Nfs4TrkBlock(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Track block body: terrain vertices and polygons at 3 levels of detail, plus '
-            'objects placed in this segment of the track. All array sizes come from the '
-            '[Nfs4TrkBlockHeader](#nfs4trkblockheader) with the same index. nfs4.exe draws a block (0x437770) at '
-            'one level of detail by the distance (LOD table 0x5aef48: chunks 4 + 5 near, 2 + 3, 0 + 1 up to 600 '
-            'units), and at every level the object chunks 7, 8, 9 and 10 (10 not at night (0x7c4cf8) or with '
-            'weather (0x7c4cfc)); the `lanes` only at the near level, then the extra object chunks 0, 1, 2 and 3 '
-            '(3 not at night or with weather)',
-        }
+    block_description = (
+        'Track block body: terrain vertices and polygons at 3 levels of detail, plus '
+        'objects placed in this segment of the track. All array sizes come from the '
+        '[Nfs4TrkBlockHeader](#nfs4trkblockheader) with the same index. nfs4.exe draws a block (0x437770) at '
+        'one level of detail by the distance (LOD table 0x5aef48: chunks 4 + 5 near, 2 + 3, 0 + 1 up to 600 '
+        'units), and at every level the object chunks 7, 8, 9 and 10 (10 not at night (0x7c4cf8) or with '
+        'weather (0x7c4cfc)); the `lanes` only at the near level, then the extra object chunks 0, 1, 2 and 3 '
+        '(3 not at night or with weather)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         vertices = (
@@ -951,21 +907,18 @@ class Nfs4TrkBlock(DeclarativeCompoundBlock):
 
 
 class Nfs4FrdMap(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Main track file (NFS4 High Stakes). The track is split into blocks (segments): '
-            'block headers with all counts come first, then block bodies with vertices, '
-            'polygons at 3 levels of detail and objects. Polygon textures index the track '
-            'QFS archive (<track>0.QFS), skipping its mirrored texture copies; UV-s are not stored, texture orientation '
-            'is defined by polygon flags. Units: nfs4.exe simulates the file units as meters (m/s, gravity 9.81) '
-            'with real-size cars, but EA made the tracks 1 / 1.3 of their real size: the nine tracks NFS4 shares '
-            'with NFS3 are exactly the NFS3 ones / 1.3 (Hometown: 4393 / 5713 along the block positions) and every '
-            'NFS4 track lays its slices 4.61 apart (6.0 / 1.3, as TNFS and NFS3 do in meters). The converter exports '
-            'tracks in meters: every position and distance of the file x 1.3 (`NFS4_TRACK_SCALE`). Cars are not '
-            'scaled: their FCE models have real sizes in both games',
-        }
+    block_description = (
+        'Main track file (NFS4 High Stakes). The track is split into blocks (segments): '
+        'block headers with all counts come first, then block bodies with vertices, '
+        'polygons at 3 levels of detail and objects. Polygon textures index the track '
+        'QFS archive (<track>0.QFS), skipping its mirrored texture copies; UV-s are not stored, texture orientation '
+        'is defined by polygon flags. Units: nfs4.exe simulates the file units as meters (m/s, gravity 9.81) '
+        'with real-size cars, but EA made the tracks 1 / 1.3 of their real size: the nine tracks NFS4 shares '
+        'with NFS3 are exactly the NFS3 ones / 1.3 (Hometown: 4393 / 5713 along the block positions) and every '
+        'NFS4 track lays its slices 4.61 apart (6.0 / 1.3, as TNFS and NFS3 do in meters). The converter exports '
+        'tracks in meters: every position and distance of the file x 1.3 (`NFS4_TRACK_SCALE`). Cars are not '
+        'scaled: their FCE models have real sizes in both games'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk = (
@@ -1034,14 +987,11 @@ class Nfs4FrdMap(DeclarativeCompoundBlock):
 
 
 class Nfs4HeightsSim(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Ceiling heights of the track slices (Data/Tracks/<track>/heights.sim, loaded by '
-            'nfs4.exe 0x439c10): one float per `vroad` record of the FRD ([Nfs4VRoadBlock](#nfs4vroadblock)), the '
-            'file is 4 bytes per slice in every NFS4 track. Without the file the game uses 10.0 for every slice',
-        }
+    block_description = (
+        'Ceiling heights of the track slices (Data/Tracks/<track>/heights.sim, loaded by '
+        'nfs4.exe 0x439c10): one float per `vroad` record of the FRD ([Nfs4VRoadBlock](#nfs4vroadblock)), the '
+        'file is 4 bytes per slice in every NFS4 track. Without the file the game uses 10.0 for every slice'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         heights = (
@@ -1074,17 +1024,14 @@ def is_nfs4_speed_file_size(size: int) -> bool:
 
 
 class Nfs4SpeedFile(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'AI line of the track (Data/Tracks/<track>/spdFA.bin forward, spdRA.bin reversed '
-            'track; any case on disk), loaded by nfs4.exe 0x41c360 (0x41c4c0 picks the file): three arrays over the '
-            'n track slices (`vroad` records of the FRD), the file is ceil(n / 2) + 5 n bytes in every NFS4 track. A '
-            'shorter file is "Invalid speed file in track": the game then makes the AI line offsets itself from the '
-            '(missing) lanes, 0x41c550 / 0x41e0d0; without the file it uses speed 64, lane 7 and offset 0. France also '
-            'has a `spdB.bin` of the same layout that nfs4.exe does not load',
-        }
+    block_description = (
+        'AI line of the track (Data/Tracks/<track>/spdFA.bin forward, spdRA.bin reversed '
+        'track; any case on disk), loaded by nfs4.exe 0x41c360 (0x41c4c0 picks the file): three arrays over the '
+        'n track slices (`vroad` records of the FRD), the file is ceil(n / 2) + 5 n bytes in every NFS4 track. A '
+        'shorter file is "Invalid speed file in track": the game then makes the AI line offsets itself from the '
+        '(missing) lanes, 0x41c550 / 0x41e0d0; without the file it uses speed 64, lane 7 and offset 0. France also '
+        'has a `spdB.bin` of the same layout that nfs4.exe does not load'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         speeds = (

@@ -1,5 +1,3 @@
-from io import BytesIO
-
 from library.context import ReadContext
 from library.read_blocks import (
     DeclarativeCompoundBlock,
@@ -56,17 +54,14 @@ NFS2_TEXTURE_ALIGNMENT_BITS = [
 
 
 class TexturesMapExtraDataRecord(DeclarativeCompoundBlock):
-    @property
-    def schema(self):
-        return {
-            **super().schema,
-            'block_description': 'Texture reference of the NFS2 / NFS2 SE COL file (10 bytes). Polygons of the track '
-            '(TRK) and of the props refer to items of this table by index; the item names the image in the track '
-            'QFS archive and its orientation on the polygon. nfs2sen.exe reads the table at 0x4358c0 '
-            '(BWorld_ReadTextureMap: count u16 at extrablock +6, records from +8), makes the texture entries of '
-            'every record and animation frame at 0x4356e0 (BWorld_SetupTextureOrders) and draws the polygons with '
-            'them (BWorld_AddTrackPolys 0x436ba0: road blocks of every level of detail and the props)',
-        }
+    block_description = (
+        'Texture reference of the NFS2 / NFS2 SE COL file (10 bytes). Polygons of the track '
+        '(TRK) and of the props refer to items of this table by index; the item names the image in the track '
+        'QFS archive and its orientation on the polygon. nfs2sen.exe reads the table at 0x4358c0 '
+        '(BWorld_ReadTextureMap: count u16 at extrablock +6, records from +8), makes the texture entries of '
+        'every record and animation frame at 0x4356e0 (BWorld_SetupTextureOrders) and draws the polygons with '
+        'them (BWorld_AddTrackPolys 0x436ba0: road blocks of every level of detail and the props)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         texture_number = (
@@ -152,14 +147,11 @@ class TexturesMapExtraDataRecord(DeclarativeCompoundBlock):
 
 
 class PolygonMapExtraDataRecord(DeclarativeCompoundBlock):
-    @property
-    def schema(self):
-        return {
-            **super().schema,
-            'block_description': 'A record of the polygon_map extrablock (NFS2, NFS2 SE TRK blocks): road vector and '
-            "surface of a polygon of the block's `high_polygons`, one record per polygon (in every block of the NFS2 "
-            'and NFS2 SE tracks)',
-        }
+    block_description = (
+        'A record of the polygon_map extrablock (NFS2, NFS2 SE TRK blocks): road vector and '
+        "surface of a polygon of the block's `high_polygons`, one record per polygon (in every block of the NFS2 "
+        'and NFS2 SE tracks)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         vectors_idx = (
@@ -193,15 +185,12 @@ class PolygonMapExtraDataRecord(DeclarativeCompoundBlock):
 
 
 class MedianExtraDataRecord(DeclarativeCompoundBlock):
-    @property
-    def schema(self):
-        return {
-            **super().schema,
-            'block_description': 'A record of the median_polygons extrablock (NFS2, NFS2 SE TRK blocks): the road '
-            "polygons of a slice, one record per slice of the block (record index = slice - the block's "
-            '`first_slice`). NFS2 SE searches the run of `high_polygons` for the polygon under a car (nfs2sen.exe '
-            '0x4384c0)',
-        }
+    block_description = (
+        'A record of the median_polygons extrablock (NFS2, NFS2 SE TRK blocks): the road '
+        "polygons of a slice, one record per slice of the block (record index = slice - the block's "
+        '`first_slice`). NFS2 SE searches the run of `high_polygons` for the polygon under a car (nfs2sen.exe '
+        '0x4384c0)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         first_polygon = (
@@ -231,9 +220,7 @@ class MedianExtraDataRecord(DeclarativeCompoundBlock):
 
 
 class AnimatedPropPositionFrame(DeclarativeCompoundBlock):
-    @property
-    def schema(self):
-        return {**super().schema, 'block_description': 'A single keyframe of animated prop movement'}
+    block_description = 'A single keyframe of animated prop movement'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (
@@ -250,9 +237,7 @@ class AnimatedPropPositionFrame(DeclarativeCompoundBlock):
 
 
 class AnimatedPropPosition(DeclarativeCompoundBlock):
-    @property
-    def schema(self):
-        return {**super().schema, 'block_description': 'Animation of prop position: a sequence of keyframes'}
+    block_description = 'Animation of prop position: a sequence of keyframes'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         num_frames = (
@@ -274,13 +259,10 @@ class AnimatedPropPosition(DeclarativeCompoundBlock):
 
 
 class SpecialPropPosition(DeclarativeCompoundBlock):
-    @property
-    def schema(self):
-        return {
-            **super().schema,
-            'block_description': 'Positioning of a special prop: a static prop which is also a track object the car '
-            'collides with (NFS2, NFS2 SE TRK blocks)',
-        }
+    block_description = (
+        'Positioning of a special prop: a static prop which is also a track object the car '
+        'collides with (NFS2, NFS2 SE TRK blocks)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (
@@ -298,14 +280,11 @@ class SpecialPropPosition(DeclarativeCompoundBlock):
 
 
 class PropExtraDataRecord(DeclarativeCompoundBlock):
-    @property
-    def schema(self):
-        return {
-            **super().schema,
-            'block_description': '3D model placement (prop). Same 3D model can be used few times on the track. '
-            'Records of props_7 (in TRK blocks and COL file) and props_18 (in TRK blocks) extrablocks have this '
-            'structure; the 3D model itself is in the prop_descriptions extrablock of the same block/file',
-        }
+    block_description = (
+        '3D model placement (prop). Same 3D model can be used few times on the track. '
+        'Records of props_7 (in TRK blocks and COL file) and props_18 (in TRK blocks) extrablocks have this '
+        'structure; the 3D model itself is in the prop_descriptions extrablock of the same block/file'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         block_size = (
@@ -348,9 +327,7 @@ class PropExtraDataRecord(DeclarativeCompoundBlock):
 
 
 class ColPolygon(DeclarativeCompoundBlock):
-    @property
-    def schema(self):
-        return {**super().schema, 'block_description': 'A single polygon of terrain or prop'}
+    block_description = 'A single polygon of terrain or prop'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         texture = (
@@ -374,13 +351,9 @@ class ColPolygon(DeclarativeCompoundBlock):
 
 
 class PropDescriptionExtraDataRecord(DeclarativeCompoundBlock):
-    @property
-    def schema(self):
-        return {
-            **super().schema,
-            'block_description': '3D model of a prop. Placed on the track by records of props_* extrablocks, '
-            'which reference this model by index',
-        }
+    block_description = (
+        '3D model of a prop. Placed on the track by records of props_* extrablocks, which reference this model by index'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         block_size = (
@@ -420,20 +393,17 @@ class PropDescriptionExtraDataRecord(DeclarativeCompoundBlock):
 
 
 class RoadLineExtraDataRecord(DeclarativeCompoundBlock):
-    @property
-    def schema(self):
-        return {
-            **super().schema,
-            'block_description': 'A record of the road_lines extrablock (type 9, NFS2, NFS2 SE TRK blocks): a point '
-            'of the road lines (lane and edge lines) nfs2sen.exe paints over the road of the nearest blocks '
-            '(BWorld_AddExtrablock9Strips 0x436d70, called by the block drawing 0x4361a0 at the highest level of '
-            "detail only). Record k and record k + 1 make the strip quad k, unless record k's `line_type` is 0xff: "
-            "from the slices' vectors (COL collision_data, units 1/128) the game places P0 = vertex A - forward A / "
-            '2, P1 = vertex A + right A - forward A / 2, P2 = vertex B + forward A / 2, P3 = vertex B + right B + '
-            'forward A / 2 (vertex units 1/256: the forward bytes are halved, the right bytes taken as they are), '
-            'and the line drawing (0x44a510) cuts the quad into the shapes of the line type. The converter exports '
-            'them with the track (`nfs2_road_lines`, serializers/maps.py)',
-        }
+    block_description = (
+        'A record of the road_lines extrablock (type 9, NFS2, NFS2 SE TRK blocks): a point '
+        'of the road lines (lane and edge lines) nfs2sen.exe paints over the road of the nearest blocks '
+        '(BWorld_AddExtrablock9Strips 0x436d70, called by the block drawing 0x4361a0 at the highest level of '
+        "detail only). Record k and record k + 1 make the strip quad k, unless record k's `line_type` is 0xff: "
+        "from the slices' vectors (COL collision_data, units 1/128) the game places P0 = vertex A - forward A / "
+        '2, P1 = vertex A + right A - forward A / 2, P2 = vertex B + forward A / 2, P3 = vertex B + right B + '
+        'forward A / 2 (vertex units 1/256: the forward bytes are halved, the right bytes taken as they are), '
+        'and the line drawing (0x44a510) cuts the quad into the shapes of the line type. The converter exports '
+        'them with the track (`nfs2_road_lines`, serializers/maps.py)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         vertex_idx = (
@@ -474,15 +444,12 @@ class RoadLineExtraDataRecord(DeclarativeCompoundBlock):
 
 
 class TrackObjectExtraDataRecord(DeclarativeCompoundBlock):
-    @property
-    def schema(self):
-        return {
-            **super().schema,
-            'block_description': 'A record of the track_objects extrablock (type 11, NFS2, NFS2 SE TRK blocks): a '
-            'track object the car collides with, placed by a special_prop of the block (`special_idx` = record '
-            'index). NFS2 SE reads the records (nfs2sen.exe 0x4383f0), collides cars with them (0x441ec0), knocks '
-            'them over (0x435160) and resets their state table of 256 objects (0x435310)',
-        }
+    block_description = (
+        'A record of the track_objects extrablock (type 11, NFS2, NFS2 SE TRK blocks): a '
+        'track object the car collides with, placed by a special_prop of the block (`special_idx` = record '
+        'index). NFS2 SE reads the records (nfs2sen.exe 0x4383f0), collides cars with them (0x441ec0), knocks '
+        'them over (0x435160) and resets their state table of 256 objects (0x435310)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (
@@ -537,13 +504,9 @@ class TrackObjectExtraDataRecord(DeclarativeCompoundBlock):
 
 
 class RoadVectorsExtraDataRecord(DeclarativeCompoundBlock):
-    @property
-    def schema(self):
-        return {
-            **super().schema,
-            'block_description': 'Orientation of the road surface: normal + forward vectors pair. Referenced by '
-            'index from polygon_map records',
-        }
+    block_description = (
+        'Orientation of the road surface: normal + forward vectors pair. Referenced by index from polygon_map records'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         normal = (
@@ -557,16 +520,13 @@ class RoadVectorsExtraDataRecord(DeclarativeCompoundBlock):
 
 
 class CollisionExtraDataRecord(DeclarativeCompoundBlock):
-    @property
-    def schema(self):
-        return {
-            **super().schema,
-            'block_description': 'A point of the track collision spline (road centre line) with road orientation '
-            'vectors and distances to the road borders, 8 points per track block. These are the track slices the '
-            'car physics walks: NFS2 SE keeps the array at `DAT_004dec18` (count `DAT_004dec10`, 0x24 bytes per '
-            'record) and finds the slice of a car as the one with the nearest centre by xz distance (nfs2sen.exe '
-            '0x439470)',
-        }
+    block_description = (
+        'A point of the track collision spline (road centre line) with road orientation '
+        'vectors and distances to the road borders, 8 points per track block. These are the track slices the '
+        'car physics walks: NFS2 SE keeps the array at `DAT_004dec18` (count `DAT_004dec10`, 0x24 bytes per '
+        'record) and finds the slice of a car as the one with the nearest centre by xz distance (nfs2sen.exe '
+        '0x439470)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (
@@ -656,15 +616,12 @@ class CollisionExtraDataRecord(DeclarativeCompoundBlock):
 
 
 class Nfs3TexturesMapExtraDataRecord(DeclarativeCompoundBlock):
-    @property
-    def schema(self):
-        return {
-            **super().schema,
-            'block_description': 'Texture reference of the NFS3 COL file (8 bytes; NFS2 and NFS2 SE have 10-byte '
-            'records): polygons of the COL props refer to items of this table by index. nfs3.exe reads the '
-            'textures_map extrablock at load (0x41dcc0) and sets byte 7 to 0x1f where it is 0 and byte 6 to 1 '
-            'where it is 0',
-        }
+    block_description = (
+        'Texture reference of the NFS3 COL file (8 bytes; NFS2 and NFS2 SE have 10-byte '
+        'records): polygons of the COL props refer to items of this table by index. nfs3.exe reads the '
+        'textures_map extrablock at load (0x41dcc0) and sets byte 7 to 0x1f where it is 0 and byte 6 to 1 '
+        'where it is 0'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         texture_number = (
@@ -726,17 +683,14 @@ class Nfs3TexturesMapExtraDataRecord(DeclarativeCompoundBlock):
 
 
 class Nfs3CollisionExtraDataRecord(DeclarativeCompoundBlock):
-    @property
-    def schema(self):
-        return {
-            **super().schema,
-            'block_description': 'A track slice of NFS3 (the collision_data extrablock of the COL file, 0x24 '
-            'bytes, another layout than the NFS2 one): a point of the road centre line with the road orientation '
-            'vectors, the distances to the road borders, walls and lanes. One slice per FRD '
-            'position record ([FrdPositionBlock](#frdpositionblock)) and per float of SIMHTS.DAT '
-            '([Nfs3SimHeights](#nfs3simheights)). nfs3.exe loads the array at 0x41e370 and reads it in 0x420230, '
-            '0x420bf0, 0x4a0140, 0x428d60, 0x4304b0, 0x4a2690',
-        }
+    block_description = (
+        'A track slice of NFS3 (the collision_data extrablock of the COL file, 0x24 '
+        'bytes, another layout than the NFS2 one): a point of the road centre line with the road orientation '
+        'vectors, the distances to the road borders, walls and lanes. One slice per FRD '
+        'position record ([FrdPositionBlock](#frdpositionblock)) and per float of SIMHTS.DAT '
+        '([Nfs3SimHeights](#nfs3simheights)). nfs3.exe loads the array at 0x41e370 and reads it in 0x420230, '
+        '0x420bf0, 0x4a0140, 0x428d60, 0x4304b0, 0x4a2690'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (
@@ -813,13 +767,10 @@ class Nfs3CollisionExtraDataRecord(DeclarativeCompoundBlock):
 
 
 class ColExtraBlock(DeclarativeCompoundBlock):
-    @property
-    def schema(self):
-        return {
-            **super().schema,
-            'block_description': 'A typed container of data records. The same structure is used for extrablocks '
-            'inside TRK blocks and in the COL file; record type is defined by `type`',
-        }
+    block_description = (
+        'A typed container of data records. The same structure is used for extrablocks '
+        'inside TRK blocks and in the COL file; record type is defined by `type`'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         block_size = (
@@ -886,14 +837,11 @@ class ColExtraBlock(DeclarativeCompoundBlock):
 
 
 class MapColFile(DeclarativeCompoundBlock):
-    @property
-    def schema(self):
-        return {
-            **super().schema,
-            'block_description': 'Track additional data (COL file), a list of extrablocks: textures map (used by '
-            'polygons of the TRK file), track-wide props with their 3D models and collision '
-            'data (road centre line for the physics engine)',
-        }
+    block_description = (
+        'Track additional data (COL file), a list of extrablocks: textures map (used by '
+        'polygons of the TRK file), track-wide props with their 3D models and collision '
+        'data (road centre line for the physics engine)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(length=4, value_validator=Eq('COLL')), {'description': 'Resource ID'})
@@ -946,13 +894,10 @@ class MapColFile(DeclarativeCompoundBlock):
 
 
 class Nfs3ColExtraBlock(ColExtraBlock):
-    @property
-    def schema(self):
-        return {
-            **super().schema,
-            'block_description': 'A typed container of data records of the NFS3 COL file: the extrablock of NFS2 '
-            '(ColExtraBlock), with the NFS3 layouts of textures_map and collision_data records',
-        }
+    block_description = (
+        'A typed container of data records of the NFS3 COL file: the extrablock of NFS2 '
+        '(ColExtraBlock), with the NFS3 layouts of textures_map and collision_data records'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         block_size = ColExtraBlock.Fields.block_size
@@ -993,15 +938,12 @@ class Nfs3ColExtraBlock(ColExtraBlock):
 
 
 class Nfs3MapColFile(MapColFile):
-    @property
-    def schema(self):
-        return {
-            **super().schema,
-            'block_description': 'Track additional data of NFS3 (COL file), a list of extrablocks: textures map '
-            '(used by the polygons of the COL props), track-wide props with their 3D models and the track slices '
-            '(collision_data). The layout of the NFS2 COL file (MapColFile), with the NFS3 records: the textures_map '
-            'records are 8 bytes long (10 in NFS2), which tells the two apart (`is_nfs3_col_file`)',
-        }
+    block_description = (
+        'Track additional data of NFS3 (COL file), a list of extrablocks: textures map '
+        '(used by the polygons of the COL props), track-wide props with their 3D models and the track slices '
+        '(collision_data). The layout of the NFS2 COL file (MapColFile), with the NFS3 records: the textures_map '
+        'records are 8 bytes long (10 in NFS2), which tells the two apart (`is_nfs3_col_file`)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = MapColFile.Fields.resource_id

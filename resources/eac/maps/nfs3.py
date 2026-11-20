@@ -1,5 +1,3 @@
-from typing import Dict
-
 from library.read_blocks import (
     DeclarativeCompoundBlock,
     IntegerBlock,
@@ -22,15 +20,12 @@ def _resize_bytes(value: bytes, length: int) -> bytes:
 
 
 class FrdPositionBlock(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A track slice: the row of consecutive high-res track polygons (chunk 4) across '
-            'the road at one slice, one COL collision_data record each ([Nfs3CollisionExtraDataRecord]'
-            '(#nfs3collisionextradatarecord), the same index among all blocks of the track). A track block usually '
-            'has 8 of them, together covering all polygons of the high-res track chunk',
-        }
+    block_description = (
+        'A track slice: the row of consecutive high-res track polygons (chunk 4) across '
+        'the road at one slice, one COL collision_data record each ([Nfs3CollisionExtraDataRecord]'
+        '(#nfs3collisionextradatarecord), the same index among all blocks of the track). A track block usually '
+        'has 8 of them, together covering all polygons of the high-res track chunk'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         polygon = (
@@ -71,13 +66,10 @@ class FrdPositionBlock(DeclarativeCompoundBlock):
 
 
 class FrdBlockPolygonData(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Per-polygon data of the high-res track polygons: one record per polygon of '
-            '`polygons[4]` chunk of the corresponding [FrdPolyBlock](#frdpolyblock)',
-        }
+    block_description = (
+        'Per-polygon data of the high-res track polygons: one record per polygon of '
+        '`polygons[4]` chunk of the corresponding [FrdPolyBlock](#frdpolyblock)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         vroad_idx = (
@@ -114,13 +106,10 @@ class FrdBlockPolygonData(DeclarativeCompoundBlock):
 
 
 class FrdBlockVroadData(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Virtual road entry: orientation of the road surface, referenced by index from '
-            '`polygons[].vroad_idx` of the block',
-        }
+    block_description = (
+        'Virtual road entry: orientation of the road surface, referenced by index from '
+        '`polygons[].vroad_idx` of the block'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         normal = (
@@ -134,13 +123,9 @@ class FrdBlockVroadData(DeclarativeCompoundBlock):
 
 
 class FrdXobjRef(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Reference to an extra object (XOBJ) placed in the block. Animated extra objects '
-            'are not always listed',
-        }
+    block_description = (
+        'Reference to an extra object (XOBJ) placed in the block. Animated extra objects are not always listed'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (
@@ -182,14 +167,11 @@ class FrdXobjRef(DeclarativeCompoundBlock):
 
 
 class FrdPolyObjRef(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Reference to an object of the first POLYOBJ chunk of the block '
-            '(`polyobj[0]` of the corresponding [FrdPolyBlock](#frdpolyblock)), same order. '
-            'Variable size: 16 bytes, or 20 for an extra object (XOBJ)',
-        }
+    block_description = (
+        'Reference to an object of the first POLYOBJ chunk of the block '
+        '(`polyobj[0]` of the corresponding [FrdPolyBlock](#frdpolyblock)), same order. '
+        'Variable size: 16 bytes, or 20 for an extra object (XOBJ)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         size = (
@@ -222,9 +204,7 @@ class FrdPolyObjRef(DeclarativeCompoundBlock):
 
 
 class FrdSoundSource(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'A sound source placed in the block'}
+    block_description = 'A sound source placed in the block'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (
@@ -235,9 +215,7 @@ class FrdSoundSource(DeclarativeCompoundBlock):
 
 
 class FrdLightSource(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'A light source placed in the block'}
+    block_description = 'A light source placed in the block'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (
@@ -248,15 +226,12 @@ class FrdLightSource(DeclarativeCompoundBlock):
 
 
 class FrdBlock(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Track block: a segment of the track. Contains terrain vertices with shading, '
-            'road orientation data and references to objects placed in this segment. '
-            'Polygons of the block are stored separately, in the [FrdPolyBlock](#frdpolyblock) '
-            'with the same index',
-        }
+    block_description = (
+        'Track block: a segment of the track. Contains terrain vertices with shading, '
+        'road orientation data and references to objects placed in this segment. '
+        'Polygons of the block are stored separately, in the [FrdPolyBlock](#frdpolyblock) '
+        'with the same index'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (
@@ -402,9 +377,7 @@ class FrdBlock(DeclarativeCompoundBlock):
 
 
 class FrdPolygonRecord(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'A single quad polygon of terrain or object'}
+    block_description = 'A single quad polygon of terrain or object'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         vertices = (
@@ -436,9 +409,7 @@ class FrdPolygonRecord(DeclarativeCompoundBlock):
 
 
 class FrdPolygonsBlock(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'A chunk of terrain polygons of a track block'}
+    block_description = 'A chunk of terrain polygons of a track block'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         sz = (
@@ -461,9 +432,7 @@ class FrdPolygonsBlock(DeclarativeCompoundBlock):
 
 
 class FrdPolyObjPolygonsBlock(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Polygons of a single per-block object (POLYOBJ)'}
+    block_description = 'Polygons of a single per-block object (POLYOBJ)'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         type = (
@@ -487,9 +456,7 @@ class FrdPolyObjPolygonsBlock(DeclarativeCompoundBlock):
 
 
 class FrdPolyObjBlock(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'A chunk of per-block objects (POLYOBJ)'}
+    block_description = 'A chunk of per-block objects (POLYOBJ)'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         sz = (
@@ -515,13 +482,10 @@ class FrdPolyObjBlock(DeclarativeCompoundBlock):
 
 
 class FrdPolyBlock(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Polygons of a track block (the [FrdBlock](#frdblock) with the same index): 7 '
-            'chunks of terrain polygons + 4 chunks of per-block objects',
-        }
+    block_description = (
+        'Polygons of a track block (the [FrdBlock](#frdblock) with the same index): 7 '
+        'chunks of terrain polygons + 4 chunks of per-block objects'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         polygons = (
@@ -544,9 +508,7 @@ class FrdPolyBlock(DeclarativeCompoundBlock):
 
 
 class ExtraObjectDataCrossType4(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Extra data of a static extra object (cross_type == 4)'}
+    block_description = 'Extra data of a static extra object (cross_type == 4)'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         pt_ref = (
@@ -567,9 +529,7 @@ class ExtraObjectDataCrossType4(DeclarativeCompoundBlock):
 
 
 class AnimData(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Animation keyframe of an extra object'}
+    block_description = 'Animation keyframe of an extra object'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         pt = (
@@ -586,9 +546,7 @@ class AnimData(DeclarativeCompoundBlock):
 
 
 class ExtraObjectDataCrossType3(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Extra data of an animated extra object (cross_type == 3)'}
+    block_description = 'Extra data of an animated extra object (cross_type == 3)'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         pt_ref = (
@@ -637,13 +595,9 @@ class ExtraObjectDataCrossType3(DeclarativeCompoundBlock):
 
 
 class ExtraObjectBlock(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Extra object (XOBJ): a standalone mesh placed on the track, e.g. a billboard, '
-            'a building or an animated object',
-        }
+    block_description = (
+        'Extra object (XOBJ): a standalone mesh placed on the track, e.g. a billboard, a building or an animated object'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         cross_type = (IntegerBlock(length=4), {'description': 'Object type: 4 - static object, 3 - animated object'})
@@ -678,14 +632,11 @@ class ExtraObjectBlock(DeclarativeCompoundBlock):
 
 
 class TextureBlock(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Texture reference. Polygons refer to items of this table by `tex_id`, the item '
-            'defines the actual texture in the QFS archive and UV coordinates of the polygon '
-            'corners',
-        }
+    block_description = (
+        'Texture reference. Polygons refer to items of this table by `tex_id`, the item '
+        'defines the actual texture in the QFS archive and UV coordinates of the polygon '
+        'corners'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         width = (IntegerBlock(length=2, is_signed=False), {'description': 'Texture width'})
@@ -718,16 +669,13 @@ class TextureBlock(DeclarativeCompoundBlock):
 
 
 class FrdMap(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Main track file. The track is split into blocks (segments). Each block has its '
-            'own vertex table ([FrdBlock](#frdblock)) and polygons at 3 levels of detail '
-            '([FrdPolyBlock](#frdpolyblock)). Standalone objects (billboards, animated '
-            'objects) are stored as extra objects. Polygon textures are referenced through '
-            'the `texture_blocks` table, which points to images in <track>0.QFS',
-        }
+    block_description = (
+        'Main track file. The track is split into blocks (segments). Each block has its '
+        'own vertex table ([FrdBlock](#frdblock)) and polygons at 3 levels of detail '
+        '([FrdPolyBlock](#frdpolyblock)). Standalone objects (billboards, animated '
+        'objects) are stored as extra objects. Polygon textures are referenced through '
+        'the `texture_blocks` table, which points to images in <track>0.QFS'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk = (BytesBlock(length=28), {'description': 'Unknown header', 'is_unknown': True})
@@ -770,14 +718,11 @@ class FrdMap(DeclarativeCompoundBlock):
 
 
 class Nfs3SimHeights(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Ceiling heights of the track slices (GameData/Tracks/TRK<nnn>/SIMHTS.DAT, loaded '
-            'by nfs3.exe 0x41e2f0): one float per COL collision_data record ([Nfs3CollisionExtraDataRecord]'
-            '(#nfs3collisionextradatarecord)), the file is 4 bytes per slice in every NFS3 track',
-        }
+    block_description = (
+        'Ceiling heights of the track slices (GameData/Tracks/TRK<nnn>/SIMHTS.DAT, loaded '
+        'by nfs3.exe 0x41e2f0): one float per COL collision_data record ([Nfs3CollisionExtraDataRecord]'
+        '(#nfs3collisionextradatarecord)), the file is 4 bytes per slice in every NFS3 track'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         heights = (
@@ -809,18 +754,15 @@ def is_nfs3_speeds_file_size(size: int) -> bool:
 
 
 class Nfs3SpeedsFile(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'AI speeds and lanes of the track slices (GameData/Tracks/TRK<nnn>/SPEEDSF.BIN '
-            'forward, SPEEDSR.BIN reversed track), loaded whole by nfs3.exe 0x40e000: two arrays over the n track '
-            'slices (COL collision_data records, [Nfs3CollisionExtraDataRecord](#nfs3collisionextradatarecord)), the '
-            'file is n / 2 + 1 + n bytes (integer division) in every NFS3 track; n is not in the file, it is '
-            '(2 x file size - 1) / 3. Without the file the game uses 64 m/s and lane 7 for every slice (flag '
-            '0x56f22c). The game finds the lanes at (n + 1) / 2, not at n / 2 + 1 where the file has them: the same '
-            'place for an odd n, one byte earlier for an even n (TRK005, TRK006, TRK008), see `lanes`',
-        }
+    block_description = (
+        'AI speeds and lanes of the track slices (GameData/Tracks/TRK<nnn>/SPEEDSF.BIN '
+        'forward, SPEEDSR.BIN reversed track), loaded whole by nfs3.exe 0x40e000: two arrays over the n track '
+        'slices (COL collision_data records, [Nfs3CollisionExtraDataRecord](#nfs3collisionextradatarecord)), the '
+        'file is n / 2 + 1 + n bytes (integer division) in every NFS3 track; n is not in the file, it is '
+        '(2 x file size - 1) / 3. Without the file the game uses 64 m/s and lane 7 for every slice (flag '
+        '0x56f22c). The game finds the lanes at (n + 1) / 2, not at n / 2 + 1 where the file has them: the same '
+        'place for an odd n, one byte earlier for an even n (TRK005, TRK006, TRK008), see `lanes`'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         speeds = (
@@ -864,9 +806,7 @@ class Nfs3SpeedsFile(DeclarativeCompoundBlock):
 
 
 class Nfs3CanKeyframe(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'A keyframe of a CAN animation path, 20 bytes'}
+    block_description = 'A keyframe of a CAN animation path, 20 bytes'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (
@@ -887,19 +827,16 @@ def _can_size(ctx):
 
 
 class Nfs3CanAnimation(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Animation path (GameData/Tracks/TRK<nnn>/TR<nn><k>.CAN, TR<nn>00A.CAN). '
-            'nfs3.exe plays them as the paths of knocked-away objects (TR<nn>00A.CAN as path 1, TR<nn>0<k>.CAN as '
-            'path k + 1; the renderer 0x41ca40 -> 0x40f940 -> 0x40f4b0). NFS4 (Data/Tracks/<track>/Tr<nn>.can, any '
-            'case) has the same files: nfs4.exe 0x41e760 loads `Tr00a.can` as path 0 and `Tr01.can` .. `Tr06.can` '
-            'as paths 1..6 (`Tr00.can` is not loaded) and multiplies their positions by 1 / 1.3 (rounded to 16.16 '
-            'again); a knocked object (`collision.type` 2 of [Nfs4RefExtraObject](#nfs4refextraobject)) plays path 2 '
-            'below 25 m/s, else path 3 (0x437ed0). The `.CAN` files of NFS2 and NFS2 SE (GAMEDATA/TRACKS/DATA) have '
-            'the same layout (their use there is not verified)',
-        }
+    block_description = (
+        'Animation path (GameData/Tracks/TRK<nnn>/TR<nn><k>.CAN, TR<nn>00A.CAN). '
+        'nfs3.exe plays them as the paths of knocked-away objects (TR<nn>00A.CAN as path 1, TR<nn>0<k>.CAN as '
+        'path k + 1; the renderer 0x41ca40 -> 0x40f940 -> 0x40f4b0). NFS4 (Data/Tracks/<track>/Tr<nn>.can, any '
+        'case) has the same files: nfs4.exe 0x41e760 loads `Tr00a.can` as path 0 and `Tr01.can` .. `Tr06.can` '
+        'as paths 1..6 (`Tr00.can` is not loaded) and multiplies their positions by 1 / 1.3 (rounded to 16.16 '
+        'again); a knocked object (`collision.type` 2 of [Nfs4RefExtraObject](#nfs4refextraobject)) plays path 2 '
+        'below 25 m/s, else path 3 (0x437ed0). The `.CAN` files of NFS2 and NFS2 SE (GAMEDATA/TRACKS/DATA) have '
+        'the same layout (their use there is not verified)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         size = (

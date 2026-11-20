@@ -8,7 +8,7 @@ UVs of a POLY_FT4 for it.
 """
 
 from io import SEEK_CUR
-from typing import Dict, Tuple
+from typing import Tuple
 
 from library.context import ReadContext
 from library.read_blocks import (
@@ -67,14 +67,11 @@ def psx_image_shown_size(data: dict) -> Tuple[int, int]:
 
 
 class PsxClut(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'CLUT (color look-up table) of a PSX 4-bit or 8-bit image, attached to it (the image '
-            '`next_offset` points to it). The colors are PSX 16-bit colors: bits 0-4 red, 5-9 green, 10-14 blue, 15 '
-            'STP (semi-transparency). 0x0000 is transparent: the GPU does not draw such texels',
-        }
+    block_description = (
+        'CLUT (color look-up table) of a PSX 4-bit or 8-bit image, attached to it (the image '
+        '`next_offset` points to it). The colors are PSX 16-bit colors: bits 0-4 red, 5-9 green, 10-14 blue, 15 '
+        'STP (semi-transparency). 0x0000 is transparent: the GPU does not draw such texels'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (IntegerBlock(length=1, value_validator=Eq(PSX_CLUT_ID)), {'description': 'Resource ID'})
@@ -138,17 +135,14 @@ def _clut_criteria(ctx, **kwargs):
 
 
 class PsxImage(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'An image of a PSX SHPP archive: 4-bit or 8-bit indexed with its CLUT, or 16-bit '
-            'PSX colors. The rows are stored as uploaded to VRAM (whole 16-bit words, 4-bit pixels low nibble '
-            'first). An image with the rotated flag in `vram_x` is stored rotated by 90 degrees: the game maps it so '
-            'that it shows `height` texels wide and `width` texels high (stored left column, bottom to top = shown '
-            'top row, left to right); one with the transposed flag is stored transposed (shown pixel (x, y) = stored '
-            'pixel (y, x), also `height` wide). The converter exports images as they are shown',
-        }
+    block_description = (
+        'An image of a PSX SHPP archive: 4-bit or 8-bit indexed with its CLUT, or 16-bit '
+        'PSX colors. The rows are stored as uploaded to VRAM (whole 16-bit words, 4-bit pixels low nibble '
+        'first). An image with the rotated flag in `vram_x` is stored rotated by 90 degrees: the game maps it so '
+        'that it shows `height` texels wide and `width` texels high (stored left column, bottom to top = shown '
+        'top row, left to right); one with the transposed flag is stored transposed (shown pixel (x, y) = stored '
+        'pixel (y, x), also `height` wide). The converter exports images as they are shown'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (

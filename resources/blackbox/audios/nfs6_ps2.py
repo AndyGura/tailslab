@@ -1,5 +1,3 @@
-from typing import Dict
-
 from library.context import ReadContext, WriteContext
 from library.read_blocks import (
     ArrayBlock,
@@ -29,13 +27,7 @@ def _fit_name_padding(padding: bytes, name: str, field_length: int) -> bytes:
 
 
 class Nfs6Ps2JukeboxTrack(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A song of the jukebox: a stereo PS-ADPCM stream with a "VAGp" header (big endian '
-            'numbers)',
-        }
+    block_description = 'A song of the jukebox: a stereo PS-ADPCM stream with a "VAGp" header (big endian numbers)'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(length=4, value_validator=Eq('VAGp')), {'description': 'Resource ID'})
@@ -71,9 +63,7 @@ class Nfs6Ps2JukeboxTrack(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2JukeboxGroup(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'The group of tracks of the jukebox, 0x40 bytes'}
+    block_description = 'The group of tracks of the jukebox, 0x40 bytes'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         num_tracks = (IntegerBlock(length=4), {'usage': 'io,doc', 'description': 'Amount of tracks: 23'})
@@ -98,9 +88,7 @@ class Nfs6Ps2JukeboxGroup(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2JukeboxEntry(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'A track of the jukebox, 0x60 bytes'}
+    block_description = 'A track of the jukebox, 0x60 bytes'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         offset = (IntegerBlock(length=4), {'description': 'Offset of the track (its header) in the file'})
@@ -138,15 +126,12 @@ class Nfs6Ps2JukeboxEntry(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2Jukebox(ArchiveBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'The in-game music of NFS Hot Pursuit 2 (PS2): 23 songs, the licensed ones with and '
-            'without vocals (style "Rock-4" / "Rock-2") and EA\'s own ones ("Rock-0", "Techno-0"), the songs of the '
-            "PC game's `audio/music`. Header, a group of tracks, a 0x60-byte entry per track, then the tracks, each "
-            'one 0x800-aligned after its 0x30-byte header. Converted to a folder of WAV files named after the tracks',
-        }
+    block_description = (
+        'The in-game music of NFS Hot Pursuit 2 (PS2): 23 songs, the licensed ones with and '
+        'without vocals (style "Rock-4" / "Rock-2") and EA\'s own ones ("Rock-0", "Techno-0"), the songs of the '
+        "PC game's `audio/music`. Header, a group of tracks, a 0x60-byte entry per track, then the tracks, each "
+        'one 0x800-aligned after its 0x30-byte header. Converted to a folder of WAV files named after the tracks'
+    )
 
     def __init__(self, **kwargs):
         super().__init__(

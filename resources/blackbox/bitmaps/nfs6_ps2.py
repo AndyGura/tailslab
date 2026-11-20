@@ -1,5 +1,3 @@
-from typing import Dict
-
 from library.read_blocks import ArrayBlock, BytesBlock, DeclarativeCompoundBlock, IntegerBlock
 from library.read_blocks.misc.value_validators import Eq
 from library.read_blocks.strings import UTF8Block
@@ -12,9 +10,7 @@ from resources.blackbox.geometries.nfsu import _CHUNK_ID_DESCR, _CHUNK_LENGTH_DE
 
 
 class Nfs6Ps2TexturePackHeader(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Texture pack header: name and original file path'}
+    block_description = 'Texture pack header: name and original file path'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x30300002)), {'description': _CHUNK_ID_DESCR})
@@ -28,9 +24,7 @@ class Nfs6Ps2TexturePackHeader(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2MipLevel(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'GS upload settings of an image level'}
+    block_description = 'GS upload settings of an image level'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         buffer_width = (IntegerBlock(length=1), {'description': 'GS buffer width of the level in 64-pixel units'})
@@ -48,9 +42,7 @@ class Nfs6Ps2MipLevel(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2TextureInfo(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Texture info: name, size, format and location of its data'}
+    block_description = 'Texture info: name, size, format and location of its data'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         runtime_pointers = (BytesBlock(length=8), {'description': 'Written by the game', 'is_unknown': True})
@@ -137,9 +129,7 @@ class Nfs6Ps2TextureInfo(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2TextureInfos(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Texture infos, one per texture'}
+    block_description = 'Texture infos, one per texture'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x30300003)), {'description': _CHUNK_ID_DESCR})
@@ -154,12 +144,7 @@ class Nfs6Ps2TextureInfos(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2TextureData(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Palettes and pixels of all textures of the pack. Texture infos point to it',
-        }
+    block_description = 'Palettes and pixels of all textures of the pack. Texture infos point to it'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x30300004)), {'description': _CHUNK_ID_DESCR})
@@ -178,12 +163,7 @@ class Nfs6Ps2TextureData(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2TexturePack(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Texture pack (TPK): header, texture infos and their pixel data',
-        }
+    block_description = 'Texture pack (TPK): header, texture infos and their pixel data'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0xB0300001)), {'description': _CHUNK_ID_DESCR})

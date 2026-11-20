@@ -816,14 +816,11 @@ _VEHICLE_INI_SECTIONS = [
 
 
 class Nfs6VehicleIni(IniFile):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS Hot Pursuit 2 PC `Cars/<car>/vehicle.ini`: shading, skins and paint swatches, '
-            'visual damage, wheel drawing, light glows. Read by Cars_ReadCarsIni 0x42f240 (after Cars.ini, for every '
-            'car) into the car record (0x4cc bytes) and by VehicleLightGlow_Load 0x4307c0',
-        }
+    block_description = (
+        'NFS Hot Pursuit 2 PC `Cars/<car>/vehicle.ini`: shading, skins and paint swatches, '
+        'visual damage, wheel drawing, light glows. Read by Cars_ReadCarsIni 0x42f240 (after Cars.ini, for every '
+        'car) into the car record (0x4cc bytes) and by VehicleLightGlow_Load 0x4307c0'
+    )
 
     Fields = ini_fields_class(_VEHICLE_INI_SECTIONS)
 
@@ -857,14 +854,11 @@ _CARS_KEYS = [
 
 
 class Nfs6CarsIni(IniFile):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS Hot Pursuit 2 PC `Cars/Cars.ini`: the car list. Cars_ReadCarsIni 0x42f240 reads '
-            '[car0], [car1].. while the section has `name` (the first gap ends the list) into car records of 0x4cc '
-            "bytes, then each car's bounds.ini and vehicle.ini. The comment says the list must match GameRules.h",
-        }
+    block_description = (
+        'NFS Hot Pursuit 2 PC `Cars/Cars.ini`: the car list. Cars_ReadCarsIni 0x42f240 reads '
+        '[car0], [car1].. while the section has `name` (the first gap ends the list) into car records of 0x4cc '
+        "bytes, then each car's bounds.ini and vehicle.ini. The comment says the list must match GameRules.h"
+    )
 
     Fields = ini_fields_class(
         [
@@ -901,13 +895,10 @@ def _bounds_keys(base: int):
 
 
 class Nfs6BoundsIni(IniFile):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': "NFS Hot Pursuit 2 PC `Cars/<car>/bounds.ini`: the car's bounding boxes, read by "
-            'Cars_ReadBounds 0x42fca0 (only when the file exists) into the car record',
-        }
+    block_description = (
+        "NFS Hot Pursuit 2 PC `Cars/<car>/bounds.ini`: the car's bounding boxes, read by "
+        'Cars_ReadBounds 0x42fca0 (only when the file exists) into the car record'
+    )
 
     Fields = ini_fields_class(
         [
@@ -921,15 +912,12 @@ _GEOM = 'VehicleGeom_ReadGeomData 0x42e880'
 
 
 class Nfs6GeomDataIni(IniFile):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS Hot Pursuit 2 PC `Cars/<car>/geomdata.ini`: per geometry of the car model '
-            f'(`car.viv` `car.o`) its levels of detail and damage zone. {_GEOM} reads one section per geometry of the '
-            'model, named as the geometry (`ALPHA_OPAQUE_HOODShape`, `...~EASVehicleGlass`), and takes the blending '
-            'from the name (ALPHA_TRANS 2, ALPHA_ADD 4, else 1; ADDON_ | 8; GEOM_STEERINGWHEEL)',
-        }
+    block_description = (
+        'NFS Hot Pursuit 2 PC `Cars/<car>/geomdata.ini`: per geometry of the car model '
+        f'(`car.viv` `car.o`) its levels of detail and damage zone. {_GEOM} reads one section per geometry of the '
+        'model, named as the geometry (`ALPHA_OPAQUE_HOODShape`, `...~EASVehicleGlass`), and takes the blending '
+        'from the name (ALPHA_TRANS 2, ALPHA_ADD 4, else 1; ADDON_ | 8; GEOM_STEERINGWHEEL)'
+    )
 
     Fields = ini_fields_class(
         [
@@ -971,13 +959,10 @@ class Nfs6GeomDataIni(IniFile):
 
 
 class Nfs6DamageIni(IniFile):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS Hot Pursuit 2 PC `Cars/<car>/damage.ini`. Not read: VehicleDamage_Init 0x42d390 '
-            'formats its path and never opens it (10 damage zones are built in)',
-        }
+    block_description = (
+        'NFS Hot Pursuit 2 PC `Cars/<car>/damage.ini`. Not read: VehicleDamage_Init 0x42d390 '
+        'formats its path and never opens it (10 damage zones are built in)'
+    )
 
     Fields = ini_fields_class(
         [_section('damage', 'damage', [_not_read('zonenum', IniInt(), 'the file is never opened')], 'Not read')]
@@ -985,13 +970,10 @@ class Nfs6DamageIni(IniFile):
 
 
 class Nfs6LodIni(IniFile):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS Hot Pursuit 2 PC `Cars/<car>/lod.ini`, empty in every shipped car. Not read (no '
-            'such name in the executable; the levels of detail are `EAGL/LOD.ini` and geomdata.ini)',
-        }
+    block_description = (
+        'NFS Hot Pursuit 2 PC `Cars/<car>/lod.ini`, empty in every shipped car. Not read (no '
+        'such name in the executable; the levels of detail are `EAGL/LOD.ini` and geomdata.ini)'
+    )
 
     Fields = ini_fields_class([])
 
@@ -1134,26 +1116,20 @@ def _camera_sections():
 
 
 class Nfs6CamerasIni(IniFile):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS Hot Pursuit 2 PC `Cars/Cameras.ini`: the race cameras (the same for every car), '
-            'read when the file exists by Cameras_ReadMaster 0x40e730 and one reader per view; `-2plr` / `-2ptb` are '
-            "the split screen views. Missing keys keep the readers' defaults",
-        }
+    block_description = (
+        'NFS Hot Pursuit 2 PC `Cars/Cameras.ini`: the race cameras (the same for every car), '
+        'read when the file exists by Cameras_ReadMaster 0x40e730 and one reader per view; `-2plr` / `-2ptb` are '
+        "the split screen views. Missing keys keep the readers' defaults"
+    )
 
     Fields = ini_fields_class(_camera_sections())
 
 
 class Nfs6RearViewIni(IniFile):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS Hot Pursuit 2 PC `Cars/RearView.ini`. Not read: no `RearView.ini`, `ScreenX`, '
-            "`topCrop`, `persist`... string in the executable (the HUD's rear view mirror has its own settings)",
-        }
+    block_description = (
+        'NFS Hot Pursuit 2 PC `Cars/RearView.ini`. Not read: no `RearView.ini`, `ScreenX`, '
+        "`topCrop`, `persist`... string in the executable (the HUD's rear view mirror has its own settings)"
+    )
 
     Fields = ini_fields_class(
         [
@@ -1195,13 +1171,9 @@ class Nfs6RearViewIni(IniFile):
 
 
 class Nfs6ReflectionIni(IniFile):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS Hot Pursuit 2 PC `Cars/reflection.ini`: the dynamic car reflections, read by '
-            'Reflection_Init 0x53dfc0',
-        }
+    block_description = (
+        'NFS Hot Pursuit 2 PC `Cars/reflection.ini`: the dynamic car reflections, read by Reflection_Init 0x53dfc0'
+    )
 
     Fields = ini_fields_class(
         [
@@ -1235,19 +1207,16 @@ CRDL_TABLE_SIZE = 0x200
 class Nfs6EngineAudioTable(DeclarativeCompoundBlock):
     """`Cars/cartable.viv` items `engine.rpm`, `engine.ctb`, `engine.htb`, `engine.ltb`, `engine.btb` ("CRDl")"""
 
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS Hot Pursuit 2 PC engine sound table ("CRDl"), an item of `Cars/cartable.viv`. '
-            'EngineAudio_Load 0x4355e0 loads `engine.ltb`, `engine.ctb` and `engine.rpm` (`engine.htb` / '
-            '`engine.btb` are never loaded) and EngineAudio_RelocateTables 0x4354c0 turns the table offsets into '
-            'pointers (flag +5). EngineAudio_Update 0x4349e0 plays up to 16 engine samples at once: the 8 slots of '
-            'engine.ctb (the engine without load) and the 8 of engine.ltb (under load), crossfaded by the engine load; '
-            "each slot's volume table is read at the sound index = (rpm - MinRPM) x 127 / (RedLine - MinRPM) "
-            '(0x435430, 0..127) and its pitch table bends the sample (64 = its own pitch). engine.rpm (one slot, '
-            'identity table) is loaded but only checked for presence: the FakeRPM debug line shows the same index',
-        }
+    block_description = (
+        'NFS Hot Pursuit 2 PC engine sound table ("CRDl"), an item of `Cars/cartable.viv`. '
+        'EngineAudio_Load 0x4355e0 loads `engine.ltb`, `engine.ctb` and `engine.rpm` (`engine.htb` / '
+        '`engine.btb` are never loaded) and EngineAudio_RelocateTables 0x4354c0 turns the table offsets into '
+        'pointers (flag +5). EngineAudio_Update 0x4349e0 plays up to 16 engine samples at once: the 8 slots of '
+        'engine.ctb (the engine without load) and the 8 of engine.ltb (under load), crossfaded by the engine load; '
+        "each slot's volume table is read at the sound index = (rpm - MinRPM) x 127 / (RedLine - MinRPM) "
+        '(0x435430, 0..127) and its pitch table bends the sample (64 = its own pitch). engine.rpm (one slot, '
+        'identity table) is loaded but only checked for presence: the FakeRPM debug line shows the same index'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         magic = (UTF8Block(length=4, value_validator=Eq('CRDl')), {'description': 'Magic "CRDl"'})

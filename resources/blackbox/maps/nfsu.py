@@ -36,9 +36,7 @@ from resources.eac.fields.misc import Point2D, Point3D
 
 
 class NfsuScenerySectionHeader(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Scenery header: number of the section it belongs to'}
+    block_description = 'Scenery header: number of the section it belongs to'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034101)), {'description': _CHUNK_ID_DESCR})
@@ -62,9 +60,7 @@ class NfsuScenerySectionHeader(DeclarativeCompoundBlock):
 
 
 class NfsuSceneryInfo(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Scenery object definition: which mesh to draw'}
+    block_description = 'Scenery object definition: which mesh to draw'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         mesh_ids = (
@@ -86,9 +82,7 @@ class NfsuSceneryInfo(DeclarativeCompoundBlock):
 
 
 class NfsuSceneryInfos(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Scenery object definitions'}
+    block_description = 'Scenery object definitions'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034102)), {'description': _CHUNK_ID_DESCR})
@@ -103,9 +97,7 @@ class NfsuSceneryInfos(DeclarativeCompoundBlock):
 
 
 class NfsuSceneryInstance(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Placed scenery object'}
+    block_description = 'Placed scenery object'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         bounding_box_min = (
@@ -130,9 +122,7 @@ class NfsuSceneryInstance(DeclarativeCompoundBlock):
 
 
 class NfsuSceneryInstances(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Placed scenery objects'}
+    block_description = 'Placed scenery objects'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034103)), {'description': _CHUNK_ID_DESCR})
@@ -156,13 +146,9 @@ class NfsuSceneryInstances(DeclarativeCompoundBlock):
 
 
 class NfsuScenery(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Scenery of a section: object definitions referencing meshes by id, and their '
-            'placements in the world',
-        }
+    block_description = (
+        'Scenery of a section: object definitions referencing meshes by id, and their placements in the world'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x80034100)), {'description': _CHUNK_ID_DESCR})
@@ -182,9 +168,7 @@ def _nfsu2_scenery_info_names_ok(infos_payload: bytes) -> bool:
 
 
 class Nfsu2SceneryInfo(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'NFSU2 scenery object definition: which mesh to draw'}
+    block_description = 'NFSU2 scenery object definition: which mesh to draw'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         name = (UTF8Block(length=32), {'description': 'Object name, e.g. "SKYDOME"'})
@@ -205,9 +189,7 @@ class Nfsu2SceneryInfo(DeclarativeCompoundBlock):
 
 
 class Nfsu2SceneryInfos(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'NFSU2 scenery object definitions'}
+    block_description = 'NFSU2 scenery object definitions'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034102)), {'description': _CHUNK_ID_DESCR})
@@ -222,9 +204,7 @@ class Nfsu2SceneryInfos(DeclarativeCompoundBlock):
 
 
 class Nfsu2SceneryInstance(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'NFSU2 placed scenery object'}
+    block_description = 'NFSU2 placed scenery object'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         bounding_box_min = (
@@ -250,9 +230,7 @@ class Nfsu2SceneryInstance(DeclarativeCompoundBlock):
 
 
 class Nfsu2SceneryInstances(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'NFSU2 placed scenery objects'}
+    block_description = 'NFSU2 placed scenery objects'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034103)), {'description': _CHUNK_ID_DESCR})
@@ -276,14 +254,11 @@ class Nfsu2SceneryInstances(DeclarativeCompoundBlock):
 
 
 class Nfsu2Scenery(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFSU2 scenery of a section: same as in NFSU, with bigger object definitions '
-            '(named) and instances (float bounding box). Told apart from NFSU scenery by the definitions: '
-            'every NFSU2 one starts with a name',
-        }
+    block_description = (
+        'NFSU2 scenery of a section: same as in NFSU, with bigger object definitions '
+        '(named) and instances (float bounding box). Told apart from NFSU scenery by the definitions: '
+        'every NFSU2 one starts with a name'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x80034100)), {'description': _CHUNK_ID_DESCR})
@@ -315,9 +290,7 @@ def _nfsmw_scenery_info_names_ok(infos_payload: bytes) -> bool:
 
 
 class NfsmwSceneryInfo(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'NFSMW scenery object definition: which mesh to draw'}
+    block_description = 'NFSMW scenery object definition: which mesh to draw'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         name = (UTF8Block(length=24), {'description': 'Object name, e.g. "XO_StreetLightCb_1b_00"'})
@@ -342,9 +315,7 @@ class NfsmwSceneryInfo(DeclarativeCompoundBlock):
 
 
 class NfsmwSceneryInfos(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'NFSMW scenery object definitions'}
+    block_description = 'NFSMW scenery object definitions'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034102)), {'description': _CHUNK_ID_DESCR})
@@ -359,9 +330,7 @@ class NfsmwSceneryInfos(DeclarativeCompoundBlock):
 
 
 class NfsmwSceneryInstance(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'NFSMW placed scenery object'}
+    block_description = 'NFSMW placed scenery object'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         bounding_box_min = (
@@ -387,9 +356,7 @@ class NfsmwSceneryInstance(DeclarativeCompoundBlock):
 
 
 class NfsmwSceneryInstances(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'NFSMW placed scenery objects'}
+    block_description = 'NFSMW placed scenery objects'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034103)), {'description': _CHUNK_ID_DESCR})
@@ -413,14 +380,11 @@ class NfsmwSceneryInstances(DeclarativeCompoundBlock):
 
 
 class NfsmwScenery(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFSMW scenery of a section: object definitions (named, 4 mesh ids) and their '
-            'placements in the world. Told apart from NFSU and NFSU2 scenery by the definitions: every one starts '
-            'with a 24-byte name',
-        }
+    block_description = (
+        'NFSMW scenery of a section: object definitions (named, 4 mesh ids) and their '
+        'placements in the world. Told apart from NFSU and NFSU2 scenery by the definitions: every one starts '
+        'with a 24-byte name'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x80034100)), {'description': _CHUNK_ID_DESCR})
@@ -443,9 +407,7 @@ class NfsmwScenery(DeclarativeCompoundBlock):
 
 
 class NfsuStreamingSection(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Location of a streamed section in the STREAM*.BUN file'}
+    block_description = 'Location of a streamed section in the STREAM*.BUN file'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         name = (UTF8Block(length=8), {'description': 'Section name, e.g. "A37"'})
@@ -466,13 +428,10 @@ class NfsuStreamingSection(DeclarativeCompoundBlock):
 
 
 class NfsuStreamingSections(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Table of streamed sections: where the world sections of the race lie in the '
-            'STREAM*.BUN file. NFSU2 has another chunk with this id',
-        }
+    block_description = (
+        'Table of streamed sections: where the world sections of the race lie in the '
+        'STREAM*.BUN file. NFSU2 has another chunk with this id'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034107)), {'description': _CHUNK_ID_DESCR})
@@ -494,9 +453,7 @@ class NfsuStreamingSections(DeclarativeCompoundBlock):
 
 
 class Nfsu2StreamingSection(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'NFSU2: location of a streamed section in the STREAM*.BUN file'}
+    block_description = 'NFSU2: location of a streamed section in the STREAM*.BUN file'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         name = (UTF8Block(length=8), {'description': 'Section name, e.g. "A37"'})
@@ -529,13 +486,9 @@ class Nfsu2StreamingSection(DeclarativeCompoundBlock):
 
 
 class Nfsu2StreamingSections(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFSU2 table of streamed sections: where the world sections of the location lie '
-            'in the STREAM*.BUN file',
-        }
+    block_description = (
+        'NFSU2 table of streamed sections: where the world sections of the location lie in the STREAM*.BUN file'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034110)), {'description': _CHUNK_ID_DESCR})
@@ -558,9 +511,7 @@ def _section_names_ok(ctx, record_size: int) -> bool:
 
 
 class NfsmwStreamingSection(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'NFSMW: location of a streamed section in the STREAM*.BUN file'}
+    block_description = 'NFSMW: location of a streamed section in the STREAM*.BUN file'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         name = (UTF8Block(length=8), {'description': 'Section name, e.g. "T26"'})
@@ -591,13 +542,9 @@ class NfsmwStreamingSection(DeclarativeCompoundBlock):
 
 
 class NfsmwStreamingSections(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFSMW table of streamed sections: where the world sections of the location lie '
-            'in the STREAM*.BUN file',
-        }
+    block_description = (
+        'NFSMW table of streamed sections: where the world sections of the location lie in the STREAM*.BUN file'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034110)), {'description': _CHUNK_ID_DESCR})
@@ -631,14 +578,11 @@ def _chunk_sub_chunk_lengths(payload: bytes) -> Dict[int, int]:
 
 
 class NfsuTrackPath(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Track paths of a race: the race route (path 0) on the ground plane, a point every '
-            '20..300 m, in the layout of NFS Hot Pursuit 2 (PS2). Sub-chunk 0x3414a (180-byte records with '
-            'positions, directions and quads, one per race checkpoint or zone?) is not decoded',
-        }
+    block_description = (
+        'Track paths of a race: the race route (path 0) on the ground plane, a point every '
+        '20..300 m, in the layout of NFS Hot Pursuit 2 (PS2). Sub-chunk 0x3414a (180-byte records with '
+        'positions, directions and quads, one per race checkpoint or zone?) is not decoded'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x80034147)), {'description': _CHUNK_ID_DESCR})
@@ -654,9 +598,7 @@ class NfsuTrackPath(DeclarativeCompoundBlock):
 
 
 class NfsuRoadLane(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Lane record of a road (meaning unknown)'}
+    block_description = 'Lane record of a road (meaning unknown)'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk0 = (IntegerBlock(length=4), {'is_unknown': True})
@@ -669,9 +611,7 @@ class NfsuRoadLane(DeclarativeCompoundBlock):
 
 
 class NfsuRoadNode(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Node of a road: a point of its centre line, 4..25 m apart'}
+    block_description = 'Node of a road: a point of its centre line, 4..25 m apart'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (Point3D(child=DecimalBlock(length=4)), {'description': 'Position in world coordinates (Z up)'})
@@ -716,14 +656,11 @@ NFSU_ROAD_NODE_SIZE = 136
 
 
 class NfsuRoad(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Road of a race: a polyline of nodes with heights. The roads of the race route '
-            'follow it (several roads one after another, an end of a road lies on another road), with its shortcuts '
-            'and parallel lanes (drag races); roads with id 100 and above are side streets reaching or crossing them',
-        }
+    block_description = (
+        'Road of a race: a polyline of nodes with heights. The roads of the race route '
+        'follow it (several roads one after another, an end of a road lies on another road), with its shortcuts '
+        'and parallel lanes (drag races); roads with id 100 and above are side streets reaching or crossing them'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk0 = (ArrayBlock(child=IntegerBlock(length=4), length=2), {'is_unknown': True, 'description': 'Always 11'})
@@ -779,13 +716,7 @@ def _nfsu_roads_amount(payload: bytes) -> Optional[int]:
 
 
 class NfsuRoads(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Roads of a race (AI and traffic roads?): the race route and its shortcuts, side '
-            'streets',
-        }
+    block_description = 'Roads of a race (AI and traffic roads?): the race route and its shortcuts, side streets'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034121)), {'description': _CHUNK_ID_DESCR})
@@ -835,16 +766,13 @@ def _bundle_chunks_amount(ctx):
 
 
 class NfsuChunkBundle(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Chunk bundle (*.BUN, *.BIN, uncompressed *.lzc): a sequence of chunks, each '
-            'having 32-bit id, 32-bit payload length and payload; chunks with the highest bit '
-            'of id set are containers of other chunks. Geometry packs, texture packs, scenery, '
-            'streaming sections table, track paths and roads (NFSU races), roads (NFSU2 Routes*.bin), the road '
-            'network (NFSMW L2RA.BUN) are decoded, other chunks are kept as raw bytes',
-        }
+    block_description = (
+        'Chunk bundle (*.BUN, *.BIN, uncompressed *.lzc): a sequence of chunks, each '
+        'having 32-bit id, 32-bit payload length and payload; chunks with the highest bit '
+        'of id set are containers of other chunks. Geometry packs, texture packs, scenery, '
+        'streaming sections table, track paths and roads (NFSU races), roads (NFSU2 Routes*.bin), the road '
+        'network (NFSMW L2RA.BUN) are decoded, other chunks are kept as raw bytes'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunks = (

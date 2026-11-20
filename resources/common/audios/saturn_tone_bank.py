@@ -3,7 +3,7 @@ layers, each layer a note range playing one sample, with the SCSP slot register 
 samples. Big-endian. Read from the files of Over Drivin' GT-R (`SOUNDS/*.BIN`, checked against all 16); the layer
 fields after the slot registers are named by what the data shows"""
 
-from typing import Dict, List
+from typing import List
 
 from library.read_blocks import (
     ArrayBlock,
@@ -25,13 +25,10 @@ LAYER_SIZE = 32
 
 
 class SaturnToneLayer(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A layer of a voice: a note range and the sample it plays. Bytes 2..0x18 are the SCSP '
-            'slot registers 0x00..0x16 (high byte) the driver writes for it',
-        }
+    block_description = (
+        'A layer of a voice: a note range and the sample it plays. Bytes 2..0x18 are the SCSP '
+        'slot registers 0x00..0x16 (high byte) the driver writes for it'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         start_note = (IntegerBlock(length=1), {'description': 'Lowest note (MIDI number) the layer plays'})
@@ -183,12 +180,7 @@ class SaturnToneLayer(DeclarativeCompoundBlock):
 
 
 class SaturnToneVoice(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A voice (an instrument): a 4-byte header and its layers',
-        }
+    block_description = 'A voice (an instrument): a 4-byte header and its layers'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         mode = (
@@ -218,22 +210,19 @@ def _voices_count(ctx) -> int:
 
 
 class SaturnToneBank(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': "Sega Saturn tone bank (tone data of Sega's sound driver): offsets of the tables, the "
-            "mixer, velocity, pitch envelope and pitch LFO tables, the voices and the samples. Over Drivin' GT-R "
-            '`SOUNDS/*.BIN`: the engine sounds of the cars, one voice each. Player banks (`9110` = 911 PORSCHE slot, '
-            '`DIABLO`, `NSX`, `RX7`, `SUPRA`, `TR512` = TESTA, `VIPER`, `ZR1` = VETTE) have 6 layers: note 50 two '
-            'looped 8-bit samples, left and right channels of the engine sound (`engine_on`), note 51 the same for '
-            'the engine without throttle (`engine_off`), note 52 a looped 16-bit sample (the horn, a steady tone), '
-            'note 53 a 16-bit one-shot (the gear shift: two clunks). Opponent banks `OPP*` have 2: note 40 the '
-            "player bank's horn at half the sample rate, note 41 the left channel of its `engine_on` at 2^(-9/12) of "
-            "the sample rate (played 12 and 9 notes lower, so at the pitch of the player's; checked by correlation). "
-            'Cars sharing a real engine share the engine samples (BNR32 / BCNR33, PGC10 / KPGC110, Silvia / 180SX). '
-            'The roles are guesses from the data: the game code is not disassembled',
-        }
+    block_description = (
+        "Sega Saturn tone bank (tone data of Sega's sound driver): offsets of the tables, the "
+        "mixer, velocity, pitch envelope and pitch LFO tables, the voices and the samples. Over Drivin' GT-R "
+        '`SOUNDS/*.BIN`: the engine sounds of the cars, one voice each. Player banks (`9110` = 911 PORSCHE slot, '
+        '`DIABLO`, `NSX`, `RX7`, `SUPRA`, `TR512` = TESTA, `VIPER`, `ZR1` = VETTE) have 6 layers: note 50 two '
+        'looped 8-bit samples, left and right channels of the engine sound (`engine_on`), note 51 the same for '
+        'the engine without throttle (`engine_off`), note 52 a looped 16-bit sample (the horn, a steady tone), '
+        'note 53 a 16-bit one-shot (the gear shift: two clunks). Opponent banks `OPP*` have 2: note 40 the '
+        "player bank's horn at half the sample rate, note 41 the left channel of its `engine_on` at 2^(-9/12) of "
+        "the sample rate (played 12 and 9 notes lower, so at the pitch of the player's; checked by correlation). "
+        'Cars sharing a real engine share the engine samples (BNR32 / BCNR33, PGC10 / KPGC110, Silvia / 180SX). '
+        'The roles are guesses from the data: the game code is not disassembled'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         mixer_offset = (IntegerBlock(length=2, byte_order='big'), {'description': 'Offset of `mixers`'})

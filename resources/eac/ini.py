@@ -454,13 +454,11 @@ class _IniStructure:
 class IniKeyValue(_IniStructure, DeclarativeCompoundBlock):
     """A key the definition does not name, with its value text"""
 
+    inline_description = 'A key line `key=value`'
+
     class Fields(DeclarativeCompoundBlock.Fields):
         key = (IniString(), {'description': 'Key name, as spelled in the file'})
         value = (IniString(), {'description': 'Value text, as the game keeps it'})
-
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'A key line `key=value`', 'inline_description': True}
 
     def new_data(self, patch=None):
         return {'key': '', 'value': ''}
@@ -540,17 +538,13 @@ class IniSectionGroup(_IniStructure, ArrayBlock):
 
 
 class IniOtherSection(_IniStructure, DeclarativeCompoundBlock):
+    block_description = (
+        'A section the definition does not name (or a repeated one: the game reads the first), with its keys'
+    )
+
     class Fields(DeclarativeCompoundBlock.Fields):
         section = (IniString(), {'description': 'Section name (between the brackets)'})
         keys = (ArrayBlock(child=IniKeyValue(), length=None), {'description': 'Its keys, in file order'})
-
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A section the definition does not name (or a repeated one: the game reads the '
-            'first), with its keys',
-        }
 
     def new_data(self, patch=None):
         return {'section': '', 'keys': []}

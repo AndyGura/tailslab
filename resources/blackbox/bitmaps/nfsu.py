@@ -1,5 +1,3 @@
-from typing import Dict
-
 from library.read_blocks import (
     ArrayBlock,
     BytesBlock,
@@ -34,9 +32,7 @@ NFSU_TEXTURE_COMPRESSION_TYPES = [
 
 
 class NfsuTexturePackHeader(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Texture pack header: name and original file path'}
+    block_description = 'Texture pack header: name and original file path'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x33310001)), {'description': _CHUNK_ID_DESCR})
@@ -52,9 +48,7 @@ class NfsuTexturePackHeader(DeclarativeCompoundBlock):
 
 
 class NfsuTextureHashes(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Hashes of texture names, one per texture'}
+    block_description = 'Hashes of texture names, one per texture'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x33310002)), {'description': _CHUNK_ID_DESCR})
@@ -72,9 +66,7 @@ class NfsuTextureHashes(DeclarativeCompoundBlock):
 
 
 class NfsuTextureInfo(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Texture info: name, size, format and location of its data'}
+    block_description = 'Texture info: name, size, format and location of its data'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk0 = (BytesBlock(length=12), {'is_unknown': True})
@@ -118,9 +110,7 @@ class NfsuTextureInfo(DeclarativeCompoundBlock):
 
 
 class NfsuCompressedTexture(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Location of a compressed texture in the texture pack file'}
+    block_description = 'Location of a compressed texture in the texture pack file'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         name_hash = (IntegerBlock(length=4), {'description': 'Hash of the texture name'})
@@ -138,14 +128,11 @@ class NfsuCompressedTexture(DeclarativeCompoundBlock):
 
 
 class NfsuCompressedTextures(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFSU2 compressed texture pack: locations of textures, one per texture. Every '
-            'texture is compressed separately (JDLZ or HUFF) and holds its image data, followed by its texture info '
-            '(124 bytes) and pixel format (32 bytes). Such a pack has no texture infos and formats chunks',
-        }
+    block_description = (
+        'NFSU2 compressed texture pack: locations of textures, one per texture. Every '
+        'texture is compressed separately (JDLZ or HUFF) and holds its image data, followed by its texture info '
+        '(124 bytes) and pixel format (32 bytes). Such a pack has no texture infos and formats chunks'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x33310003)), {'description': _CHUNK_ID_DESCR})
@@ -160,9 +147,7 @@ class NfsuCompressedTextures(DeclarativeCompoundBlock):
 
 
 class NfsuTextureInfos(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Texture infos, one per texture'}
+    block_description = 'Texture infos, one per texture'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x33310004)), {'description': _CHUNK_ID_DESCR})
@@ -177,9 +162,7 @@ class NfsuTextureInfos(DeclarativeCompoundBlock):
 
 
 class NfsuTextureFormat(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Exact pixel format of a texture'}
+    block_description = 'Exact pixel format of a texture'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk0 = (BytesBlock(length=20), {'is_unknown': True})
@@ -194,9 +177,7 @@ class NfsuTextureFormat(DeclarativeCompoundBlock):
 
 
 class NfsuTextureFormats(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Pixel formats of textures, one per texture'}
+    block_description = 'Pixel formats of textures, one per texture'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x33310005)), {'description': _CHUNK_ID_DESCR})
@@ -211,9 +192,7 @@ class NfsuTextureFormats(DeclarativeCompoundBlock):
 
 
 class NfsuTexturePackInfo(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Texture pack info container: header, hashes, infos, formats'}
+    block_description = 'Texture pack info container: header, hashes, infos, formats'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0xB3310000)), {'description': _CHUNK_ID_DESCR})
@@ -232,12 +211,7 @@ class NfsuTexturePackInfo(DeclarativeCompoundBlock):
 
 
 class NfsuTextureData(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Pixel data of all textures of the pack. Texture infos point to it',
-        }
+    block_description = 'Pixel data of all textures of the pack. Texture infos point to it'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x33320002)), {'description': _CHUNK_ID_DESCR})
@@ -256,9 +230,7 @@ class NfsuTextureData(DeclarativeCompoundBlock):
 
 
 class NfsuTexturePackDataContainer(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Texture pack data container'}
+    block_description = 'Texture pack data container'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0xB3320000)), {'description': _CHUNK_ID_DESCR})
@@ -267,13 +239,10 @@ class NfsuTexturePackDataContainer(DeclarativeCompoundBlock):
 
 
 class NfsuTexturePack(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Texture pack (TPK): a container of texture infos and their pixel data. Standalone '
-            'in car TEXTURES.BIN and TRACKS/TEXnnnnTRACK.BIN, embedded in track bundles',
-        }
+    block_description = (
+        'Texture pack (TPK): a container of texture infos and their pixel data. Standalone '
+        'in car TEXTURES.BIN and TRACKS/TEXnnnnTRACK.BIN, embedded in track bundles'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0xB3300000)), {'description': _CHUNK_ID_DESCR})

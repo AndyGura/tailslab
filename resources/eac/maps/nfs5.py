@@ -1,5 +1,3 @@
-from typing import Dict
-
 from library.read_blocks import ArrayBlock, BytesBlock, DecimalBlock, DeclarativeCompoundBlock, IntegerBlock
 from resources.eac.fields.misc import Point3D
 
@@ -19,9 +17,7 @@ def is_nfs5_wall_edges_size(length: int) -> bool:
 
 
 class Nfs5Junction(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'A junction of the road spline sections, 36 bytes'}
+    block_description = 'A junction of the road spline sections, 36 bytes'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         index = (
@@ -39,17 +35,14 @@ class Nfs5Junction(DeclarativeCompoundBlock):
 
 
 class Nfs5Junctions(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Junction weights of an NFS5 track, `GameData/Track/<track>.jnc`: an array of '
-            '[Nfs5Junction](#nfs5junction) (Porsche.exe 0x481080). The game builds the junctions from the sections '
-            "of the road spline (the CRP's [CrpSimTPart](#crpsimtpart), 0x480900 / 0x480b40) and reads the file "
-            'only when its size / 36 equals their number (every track file does: alps 6, autobahn 35, canyon 17, '
-            'castle 24, coastal 6, farmland 14, foothills 6, forest 6, industrial 26, monaco1..5 4 / 6 / 11 / 10 / '
-            '6, skidpad 1)',
-        }
+    block_description = (
+        'Junction weights of an NFS5 track, `GameData/Track/<track>.jnc`: an array of '
+        '[Nfs5Junction](#nfs5junction) (Porsche.exe 0x481080). The game builds the junctions from the sections '
+        "of the road spline (the CRP's [CrpSimTPart](#crpsimtpart), 0x480900 / 0x480b40) and reads the file "
+        'only when its size / 36 equals their number (every track file does: alps 6, autobahn 35, canyon 17, '
+        'castle 24, coastal 6, farmland 14, foothills 6, forest 6, industrial 26, monaco1..5 4 / 6 / 11 / 10 / '
+        '6, skidpad 1)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         junctions = (
@@ -67,9 +60,7 @@ class Nfs5Junctions(DeclarativeCompoundBlock):
 
 
 class Nfs5WallEdge(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'A wall edge of the track collision, 28 bytes'}
+    block_description = 'A wall edge of the track collision, 28 bytes'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         flags = (
@@ -98,14 +89,11 @@ class Nfs5WallEdge(DeclarativeCompoundBlock):
 
 
 class Nfs5WallEdges(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Wall edges of an NFS5 track, `GameData/Track/<track>.edg`, read by Porsche.exe '
-            '0x487e80 into the collision tree (`WTreeElem_Edge`). A cache: without the file the game builds the edges '
-            'from all faces of the CRP (0x488590, pass 0 of 0x4750b0)',
-        }
+    block_description = (
+        'Wall edges of an NFS5 track, `GameData/Track/<track>.edg`, read by Porsche.exe '
+        '0x487e80 into the collision tree (`WTreeElem_Edge`). A cache: without the file the game builds the edges '
+        'from all faces of the CRP (0x488590, pass 0 of 0x4750b0)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk0 = (

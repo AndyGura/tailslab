@@ -1,5 +1,3 @@
-from typing import Dict
-
 from library.read_blocks import (
     DeclarativeCompoundBlock,
     UTF8Block,
@@ -32,16 +30,12 @@ FCE3_PART_NAMES = [
 
 
 class FceColor(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Car color in HSB. Every component is 0..255: hue = degrees / 360 * 255, '
-            'saturation = percent / 100 * 255, brightness = percent / 100 * 255. nfs3.exe paints a car texel '
-            '(0x49cc50) with brightness * texel blue / (255 - transparency) (transparency 255: brightness * texel '
-            'blue), truncated, at most 255, converted to RGB with hue sector = hue * 6 >> 8 (0x49ca50)',
-            'inline_description': True,
-        }
+    inline_description = (
+        'Car color in HSB. Every component is 0..255: hue = degrees / 360 * 255, '
+        'saturation = percent / 100 * 255, brightness = percent / 100 * 255. nfs3.exe paints a car texel '
+        '(0x49cc50) with brightness * texel blue / (255 - transparency) (transparency 255: brightness * texel '
+        'blue), truncated, at most 255, converted to RGB with hue sector = hue * 6 >> 8 (0x49ca50)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         hue = (IntegerBlock(length=4), {'description': 'Hue'})
@@ -57,9 +51,7 @@ class FceColor(DeclarativeCompoundBlock):
 
 
 class Fce3Triangle(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'A single triangle of FCE mesh'}
+    block_description = 'A single triangle of FCE mesh'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         tex_page = (
@@ -119,16 +111,13 @@ def _standard_offset(ctx, table: str) -> int:
 
 
 class Fce3Geometry(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'FCE 3D model, version 3 (NFS3: Hot Pursuit). Used for cars (car.fce in '
-            'car.viv), police officers, menu models. Consists of up to 64 parts, each of them is a separate mesh '
-            'with own position, and up to 16 "dummies": named points, which are used for lights. Coordinate system: '
-            'X points right, Y up, Z forward. The unit is meter. Texture is a TGA image car00.tga, which is located '
-            'next to car.fce in car.viv',
-        }
+    block_description = (
+        'FCE 3D model, version 3 (NFS3: Hot Pursuit). Used for cars (car.fce in '
+        'car.viv), police officers, menu models. Consists of up to 64 parts, each of them is a separate mesh '
+        'with own position, and up to 16 "dummies": named points, which are used for lights. Coordinate system: '
+        'X points right, Y up, Z forward. The unit is meter. Texture is a TGA image car00.tga, which is located '
+        'next to car.fce in car.viv'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk0 = (IntegerBlock(length=4), {'is_unknown': True})

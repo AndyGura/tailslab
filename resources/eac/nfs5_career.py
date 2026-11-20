@@ -1,5 +1,3 @@
-from typing import Dict
-
 from library.read_blocks import (
     ArrayBlock,
     BytesBlock,
@@ -71,9 +69,7 @@ def _car_paint_fields(prefix_text: str):
 
 
 class Nfs5FactoryOpponent(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'An opponent of a Factory Driver mission, 4 bytes'}
+    block_description = 'An opponent of a Factory Driver mission, 4 bytes'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         personality_id = _s16(
@@ -87,17 +83,14 @@ class Nfs5FactoryOpponent(DeclarativeCompoundBlock):
 
 
 class Nfs5FactoryMission(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A Factory Driver mission, 0xf0 bytes: the brief, the track, the car the player must '
-            'drive (with its parts and paint), the opponents and the pass / fail rules (`Factory_RaceJudge` 0x4293f0: '
-            'time + cones x penalty over the limit, the mean of the 10 damage zones over the limit, more cones than '
-            'the limit, a worse position than the minimum rank: missions with a minimum rank skip the other checks; '
-            'a disabled rule is sent as -1). The current mission is the first one not passed (0x51ae80). The whole '
-            'array goes into the save game (block "Missions", 0x51a870), so the result fields are game progress',
-        }
+    block_description = (
+        'A Factory Driver mission, 0xf0 bytes: the brief, the track, the car the player must '
+        'drive (with its parts and paint), the opponents and the pass / fail rules (`Factory_RaceJudge` 0x4293f0: '
+        'time + cones x penalty over the limit, the mean of the 10 damage zones over the limit, more cones than '
+        'the limit, a worse position than the minimum rank: missions with a minimum rank skip the other checks; '
+        'a disabled rule is sent as -1). The current mission is the first one not passed (0x51ae80). The whole '
+        'array goes into the save game (block "Missions", 0x51a870), so the result fields are game progress'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         desc_id = _s32(
@@ -193,13 +186,10 @@ class Nfs5FactoryMission(DeclarativeCompoundBlock):
 
 
 class Nfs5FactoryMissions(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS5 Factory Driver missions, `FEData/Data/nfs5.fac`: 34 '
-            '[Nfs5FactoryMission](#nfs5factorymission) records of 0xf0 bytes (`Factory_LoadMissions` 0x51aba0)',
-        }
+    block_description = (
+        'NFS5 Factory Driver missions, `FEData/Data/nfs5.fac`: 34 '
+        '[Nfs5FactoryMission](#nfs5factorymission) records of 0xf0 bytes (`Factory_LoadMissions` 0x51aba0)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         missions = (
@@ -221,13 +211,7 @@ class Nfs5FactoryMissions(DeclarativeCompoundBlock):
 
 
 class Nfs5TournamentOpponent(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'An opponent of a tournament, 0x58 bytes, read by `FE_SendTournamentOpponents` '
-            '0x4ebda0 only',
-        }
+    block_description = 'An opponent of a tournament, 0x58 bytes, read by `FE_SendTournamentOpponents` 0x4ebda0 only'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         personality_id = _s16('nfs5.per personality id ([Nfs5Personality](#nfs5personality)) (0x4ebee2)')
@@ -254,12 +238,7 @@ class Nfs5TournamentOpponent(DeclarativeCompoundBlock):
 
 
 class Nfs5TournamentRace(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A race of a tournament, 0xa4 bytes; the second half is progress',
-        }
+    block_description = 'A race of a tournament, 0xa4 bytes; the second half is progress'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         track_id = _s16('nfs5.trk track id (0x503408)')
@@ -301,17 +280,14 @@ class Nfs5TournamentRace(DeclarativeCompoundBlock):
 
 
 class Nfs5Tournament(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'An Evolution tournament, era final or club event, 0xd40 bytes: the cars allowed, '
-            'the entry fee and prizes, the opponents with their cars, parts and paint, the races. The player car must '
-            'be in `allowed_cars` (`Tourn_CarAllowed` 0x504a70) and pay the entry fee before the first race. A '
-            'tournament ranked in the top 3 (by points, or total time for a rally) counts as completed; the first '
-            'completion advances the career year (`Tourn_Complete` 0x503ad0). The whole array goes into the save '
-            'game (0x502ae0), so the progress fields are game state',
-        }
+    block_description = (
+        'An Evolution tournament, era final or club event, 0xd40 bytes: the cars allowed, '
+        'the entry fee and prizes, the opponents with their cars, parts and paint, the races. The player car must '
+        'be in `allowed_cars` (`Tourn_CarAllowed` 0x504a70) and pay the entry fee before the first race. A '
+        'tournament ranked in the top 3 (by points, or total time for a rally) counts as completed; the first '
+        'completion advances the career year (`Tourn_Complete` 0x503ad0). The whole array goes into the save '
+        'game (0x502ae0), so the progress fields are game state'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         id = _s16('Tournament id [1, 59] (`Tourn_Find` 0x503f20)')
@@ -392,13 +368,10 @@ class Nfs5Tournament(DeclarativeCompoundBlock):
 
 
 class Nfs5Tournaments(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS5 Evolution tournaments, `FEData/Data/nfs5.trn`: 35 '
-            '[Nfs5Tournament](#nfs5tournament) records of 0xd40 bytes (`Tourn_Load` 0x502ff0)',
-        }
+    block_description = (
+        'NFS5 Evolution tournaments, `FEData/Data/nfs5.trn`: 35 '
+        '[Nfs5Tournament](#nfs5tournament) records of 0xd40 bytes (`Tourn_Load` 0x502ff0)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         tournaments = (
@@ -424,14 +397,11 @@ def _f32(text: str):
 
 
 class Nfs5Personality(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'An AI personality (an opponent driver), 0x2c bytes: its skills by the corner band '
-            'the AI drives (the race draws a skill factor uniform in skill +- range; `_SKILL*`, read by the AI target '
-            'speed 0x40b650)',
-        }
+    block_description = (
+        'An AI personality (an opponent driver), 0x2c bytes: its skills by the corner band '
+        'the AI drives (the race draws a skill factor uniform in skill +- range; `_SKILL*`, read by the AI target '
+        'speed 0x40b650)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         id = _s16('Personality id [1, 37] (`FE_FindPersonality` 0x4e3120)')
@@ -450,13 +420,10 @@ class Nfs5Personality(DeclarativeCompoundBlock):
 
 
 class Nfs5Personalities(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS5 AI personalities, `FEData/Data/nfs5.per`: 35 [Nfs5Personality](#nfs5personality) '
-            'records of 0x2c bytes (`FE_LoadPersonalities` 0x4e2f30)',
-        }
+    block_description = (
+        'NFS5 AI personalities, `FEData/Data/nfs5.per`: 35 [Nfs5Personality](#nfs5personality) '
+        'records of 0x2c bytes (`FE_LoadPersonalities` 0x4e2f30)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         personalities = (

@@ -97,27 +97,24 @@ def parse_nfs2se_horizon_settings(text: str) -> Optional[Nfs2SeHorizonSettings]:
 
 
 class Nfs2SeHorizonInfo(_HrzText):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Sky of an NFS2 SE track for the 3D accelerated renderer, '
-            '`GAMEDATA/TRACKS/SE/3TR<nn>.HRZ`, read by nfs2sea.exe `Hrz_ReadHorizonData` (0x42e910, '
-            '`c:\\nfs2se\\game\\3rash\\hrzsku.c`; nfs2sen.exe, the software renderer, reads `TR<nn>.HRZ` instead). '
-            'Text with C comments, 27 numbers in this order: cloud dome offset and height (the dome of `CLD<track>` '
-            'of `SKY.FSH`: y = offset + height * cos(2 pi r / 4000) at horizontal distance r from the camera, a 13 x '
-            '13 grid from -1000 to 800 in steps of 150 around it), black horizon flag (1: the screen is cleared black, '
-            'nothing else drawn), mirror flag (sectors 8..15 of the ring show strips 7..0 mirrored), radius of the '
-            'ring, rotation angle in degrees (ring point k at heading angle + k * 22.5 degrees, clockwise from +Z '
-            'seen from above), flat projection distance D (every ring point is projected as if at depth D: a world '
-            'height h is at screen height f * h / D), base y (bottom of the band, relative to the eye), Gouraud '
-            'height (top of the band = base + height), Gouraud middle (EARTH from base to base + middle, SKY above '
-            'it), pixmap top and bottom (the horizon strips: the first 8 images of `TR<nn>0.QFS`, shorter strips end '
-            'lower), all offsets from base and turned into fractions of the height with 16.16 integer maths, then '
-            'the colours (r, g, b 0..255): EARTH top, EARTH base, SKY top (also the clear colour above the band), '
-            'SKY base at the sun and opposite to it (ring vertex k gets sun + (opposite - sun) * k / 8 for k = 0..7 '
-            'and vertex 15 - k the same). See `library/utils/eac_horizon_to_spherical.py`',
-        }
+    block_description = (
+        'Sky of an NFS2 SE track for the 3D accelerated renderer, '
+        '`GAMEDATA/TRACKS/SE/3TR<nn>.HRZ`, read by nfs2sea.exe `Hrz_ReadHorizonData` (0x42e910, '
+        '`c:\\nfs2se\\game\\3rash\\hrzsku.c`; nfs2sen.exe, the software renderer, reads `TR<nn>.HRZ` instead). '
+        'Text with C comments, 27 numbers in this order: cloud dome offset and height (the dome of `CLD<track>` '
+        'of `SKY.FSH`: y = offset + height * cos(2 pi r / 4000) at horizontal distance r from the camera, a 13 x '
+        '13 grid from -1000 to 800 in steps of 150 around it), black horizon flag (1: the screen is cleared black, '
+        'nothing else drawn), mirror flag (sectors 8..15 of the ring show strips 7..0 mirrored), radius of the '
+        'ring, rotation angle in degrees (ring point k at heading angle + k * 22.5 degrees, clockwise from +Z '
+        'seen from above), flat projection distance D (every ring point is projected as if at depth D: a world '
+        'height h is at screen height f * h / D), base y (bottom of the band, relative to the eye), Gouraud '
+        'height (top of the band = base + height), Gouraud middle (EARTH from base to base + middle, SKY above '
+        'it), pixmap top and bottom (the horizon strips: the first 8 images of `TR<nn>0.QFS`, shorter strips end '
+        'lower), all offsets from base and turned into fractions of the height with 16.16 integer maths, then '
+        'the colours (r, g, b 0..255): EARTH top, EARTH base, SKY top (also the clear colour above the band), '
+        'SKY base at the sun and opposite to it (ring vertex k gets sun + (opposite - sun) * k / 8 for k = 0..7 '
+        'and vertex 15 - k the same). See `library/utils/eac_horizon_to_spherical.py`'
+    )
 
     def parse(self, text: str):
         return parse_nfs2se_horizon_settings(text)
@@ -155,20 +152,17 @@ def parse_nfs2_horizon_settings(text: str) -> Optional[Nfs2HorizonSettings]:
 
 
 class Nfs2HorizonInfo(_HrzText):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Sky of an NFS2 / NFS2 SE track for the software renderer, '
-            '`GAMEDATA/TRACKS/PC/TR<nn>.HRZ` (nfs2sen.exe `c:\\nfs2se\\game\\vga\\hrzsku.c` builds the name '
-            '`%sTr%02d.hrz`). Text with C comments, 26 numbers named by the comments of the files: black horizon '
-            'flag, mirror flag, radius, rotation angle in degrees, distance for the flat projection (<= radius), base '
-            'y of the flat shaded area (world offset), height of the horizon (offset from base), pixmap base '
-            '(percentage of the height), flat shaded sky colour (r, g, b), horizon base colour, 4 depth cueing '
-            'distances (0..1100), 4 depth cueing light values (0..15), colour system (0 rgb, 1 hsv) and a colour. '
-            'The converter reads these names from the comments only: the software renderer is not ported, so this '
-            'file does not make a sky texture',
-        }
+    block_description = (
+        'Sky of an NFS2 / NFS2 SE track for the software renderer, '
+        '`GAMEDATA/TRACKS/PC/TR<nn>.HRZ` (nfs2sen.exe `c:\\nfs2se\\game\\vga\\hrzsku.c` builds the name '
+        '`%sTr%02d.hrz`). Text with C comments, 26 numbers named by the comments of the files: black horizon '
+        'flag, mirror flag, radius, rotation angle in degrees, distance for the flat projection (<= radius), base '
+        'y of the flat shaded area (world offset), height of the horizon (offset from base), pixmap base '
+        '(percentage of the height), flat shaded sky colour (r, g, b), horizon base colour, 4 depth cueing '
+        'distances (0..1100), 4 depth cueing light values (0..15), colour system (0 rgb, 1 hsv) and a colour. '
+        'The converter reads these names from the comments only: the software renderer is not ported, so this '
+        'file does not make a sky texture'
+    )
 
     def parse(self, text: str):
         return parse_nfs2_horizon_settings(text)
@@ -267,31 +261,28 @@ def parse_nfs3_horizon_settings(text: str) -> Optional[Nfs3HorizonSettings]:
 
 
 class Nfs3HorizonInfo(_HrzText):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Sky, fog and weather of an NFS3 track, `GameData/Tracks/TRK<nnn>/3TR<nn>.HRZ` '
-            '(day; `N` night, `W` weather, `NW` night with weather), read by nfs3.exe 0x478340. Text with C comments, '
-            'numbers in this order: fog colour (r, g, b) and density (%), effect of the fog on the pixmap (%, 1..100: '
-            'without hardware fog the EARTH colours and the white of the pixmap strips are mixed with the fog colour '
-            'by it), number of dynamic fog regions, per region 15 numbers (start r, g, b, density; apex r, g, b, '
-            'density; end r, g, b, density; before, centre and after slice), cloud type (0 none, 1 additive, 2 blend), '
-            'fog clouds flag, has lightning, lightning chance (% per ticks), cloud visual height (the texture scrolls '
-            'one tile when the camera moves this far), cloud dome offset and height (the game multiplies the height '
-            'by 3: y = offset + 3 * height * cos(2 pi r / 12000) on a 13 x 13 grid from -3000 to 2400 in steps of '
-            '450, one texture tile per grid cell), cloud bright, variance (the brightness of each grid vertex is '
-            'bright minus a random value below variance, smoothed), nimbus effect (%, truncated to 0 or 1, so only '
-            '100 counts: lowers '
-            'bright vertices by up to 1.5 * height), wind speed (mph) and direction (degrees), black horizon flag, '
-            'mirror flag, radius R of the horizon, rotation angle in degrees, has a pixmap (the strips: the first 8 images '
-            'of `TR<nn>0.QFS`), base y (relative to the eye), Gouraud height, Gouraud middle, pixmap top and bottom '
-            '(offsets from base), colours (r, g, b): EARTH top, EARTH base, SKY top, SKY base at the sun and opposite '
-            'to it, 8 weather values (type, start slice, end slice, fade, stay time on, fade time off, stay time off, '
-            'fade time on, in ticks) and the ambient light (R, G, B %). The sun sprite is set by the text of the '
-            '`SUN*` images of `SKY.FSH` (`A<azimuth degrees> B<degrees> R<size / 10>` and the words `ROTATE`, '
-            '`NOADD`, `INFRONT`). See `library/utils/eac_horizon_to_spherical.py`',
-        }
+    block_description = (
+        'Sky, fog and weather of an NFS3 track, `GameData/Tracks/TRK<nnn>/3TR<nn>.HRZ` '
+        '(day; `N` night, `W` weather, `NW` night with weather), read by nfs3.exe 0x478340. Text with C comments, '
+        'numbers in this order: fog colour (r, g, b) and density (%), effect of the fog on the pixmap (%, 1..100: '
+        'without hardware fog the EARTH colours and the white of the pixmap strips are mixed with the fog colour '
+        'by it), number of dynamic fog regions, per region 15 numbers (start r, g, b, density; apex r, g, b, '
+        'density; end r, g, b, density; before, centre and after slice), cloud type (0 none, 1 additive, 2 blend), '
+        'fog clouds flag, has lightning, lightning chance (% per ticks), cloud visual height (the texture scrolls '
+        'one tile when the camera moves this far), cloud dome offset and height (the game multiplies the height '
+        'by 3: y = offset + 3 * height * cos(2 pi r / 12000) on a 13 x 13 grid from -3000 to 2400 in steps of '
+        '450, one texture tile per grid cell), cloud bright, variance (the brightness of each grid vertex is '
+        'bright minus a random value below variance, smoothed), nimbus effect (%, truncated to 0 or 1, so only '
+        '100 counts: lowers '
+        'bright vertices by up to 1.5 * height), wind speed (mph) and direction (degrees), black horizon flag, '
+        'mirror flag, radius R of the horizon, rotation angle in degrees, has a pixmap (the strips: the first 8 images '
+        'of `TR<nn>0.QFS`), base y (relative to the eye), Gouraud height, Gouraud middle, pixmap top and bottom '
+        '(offsets from base), colours (r, g, b): EARTH top, EARTH base, SKY top, SKY base at the sun and opposite '
+        'to it, 8 weather values (type, start slice, end slice, fade, stay time on, fade time off, stay time off, '
+        'fade time on, in ticks) and the ambient light (R, G, B %). The sun sprite is set by the text of the '
+        '`SUN*` images of `SKY.FSH` (`A<azimuth degrees> B<degrees> R<size / 10>` and the words `ROTATE`, '
+        '`NOADD`, `INFRONT`). See `library/utils/eac_horizon_to_spherical.py`'
+    )
 
     def parse(self, text: str):
         return parse_nfs3_horizon_settings(text)
@@ -443,26 +434,23 @@ def parse_nfs4_sky_settings(text: str) -> Nfs4SkySettings:
 
 
 class Nfs4TrackIni(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Track settings of NFS4, `Data/Tracks/<track>/Tr.ini` (day; `TrN.ini` night, '
-            '`TrW.ini` weather, `TrNW.ini` night with weather), a Windows INI file read by nfs4.exe 0x4c70a0 with '
-            '`GetPrivateProfileString`. Sky sections: `[strip]` the horizon band (`hrzShouldDrawBlack`, `hrzMirror`, '
-            '`hrzHasPMX`, `hrzBottomYOff` base y relative to the eye, `hrzGouraudHeight`, `hrzGouraudMiddle`, '
-            '`hrzPmxTop`, `hrzPmxBottom` offsets from the base, colours `[r,g,b]` `hrzSunColor`, '
-            '`hrzOppositeSunColor`, `hrzEarthTopColor`, `hrzEarthBotColor`, `hrzSkyTopColor`, `hrzfRadius` and '
-            '`hrzAngle` in turns: NFS3 `3TR<nn>.HRZ` values under names, the strips are `HDC0`..`HDC7` of `sky.qfs`); '
-            '`[clouds]` (`cloudType` 0 none, 1 additive, 2 blend; `cloudBright`, `cloudVariance`, `cloudNimbus` '
-            "0..1, `cloudFog`, `cloudVisualHeight`, `windSpeed`, `windDir`, `cloudYOffset`, `cloudHeight` (NFS3's "
-            'dome height already multiplied by 3), `cloudUscale` / `cloudVscale` texture repeats per grid cell); '
-            '`[fog]` (`fogColor`, `fogDensity`, `fogHorizon`, `fogNumRegions`, regions in `[fog region <n>]`); '
-            '`[sun]` (`hasSun`, `angleTheta` azimuth and `angleRho` in turns: direction (cos theta, cos rho, '
-            'sin theta), `radius` of the sprite, `rotates`, `additive`, `inFront` drawn after the clouds). Other '
-            'sections: `[lightning]`, `[weather]`, `[light]`, `[special]`, `[track glows]`. See '
-            '`library/utils/eac_horizon_to_spherical.py`',
-        }
+    block_description = (
+        'Track settings of NFS4, `Data/Tracks/<track>/Tr.ini` (day; `TrN.ini` night, '
+        '`TrW.ini` weather, `TrNW.ini` night with weather), a Windows INI file read by nfs4.exe 0x4c70a0 with '
+        '`GetPrivateProfileString`. Sky sections: `[strip]` the horizon band (`hrzShouldDrawBlack`, `hrzMirror`, '
+        '`hrzHasPMX`, `hrzBottomYOff` base y relative to the eye, `hrzGouraudHeight`, `hrzGouraudMiddle`, '
+        '`hrzPmxTop`, `hrzPmxBottom` offsets from the base, colours `[r,g,b]` `hrzSunColor`, '
+        '`hrzOppositeSunColor`, `hrzEarthTopColor`, `hrzEarthBotColor`, `hrzSkyTopColor`, `hrzfRadius` and '
+        '`hrzAngle` in turns: NFS3 `3TR<nn>.HRZ` values under names, the strips are `HDC0`..`HDC7` of `sky.qfs`); '
+        '`[clouds]` (`cloudType` 0 none, 1 additive, 2 blend; `cloudBright`, `cloudVariance`, `cloudNimbus` '
+        "0..1, `cloudFog`, `cloudVisualHeight`, `windSpeed`, `windDir`, `cloudYOffset`, `cloudHeight` (NFS3's "
+        'dome height already multiplied by 3), `cloudUscale` / `cloudVscale` texture repeats per grid cell); '
+        '`[fog]` (`fogColor`, `fogDensity`, `fogHorizon`, `fogNumRegions`, regions in `[fog region <n>]`); '
+        '`[sun]` (`hasSun`, `angleTheta` azimuth and `angleRho` in turns: direction (cos theta, cos rho, '
+        'sin theta), `radius` of the sprite, `rotates`, `additive`, `inFront` drawn after the clouds). Other '
+        'sections: `[lightning]`, `[weather]`, `[light]`, `[special]`, `[track glows]`. See '
+        '`library/utils/eac_horizon_to_spherical.py`'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         text = (UTF8Block(length=(_whole_file, 'the whole file')), {'description': 'The INI text'})

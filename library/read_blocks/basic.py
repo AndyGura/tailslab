@@ -11,6 +11,21 @@ from library.utils import represent_value_as_str
 class DataBlock(ABC):
     root_read_ctx = ReadContext()
 
+    # a class attribute `block_description = '...'` is the description of the class's blocks (docs and GUI): their
+    # schema gets it over what the class's own schema or its base classes give, as a `schema` override setting it would
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if 'block_description' not in cls.__dict__:
+            return
+        description = cls.__dict__['block_description']
+        own_schema = cls.__dict__.get('schema')
+
+        def schema(self) -> Dict:
+            base = own_schema.fget(self) if own_schema is not None else super(cls, self).schema
+            return {**base, 'block_description': description}
+
+        cls.schema = property(schema)
+
     def __init__(self, value_validator: ValueValidator = None, programmatic_value=None, **kwargs):
         self.value_validator = value_validator
         self.programmatic_value = programmatic_value

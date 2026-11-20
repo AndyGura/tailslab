@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from library.read_blocks import (
     ArrayBlock,
@@ -39,13 +39,9 @@ _FILLER_DESCR = 'Filler (0xAA bytes) up to the next data block'
 
 
 class NfsmwCarpEntry(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Entry of the table of a "CARP" pack: a container of the entries after it or a data '
-            'block of the pack',
-        }
+    block_description = (
+        'Entry of the table of a "CARP" pack: a container of the entries after it or a data block of the pack'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         tag = (
@@ -75,13 +71,9 @@ class NfsmwCarpEntry(DeclarativeCompoundBlock):
 
 
 class NfsmwRoadGrid(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Grid over the road network (CGrd): square cells on the ground plane, each listing '
-            'the segments in it (CGcn)',
-        }
+    block_description = (
+        'Grid over the road network (CGrd): square cells on the ground plane, each listing the segments in it (CGcn)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         origin = (
@@ -97,9 +89,7 @@ class NfsmwRoadGrid(DeclarativeCompoundBlock):
 
 
 class NfsmwRoadNetworkHeader(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Road network header (RNhd): amounts of records'}
+    block_description = 'Road network header (RNhd): amounts of records'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         num_profiles = (IntegerBlock(length=2), {'description': 'Amount of profiles'})
@@ -110,12 +100,7 @@ class NfsmwRoadNetworkHeader(DeclarativeCompoundBlock):
 
 
 class NfsmwRoadNode(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Node of the road network (RNnd): an end of segments, on the road surface',
-        }
+    block_description = 'Node of the road network (RNnd): an end of segments, on the road surface'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (
@@ -133,12 +118,7 @@ class NfsmwRoadNode(DeclarativeCompoundBlock):
 
 
 class NfsmwRoadProfile(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Profile of a road cross-section (RNpf): its lanes, referenced by nodes',
-        }
+    block_description = 'Profile of a road cross-section (RNpf): its lanes, referenced by nodes'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         num_lanes = (IntegerBlock(length=1), {'description': 'Amount of lanes, 1..15'})
@@ -158,9 +138,7 @@ class NfsmwRoadProfile(DeclarativeCompoundBlock):
 
 
 class NfsmwRoad(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Road (RNrd): a group of segments (`road` of the segments)'}
+    block_description = 'Road (RNrd): a group of segments (`road` of the segments)'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk0 = (BytesBlock(length=2), {'is_unknown': True, 'description': 'Always 00 01'})
@@ -170,14 +148,11 @@ class NfsmwRoad(DeclarativeCompoundBlock):
 
 
 class NfsmwRoadSegment(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Segment of the road network (RNsg): a cubic Bezier curve from its start node to '
-            'its end node, control points at `start_handle` along `start_direction` from the start node and at '
-            '`end_handle` along `end_direction` from the end node',
-        }
+    block_description = (
+        'Segment of the road network (RNsg): a cubic Bezier curve from its start node to '
+        'its end node, control points at `start_handle` along `start_direction` from the start node and at '
+        '`end_handle` along `end_direction` from the end node'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         start_node = (IntegerBlock(length=2), {'description': 'Index of the node it starts at'})
@@ -276,16 +251,13 @@ def nfsmw_road_network_table_tags(payload: bytes) -> Optional[List[str]]:
 
 
 class NfsmwRoadNetwork(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFSMW road network of the city (TRACKS/L2RA.BUN), a "CARP" pack: a table of '
-            'entries, then the data blocks it points at. Every road of the city as cubic Bezier segments between '
-            'nodes on the road surface (with heights), their lane profiles, and a grid of cells listing the '
-            'segments. The game routes races, AI and the GPS over it: races keep no route of their own (they list '
-            'checkpoints and barriers in GLOBAL/gameplay.bin)',
-        }
+    block_description = (
+        'NFSMW road network of the city (TRACKS/L2RA.BUN), a "CARP" pack: a table of '
+        'entries, then the data blocks it points at. Every road of the city as cubic Bezier segments between '
+        'nodes on the road surface (with heights), their lane profiles, and a grid of cells listing the '
+        'segments. The game routes races, AI and the GPS over it: races keep no route of their own (they list '
+        'checkpoints and barriers in GLOBAL/gameplay.bin)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x0003B800)), {'description': _CHUNK_ID_DESCR})

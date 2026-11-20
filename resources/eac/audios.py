@@ -18,14 +18,11 @@ from library.read_blocks.misc.value_validators import Eq
 
 
 class EacsAudioHeader(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A header for EACS audio. It is almost identical to AsfAudio when it is the only '
-            'sound in the file (*.EAS), but also can be included in single SoundBank file '
-            '(*.BNK), which has multiple EACS headers and wave data located separately',
-        }
+    block_description = (
+        'A header for EACS audio. It is almost identical to AsfAudio when it is the only '
+        'sound in the file (*.EAS), but also can be included in single SoundBank file '
+        '(*.BNK), which has multiple EACS headers and wave data located separately'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(value_validator=Eq('EACS'), length=4), {'description': 'Resource ID'})
@@ -71,14 +68,11 @@ class EacsAudioHeader(DeclarativeCompoundBlock):
 
 
 class SoundBankHeaderEntry(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': "TNFS sound bank (*.BNK) entry: the game's playback settings for a sample, "
-            'followed by its EACS header. Field meanings come from the game code, as decoded by the '
-            '[tnfs-1995](https://github.com/marcos2250/tnfs-1995) project',
-        }
+    block_description = (
+        "TNFS sound bank (*.BNK) entry: the game's playback settings for a sample, "
+        'followed by its EACS header. Field meanings come from the game code, as decoded by the '
+        '[tnfs-1995](https://github.com/marcos2250/tnfs-1995) project'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         voice_mask = (
@@ -242,14 +236,11 @@ class EacsAudioFile(DeclarativeCompoundBlock):
 
 
 class AsfAudio(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'An audio file, which is supported by FFMPEG and can be converted using only it. '
-            'Has some explanation [here](https://wiki.multimedia.cx/index.php/Electronic_'
-            'Arts_Formats_(2))',
-        }
+    block_description = (
+        'An audio file, which is supported by FFMPEG and can be converted using only it. '
+        'Has some explanation [here](https://wiki.multimedia.cx/index.php/Electronic_'
+        'Arts_Formats_(2))'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(value_validator=Eq('1SNh'), length=4), {'description': 'Resource ID'})
@@ -380,14 +371,11 @@ def _ea_sound_patch_tag_count(ctx) -> int:
 
 
 class EaSoundPatchTag(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A tag of EA sound patch: tag id, then (except for tags 0xFC-0xFF) the length of the '
-            'value and the value, big endian unsigned. Tag meanings follow '
-            '[vgmstream](https://github.com/vgmstream/vgmstream) (`ea_schl.c`), the ones named `unk_*` are not known',
-        }
+    block_description = (
+        'A tag of EA sound patch: tag id, then (except for tags 0xFC-0xFF) the length of the '
+        'value and the value, big endian unsigned. Tag meanings follow '
+        '[vgmstream](https://github.com/vgmstream/vgmstream) (`ea_schl.c`), the ones named `unk_*` are not known'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         tag = (EnumByteBlock(enum_names=EA_SOUND_PATCH_TAGS), {'description': 'Tag id'})
@@ -435,22 +423,19 @@ class EaSoundPatchTag(DeclarativeCompoundBlock):
 
 
 class EaSoundPatch(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'EA sound patch ("PT" header): a sound of a BNKl sound bank as a list of tags. '
-            'Tags before `info_start` are playback settings (priority, volume, pan, pitch bend range...), tags '
-            'after it describe the wave data: `num_samples`, `channels` (default 1), `sampling_rate` (default '
-            '22050), loop sample indices `loop_start` and `loop_end` (inclusive; a sample loops when it has one of '
-            'them, from 0 / up to the last sample when the other one is missing), `data_offset` (wave data offset '
-            'from the start of the bank file) and the codec. Without the `version` tag, `codec` 7 is EA-XA ADPCM v1, '
-            '9 is EA MicroTalk 10:1 (speech), no `codec` tag is 16-bit little endian PCM. With `version` 1, '
-            '`codec_2` 8 is 16-bit little endian PCM, 9 is signed 8-bit PCM, no `codec_2` tag is EA-XA ADPCM v2. '
-            'Stereo samples are interleaved. A sound can have several layers, played together, separated by the '
-            '`layer_end` tag, each one with its own settings and wave data (NFS3 player car engines add a short '
-            'mono loop to the stereo engine sample)',
-        }
+    block_description = (
+        'EA sound patch ("PT" header): a sound of a BNKl sound bank as a list of tags. '
+        'Tags before `info_start` are playback settings (priority, volume, pan, pitch bend range...), tags '
+        'after it describe the wave data: `num_samples`, `channels` (default 1), `sampling_rate` (default '
+        '22050), loop sample indices `loop_start` and `loop_end` (inclusive; a sample loops when it has one of '
+        'them, from 0 / up to the last sample when the other one is missing), `data_offset` (wave data offset '
+        'from the start of the bank file) and the codec. Without the `version` tag, `codec` 7 is EA-XA ADPCM v1, '
+        '9 is EA MicroTalk 10:1 (speech), no `codec` tag is 16-bit little endian PCM. With `version` 1, '
+        '`codec_2` 8 is 16-bit little endian PCM, 9 is signed 8-bit PCM, no `codec_2` tag is EA-XA ADPCM v2. '
+        'Stereo samples are interleaved. A sound can have several layers, played together, separated by the '
+        '`layer_end` tag, each one with its own settings and wave data (NFS3 player car engines add a short '
+        'mono loop to the stereo engine sample)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         platform_magic = (UTF8Block(length=2, value_validator=Eq('PT')), {'description': 'Patch header magic'})
@@ -573,16 +558,13 @@ def _ea_audio_streams_count(ctx) -> int:
 
 
 class EaAudioStream(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'EA audio stream (NFS2 - NFS6 music, NFS6 speech): header chunk "SCHl" '
-            'with a sound patch (sampling rate, channels, number of samples, loop, codec), then the wave data in '
-            'chunks of 8-byte header (id, length including the header) and data: SCCl (amount of SCDl chunks), SCDl '
-            '(wave data), SCLl (loop end), SCEl (end). Explained by '
-            '[vgmstream](https://github.com/vgmstream/vgmstream) (`ea_schl.c`); the converter decodes it with FFmpeg',
-        }
+    block_description = (
+        'EA audio stream (NFS2 - NFS6 music, NFS6 speech): header chunk "SCHl" '
+        'with a sound patch (sampling rate, channels, number of samples, loop, codec), then the wave data in '
+        'chunks of 8-byte header (id, length including the header) and data: SCCl (amount of SCDl chunks), SCDl '
+        '(wave data), SCLl (loop end), SCEl (end). Explained by '
+        '[vgmstream](https://github.com/vgmstream/vgmstream) (`ea_schl.c`); the converter decodes it with FFmpeg'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(value_validator=Eq('SCHl'), length=4), {'description': 'Header chunk id'})
@@ -638,18 +620,15 @@ class EaAudioStream(DeclarativeCompoundBlock):
 
 
 class EaAudioStreams(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A file of EA audio streams (`SCHl`): NFS2 / NFS2 SE `.ASF` (a song), NFS2 / NFS2 '
-            'SE / NFS3 `.MUS` (interactive music: a stream per node of the `.MAP` file of the same name), NFS4 '
-            '`Data/Audio/MUSIC/*.ASF`, NFS5 songs in `GameData/Music/zzzymus.viv`, NFS6 `audio/music/*.asf`, NFS6 '
-            'speech in `radio.viv`. Converted to WAV with FFmpeg: a file with one stream to `<name>.wav` + '
-            '`<name>.meta.json` (loop), a file with more streams to a folder with `<index>.wav` + `<index>.meta.json` '
-            'per stream and `playthrough.wav` (the streams in the order of the `.LIN`, else `.MAP` file next to it, '
-            'see `EaMusicMap`; all streams in file order without one)',
-        }
+    block_description = (
+        'A file of EA audio streams (`SCHl`): NFS2 / NFS2 SE `.ASF` (a song), NFS2 / NFS2 '
+        'SE / NFS3 `.MUS` (interactive music: a stream per node of the `.MAP` file of the same name), NFS4 '
+        '`Data/Audio/MUSIC/*.ASF`, NFS5 songs in `GameData/Music/zzzymus.viv`, NFS6 `audio/music/*.asf`, NFS6 '
+        'speech in `radio.viv`. Converted to WAV with FFmpeg: a file with one stream to `<name>.wav` + '
+        '`<name>.meta.json` (loop), a file with more streams to a folder with `<index>.wav` + `<index>.meta.json` '
+        'per stream and `playthrough.wav` (the streams in the order of the `.LIN`, else `.MAP` file next to it, '
+        'see `EaMusicMap`; all streams in file order without one)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         streams = (
@@ -664,13 +643,10 @@ class EaAudioStreams(DeclarativeCompoundBlock):
 
 
 class EaMusicMapBranch(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A branch of an interactive music node: the node to play next while the music '
-            'state value (0..100) set by the game is in the range',
-        }
+    block_description = (
+        'A branch of an interactive music node: the node to play next while the music '
+        'state value (0..100) set by the game is in the range'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         min_value = (IntegerBlock(length=1), {'description': 'Lowest state value of the branch'})
@@ -679,13 +655,9 @@ class EaMusicMapBranch(DeclarativeCompoundBlock):
 
 
 class EaMusicMapNode(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A node of interactive music: one audio stream of the `.MUS` file and the nodes '
-            'which can follow it',
-        }
+    block_description = (
+        'A node of interactive music: one audio stream of the `.MUS` file and the nodes which can follow it'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         section = (
@@ -704,19 +676,16 @@ class EaMusicMapNode(DeclarativeCompoundBlock):
 
 
 class EaMusicMap(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Interactive music map "PFDx" (EA PathFinder) versions 0 and 1, NFS2 / NFS2 SE '
-            '`GAMEDATA/AUDIO/PC/*.MAP`, NFS3 `GameData/Audio/pc/*.map` and `*.lin`, for the `.MUS` file of the same '
-            'name (EaAudioStreams), big endian. NFS3 `.lin` maps list the same streams as the `.map`, with one branch '
-            'per node (0..100): the song played linearly. Music '
-            'plays node by node: when a node ends, the branch matching the music state value which the game sets '
-            '(0..100) picks the next one; a game event jumps to the node `events` gives for the section of the '
-            'current node. Layout from [vgmstream](https://github.com/vgmstream/vgmstream) '
-            '(`ea_schl_map_mpf_mus.c`), the node fields from the files',
-        }
+    block_description = (
+        'Interactive music map "PFDx" (EA PathFinder) versions 0 and 1, NFS2 / NFS2 SE '
+        '`GAMEDATA/AUDIO/PC/*.MAP`, NFS3 `GameData/Audio/pc/*.map` and `*.lin`, for the `.MUS` file of the same '
+        'name (EaAudioStreams), big endian. NFS3 `.lin` maps list the same streams as the `.map`, with one branch '
+        'per node (0..100): the song played linearly. Music '
+        'plays node by node: when a node ends, the branch matching the music state value which the game sets '
+        '(0..100) picks the next one; a game event jumps to the node `events` gives for the section of the '
+        'current node. Layout from [vgmstream](https://github.com/vgmstream/vgmstream) '
+        '(`ea_schl_map_mpf_mus.c`), the node fields from the files'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(value_validator=Eq('PFDx'), length=4), {'description': 'Resource ID'})

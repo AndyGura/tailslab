@@ -57,12 +57,10 @@ NFS4_FEDATA_TEXTS = (
 class FeDataText(UTF8Block):
     """One text of a fedata text table, Latin-1 (`El Niño`, `Weiß`); its bytes are written by `FeDataTextTable`"""
 
+    block_description = 'Latin-1 text, null-terminated in the file'
+
     def __init__(self, **kwargs):
         super().__init__(length=0, **kwargs)
-
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Latin-1 text, null-terminated in the file'}
 
     @property
     def size_doc_str(self):
@@ -189,18 +187,15 @@ _CLASS_TEXT = (
 
 
 class Nfs3CarFeData(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS3 car showroom data: `fedata.<lang>` (eng, fre, ger, ita, spa, swe, bri) in '
-            "`GameData/CarModel/<car>/car.viv` and `FeData/Plac/CAR.VIV`; the language is the game's (0x4782b0). "
-            "nfs3.exe 0x439d90 (FeCars_Load) reads it for every car folder into the front end's car list (0x3a4-byte "
-            'records): a 0x2d-byte header converted field by field, then the text table, kept as it is (getter '
-            '0x439ab0). A file whose `format_version` is not 9 drops the car from the list. All texts are Latin-1. '
-            "The executable is VEG's Modern Patch build, whose car list loader has patched code (nops at 0x43a210..), "
-            'the fields are read as retail',
-        }
+    block_description = (
+        'NFS3 car showroom data: `fedata.<lang>` (eng, fre, ger, ita, spa, swe, bri) in '
+        "`GameData/CarModel/<car>/car.viv` and `FeData/Plac/CAR.VIV`; the language is the game's (0x4782b0). "
+        "nfs3.exe 0x439d90 (FeCars_Load) reads it for every car folder into the front end's car list (0x3a4-byte "
+        'records): a 0x2d-byte header converted field by field, then the text table, kept as it is (getter '
+        '0x439ab0). A file whose `format_version` is not 9 drops the car from the list. All texts are Latin-1. '
+        "The executable is VEG's Modern Patch build, whose car list loader has patched code (nops at 0x43a210..), "
+        'the fields are read as retail'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         car_id = (
@@ -371,18 +366,15 @@ _NFS4_FLAGS_TEXT = (
 
 
 class Nfs4CarFeData(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS4 car showroom data: `fedata.<lang>` (eng, fre, ger, ita, spa, swe, bri) in '
-            "`Data/Cars/<car>/car.viv` and `Data/Plac.viv`; the language is the game's (0x4c7080). nfs4.exe 0x473d20 "
-            "(FeCars_Load) reads it for every car folder: bytes 2..0x3bd are the front end's car list record as it "
-            'is in memory (record = file + 2: the file offsets of the fields below minus 2), copied as they are '
-            '(0xef dwords), then a few fields are set; the text table follows (getter 0x473580). A file whose '
-            '`format_version` is not 10 drops the car from the list. Run time slots of the record (list link, names, '
-            'colour choices...) are zeros in the files. All texts are Latin-1',
-        }
+    block_description = (
+        'NFS4 car showroom data: `fedata.<lang>` (eng, fre, ger, ita, spa, swe, bri) in '
+        "`Data/Cars/<car>/car.viv` and `Data/Plac.viv`; the language is the game's (0x4c7080). nfs4.exe 0x473d20 "
+        "(FeCars_Load) reads it for every car folder: bytes 2..0x3bd are the front end's car list record as it "
+        'is in memory (record = file + 2: the file offsets of the fields below minus 2), copied as they are '
+        '(0xef dwords), then a few fields are set; the text table follows (getter 0x473580). A file whose '
+        '`format_version` is not 10 drops the car from the list. Run time slots of the record (list link, names, '
+        'colour choices...) are zeros in the files. All texts are Latin-1'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         game = (

@@ -31,11 +31,15 @@ class FieldExtras(TypedDict, total=False):
 
 
 class CompoundBlock(DataBlockWithChildren, DataBlock, ABC):
+    # a description rendering the block inline in the docs, like a leaf block; a subclass can set it as a class attribute
+    inline_description: str = None
+
     # accepts list of fields. Field should be declared as tuple (name, block, extras)
     def __init__(self, fields: List[Tuple[str, DataBlock, FieldExtras]], inline_description: str = None, **kwargs):
         super().__init__(**kwargs)
         self.fields = fields
-        self.inline_description = inline_description
+        if inline_description is not None:
+            self.inline_description = inline_description
         self.field_blocks = [(name, instance) for (name, instance, _) in self.fields]
         self.field_blocks_map = {name: res for (name, res, _) in self.fields}
         self.field_extras_map = {name: extra for (name, _, extra) in self.fields}

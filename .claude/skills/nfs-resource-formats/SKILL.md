@@ -124,6 +124,8 @@ picks that option.
 
 ```python
 class SomeThing(DeclarativeCompoundBlock):
+    block_description = 'Some file of some game: ...'
+
     class Fields(DeclarativeCompoundBlock.Fields):
         magic = (UTF8Block(length=4, value_validator=Eq('ABCD')), {'description': 'Magic header'})
         count = (
@@ -136,6 +138,11 @@ class SomeThing(DeclarativeCompoundBlock):
         )
 ```
 
+- `block_description` (class attribute) is the block's description in the docs and the GUI; a
+  small record whose description goes in the type column of the fields using it (instead of a link
+  to its section) sets `inline_description` instead (`RGBBlock`, `NamedIndex`). A `schema` override
+  is only for a description computed from the instance (`super().schema['block_description']`,
+  `self` values) or other schema keys.
 - `Fields` takes the fields of its own class body only (`CompoundBlockFields.fields` reads `cls.__dict__`), not
   inherited ones: a variant of a block redeclares every field (it can reuse the parent's tuples,
   `ShppBlock.Fields`), except an archive's `children` array, which `ArchiveBlock.__init__` mutates: always a new one.

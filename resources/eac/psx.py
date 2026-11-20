@@ -4,7 +4,7 @@ PlayStation TNFS (SLUS-00204) files: the `CRCF` footer most of its files end wit
 """
 
 from io import SEEK_CUR
-from typing import Dict, NamedTuple, Optional, Tuple
+from typing import NamedTuple, Optional, Tuple
 
 from library.context import ReadContext, WriteContext
 from library.read_blocks import (
@@ -44,15 +44,12 @@ def psx_crc16(data: bytes) -> int:
 
 
 class PsxCrcFooter(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Footer of most PSX TNFS files (PSH, INF, LGT, LGS, TRI, FAM, VB, VH, PFN...): the '
-            'file loader FUN_8001577c checks it (callback 0x80015958: FUN_80015858 finds the footer, FUN_800158d4 '
-            'compares the CRC) and loads the file again when it does not match. Inside a FAM (wwww) archive it '
-            'follows the last item, in the bytes after it',
-        }
+    block_description = (
+        'Footer of most PSX TNFS files (PSH, INF, LGT, LGS, TRI, FAM, VB, VH, PFN...): the '
+        'file loader FUN_8001577c checks it (callback 0x80015958: FUN_80015858 finds the footer, FUN_800158d4 '
+        'compares the CRC) and loads the file again when it does not match. Inside a FAM (wwww) archive it '
+        'follows the last item, in the bytes after it'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(length=4, value_validator=Eq('CRCF')), {'description': 'Resource ID'})
@@ -166,22 +163,19 @@ def _footer_criteria(ctx, **kwargs):
 
 
 class TnfsPsxHorizonInfo(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Horizon settings of a PSX TNFS track at a time of day, `Z<track><A|B|C>.INF` '
-            '(A morning, B midday, C evening), the counterpart of the PC `SIMDATA/MISC/<track>INFO`. Plain text: '
-            '`#` comment lines, then one value per line (colors: 3 on a line). Read by FUN_80034adc in this order: 8 '
-            'ring geometry values (vert offset near / far, z offset near / far, height near / far, radius near / '
-            'far; the ring points are at radius far around the camera, at height vert offset far and z offset far, '
-            '0 in every file; a horizon is drawn only when height far is not 0, 48 in every file), colour top and '
-            'colour bottom (RGB 0..255), dithering flag (GPU dithering of the sky gradient), ratio of the blend, '
-            'ring y offset, ring height (both halved by the game: px of the 320x240 screen; the PC uses them as px '
-            'of 640x480), and a last value without a comment, the mirror flag (sectors 8..15 of the ring show '
-            '`hrz7`..`hrz0` mirrored). Unlike the PC there is no ring type (the PSX always draws the ring) and no '
-            'time of day values. See `library/utils/tnfs_psx_horizon_to_spherical.py` for how the game draws them',
-        }
+    block_description = (
+        'Horizon settings of a PSX TNFS track at a time of day, `Z<track><A|B|C>.INF` '
+        '(A morning, B midday, C evening), the counterpart of the PC `SIMDATA/MISC/<track>INFO`. Plain text: '
+        '`#` comment lines, then one value per line (colors: 3 on a line). Read by FUN_80034adc in this order: 8 '
+        'ring geometry values (vert offset near / far, z offset near / far, height near / far, radius near / '
+        'far; the ring points are at radius far around the camera, at height vert offset far and z offset far, '
+        '0 in every file; a horizon is drawn only when height far is not 0, 48 in every file), colour top and '
+        'colour bottom (RGB 0..255), dithering flag (GPU dithering of the sky gradient), ratio of the blend, '
+        'ring y offset, ring height (both halved by the game: px of the 320x240 screen; the PC uses them as px '
+        'of 640x480), and a last value without a comment, the mirror flag (sectors 8..15 of the ring show '
+        '`hrz7`..`hrz0` mirrored). Unlike the PC there is no ring type (the PSX always draws the ring) and no '
+        'time of day values. See `library/utils/tnfs_psx_horizon_to_spherical.py` for how the game draws them'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         text = (
@@ -226,9 +220,7 @@ def _gouraud_record_count(ctx) -> int:
 
 
 class TnfsPsxGouraudRecord(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'The corner colours of one polygon'}
+    block_description = 'The corner colours of one polygon'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         polygon_index = (
@@ -248,19 +240,16 @@ class TnfsPsxGouraudRecord(DeclarativeCompoundBlock):
 
 
 class TnfsPsxGouraudColors(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': "Gouraud colours of a car's polygons, `<car>.GRO` in the car archives of the "
-            "Japanese disc Over Drivin' Skyline Memorial (SLPS-01024; the US disc has none). The game "
-            '(SLPS_010.24 FUN_80038cb8 loads it with the car, FUN_80038b40 frees it once both models are set up, '
-            'FUN_80084944 fills the GPU packets of a model) gives a polygon of draw type 16 (POLY_GT4), 15 (POLY_G4) '
-            'or 8 (POLY_G3), the polygons its `oriload` makes Gouraud-shaded (`mapping` bit 0x40 or draw type 10 of '
-            '[OrixPolygon](#orixpolygon)), the colours of the first record of its index; one without a record gets '
-            "its material's `color` on every corner. A record of another polygon is not used (the KHGC211's "
-            'polygon 0). None of these polygons is semi-transparent. Only the high-poly models have such polygons',
-        }
+    block_description = (
+        "Gouraud colours of a car's polygons, `<car>.GRO` in the car archives of the "
+        "Japanese disc Over Drivin' Skyline Memorial (SLPS-01024; the US disc has none). The game "
+        '(SLPS_010.24 FUN_80038cb8 loads it with the car, FUN_80038b40 frees it once both models are set up, '
+        'FUN_80084944 fills the GPU packets of a model) gives a polygon of draw type 16 (POLY_GT4), 15 (POLY_G4) '
+        'or 8 (POLY_G3), the polygons its `oriload` makes Gouraud-shaded (`mapping` bit 0x40 or draw type 10 of '
+        '[OrixPolygon](#orixpolygon)), the colours of the first record of its index; one without a record gets '
+        "its material's `color` on every corner. A record of another polygon is not used (the KHGC211's "
+        'polygon 0). None of these polygons is semi-transparent. Only the high-poly models have such polygons'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         records = (

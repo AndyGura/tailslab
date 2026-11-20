@@ -21,13 +21,10 @@ from resources.eac.fields.numbers import Nfs1Angle14, Nfs1Angle8, Nfs1TimeField
 
 
 class RoadSplinePoint(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'The description of one single point of road spline. Thank you jeff-1amstudios for'
-            ' your [OpenNFS1](https://github.com/jeff-1amstudios/OpenNFS1) project',
-        }
+    block_description = (
+        'The description of one single point of road spline. Thank you jeff-1amstudios for'
+        ' your [OpenNFS1](https://github.com/jeff-1amstudios/OpenNFS1) project'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         left_verge = (
@@ -196,9 +193,7 @@ class RoadSplinePoint(DeclarativeCompoundBlock):
 
 
 class ModelPropDescrData(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Map prop settings if it is a 3D model'}
+    block_description = 'Map prop settings if it is a 3D model'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (IntegerBlock(length=1), {'description': 'An index of prop in the track FAM file'})
@@ -223,9 +218,7 @@ class ModelPropDescrData(DeclarativeCompoundBlock):
 
 
 class BitmapPropDescrData(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Map prop settings if it is a bitmap'}
+    block_description = 'Map prop settings if it is a bitmap'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (
@@ -252,9 +245,7 @@ class BitmapPropDescrData(DeclarativeCompoundBlock):
 
 
 class TwoSidedBitmapPropDescrData(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Map prop settings if it is a two-sided bitmap (fake 3D model)'}
+    block_description = 'Map prop settings if it is a two-sided bitmap (fake 3D model)'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (
@@ -281,15 +272,12 @@ class TwoSidedBitmapPropDescrData(DeclarativeCompoundBlock):
 
 
 class PropDescr(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'The description of map prop: everything except terrain (road signs, '
-            'buildings etc.) Thanks to jeff-1amstudios and his [OpenNFS1](https://github.com'
-            '/jeff-1amstudios/OpenNFS1/blob/357fe6c3314a6f5bae47e243ca553c5491ecde79/OpenNFS1'
-            '/Parsers/TriFile.cs#L202) project',
-        }
+    block_description = (
+        'The description of map prop: everything except terrain (road signs, '
+        'buildings etc.) Thanks to jeff-1amstudios and his [OpenNFS1](https://github.com'
+        '/jeff-1amstudios/OpenNFS1/blob/357fe6c3314a6f5bae47e243ca553c5491ecde79/OpenNFS1'
+        '/Parsers/TriFile.cs#L202) project'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         flags = (BitFlagsBlock(length=1, flag_names=[(2, 'is_animated')]), {'description': 'Different modes of prop'})
@@ -312,15 +300,12 @@ class PropDescr(DeclarativeCompoundBlock):
 
 
 class MapProp(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'The prop on the map. For instance: exactly the same road sign used 5 '
-            'times on the map. In this case file will have 1 PropDescr for this road sign '
-            'and 5 MapProps. The game engine refers to a prop (road object) by its index in the TRI `props` array: '
-            '`SignStatus` has 2 bytes per object, nonzero once a car knocked it down',
-        }
+    block_description = (
+        'The prop on the map. For instance: exactly the same road sign used 5 '
+        'times on the map. In this case file will have 1 PropDescr for this road sign '
+        'and 5 MapProps. The game engine refers to a prop (road object) by its index in the TRI `props` array: '
+        '`SignStatus` has 2 bytes per object, nonzero once a car knocked it down'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         road_point_idx = (
@@ -361,14 +346,11 @@ class MapProp(DeclarativeCompoundBlock):
 
 
 class TerrainEntry(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'The terrain model around 4 spline points. It has good explanation in original '
-            '[Denis Auroux NFS file specs](http://www.math.polytechnique.fr/cmat/auroux/nfs/'
-            'nfsspecs.txt)',
-        }
+    block_description = (
+        'The terrain model around 4 spline points. It has good explanation in original '
+        '[Denis Auroux NFS file specs](http://www.math.polytechnique.fr/cmat/auroux/nfs/'
+        'nfsspecs.txt)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(length=4, value_validator=Eq('TRKD')), {'description': 'Resource ID'})
@@ -420,9 +402,7 @@ class TerrainEntry(DeclarativeCompoundBlock):
 
 
 class AIEntry(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'The record describing AI behavior at given terrain chunk'}
+    block_description = 'The record describing AI behavior at given terrain chunk'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         top_speed = (IntegerBlock(length=1), {'description': 'Max speed among all AI drivers in m/s'})

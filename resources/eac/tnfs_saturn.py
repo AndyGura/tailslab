@@ -73,16 +73,13 @@ def _tnfs_saturn_car_physics_fields():
 
 
 class TnfsSaturnCarPhysics(PlayerCarPhysics):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': "Player car physics of the Sega Saturn TNFS port (Over Drivin' GT-R): the PC "
-            '`PlayerCarPhysics` (PBS) layout, 1912 bytes, every 4-byte field big-endian (the grip tables are bytes); '
-            "the checksum is the PC's (byte sum of the first 1880 bytes), right in every file (checked). The first "
-            'part of a car bundle `CARS/<car>.ALL` / `CAR2/<car>.ALL` (the two hold the same bytes). Field meanings '
-            "as in the PC game. The Warrior's physics (not in the car folders) are the PC TRAFFC.PBS byte for byte",
-        }
+    block_description = (
+        "Player car physics of the Sega Saturn TNFS port (Over Drivin' GT-R): the PC "
+        '`PlayerCarPhysics` (PBS) layout, 1912 bytes, every 4-byte field big-endian (the grip tables are bytes); '
+        "the checksum is the PC's (byte sum of the first 1880 bytes), right in every file (checked). The first "
+        'part of a car bundle `CARS/<car>.ALL` / `CAR2/<car>.ALL` (the two hold the same bytes). Field meanings '
+        "as in the PC game. The Warrior's physics (not in the car folders) are the PC TRAFFC.PBS byte for byte"
+    )
 
     Fields = _tnfs_saturn_car_physics_fields()
 
@@ -115,15 +112,12 @@ def _tnfs_saturn_car_ai_fields():
 
 
 class TnfsSaturnCarAiAndCrashBody(CarAiAndCrashBody):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': "Car AI and crash body of the Sega Saturn TNFS port (Over Drivin' GT-R): the PC "
-            '`CarAiAndCrashBody` (PDN) layout, 460 bytes, big-endian, with the top speeds in mph and `gear_count` in '
-            '16.16 fixed point. Not a file: 9 records in the executable `0` (`TnfsSaturnGtrExecutable`). The record '
-            'of the Warrior is the PC TRAFFC.PDN but for those two fields (checked)',
-        }
+    block_description = (
+        "Car AI and crash body of the Sega Saturn TNFS port (Over Drivin' GT-R): the PC "
+        '`CarAiAndCrashBody` (PDN) layout, 460 bytes, big-endian, with the top speeds in mph and `gear_count` in '
+        '16.16 fixed point. Not a file: 9 records in the executable `0` (`TnfsSaturnGtrExecutable`). The record '
+        'of the Warrior is the PC TRAFFC.PDN but for those two fields (checked)'
+    )
 
     Fields = _tnfs_saturn_car_ai_fields()
 
@@ -138,13 +132,10 @@ class TnfsSaturnCarAiAndCrashBody(CarAiAndCrashBody):
 
 
 class TnfsSaturnTextureEntry(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A texture of a Saturn texture bank: name, size, VDP1 draw mode and where its pixels '
-            'are. The fields are parts of a VDP1 sprite command (CMDPMOD, CMDSRCA, CMDSIZE)',
-        }
+    block_description = (
+        'A texture of a Saturn texture bank: name, size, VDP1 draw mode and where its pixels '
+        'are. The fields are parts of a VDP1 sprite command (CMDPMOD, CMDSRCA, CMDSIZE)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         name_start = (UTF8Block(length=2), {'description': 'Characters 1 and 2 of the name (`J0` of `J000`)'})
@@ -202,19 +193,16 @@ SATURN_DRAW_MODE_INDEX_0_DRAWN = 0x40
 
 
 class TnfsSaturnTextureBank(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Texture bank of a Saturn car model: 4-bit textures with 16 colours each (VDP1 colour '
-            'mode 1). Pixels: two per byte, the high nibble first (the left pixel), rows of `width` pixels, top to '
-            'bottom. Colours: Saturn 16-bit RGB (bits 0-4 red, 5-9 green, 10-14 blue, bit 15 set in every colour), 16 '
-            'per texture, in texture order. In the high-poly textures of five cars (BNR32, BCNR33, PGC10, KPGC110, '
-            '180SX) colour 0 of the rear light texture (the texture of the `bkll` / `bklr` polygons) is pure green, '
-            'the PSX convention for the brake light colour the game writes at run time; the PSX game takes CLUT entries '
-            "of pure green (5-bit red < 2, green > 29, blue < 2), the BCNR33's green is 29. Where the Saturn game "
-            'writes the brake light colours is not known',
-        }
+    block_description = (
+        'Texture bank of a Saturn car model: 4-bit textures with 16 colours each (VDP1 colour '
+        'mode 1). Pixels: two per byte, the high nibble first (the left pixel), rows of `width` pixels, top to '
+        'bottom. Colours: Saturn 16-bit RGB (bits 0-4 red, 5-9 green, 10-14 blue, bit 15 set in every colour), 16 '
+        'per texture, in texture order. In the high-poly textures of five cars (BNR32, BCNR33, PGC10, KPGC110, '
+        '180SX) colour 0 of the rear light texture (the texture of the `bkll` / `bklr` polygons) is pure green, '
+        'the PSX convention for the brake light colour the game writes at run time; the PSX game takes CLUT entries '
+        "of pure green (5-bit red < 2, green > 29, blue < 2), the BCNR33's green is 29. Where the Saturn game "
+        'writes the brake light colours is not known'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         num_textures = (
@@ -278,15 +266,12 @@ def tnfs_saturn_texture_image(bank: dict, index: int):
 
 
 class TnfsSaturnRleImage(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'An 8-bit picture: size, a 256-colour palette (Saturn 16-bit RGB) and run-length encoded '
-            'pixels as in PCX files: a byte from 0xC0 up repeats the next byte (b & 0x3F) times, any other byte is one '
-            'pixel; rows of `width` pixels top to bottom, the runs go on over row ends. The last pixel is followed by '
-            'zeros up to a multiple of 4 bytes (checked)',
-        }
+    block_description = (
+        'An 8-bit picture: size, a 256-colour palette (Saturn 16-bit RGB) and run-length encoded '
+        'pixels as in PCX files: a byte from 0xC0 up repeats the next byte (b & 0x3F) times, any other byte is one '
+        'pixel; rows of `width` pixels top to bottom, the runs go on over row ends. The last pixel is followed by '
+        'zeros up to a multiple of 4 bytes (checked)'
+    )
 
     def __init__(self, data_length, **kwargs):
         super().__init__(**kwargs)
@@ -341,13 +326,10 @@ def tnfs_saturn_rle_image(data: dict):
 
 
 class TnfsSaturnCockpit(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Cockpit view pictures of a car: the dashboard (352x240, colour 0 = the see-through '
-            'windscreen) and the steering wheel (176x176, colour 0 transparent), each after its size',
-        }
+    block_description = (
+        'Cockpit view pictures of a car: the dashboard (352x240, colour 0 = the see-through '
+        'windscreen) and the steering wheel (176x176, colour 0 transparent), each after its size'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         dashboard_size = (
@@ -381,18 +363,15 @@ class TnfsSaturnCockpit(DeclarativeCompoundBlock):
 
 
 class TnfsSaturnCarBundle(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': "Car bundle of the Sega Saturn TNFS port Over Drivin' GT-R: `CARS/<car>.ALL` (the "
-            'first paint, with the cockpit pictures) and `CAR2/<car>.ALL` (the second paint: the same physics and the '
-            'same texture names, other colours and pixels, no cockpit). The executable loads `CARS\\%s.ALL` / '
-            "`CAR2\\%s.ALL` (strings at 0x22330). The file names are the PC cars' (SUPRA = Skyline GT-R PGC10, DIABLO "
-            '= Skyline GT-R BCNR33, PORSCHE = Fairlady Z 240ZG, VETTE = Skyline GT-R KPGC110, TESTA = Fairlady Z 300ZX, '
-            "VIPER = Skyline GT-R BNR32, NSX = 180SX Type X, RX7 = Silvia K's). The car models are in the executable "
-            '(`TnfsSaturnOrixGeometry`)',
-        }
+    block_description = (
+        "Car bundle of the Sega Saturn TNFS port Over Drivin' GT-R: `CARS/<car>.ALL` (the "
+        'first paint, with the cockpit pictures) and `CAR2/<car>.ALL` (the second paint: the same physics and the '
+        'same texture names, other colours and pixels, no cockpit). The executable loads `CARS\\%s.ALL` / '
+        "`CAR2\\%s.ALL` (strings at 0x22330). The file names are the PC cars' (SUPRA = Skyline GT-R PGC10, DIABLO "
+        '= Skyline GT-R BCNR33, PORSCHE = Fairlady Z 240ZG, VETTE = Skyline GT-R KPGC110, TESTA = Fairlady Z 300ZX, '
+        "VIPER = Skyline GT-R BNR32, NSX = 180SX Type X, RX7 = Silvia K's). The car models are in the executable "
+        '(`TnfsSaturnOrixGeometry`)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         physics = (TnfsSaturnCarPhysics(), {'description': 'Player car physics'})
@@ -421,16 +400,13 @@ def is_tnfs_saturn_car_bundle(head: bytes) -> bool:
 
 
 class TnfsSaturnGtrExecutable(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': "The executable `0` of Over Drivin' GT-R (SH-2, big-endian, 598912 bytes, loaded at "
-            '0x06010000: a pointer is 0x06010000 + the file offset). Only the car tables are parsed: the car model '
-            'pointers, the car AI records and their pointers. Also in it: the car models themselves (ORIX, '
-            '`TnfsSaturnOrixGeometry`), the short car names at 0x47df0 (`SILVIA`, `180SX`, `BNR32`, `300ZX`, '
-            '`KPGC110`, `240ZG`, `BCNR33`, `PGC10`) and the names the model loader looks up (0x222c4..0x2242c)',
-        }
+    block_description = (
+        "The executable `0` of Over Drivin' GT-R (SH-2, big-endian, 598912 bytes, loaded at "
+        '0x06010000: a pointer is 0x06010000 + the file offset). Only the car tables are parsed: the car model '
+        'pointers, the car AI records and their pointers. Also in it: the car models themselves (ORIX, '
+        '`TnfsSaturnOrixGeometry`), the short car names at 0x47df0 (`SILVIA`, `180SX`, `BNR32`, `300ZX`, '
+        '`KPGC110`, `240ZG`, `BCNR33`, `PGC10`) and the names the model loader looks up (0x222c4..0x2242c)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         code = (
@@ -502,13 +478,7 @@ def is_tnfs_saturn_gtr_executable(head: bytes) -> bool:
 
 
 class TnfsSaturnPcxListEntry(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A picture of a list: its size and a PCX file',
-            'inline_description': True,
-        }
+    inline_description = 'A picture of a list: its size and a PCX file'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         size = (
@@ -536,16 +506,13 @@ def _pcx_list_amount(ctx) -> Optional[int]:
 
 
 class TnfsSaturnPcxList(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': "Pictures of a car showcase page of Over Drivin' GT-R: `UIDATA/<car>GEN.DAT` (general), "
-            '`<car>MEC.DAT` (mechanical), `<car>PER.DAT` (performance), named after the PC cars (`512` TESTA, `911` '
-            'PORSCHE, `DIA` DIABLO, `NSX`, `RX7`, `SUP` SUPRA, `VIP` VIPER, `ZR1` VETTE). The first picture (320x224) is '
-            'the page background with empty text boxes, the others are photos and panels (192x96, 304x84, 304x52...). '
-            'The car cards are plain PCX files, `UIDATA/<maker>/MAIN.PCX`',
-        }
+    block_description = (
+        "Pictures of a car showcase page of Over Drivin' GT-R: `UIDATA/<car>GEN.DAT` (general), "
+        '`<car>MEC.DAT` (mechanical), `<car>PER.DAT` (performance), named after the PC cars (`512` TESTA, `911` '
+        'PORSCHE, `DIA` DIABLO, `NSX`, `RX7`, `SUP` SUPRA, `VIP` VIPER, `ZR1` VETTE). The first picture (320x224) is '
+        'the page background with empty text boxes, the others are photos and panels (192x96, 304x84, 304x52...). '
+        'The car cards are plain PCX files, `UIDATA/<maker>/MAIN.PCX`'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         pictures = (
@@ -612,15 +579,12 @@ TNFS_SATURN_FRONTEND_PCX_TINTS = {16: [55, 57]}
 
 
 class TnfsSaturnSpriteEntry(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A sprite of a Saturn sprite bank: size, VDP1 draw mode, where its pixels are and its '
-            'palette. The loaders (0x060420f4, 0x06042474) keep the entries in a table of sprites, add 1 to the '
-            'palette (0xFFFF becomes 0) and a VRAM offset to `pixel_offset`; a sprite is drawn with VDP1 colour bank '
-            'CMDCOLR = the colour RAM slot of its palette (0x06042868)',
-        }
+    block_description = (
+        'A sprite of a Saturn sprite bank: size, VDP1 draw mode, where its pixels are and its '
+        'palette. The loaders (0x060420f4, 0x06042474) keep the entries in a table of sprites, add 1 to the '
+        'palette (0xFFFF becomes 0) and a VRAM offset to `pixel_offset`; a sprite is drawn with VDP1 colour bank '
+        'CMDCOLR = the colour RAM slot of its palette (0x06042868)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         flags = (
@@ -667,14 +631,11 @@ class TnfsSaturnSpriteEntry(DeclarativeCompoundBlock):
 
 
 class TnfsSaturnSpriteBank(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': "Sprite bank of Over Drivin' GT-R's menus: the sprite entries, then the pixels of "
-            'all of them (8 bits or 4 bits per pixel, rows of `width_8` x 8 pixels top to bottom). Each sprite ends '
-            'within `pixels`, the last one at its end (checked)',
-        }
+    block_description = (
+        "Sprite bank of Over Drivin' GT-R's menus: the sprite entries, then the pixels of "
+        'all of them (8 bits or 4 bits per pixel, rows of `width_8` x 8 pixels top to bottom). Each sprite ends '
+        'within `pixels`, the last one at its end (checked)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         num_sprites = (
@@ -696,18 +657,15 @@ class TnfsSaturnSpriteBank(DeclarativeCompoundBlock):
 
 
 class TnfsSaturnFontGlyph(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A glyph of the menu font: a sprite entry whose width is in pixels. The font loader '
-            '(0x06041cd4) keeps the width as the advance (one less for most characters), rounds it up to 8 and divides '
-            'it by 8, rounds the height up '
-            'to an even number and adds 7 to the palette. The text renderers (0x060428cc, 0x06042aa4, 0x06042d68, '
-            '0x06042f88) copy the glyph pixels (4 bits, the high nibble first, nibble 0 not drawn) into an 8-bit VDP2 '
-            "bitmap as colour base + nibble (0x90, or the caller's base): their colours are those of the bitmap's "
-            'palette',
-        }
+    block_description = (
+        'A glyph of the menu font: a sprite entry whose width is in pixels. The font loader '
+        '(0x06041cd4) keeps the width as the advance (one less for most characters), rounds it up to 8 and divides '
+        'it by 8, rounds the height up '
+        'to an even number and adds 7 to the palette. The text renderers (0x060428cc, 0x06042aa4, 0x06042d68, '
+        '0x06042f88) copy the glyph pixels (4 bits, the high nibble first, nibble 0 not drawn) into an 8-bit VDP2 '
+        "bitmap as colour base + nibble (0x90, or the caller's base): their colours are those of the bitmap's "
+        'palette'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         flags = (
@@ -742,14 +700,11 @@ class TnfsSaturnFontGlyph(DeclarativeCompoundBlock):
 
 
 class TnfsSaturnFontBank(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': "The menu font of Over Drivin' GT-R: glyph entries, then their pixels. 448 glyphs: "
-            'two fonts (a small one and a big italic one) of 224 characters each, 0x20..0xFF in the Mac OS Roman order '
-            '(glyph = character - 0x20 + font x 224, the text renderers); missing characters are empty boxes',
-        }
+    block_description = (
+        "The menu font of Over Drivin' GT-R: glyph entries, then their pixels. 448 glyphs: "
+        'two fonts (a small one and a big italic one) of 224 characters each, 0x20..0xFF in the Mac OS Roman order '
+        '(glyph = character - 0x20 + font x 224, the text renderers); missing characters are empty boxes'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         num_glyphs = (
@@ -771,16 +726,13 @@ class TnfsSaturnFontBank(DeclarativeCompoundBlock):
 
 
 class TnfsSaturnPaletteTable(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': "The palettes of Over Drivin' GT-R's menus: Saturn 16-bit RGB colours (bits 0-4 red, "
-            '5-9 green, 10-14 blue), 256 per palette. The loader (0x06042198) reads them into its colour buffer from '
-            'colour 256 on, so palette p is runtime palette p + 1 (the numbers the sprite loaders make), and copies '
-            'runtime palettes 1..7 into colour RAM; the others are copied into a free colour RAM slot when drawn '
-            '(0x06046e20). Colour 0 of most palettes is a key colour (green or magenta), transparent where drawn',
-        }
+    block_description = (
+        "The palettes of Over Drivin' GT-R's menus: Saturn 16-bit RGB colours (bits 0-4 red, "
+        '5-9 green, 10-14 blue), 256 per palette. The loader (0x06042198) reads them into its colour buffer from '
+        'colour 256 on, so palette p is runtime palette p + 1 (the numbers the sprite loaders make), and copies '
+        'runtime palettes 1..7 into colour RAM; the others are copied into a free colour RAM slot when drawn '
+        '(0x06046e20). Colour 0 of most palettes is a key colour (green or magenta), transparent where drawn'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         num_colors = (
@@ -818,17 +770,14 @@ def tnfs_saturn_palette_colors(table: dict, palette: int) -> List[int]:
 
 
 class TnfsSaturnFrontendArt(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': "`UIDATA/FRONTEND.DAT` of Over Drivin' GT-R (`UIDATA/GRONTEND.DAT` in a German "
-            'version, 0x060563cc): the menu art, read in this order by 0x060563cc and 0x060568bc. Sprite bank 0 '
-            '(76 sprites: titles, the car pictures, the track pictures, bars, flags, the first opponent pictures) goes '
-            'to VDP1 VRAM, banks 1..3 to memory ("Swapped sprites", copied to VRAM when used; bank 1: the other '
-            'opponent pictures). The PCX files have no palette: theirs are in `palettes` (see '
-            '`TNFS_SATURN_FRONTEND_PCX_PALETTES`). The last bank is the title screen (0x060456b8)',
-        }
+    block_description = (
+        "`UIDATA/FRONTEND.DAT` of Over Drivin' GT-R (`UIDATA/GRONTEND.DAT` in a German "
+        'version, 0x060563cc): the menu art, read in this order by 0x060563cc and 0x060568bc. Sprite bank 0 '
+        '(76 sprites: titles, the car pictures, the track pictures, bars, flags, the first opponent pictures) goes '
+        'to VDP1 VRAM, banks 1..3 to memory ("Swapped sprites", copied to VRAM when used; bank 1: the other '
+        'opponent pictures). The PCX files have no palette: theirs are in `palettes` (see '
+        '`TNFS_SATURN_FRONTEND_PCX_PALETTES`). The last bank is the title screen (0x060456b8)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         sprite_banks = (
@@ -872,14 +821,11 @@ def _sprite_banks_amount(ctx) -> int:
 
 
 class TnfsSaturnSpriteBanks(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Sprite banks back to back up to the end of the file: `UIDATA/SHOWCASE.DAT` of Over '
-            "Drivin' GT-R (3 banks: the car showcase pages' titles, tabs, photos and panels; read by the showcase code "
-            "near 0x0604d5dc). Its palettes are in `UIDATA/FRONTEND.DAT`'s palette table (palettes 16..252)",
-        }
+    block_description = (
+        'Sprite banks back to back up to the end of the file: `UIDATA/SHOWCASE.DAT` of Over '
+        "Drivin' GT-R (3 banks: the car showcase pages' titles, tabs, photos and panels; read by the showcase code "
+        "near 0x0604d5dc). Its palettes are in `UIDATA/FRONTEND.DAT`'s palette table (palettes 16..252)"
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         sprite_banks = (
@@ -1024,17 +970,14 @@ TNFS_SATURN_RLE_PICTURE_WIDTH = 320
 
 
 class TnfsSaturnRlePicture(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': "A 16-bit picture of Over Drivin' GT-R, word run-length encoded: the race loading "
-            'pictures `UIDATA/ELOAD/<car>/1..7.BIN` (`WARRIOR/1..3.BIN`; 1 = 3 = 5 = 7 and 2 = 4 = 6 byte for byte), '
-            '`UIDATA/ELOAD/LOAD.BIN` (0x0604a304) and the credits pages `UIDATA/ECREDITS/01..010.BIN` (0x06063d9c: '
-            '`0%d.BIN`). Runs: a big-endian signed 16-bit n; n < 0: -n literal colours follow, n >= 0: the next '
-            'colour n + 2 times. The colours (Saturn 16-bit RGB, bit 15 clear in every one) make rows of 320 pixels '
-            'top to bottom; every file decodes to exactly `decoded_size` bytes and ends there (checked: 320x224)',
-        }
+    block_description = (
+        "A 16-bit picture of Over Drivin' GT-R, word run-length encoded: the race loading "
+        'pictures `UIDATA/ELOAD/<car>/1..7.BIN` (`WARRIOR/1..3.BIN`; 1 = 3 = 5 = 7 and 2 = 4 = 6 byte for byte), '
+        '`UIDATA/ELOAD/LOAD.BIN` (0x0604a304) and the credits pages `UIDATA/ECREDITS/01..010.BIN` (0x06063d9c: '
+        '`0%d.BIN`). Runs: a big-endian signed 16-bit n; n < 0: -n literal colours follow, n >= 0: the next '
+        'colour n + 2 times. The colours (Saturn 16-bit RGB, bit 15 clear in every one) make rows of 320 pixels '
+        'top to bottom; every file decodes to exactly `decoded_size` bytes and ends there (checked: 320x224)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         magic = (

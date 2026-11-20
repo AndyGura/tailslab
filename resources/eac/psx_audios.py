@@ -41,17 +41,14 @@ def _footer_criteria(ctx, **kwargs):
 
 
 class TnfsPsxPatch(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A patch of a sound bank: the sample (one or two channels) and how the game plays it. '
-            'A voice plays at SPU pitch `pitch` x 2^(cents / 1200), cents = (pitch value - 64) x `bend_range` x 100 '
-            '/ 64 (towards 0) + a random value within +-`random_pitch_range` drawn when it starts (`sfx_voice_start` '
-            '0x800b6274, `math_func_003` 0x800b5fb8; pitch updates FUN_800bb954): the pitch value 0..127 is the '
-            "game's, 64 = `pitch`, e.g. rpm x 127 / (redline + 2000) for the engine loops (`tnfs_sfx_engine_player` "
-            '0x8003c4d0). The SPU plays no faster than pitch 0x4000 (176400 Hz)',
-        }
+    block_description = (
+        'A patch of a sound bank: the sample (one or two channels) and how the game plays it. '
+        'A voice plays at SPU pitch `pitch` x 2^(cents / 1200), cents = (pitch value - 64) x `bend_range` x 100 '
+        '/ 64 (towards 0) + a random value within +-`random_pitch_range` drawn when it starts (`sfx_voice_start` '
+        '0x800b6274, `math_func_003` 0x800b5fb8; pitch updates FUN_800bb954): the pitch value 0..127 is the '
+        "game's, 64 = `pitch`, e.g. rpm x 127 / (redline + 2000) for the engine loops (`tnfs_sfx_engine_player` "
+        '0x8003c4d0). The SPU plays no faster than pitch 0x4000 (176400 Hz)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         sample_offset = (
@@ -155,18 +152,15 @@ class TnfsPsxPatch(DeclarativeCompoundBlock):
 
 
 class TnfsPsxPatchBank(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Sound bank header `Z<bank>.VH` ("PatchBank" resource of the game, magic "BXSP"): '
-            'the patch of each sample id, the samples are in the `.VB` of the same name (`TnfsPsxVagBank`). A race '
-            'loads the player car bank (or two split screen banks), an opponent bank and `ZCOLLISN`; the game finds '
-            'a sound by bank and sample id (FUN_800b5e30), the ids of the PC banks: car banks 1 / 2 the engine loops '
-            '(engine on / engine off; the Japanese disc: three rpm layers 1 / 2 / 3), 3 the horn (the US disc), 0x20 '
-            'the gear shift; opponent banks 0x41 the horn, 0x43 / 0x45 the engine; `ZCOLLISN` the collision bank '
-            'ids. The bank loader FUN_800b90e0 checks both magics and turns the offsets into pointers',
-        }
+    block_description = (
+        'Sound bank header `Z<bank>.VH` ("PatchBank" resource of the game, magic "BXSP"): '
+        'the patch of each sample id, the samples are in the `.VB` of the same name (`TnfsPsxVagBank`). A race '
+        'loads the player car bank (or two split screen banks), an opponent bank and `ZCOLLISN`; the game finds '
+        'a sound by bank and sample id (FUN_800b5e30), the ids of the PC banks: car banks 1 / 2 the engine loops '
+        '(engine on / engine off; the Japanese disc: three rpm layers 1 / 2 / 3), 3 the horn (the US disc), 0x20 '
+        'the gear shift; opponent banks 0x41 the horn, 0x43 / 0x45 the engine; `ZCOLLISN` the collision bank '
+        'ids. The bank loader FUN_800b90e0 checks both magics and turns the offsets into pointers'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(length=4, value_validator=Eq('BXSP')), {'description': 'Resource ID'})
@@ -245,17 +239,14 @@ def _bytes_to_next_sample(ctx) -> int:
 
 
 class TnfsPsxVagSample(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A sample: Sony\'s "VAGp" header (big-endian numbers) and SPU ADPCM data (16-byte '
-            'frames of 28 samples, `library/utils/audio_ps_adpcm_codec.py`), the flags of the frames give the loop: '
-            'looped samples flag every frame 2 (repeat), the loop start frame 6 and the last one 3 (the SPU goes back '
-            'to the loop start after it); one-shots flag frame 1 with 4, end with a frame flagged 1 (the voice stops '
-            'after it) and the frame `00 07 77..`. An item of `TnfsPsxVagBank`, or a file of its own '
-            '(`ZSFXLEVL.VAG` of the Japanese disc, with a CRC footer)',
-        }
+    block_description = (
+        'A sample: Sony\'s "VAGp" header (big-endian numbers) and SPU ADPCM data (16-byte '
+        'frames of 28 samples, `library/utils/audio_ps_adpcm_codec.py`), the flags of the frames give the loop: '
+        'looped samples flag every frame 2 (repeat), the loop start frame 6 and the last one 3 (the SPU goes back '
+        'to the loop start after it); one-shots flag frame 1 with 4, end with a frame flagged 1 (the voice stops '
+        'after it) and the frame `00 07 77..`. An item of `TnfsPsxVagBank`, or a file of its own '
+        '(`ZSFXLEVL.VAG` of the Japanese disc, with a CRC footer)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(length=4, value_validator=Eq('VAGp')), {'description': 'Resource ID'})
@@ -322,14 +313,11 @@ class TnfsPsxVagSample(DeclarativeCompoundBlock):
 
 
 class TnfsPsxVagBank(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Sound bank samples `Z<bank>.VB` (magic "Bgav"): the samples of the patches of the '
-            '`.VH` of the same name (`TnfsPsxPatchBank`), back to back. Converted to a folder with a WAV per sample '
-            'id of the `.VH` (see `TnfsPsxVagBankSerializer`)',
-        }
+    block_description = (
+        'Sound bank samples `Z<bank>.VB` (magic "Bgav"): the samples of the patches of the '
+        '`.VH` of the same name (`TnfsPsxPatchBank`), back to back. Converted to a folder with a WAV per sample '
+        'id of the `.VH` (see `TnfsPsxVagBankSerializer`)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(length=4, value_validator=Eq('Bgav')), {'description': 'Resource ID'})

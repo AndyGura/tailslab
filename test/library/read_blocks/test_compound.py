@@ -100,6 +100,14 @@ class SimpleBlock(DeclarativeCompoundBlock):
         b = IntegerBlock(length=1)
 
 
+class DescribedBlock(SimpleBlock):
+    block_description = 'Two bytes'
+
+
+class InlineDescribedBlock(SimpleBlock):
+    inline_description = 'Two bytes, inline'
+
+
 class BindingBlock(DeclarativeCompoundBlock):
     class Fields(DeclarativeCompoundBlock.Fields):
         header = IntegerBlock(length=1, value_validator=Eq(2)), {'description': 'Some header'}
@@ -219,3 +227,16 @@ class TestDeclarativeCompound(unittest.TestCase):
                 ],
             },
         )
+
+    def test_class_block_description(self):
+        schema = DescribedBlock().schema
+        self.assertEqual(schema['block_description'], 'Two bytes')
+        self.assertFalse(schema['inline_description'])
+        self.assertEqual(SimpleBlock().schema['block_description'], '')
+
+    def test_class_inline_description(self):
+        schema = InlineDescribedBlock().schema
+        self.assertEqual(schema['block_description'], 'Two bytes, inline')
+        self.assertTrue(schema['inline_description'])
+        self.assertEqual(InlineDescribedBlock(inline_description='Given').schema['block_description'], 'Given')
+        self.assertFalse(SimpleBlock().schema['inline_description'])

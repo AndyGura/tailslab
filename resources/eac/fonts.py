@@ -18,16 +18,13 @@ from resources.eac.fields.misc import Point2D
 
 
 class GlyphDefinition(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Glyph definition.<br/>'
-            '- for FNT version < 200 has length 11 bytes.<br/>'
-            '- for versions >= 200 and <= 309 - 12 bytes, last byte is padding.<br/>'
-            '- for versions > 309 - 12th byte is num_kern.<br/>'
-            '- for versions >= 321 it may be 16 bytes if "format" flag is set to 16-bytes',
-        }
+    block_description = (
+        'Glyph definition.<br/>'
+        '- for FNT version < 200 has length 11 bytes.<br/>'
+        '- for versions >= 200 and <= 309 - 12 bytes, last byte is padding.<br/>'
+        '- for versions > 309 - 12th byte is num_kern.<br/>'
+        '- for versions >= 321 it may be 16 bytes if "format" flag is set to 16-bytes'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         code = (IntegerBlock(length=2), {'description': 'Code of symbol'})
@@ -107,12 +104,7 @@ class GlyphDefinition(DeclarativeCompoundBlock):
 
 
 class KerningItem(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Kerning pair: horizontal adjustment of the gap between two specific glyphs',
-        }
+    block_description = 'Kerning pair: horizontal adjustment of the gap between two specific glyphs'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         left = (IntegerBlock(length=2), {'description': 'Code of left glyph'})

@@ -32,9 +32,7 @@ from resources.eac.fields.numbers import IntegerAngleBlock
 
 
 class Nfs6Ps2SceneryHeader(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Scenery header: number of the section it belongs to'}
+    block_description = 'Scenery header: number of the section it belongs to'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034101)), {'description': _CHUNK_ID_DESCR})
@@ -55,9 +53,7 @@ class Nfs6Ps2SceneryHeader(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2SceneryInfo(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Scenery object definition: which mesh to draw'}
+    block_description = 'Scenery object definition: which mesh to draw'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         mesh_ids = (
@@ -78,9 +74,7 @@ class Nfs6Ps2SceneryInfo(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2SceneryInfos(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Scenery object definitions'}
+    block_description = 'Scenery object definitions'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034102)), {'description': _CHUNK_ID_DESCR})
@@ -95,13 +89,10 @@ class Nfs6Ps2SceneryInfos(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2SceneryInstance(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Placed scenery object: world vertex = mesh vertex x rotation + position (rows '
-            'of the matrix the game builds, 0x11c450)',
-        }
+    block_description = (
+        'Placed scenery object: world vertex = mesh vertex x rotation + position (rows '
+        'of the matrix the game builds, 0x11c450)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         bounding_box_min = (
@@ -123,9 +114,7 @@ class Nfs6Ps2SceneryInstance(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2SceneryInstances(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Placed scenery objects'}
+    block_description = 'Placed scenery objects'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034103)), {'description': _CHUNK_ID_DESCR})
@@ -149,13 +138,7 @@ class Nfs6Ps2SceneryInstances(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2Scenery(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Scenery of a section: object definitions referencing meshes by id, and their '
-            'instances',
-        }
+    block_description = 'Scenery of a section: object definitions referencing meshes by id, and their instances'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x80034100)), {'description': _CHUNK_ID_DESCR})
@@ -167,13 +150,10 @@ class Nfs6Ps2Scenery(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2TrackPathRecord(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A path of the track: the race route or a branch of it (TrackPath, 40 bytes; '
-            'TrackPathManager::Loader SLUS_203.62 0x207b28)',
-        }
+    block_description = (
+        'A path of the track: the race route or a branch of it (TrackPath, 40 bytes; '
+        'TrackPathManager::Loader SLUS_203.62 0x207b28)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         path_index = (IntegerBlock(length=1), {'description': 'Index of the path, 0 for the race route'})
@@ -226,9 +206,7 @@ class Nfs6Ps2TrackPathRecord(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2TrackPathHeader(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Track paths: one record per path'}
+    block_description = 'Track paths: one record per path'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034148)), {'description': _CHUNK_ID_DESCR})
@@ -243,9 +221,7 @@ class Nfs6Ps2TrackPathHeader(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2TrackPathPoint(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Point of a track path, on the ground plane'}
+    block_description = 'Point of a track path, on the ground plane'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         x = (DecimalBlock(length=4), {'description': 'X in world coordinates'})
@@ -275,9 +251,7 @@ class Nfs6Ps2TrackPathPoint(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2TrackPathPoints(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Points of the track path'}
+    block_description = 'Points of the track path'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034149)), {'description': _CHUNK_ID_DESCR})
@@ -292,13 +266,10 @@ class Nfs6Ps2TrackPathPoints(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2TrackPath(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Track paths: the race route (path 0) and its branches on the ground plane, a point '
-            'every 20..150 m (loader SLUS_203.62 0x207b28)',
-        }
+    block_description = (
+        'Track paths: the race route (path 0) and its branches on the ground plane, a point '
+        'every 20..150 m (loader SLUS_203.62 0x207b28)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x80034147)), {'description': _CHUNK_ID_DESCR})
@@ -388,9 +359,7 @@ def _plain_chunk_fields(chunk_id: int, items_field: str, item_block, item_size: 
 
 
 class Nfs6Ps2TopologyTreeNode(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Node of the quad tree of the track (TopologyTreeNode)'}
+    block_description = 'Node of the quad tree of the track (TopologyTreeNode)'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         children = (
@@ -403,13 +372,10 @@ class Nfs6Ps2TopologyTreeNode(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2TopologyTreeNodes(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Nodes of the quad tree over the track, node 0 the root over -16384..16384 m in x '
-            'and y, every node reached from it once (TopologyTree::Loader SLUS_203.62 0x152c10)',
-        }
+    block_description = (
+        'Nodes of the quad tree over the track, node 0 the root over -16384..16384 m in x '
+        'and y, every node reached from it once (TopologyTree::Loader SLUS_203.62 0x152c10)'
+    )
 
     Fields = type(
         'Fields',
@@ -419,13 +385,7 @@ class Nfs6Ps2TopologyTreeNodes(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2TopologyTreeSquare(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A 32 m square of the track, a leaf of the quad tree (TopologyTreeSquare): the '
-            'polygons over it',
-        }
+    block_description = 'A 32 m square of the track, a leaf of the quad tree (TopologyTreeSquare): the polygons over it'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         centre = (
@@ -446,12 +406,7 @@ class Nfs6Ps2TopologyTreeSquare(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2TopologyTreeSquares(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Squares of the quad tree over the track (TopologyTree::Loader SLUS_203.62 0x152c10)',
-        }
+    block_description = 'Squares of the quad tree over the track (TopologyTree::Loader SLUS_203.62 0x152c10)'
 
     Fields = type(
         'Fields',
@@ -461,16 +416,13 @@ class Nfs6Ps2TopologyTreeSquares(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2TopologyTreePolygon(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A polygon of the ground or of a wall for the physics (TopologyTreePolygon, 32 bytes; '
-            'TrackPolygon::TrackPolygon SLUS_203.62 0x1514a8). Vertex i = (x[i], y[i], z_base + z[i]), the height '
-            'times 4 with `heights_x4`. Its plane: normal = normalize((v1 - v0) x (v2 - v0)), ground normals point '
-            'up. A point is over it when (b - a) x (p - a) <= 0 for the edges v0 v1, v1 v2, v3 v0 and, for a quad, '
-            'v2 v3 (TopologyCoordinate::GetElevation)',
-        }
+    block_description = (
+        'A polygon of the ground or of a wall for the physics (TopologyTreePolygon, 32 bytes; '
+        'TrackPolygon::TrackPolygon SLUS_203.62 0x1514a8). Vertex i = (x[i], y[i], z_base + z[i]), the height '
+        'times 4 with `heights_x4`. Its plane: normal = normalize((v1 - v0) x (v2 - v0)), ground normals point '
+        'up. A point is over it when (b - a) x (p - a) <= 0 for the edges v0 v1, v1 v2, v3 v0 and, for a quad, '
+        'v2 v3 (TopologyCoordinate::GetElevation)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         visited = (
@@ -529,13 +481,9 @@ class Nfs6Ps2TopologyTreePolygon(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2TopologyTreePolygons(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Polygons of the ground and the walls for the physics (TopologyTree::Loader '
-            'SLUS_203.62 0x152c10)',
-        }
+    block_description = (
+        'Polygons of the ground and the walls for the physics (TopologyTree::Loader SLUS_203.62 0x152c10)'
+    )
 
     Fields = type(
         'Fields',
@@ -545,14 +493,11 @@ class Nfs6Ps2TopologyTreePolygons(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2TopologyTreeIndexes(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': "Polygon indexes of the quad tree's squares, the squares' ranges back to back; their "
-            'sum is the amount of indexes or one less (an unused last index: 4-bytes padding) (TopologyTree::Loader '
-            'SLUS_203.62 0x152c10)',
-        }
+    block_description = (
+        "Polygon indexes of the quad tree's squares, the squares' ranges back to back; their "
+        'sum is the amount of indexes or one less (an unused last index: 4-bytes padding) (TopologyTree::Loader '
+        'SLUS_203.62 0x152c10)'
+    )
 
     Fields = type(
         'Fields',
@@ -562,12 +507,7 @@ class Nfs6Ps2TopologyTreeIndexes(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2TrackPositionMarker(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A named position on the track (TrackPositionMarker, 24 bytes, used in place)',
-        }
+    block_description = 'A named position on the track (TrackPositionMarker, 24 bytes, used in place)'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         list_node = (
@@ -599,13 +539,7 @@ class Nfs6Ps2TrackPositionMarker(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2TrackPositionMarkers(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Named positions on the track: the start grids (LoaderTrackGeometry SLUS_203.62 '
-            '0x153608)',
-        }
+    block_description = 'Named positions on the track: the start grids (LoaderTrackGeometry SLUS_203.62 0x153608)'
 
     Fields = type(
         'Fields',
@@ -615,9 +549,7 @@ class Nfs6Ps2TrackPositionMarkers(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2TrackRoutePoint(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Point of a track route (TrackRoutePoint, 0x70 bytes)'}
+    block_description = 'Point of a track route (TrackRoutePoint, 0x70 bytes)'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (
@@ -671,14 +603,11 @@ def _track_routes_amount(ctx) -> int:
 
 
 class Nfs6Ps2TrackRoute(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A route: a lane of the roads (numbers 1..49) or a racing line (50..; forward under '
-            '60, backward from 60) (TrackRoute, 0x428 bytes and its points; TrackRouteManager::Loader SLUS_203.62 '
-            '0x1c2900)',
-        }
+    block_description = (
+        'A route: a lane of the roads (numbers 1..49) or a racing line (50..; forward under '
+        '60, backward from 60) (TrackRoute, 0x428 bytes and its points; TrackRouteManager::Loader SLUS_203.62 '
+        '0x1c2900)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         list_node = (
@@ -729,13 +658,10 @@ class Nfs6Ps2TrackRoute(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2TrackRoutes(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Routes of the track: lanes and racing lines, used by the AI and to put a car back '
-            'on the road (LoaderTrackRoutes SLUS_203.62 0x1c2f18)',
-        }
+    block_description = (
+        'Routes of the track: lanes and racing lines, used by the AI and to put a car back '
+        'on the road (LoaderTrackRoutes SLUS_203.62 0x1c2f18)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034121)), {'description': _CHUNK_ID_DESCR})
@@ -758,12 +684,7 @@ class Nfs6Ps2TrackRoutes(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2Signpost(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A signpost: where a route point leads to another route (Signpost, 12 bytes)',
-        }
+    block_description = 'A signpost: where a route point leads to another route (Signpost, 12 bytes)'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         route = (
@@ -792,12 +713,7 @@ class Nfs6Ps2Signpost(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2Signposts(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': "Signposts of the track's routes (LoaderTrackRoutes SLUS_203.62 0x1c2f18)",
-        }
+    block_description = "Signposts of the track's routes (LoaderTrackRoutes SLUS_203.62 0x1c2f18)"
 
     Fields = type(
         'Fields',
@@ -819,12 +735,7 @@ _NOT_READ = 'not read (no load of these bytes from a car type pointer in SLUS_20
 
 
 class Nfs6Ps2CarWheel(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A wheel of a car type (WheelInfo, 0x20 bytes; Wheel::Wheel SLUS_203.62 0x1a3f10)',
-        }
+    block_description = 'A wheel of a car type (WheelInfo, 0x20 bytes; Wheel::Wheel SLUS_203.62 0x1a3f10)'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (
@@ -872,13 +783,10 @@ class Nfs6Ps2CarWheel(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2CarTire(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Tyre grip of an axle of a car type (TireInfo, 0x20 bytes; read by Wheel '
-            "SLUS_203.62 0x1a3f10..). The racing cars' HP versions have a little more grip",
-        }
+    block_description = (
+        'Tyre grip of an axle of a car type (TireInfo, 0x20 bytes; read by Wheel '
+        "SLUS_203.62 0x1a3f10..). The racing cars' HP versions have a little more grip"
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         max_slip_angle = (
@@ -922,13 +830,9 @@ class Nfs6Ps2CarTire(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2CarRigidBody(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Mass and inertia of a car type (RigidBodyInfo, 0x50 bytes; RigidBody::RigidBody '
-            'SLUS_203.62 0x19c9b0)',
-        }
+    block_description = (
+        'Mass and inertia of a car type (RigidBodyInfo, 0x50 bytes; RigidBody::RigidBody SLUS_203.62 0x19c9b0)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         mass = (
@@ -963,15 +867,12 @@ class Nfs6Ps2CarRigidBody(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2CarSuspension(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Suspension of an axle of a car type (SuspensionInfo, 0x20 bytes; '
-            'Suspension::ComputeAuxiliaries SLUS_203.62 0x1a5fc0). The force: static load + height x stiffness x '
-            '(1 + progression x max(height, 0)) + velocity x damping + sway bar stiffness x (height - the other '
-            "wheel's height), 0 when negative; heights in m, forces in the game's own scale",
-        }
+    block_description = (
+        'Suspension of an axle of a car type (SuspensionInfo, 0x20 bytes; '
+        'Suspension::ComputeAuxiliaries SLUS_203.62 0x1a5fc0). The force: static load + height x stiffness x '
+        '(1 + progression x max(height, 0)) + velocity x damping + sway bar stiffness x (height - the other '
+        "wheel's height), 0 when negative; heights in m, forces in the game's own scale"
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         progression = (
@@ -1021,16 +922,13 @@ class Nfs6Ps2CarSuspension(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2CarDriveTrain(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Clutch, differentials and gearbox of a car type (DriveTrainInfo, 0x40 bytes; '
-            'DriveTrain::DriveTrain SLUS_203.62 0x18ae70). The automatic gearbox shifts up at the optimum of '
-            'CalculateShiftPoints 0x18ac38 x 0.95 (0x3308ac): from (idle + max rpm) / 2 in 50 rpm steps the first '
-            'rpm where the next gear gives more wheel torque (torque(rpm x next / this) x next / this > torque(rpm)), '
-            'else max rpm - 200; down at 0.95 (0x3308b0) x the shift up rpm of the gear below, in this gear',
-        }
+    block_description = (
+        'Clutch, differentials and gearbox of a car type (DriveTrainInfo, 0x40 bytes; '
+        'DriveTrain::DriveTrain SLUS_203.62 0x18ae70). The automatic gearbox shifts up at the optimum of '
+        'CalculateShiftPoints 0x18ac38 x 0.95 (0x3308ac): from (idle + max rpm) / 2 in 50 rpm steps the first '
+        'rpm where the next gear gives more wheel torque (torque(rpm x next / this) x next / this > torque(rpm)), '
+        'else max rpm - 200; down at 0.95 (0x3308b0) x the shift up rpm of the gear below, in this gear'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         shift_up_fraction = (
@@ -1100,16 +998,13 @@ class Nfs6Ps2CarDriveTrain(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2CarEngine(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Engine of a car type (EngineInfo, 0x40 bytes; Engine::Engine SLUS_203.62 0x18a7e8). '
-            'The curves are tables over evenly spaced rpm from idle_rpm to max_rpm, linear between the points '
-            '(Table::GetValue 0x18f838). Torques in the units of the tonne mass: kN m (the Corvette peaks at 0.62, '
-            "the PC car.ini's torqueCurve at 549 N m). The HP version of a car differs in its torque curve only; "
-            'the engine adds 5 % (0x3308a4) for is_hp',
-        }
+    block_description = (
+        'Engine of a car type (EngineInfo, 0x40 bytes; Engine::Engine SLUS_203.62 0x18a7e8). '
+        'The curves are tables over evenly spaced rpm from idle_rpm to max_rpm, linear between the points '
+        '(Table::GetValue 0x18f838). Torques in the units of the tonne mass: kN m (the Corvette peaks at 0.62, '
+        "the PC car.ini's torqueCurve at 549 N m). The HP version of a car differs in its torque curve only; "
+        'the engine adds 5 % (0x3308a4) for is_hp'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         idle_rpm = (
@@ -1161,13 +1056,9 @@ class Nfs6Ps2CarEngine(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2CarAero(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Aerodynamics of a car type (AeroInfo, 0x10 bytes; Aerodynamics::ResolveForces '
-            'SLUS_203.62 0x1add70)',
-        }
+    block_description = (
+        'Aerodynamics of a car type (AeroInfo, 0x10 bytes; Aerodynamics::ResolveForces SLUS_203.62 0x1add70)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         drag = (
@@ -1199,14 +1090,11 @@ class Nfs6Ps2CarAero(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2CarControls(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Steering, brakes and limits of a car type (ControlInfo, 0x30 bytes; Wheel::Wheel '
-            'SLUS_203.62 0x1a3f10, PhysicsCar::PhysicsCar 0x137100, PhysicsCar::Move, RealDriver::DoSteering '
-            '0x13b630)',
-        }
+    block_description = (
+        'Steering, brakes and limits of a car type (ControlInfo, 0x30 bytes; Wheel::Wheel '
+        'SLUS_203.62 0x1a3f10, PhysicsCar::PhysicsCar 0x137100, PhysicsCar::Move, RealDriver::DoSteering '
+        '0x13b630)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         steering_scale = (
@@ -1275,17 +1163,14 @@ class Nfs6Ps2CarControls(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2CarEngineSound(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Engine sound of a car type (0x90 bytes; the player engine: PlayerEngineSound, its '
-            'sample loader SLUS_203.62 0x20ffc0, UpdateEngine 0x210bf8; the AI engines: AIEngineSound). Zeros on '
-            'traffic. The player engine plays 12 samples <sample_prefix><suffix>: load (throttle) engine lelo lemd '
-            'lehi, load exhaust lxlo lxmd lxhi, coast engine ceid cemd cehi, coast exhaust cxid cxmd cxhi (0x3318f0), '
-            'each at pitch (octaves) = (pitch_offset + sample_pitches[n] + (rpm position 0..127 - 64) x rpm_pitch / '
-            '64) / 1200, rpm position = 127 x min(sound rpm / max_rpm, 1)',
-        }
+    block_description = (
+        'Engine sound of a car type (0x90 bytes; the player engine: PlayerEngineSound, its '
+        'sample loader SLUS_203.62 0x20ffc0, UpdateEngine 0x210bf8; the AI engines: AIEngineSound). Zeros on '
+        'traffic. The player engine plays 12 samples <sample_prefix><suffix>: load (throttle) engine lelo lemd '
+        'lehi, load exhaust lxlo lxmd lxhi, coast engine ceid cemd cehi, coast exhaust cxid cxmd cxhi (0x3318f0), '
+        'each at pitch (octaves) = (pitch_offset + sample_pitches[n] + (rpm position 0..127 - 64) x rpm_pitch / '
+        '64) / 1200, rpm position = 127 x min(sound rpm / max_rpm, 1)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         region = (
@@ -1363,14 +1248,11 @@ class Nfs6Ps2CarEngineSound(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2CarCameraView(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A camera view (POV, 0x20 bytes) of the drive camera (DriveCameraMover::GetPOV '
-            'SLUS_203.62 0x15c528, its update 0x15c880): the eye at (distance, side, -height) from the car before '
-            'the turn by pitch',
-        }
+    block_description = (
+        'A camera view (POV, 0x20 bytes) of the drive camera (DriveCameraMover::GetPOV '
+        'SLUS_203.62 0x15c528, its update 0x15c880): the eye at (distance, side, -height) from the car before '
+        'the turn by pitch'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         type = (
@@ -1400,14 +1282,11 @@ class Nfs6Ps2CarCameraView(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2CarCamera(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Camera views of a car type (CameraInfo, 0x110 bytes; DriveCameraMover::'
-            'DriveCameraMover SLUS_203.62 0x15c258, GetPOV 0x15c528). A car type without views (num_views or '
-            "num_split_screen_views 0: traffic) is driven with car type 0's",
-        }
+    block_description = (
+        'Camera views of a car type (CameraInfo, 0x110 bytes; DriveCameraMover::'
+        'DriveCameraMover SLUS_203.62 0x15c258, GetPOV 0x15c528). A car type without views (num_views or '
+        "num_split_screen_views 0: traffic) is driven with car type 0's"
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         num_views = (IntegerBlock(length=4), {'description': 'Number of views (3; 4 with the in-car view)'})
@@ -1428,14 +1307,11 @@ def _point16() -> Point2D:
 
 
 class Nfs6Ps2CarGauges(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'HUD gauges of a car type (0x50 bytes; set up at SLUS_203.62 0x1796b0, needles '
-            'turned at 0x17f040, the dashboard model 0x123570). Angles in degrees, positions in HUD pixels from '
-            'the top left of the gauge texture 3RDPERSON_<tach_scale_rpm>. Zeros on traffic',
-        }
+    block_description = (
+        'HUD gauges of a car type (0x50 bytes; set up at SLUS_203.62 0x1796b0, needles '
+        'turned at 0x17f040, the dashboard model 0x123570). Angles in degrees, positions in HUD pixels from '
+        'the top left of the gauge texture 3RDPERSON_<tach_scale_rpm>. Zeros on traffic'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         own_overlay = (
@@ -1483,14 +1359,11 @@ class Nfs6Ps2CarGauges(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2CarTypeInfo(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Car type: names, model files, wheels, physics, engine sound, camera views, HUD '
-            "gauges and front end values (CarTypeInfo, 0x560 bytes, the game's car types table, indexed by car "
-            'type: SLUS_203.62 0x11e860, 0x188790; used in place by the physics, PhysicsCar::PhysicsCar 0x137100)',
-        }
+    block_description = (
+        'Car type: names, model files, wheels, physics, engine sound, camera views, HUD '
+        "gauges and front end values (CarTypeInfo, 0x560 bytes, the game's car types table, indexed by car "
+        'type: SLUS_203.62 0x11e860, 0x188790; used in place by the physics, PhysicsCar::PhysicsCar 0x137100)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         name = (
@@ -1697,13 +1570,10 @@ class Nfs6Ps2CarTypeInfo(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2CarTypeInfos(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Car types table (GLOBAL/GLOBALB.LZC chunk 0x34600, 64 car types; LoaderCarInfo '
-            'SLUS_203.62 0x187f98 keeps a pointer to it at 0x330868, the game uses it in place)',
-        }
+    block_description = (
+        'Car types table (GLOBAL/GLOBALB.LZC chunk 0x34600, 64 car types; LoaderCarInfo '
+        'SLUS_203.62 0x187f98 keeps a pointer to it at 0x330868, the game uses it in place)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034600)), {'description': _CHUNK_ID_DESCR})
@@ -1727,14 +1597,11 @@ class Nfs6Ps2CarTypeInfos(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2CarSkin(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A paint of a car type (0x40 bytes; GetSkinInfo SLUS_203.62 0x188180 finds it by car '
-            'type and paint number, else the first one; CarRenderInfo::CarRenderInfo 0x11e860 takes its lighting '
-            'material for the meshes\' material "CARSKIN")',
-        }
+    block_description = (
+        'A paint of a car type (0x40 bytes; GetSkinInfo SLUS_203.62 0x188180 finds it by car '
+        'type and paint number, else the first one; CarRenderInfo::CarRenderInfo 0x11e860 takes its lighting '
+        'material for the meshes\' material "CARSKIN")'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         car_type_index = (IntegerBlock(length=4), {'description': 'Index of the car type in the car types table'})
@@ -1769,13 +1636,10 @@ class Nfs6Ps2CarSkin(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2CarSkins(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Paints of the car types (GLOBAL/GLOBALB.LZC chunk 0x34601; LoaderCarInfo '
-            'SLUS_203.62 0x187f98: pointer 0x33086c, count 0x330870)',
-        }
+    block_description = (
+        'Paints of the car types (GLOBAL/GLOBALB.LZC chunk 0x34601; LoaderCarInfo '
+        'SLUS_203.62 0x187f98: pointer 0x33086c, count 0x330870)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034601)), {'description': _CHUNK_ID_DESCR})
@@ -1810,16 +1674,13 @@ NFS6_PS2_BUNDLE_CHUNK_BLOCKS = [
 
 
 class Nfs6Ps2ChunkBundle(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS Hot Pursuit 2 (PS2) chunk bundle (*.BUN, *.BIN, uncompressed *.LZC): a '
-            'sequence of chunks, each having 32-bit id, 32-bit payload length and payload; chunks with the highest '
-            'bit of id set are containers of other chunks. Mesh packs, texture packs, sceneries, the physics data '
-            '(track paths and routes, start grid markers, ground polygons, collision volumes, car types) and the '
-            'lighting materials and paints are decoded, other chunks are kept as raw bytes',
-        }
+    block_description = (
+        'NFS Hot Pursuit 2 (PS2) chunk bundle (*.BUN, *.BIN, uncompressed *.LZC): a '
+        'sequence of chunks, each having 32-bit id, 32-bit payload length and payload; chunks with the highest '
+        'bit of id set are containers of other chunks. Mesh packs, texture packs, sceneries, the physics data '
+        '(track paths and routes, start grid markers, ground polygons, collision volumes, car types) and the '
+        'lighting materials and paints are decoded, other chunks are kept as raw bytes'
+    )
 
     def serializer_class(self):
         from serializers.nfs6_ps2_car_specs import Nfs6Ps2ChunkBundleSerializer

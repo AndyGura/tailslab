@@ -219,6 +219,32 @@ NEXT_OFFSET_DESCRIPTION = (
 
 
 class ShpiHotSpots(DeclarativeCompoundBlock):
+    block_description = (
+        'A list of hot spots: points of interest of the bitmap it is attached to (after the '
+        'bitmap and its embedded palette), the index of a point gives its meaning. Many bitmaps of menus, track '
+        '(FAM) and car (CFM) textures have an empty list, others in the same files have none, and 1x1 '
+        'placeholder bitmaps of dashboards have copies of the list of another bitmap. TNFS reads it in the dashboard loader only '
+        '(DOS `tnfs_dash_000522be`, Win95 SE FUN_0041f9a0, the demo `tnfs_dashboard_load`; PSX and 3DO do not '
+        'read FSH dashboards), from four bitmaps of `SIMDATA/DASH/*DH.FSH` / `*DL.FSH`:<br/>'
+        '- `dash`: 10 points. 0, 1 = top left and bottom right corners of the rear-view mirror; 2 = radar '
+        'detector power light; 3..7 = the 5 radar detector level lights; 8, 9 = the loader turns them into '
+        'offsets from 2 and 3, nothing reads them<br/>'
+        '- `tach`: tachometer needle tip at 0, 1024, 2048... RPM, the last point is the needle centre. The '
+        'needle (Win95 SE FUN_00420d0c) is a line from the centre to a tip interpolated linearly between '
+        'consecutive points: index = RPM >> 10, fraction = (RPM & 1023) / 1024. Nothing clamps the index to the '
+        'list<br/>'
+        '- `sped`: speedometer needle tip at 0, 10, 20... mph (0, 20, 40... km/h in the German version), the '
+        'last point is the needle centre. Drawn as `tach`, from the speed rounded to whole mph (km/h): index = '
+        'speed / 10 (/ 20), fraction = remainder / 10 (/ 20), the index not clamped either. The loader '
+        'overwrites point 12 with the midpoint of points 11 and 13 (integer division) for every car: in '
+        '`SIMDATA/DASH` and `SIMDATA/GDASH` `TSUPRADH.FSH`, `DVIPERDH.FSH` and `CZR1DH.FSH` point 12 holds '
+        'garbage (x values like 1684369933). The cars with a digital speedometer draw digits instead<br/>'
+        '- `gate`: gear lever knob position for every gear: 0 = reverse, 1 = neutral, then gears from 1st: 7 or 8 '
+        'points. The game reads 9 points (a 9th, where present, is at the corner of the bitmap)<br/>'
+        'The game walks the attached blocks until it finds 0x7C, so it hangs when one of these bitmaps has '
+        'no hot spots'
+    )
+
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (IntegerBlock(length=1, value_validator=Eq(0x7C)), {'description': 'Resource ID'})
         next_offset = (
@@ -236,47 +262,15 @@ class ShpiHotSpots(DeclarativeCompoundBlock):
             },
         )
 
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A list of hot spots: points of interest of the bitmap it is attached to (after the '
-            'bitmap and its embedded palette), the index of a point gives its meaning. Many bitmaps of menus, track '
-            '(FAM) and car (CFM) textures have an empty list, others in the same files have none, and 1x1 '
-            'placeholder bitmaps of dashboards have copies of the list of another bitmap. TNFS reads it in the dashboard loader only '
-            '(DOS `tnfs_dash_000522be`, Win95 SE FUN_0041f9a0, the demo `tnfs_dashboard_load`; PSX and 3DO do not '
-            'read FSH dashboards), from four bitmaps of `SIMDATA/DASH/*DH.FSH` / `*DL.FSH`:<br/>'
-            '- `dash`: 10 points. 0, 1 = top left and bottom right corners of the rear-view mirror; 2 = radar '
-            'detector power light; 3..7 = the 5 radar detector level lights; 8, 9 = the loader turns them into '
-            'offsets from 2 and 3, nothing reads them<br/>'
-            '- `tach`: tachometer needle tip at 0, 1024, 2048... RPM, the last point is the needle centre. The '
-            'needle (Win95 SE FUN_00420d0c) is a line from the centre to a tip interpolated linearly between '
-            'consecutive points: index = RPM >> 10, fraction = (RPM & 1023) / 1024. Nothing clamps the index to the '
-            'list<br/>'
-            '- `sped`: speedometer needle tip at 0, 10, 20... mph (0, 20, 40... km/h in the German version), the '
-            'last point is the needle centre. Drawn as `tach`, from the speed rounded to whole mph (km/h): index = '
-            'speed / 10 (/ 20), fraction = remainder / 10 (/ 20), the index not clamped either. The loader '
-            'overwrites point 12 with the midpoint of points 11 and 13 (integer division) for every car: in '
-            '`SIMDATA/DASH` and `SIMDATA/GDASH` `TSUPRADH.FSH`, `DVIPERDH.FSH` and `CZR1DH.FSH` point 12 holds '
-            'garbage (x values like 1684369933). The cars with a digital speedometer draw digits instead<br/>'
-            '- `gate`: gear lever knob position for every gear: 0 = reverse, 1 = neutral, then gears from 1st: 7 or 8 '
-            'points. The game reads 9 points (a 9th, where present, is at the corner of the bitmap)<br/>'
-            'The game walks the attached blocks until it finds 0x7C, so it hangs when one of these bitmaps has '
-            'no hot spots',
-        }
-
 
 class ShpiText(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Text attached to an SHPI image. In the NFS3 / NFS4 sky archives (`SKY.FSH`, '
-            '`sky.qfs`) the `SUN*` images carry the sun sprite settings: the numbers after `A` (azimuth, degrees), '
-            "`B` and `R` (the sprite's corners are 10 * R from its centre) and the words `ROTATE`, `NOADD` (not "
-            'additive), `INFRONT` (drawn after the clouds) (nfs3.exe 0x47a970, nfs4.exe 0x4c9050, which reads it '
-            'only when `Tr.ini` has no `hasSun=1`). Elsewhere the purpose is unclear',
-        }
+    block_description = (
+        'Text attached to an SHPI image. In the NFS3 / NFS4 sky archives (`SKY.FSH`, '
+        '`sky.qfs`) the `SUN*` images carry the sun sprite settings: the numbers after `A` (azimuth, degrees), '
+        "`B` and `R` (the sprite's corners are 10 * R from its centre) and the words `ROTATE`, `NOADD` (not "
+        'additive), `INFRONT` (drawn after the clouds) (nfs3.exe 0x47a970, nfs4.exe 0x4c9050, which reads it '
+        'only when `Tr.ini` has no `hasSun=1`). Elsewhere the purpose is unclear'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (IntegerBlock(length=1, value_validator=Eq(0x6F)), {'description': 'Resource ID'})

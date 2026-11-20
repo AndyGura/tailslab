@@ -76,13 +76,7 @@ class Quaternion(CompoundBlock):
 
 
 class RGBBlock(CompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Color RGB values',
-            'inline_description': True,
-        }
+    inline_description = 'Color RGB values'
 
     def __init__(self, **kwargs):
         child = IntegerBlock(length=1, is_signed=False)

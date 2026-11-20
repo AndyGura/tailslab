@@ -1,5 +1,3 @@
-from typing import Dict
-
 from library.read_blocks import (
     DeclarativeCompoundBlock,
     IntegerBlock,
@@ -76,12 +74,7 @@ def _device_description(kind):
 
 
 class TnfsReplayPlayer(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Settings of one player, 0x4b bytes',
-        }
+    block_description = 'Settings of one player, 0x4b bytes'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk0 = (BytesBlock(length=2), {'is_unknown': True, 'description': '0 in every file'})
@@ -148,12 +141,7 @@ class TnfsReplayPlayer(DeclarativeCompoundBlock):
 
 
 class TnfsReplaySetup(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Settings of the race the replay was recorded in, 0x348 bytes',
-        }
+    block_description = 'Settings of the race the replay was recorded in, 0x348 bytes'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk0 = (BytesBlock(length=2), {'is_unknown': True})
@@ -256,12 +244,7 @@ class TnfsReplaySetup(DeclarativeCompoundBlock):
 
 
 class TnfsReplayHighlightClip(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Interesting part of the race to be shown on the replay summary',
-        }
+    block_description = 'Interesting part of the race to be shown on the replay summary'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         start_clock = (_int(), {'description': 'Clock of the clip start'})
@@ -270,17 +253,14 @@ class TnfsReplayHighlightClip(DeclarativeCompoundBlock):
 
 
 class TnfsReplayHighlights(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Highlights of the race, found by the game during the race, 0x9a4 bytes. Highlight '
-            'scores: rollover 0x5c, landing after more than 10 simulation ticks (1/3 s) airborne 0x54, hard fence '
-            'hit 0x32, sideways / spin 0x57, fast skid 0x28, first move 0x78, race order swap 0x50, cop spun out '
-            '0x52, car-car hit from the table at SE 0x4b909c (20 30 32 34 60 70 80 0 37 38 38 39 92 95 98 0; index '
-            '+1 when the car in slot 2 is involved, +2 when the car of the pointer at DOS 0x153bc4 (second player '
-            'car?) is involved, +4 when a player is involved, +8 for a crash)',
-        }
+    block_description = (
+        'Highlights of the race, found by the game during the race, 0x9a4 bytes. Highlight '
+        'scores: rollover 0x5c, landing after more than 10 simulation ticks (1/3 s) airborne 0x54, hard fence '
+        'hit 0x32, sideways / spin 0x57, fast skid 0x28, first move 0x78, race order swap 0x50, cop spun out '
+        '0x52, car-car hit from the table at SE 0x4b909c (20 30 32 34 60 70 80 0 37 38 38 39 92 95 98 0; index '
+        '+1 when the car in slot 2 is involved, +2 when the car of the pointer at DOS 0x153bc4 (second player '
+        'car?) is involved, +4 when a player is involved, +8 for a crash)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         clips = (
@@ -344,12 +324,7 @@ class TnfsReplayHighlights(DeclarativeCompoundBlock):
 
 
 class TnfsReplayCollisionData(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Rigid body of the car for the crash model and the collisions, 0x94 bytes',
-        }
+    block_description = 'Rigid body of the car for the crash model and the collisions, 0x94 bytes'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         matrix = (ArrayBlock(child=_fixed(), length=9), {'description': 'Rotation matrix'})
@@ -378,15 +353,12 @@ class TnfsReplayCollisionData(DeclarativeCompoundBlock):
 
 
 class TnfsReplayCarState(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Physics state of a car, copied from the car data structure (0x168 bytes). Field '
-            'names are the names of the car data fields in the game code. Restoring it (SE 0x44dd9c) also zeroes '
-            '`slide_front` / `slide_rear` and recomputes `track_slice_lap`; a player restore sets `tire_skid_front` '
-            'to 0 and `tire_skid_rear` to 0 or 2',
-        }
+    block_description = (
+        'Physics state of a car, copied from the car data structure (0x168 bytes). Field '
+        'names are the names of the car data fields in the game code. Restoring it (SE 0x44dd9c) also zeroes '
+        '`slide_front` / `slide_rear` and recomputes `track_slice_lap`; a player restore sets `tire_skid_front` '
+        'to 0 and `tire_skid_rear` to 0 or 2'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         control_handler = (_int(), {'description': 'Control handler: 1 player, 2 AI'})
@@ -435,12 +407,7 @@ class TnfsReplayCarState(DeclarativeCompoundBlock):
 
 
 class TnfsReplayPlayerFrame(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'State of a car driven by a player, 0x1a4 bytes',
-        }
+    block_description = 'State of a car driven by a player, 0x1a4 bytes'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         car = (TnfsReplayCarState(), {})
@@ -481,13 +448,10 @@ class TnfsReplayPlayerFrame(DeclarativeCompoundBlock):
 
 
 class TnfsReplayOtherFrame(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'State of a car that is not driven by a player (its index is not less than the '
-            'number of players), 0x172 bytes. Slots go in the order of the car indexes',
-        }
+    block_description = (
+        'State of a car that is not driven by a player (its index is not less than the '
+        'number of players), 0x172 bytes. Slots go in the order of the car indexes'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         car = (TnfsReplayCarState(), {})
@@ -498,19 +462,16 @@ class TnfsReplayOtherFrame(DeclarativeCompoundBlock):
 
 
 class TnfsReplayRecording(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Replay recording buffer (0x15e00 bytes), circular. A replay is played by '
-            'restoring the state of the cars from a keyframe and then simulating the game with the recorded '
-            'controls. Control words are built by SE 0x43915c and decoded by SE 0x438f00 (DOS 0x5e9c9). Bits 0-5: '
-            'steering (keyboard: 0 left, 0x20 centre, 0x3c right; joystick: `g_joy_x` + 0x20); bits 6-11: '
-            'throttle / brake axis (keyboard: 0x1e released, 5 throttle, 0x3c brake, brake wins when both are '
-            'pressed; joystick: `g_joy_y` + 0x1e); bit 12 shift up, bit 13 shift down, bit 14 horn, bit 15 '
-            'handbrake. The neutral word 0x7a0 is forced before clock 0x78, a disconnected linked player gets '
-            '0xffff87a0',
-        }
+    block_description = (
+        'Replay recording buffer (0x15e00 bytes), circular. A replay is played by '
+        'restoring the state of the cars from a keyframe and then simulating the game with the recorded '
+        'controls. Control words are built by SE 0x43915c and decoded by SE 0x438f00 (DOS 0x5e9c9). Bits 0-5: '
+        'steering (keyboard: 0 left, 0x20 centre, 0x3c right; joystick: `g_joy_x` + 0x20); bits 6-11: '
+        'throttle / brake axis (keyboard: 0x1e released, 5 throttle, 0x3c brake, brake wins when both are '
+        'pressed; joystick: `g_joy_y` + 0x1e); bit 12 shift up, bit 13 shift down, bit 14 horn, bit 15 '
+        'handbrake. The neutral word 0x7a0 is forced before clock 0x78, a disconnected linked player gets '
+        '0xffff87a0'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         controls_low = (
@@ -546,12 +507,7 @@ class TnfsReplayRecording(DeclarativeCompoundBlock):
 
 
 class TnfsReplayWorldKeyframe(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Race state that is not stored in the cars, taken with every keyframe, 0xa2 bytes',
-        }
+    block_description = 'Race state that is not stored in the cars, taken with every keyframe, 0xa2 bytes'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         handler_order = (ArrayBlock(child=_int(), length=REPLAY_CARS), {'description': 'Car handler order'})
@@ -592,12 +548,7 @@ class TnfsReplayWorldKeyframe(DeclarativeCompoundBlock):
 
 
 class TnfsReplayWorldState(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'State of the race that is not stored in the cars, 0xcc8 bytes',
-        }
+    block_description = 'State of the race that is not stored in the cars, 0xcc8 bytes'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk0 = (_int(), {'is_unknown': True, 'description': '0 in every file'})
@@ -624,12 +575,7 @@ class TnfsReplayWorldState(DeclarativeCompoundBlock):
 
 
 class TnfsReplayStats(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Race stats of one car, 0x1d2 bytes. Times are in clock units (1/60 of second)',
-        }
+    block_description = 'Race stats of one car, 0x1d2 bytes. Times are in clock units (1/60 of second)'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         lap_times = (
@@ -664,16 +610,13 @@ class TnfsReplayStats(DeclarativeCompoundBlock):
 
 
 class TnfsReplay(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Replay of the race, saved in `GAMEDATA\\REPLAY`. Reverse engineered from the '
-            "decompiled game code, the cars' states are copied from its physics data structures. The 4 replays "
-            'REPLAY, REPLAY1, REPLAY2 and REPLAY3 are the replays of the game that cannot be replaced. Time values '
-            'are in units of the 60/s game clock, which starts at 300 (5 s) for the race. The recording buffer is '
-            'circular (8 minutes) and not cleared between races: data past `world_state.end_clock` is stale',
-        }
+    block_description = (
+        'Replay of the race, saved in `GAMEDATA\\REPLAY`. Reverse engineered from the '
+        "decompiled game code, the cars' states are copied from its physics data structures. The 4 replays "
+        'REPLAY, REPLAY1, REPLAY2 and REPLAY3 are the replays of the game that cannot be replaced. Time values '
+        'are in units of the 60/s game clock, which starts at 300 (5 s) for the race. The recording buffer is '
+        'circular (8 minutes) and not cleared between races: data past `world_state.end_clock` is stale'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         setup = (TnfsReplaySetup(), {'description': 'Race settings'})

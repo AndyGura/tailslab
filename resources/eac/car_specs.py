@@ -64,24 +64,21 @@ def _uint(**kwargs):
 
 
 class PlayerCarPhysics(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Player car physics: the full physics specification of a car the player can drive '
-            '(`SIMDATA/CARSPECS/'
-            '*.PBS`, QFS-compressed, 1912 bytes uncompressed). Loaded by `Fiziks_PreInitCar` (SE 0x4400f4, DOS '
-            '0x63e72, PSX 0x80038ea4); the game keeps the same layout in memory (DOS, SE, PSX). Readers are named '
-            'as in [tnfs-1995](https://github.com/marcos2250/tnfs-1995) with Win95 SE addresses; "not read" = no '
-            'reader in the DOS, SE and PSX executables. Physics ticks are 1/30 s, angles are 24-bit (0x1000000 = '
-            'full turn). Rally mode changes some fields in memory after loading (DOS, SE): rear grip table := '
-            'front, `unknown_0x320` and `thrust_scale` halved and their inverses recomputed, `friction_f/r` and '
-            '`max_brake_force_1/2` halved, `cog_height` x 1.5, `efficiency` x 0x14c/256 on track 3, else x '
-            '0x133/256. PSX rally: `lat_acc_cutoff` x 0.625, `cog_height` x 7/4, `efficiency` x a per-track value, '
-            '`drive_bias` = 0.5. Thanks to [Five-Damned-Dollarz](https://gist.github.com/Five-Damned-Dollarz/'
-            '99e955994ebbcf970532406a197b580e) and [marcos2250](https://github.com/marcos2250/tnfs-1995/blob/main/'
-            'tnfs_files.c)',
-        }
+    block_description = (
+        'Player car physics: the full physics specification of a car the player can drive '
+        '(`SIMDATA/CARSPECS/'
+        '*.PBS`, QFS-compressed, 1912 bytes uncompressed). Loaded by `Fiziks_PreInitCar` (SE 0x4400f4, DOS '
+        '0x63e72, PSX 0x80038ea4); the game keeps the same layout in memory (DOS, SE, PSX). Readers are named '
+        'as in [tnfs-1995](https://github.com/marcos2250/tnfs-1995) with Win95 SE addresses; "not read" = no '
+        'reader in the DOS, SE and PSX executables. Physics ticks are 1/30 s, angles are 24-bit (0x1000000 = '
+        'full turn). Rally mode changes some fields in memory after loading (DOS, SE): rear grip table := '
+        'front, `unknown_0x320` and `thrust_scale` halved and their inverses recomputed, `friction_f/r` and '
+        '`max_brake_force_1/2` halved, `cog_height` x 1.5, `efficiency` x 0x14c/256 on track 3, else x '
+        '0x133/256. PSX rally: `lat_acc_cutoff` x 0.625, `cog_height` x 7/4, `efficiency` x a per-track value, '
+        '`drive_bias` = 0.5. Thanks to [Five-Damned-Dollarz](https://gist.github.com/Five-Damned-Dollarz/'
+        '99e955994ebbcf970532406a197b580e) and [marcos2250](https://github.com/marcos2250/tnfs-1995/blob/main/'
+        'tnfs_files.c)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         mass_front = (
@@ -535,15 +532,12 @@ class PlayerCarPhysics(DeclarativeCompoundBlock):
 
 
 class CarAiAndCrashBody(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Car AI and crash body: the AI driving model and the collision body of a car '
-            '(`SIMDATA/CARFAMS/*.PDN`, QFS-compressed, 460 bytes uncompressed), one per car slot, player included. '
-            'Loaded by `tnfs_ai_pdn_file` (SE 0x40fa3c, DOS 0x47425, PSX 0x8001eaa8), applied by `tnfs_ai_init_car` '
-            '(SE 0x4407b8). Angles are 24-bit (0x1000000 = full turn)',
-        }
+    block_description = (
+        'Car AI and crash body: the AI driving model and the collision body of a car '
+        '(`SIMDATA/CARFAMS/*.PDN`, QFS-compressed, 460 bytes uncompressed), one per car slot, player included. '
+        'Loaded by `tnfs_ai_pdn_file` (SE 0x40fa3c, DOS 0x47425, PSX 0x8001eaa8), applied by `tnfs_ai_init_car` '
+        '(SE 0x4407b8). Angles are 24-bit (0x1000000 = full turn)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         half_width = (
@@ -841,20 +835,17 @@ _TNFS_3DO_DESCRIPTIONS = {
 
 
 class Tnfs3doCarPhysics(PlayerCarPhysics):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Player car physics of TNFS 3DO (`DriveData/CarData/*.BigSpecsFam`, 1892 bytes): a '
-            'big-endian wwww archive of three items, the physics fields (0x350 bytes) and the front and rear grip '
-            'tables. The physics fields are the PC `PlayerCarPhysics` (PBS) layout without `max_brake_force_2` and '
-            '`gear_efficiency`, the grip tables are the same, there is no checksum. Readers are named as in the '
-            '3DO `LaunchMe` executable (raw ARM binary, address = file offset) of '
-            '[tnfs-1995](https://github.com/marcos2250/tnfs-1995); "not read" = no reader there. The file is '
-            'loaded by `tnfs_carspecs_002` (0x16de0) for player 1; in a debug mode the game instead compiles a '
-            'text `<car>.spec` (`tnfs_car_specs` 0x1f8c, which computes the derived fields) and writes it as '
-            '`<car>.SpecsBin`. Physics ticks are 1/30 s, angles are 24-bit (0x1000000 = full turn)',
-        }
+    block_description = (
+        'Player car physics of TNFS 3DO (`DriveData/CarData/*.BigSpecsFam`, 1892 bytes): a '
+        'big-endian wwww archive of three items, the physics fields (0x350 bytes) and the front and rear grip '
+        'tables. The physics fields are the PC `PlayerCarPhysics` (PBS) layout without `max_brake_force_2` and '
+        '`gear_efficiency`, the grip tables are the same, there is no checksum. Readers are named as in the '
+        '3DO `LaunchMe` executable (raw ARM binary, address = file offset) of '
+        '[tnfs-1995](https://github.com/marcos2250/tnfs-1995); "not read" = no reader there. The file is '
+        'loaded by `tnfs_carspecs_002` (0x16de0) for player 1; in a debug mode the game instead compiles a '
+        'text `<car>.spec` (`tnfs_car_specs` 0x1f8c, which computes the derived fields) and writes it as '
+        '`<car>.SpecsBin`. Physics ticks are 1/30 s, angles are 24-bit (0x1000000 = full turn)'
+    )
 
     Fields = _tnfs_3do_car_physics_fields()
 
@@ -864,29 +855,26 @@ def _u8_curve(description: str):
 
 
 class Nfs2CarPhysics(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS2 / NFS2 SE car physics, 356 bytes: `p<car>.dat` in '
-            '`GAMEDATA/SIM/CARDATA/CARDATA.VIV`, what nfs2sen.exe / nfs2sea.exe load; the loose '
-            '`GAMEDATA/SIM/CARDATA/P*.DAT` are identical copies. `P*.QDA` next to them are compressed copies '
-            '(QFS3 or RefPack, `EacCompressedBlock`): in NFS2 SE older versions of the racers and copies of the traffic '
-            'cars, in NFS2 (not SE, which has no `CARDATA.VIV`) the only copies. The `GAMEDATA/CARMODEL/PC/P*.DAT` '
-            'files have the same layout but other values and are not loaded. `Car_Init` (nfs2sen.exe 0x43e2e0) loads '
-            'the file of every race car with 0x459970 into its specs (0x1dc bytes behind the pointer car+0x2ec), reading '
-            'it as a raw little-endian stream (udff.c readers 0x4628a0 for 4-byte values, 0x462850 for bytes). The '
-            'specs have the file layout, except that the loader swaps `gas_off_factor` and `g_transfer_factor`; '
-            '`Physics_DeriveHumanSpecs` (0x459560, human cars only) adds derived values from specs+0x164 on: 1 / redline, the '
-            "gears' top speeds, 1 / ratio and drive per N·m, the largest torque, the simulation air drag, the yaw "
-            'lever arm and the inverse grip multiplier. Only the human cars drive with these values: `Physics_CarUpdate` '
-            '0x455140 runs `Physics_Arcade` 0x4526a0 (arcade style and Wild) or `Physics_Sim` 0x455370 (simulation '
-            'style); AI racers and traffic drive with their AI data (`Nfs2CarAi`), only their engine sound reads the '
-            "redline. Field names, types and order come from the developers' field descriptions `P*.DES` next to the "
-            'loose files (`EaFieldDescriptions`: `Fixed` = 16.16 fixed point, `Integer` = int, `Array` = 4-byte '
-            'elements, `CArray` = bytes), which also embed a copy of the file. Ranges in the descriptions are those of '
-            "the game's 146 files (NFS2 and NFS2 SE, loose, `.QDA` and `CARDATA.VIV`)",
-        }
+    block_description = (
+        'NFS2 / NFS2 SE car physics, 356 bytes: `p<car>.dat` in '
+        '`GAMEDATA/SIM/CARDATA/CARDATA.VIV`, what nfs2sen.exe / nfs2sea.exe load; the loose '
+        '`GAMEDATA/SIM/CARDATA/P*.DAT` are identical copies. `P*.QDA` next to them are compressed copies '
+        '(QFS3 or RefPack, `EacCompressedBlock`): in NFS2 SE older versions of the racers and copies of the traffic '
+        'cars, in NFS2 (not SE, which has no `CARDATA.VIV`) the only copies. The `GAMEDATA/CARMODEL/PC/P*.DAT` '
+        'files have the same layout but other values and are not loaded. `Car_Init` (nfs2sen.exe 0x43e2e0) loads '
+        'the file of every race car with 0x459970 into its specs (0x1dc bytes behind the pointer car+0x2ec), reading '
+        'it as a raw little-endian stream (udff.c readers 0x4628a0 for 4-byte values, 0x462850 for bytes). The '
+        'specs have the file layout, except that the loader swaps `gas_off_factor` and `g_transfer_factor`; '
+        '`Physics_DeriveHumanSpecs` (0x459560, human cars only) adds derived values from specs+0x164 on: 1 / redline, the '
+        "gears' top speeds, 1 / ratio and drive per N·m, the largest torque, the simulation air drag, the yaw "
+        'lever arm and the inverse grip multiplier. Only the human cars drive with these values: `Physics_CarUpdate` '
+        '0x455140 runs `Physics_Arcade` 0x4526a0 (arcade style and Wild) or `Physics_Sim` 0x455370 (simulation '
+        'style); AI racers and traffic drive with their AI data (`Nfs2CarAi`), only their engine sound reads the '
+        "redline. Field names, types and order come from the developers' field descriptions `P*.DES` next to the "
+        'loose files (`EaFieldDescriptions`: `Fixed` = 16.16 fixed point, `Integer` = int, `Array` = 4-byte '
+        'elements, `CArray` = bytes), which also embed a copy of the file. Ranges in the descriptions are those of '
+        "the game's 146 files (NFS2 and NFS2 SE, loose, `.QDA` and `CARDATA.VIV`)"
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         mass = (
@@ -1175,19 +1163,16 @@ def _des(text: str, more: str = ''):
 
 
 class Nfs2SimTuneGlueLogic(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A pair of the "GLUE LOGIC" values (`.DES` headings "SIM GLUE LOGIC" / "ARCADE '
-            'GLUE LOGIC"): slice distance and speed boost multiplier, stored one after the other in the file. The loader '
-            '(nfs2sen.exe 0x43e1f4..0x43e213) puts the slice distance of pair k (0..3) at record+0x54 + 4k and '
-            'the multiplier at record+0x64 + 4k. The catch-up of human cars (`Race_HumanGlue` 0x4619b0, every '
-            'standings update, only with game setup 0x4df530 on; in multiplayer (comm mode > 0) the humans move with '
-            'the integrator 0x441670 that multiplies their velocity by it, car+0x218) gives a human whose race progress '
-            '(car+0x220) is d slices behind the leading race car the multiplier of the last pair whose distance d '
-            'reaches, 1.0 below the first distance; car type 36 always 1.0',
-        }
+    block_description = (
+        'A pair of the "GLUE LOGIC" values (`.DES` headings "SIM GLUE LOGIC" / "ARCADE '
+        'GLUE LOGIC"): slice distance and speed boost multiplier, stored one after the other in the file. The loader '
+        '(nfs2sen.exe 0x43e1f4..0x43e213) puts the slice distance of pair k (0..3) at record+0x54 + 4k and '
+        'the multiplier at record+0x64 + 4k. The catch-up of human cars (`Race_HumanGlue` 0x4619b0, every '
+        'standings update, only with game setup 0x4df530 on; in multiplayer (comm mode > 0) the humans move with '
+        'the integrator 0x441670 that multiplies their velocity by it, car+0x218) gives a human whose race progress '
+        '(car+0x220) is d slices behind the leading race car the multiplier of the last pair whose distance d '
+        'reaches, 1.0 below the first distance; car type 36 always 1.0'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         slice_distance = (
@@ -1209,18 +1194,15 @@ class Nfs2SimTuneGlueLogic(DeclarativeCompoundBlock):
 
 
 class Nfs2SimTuneRecord(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Tuning values of one game style, 0x74 bytes: 21 values, then 4 glue logic pairs. '
-            'In memory (nfs2sen.exe 0x4df0a8 + style * 0x74, read for the current game style 0x4df524) the first 21 '
-            'values keep their file offsets (the glue logic pairs are split, see `glue_logic`). Readers: newton.c '
-            '(`Newton_CarUpdate` 0x44d840: flight, landing, ground), crash.c (`Crash_BodyRates` 0x43ef10, '
-            '`Crash_Handler` 0x43fde0, `Crash_Reset` 0x440a50, the reset button 0x4407d0, `Crash_ResetMotion` '
-            '0x441120), the walls (0x459120, 0x42eb40) and the human catch-up (0x4619b0). Ticks are physics steps '
-            '(32 per second); speeds in m/s, angular rates in rad/s',
-        }
+    block_description = (
+        'Tuning values of one game style, 0x74 bytes: 21 values, then 4 glue logic pairs. '
+        'In memory (nfs2sen.exe 0x4df0a8 + style * 0x74, read for the current game style 0x4df524) the first 21 '
+        'values keep their file offsets (the glue logic pairs are split, see `glue_logic`). Readers: newton.c '
+        '(`Newton_CarUpdate` 0x44d840: flight, landing, ground), crash.c (`Crash_BodyRates` 0x43ef10, '
+        '`Crash_Handler` 0x43fde0, `Crash_Reset` 0x440a50, the reset button 0x4407d0, `Crash_ResetMotion` '
+        '0x441120), the walls (0x459120, 0x42eb40) and the human catch-up (0x4619b0). Ticks are physics steps '
+        '(32 per second); speeds in m/s, angular rates in rad/s'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         telepole_launch_value = (
@@ -1407,19 +1389,16 @@ class Nfs2SimTuneRecord(DeclarativeCompoundBlock):
 
 
 class Nfs2SimTune(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS2 / NFS2 SE flight, bounce, ground, collision reset and catch-up tuning '
-            '(`simtune.dat` in `GAMEDATA/SIM/CARDATA/CARDATA.VIV`, 232 bytes; the loose '
-            '`GAMEDATA/CARMODEL/PC/SIMTUNE.DAT` is an identical copy, `SIMTUNE.QDA` next to it a QFS3-compressed one, '
-            'the only copy in NFS2, which has no `CARDATA.VIV`). `Cars_Init` (nfs2sen.exe 0x43dbd0) loads it with '
-            '`Cars_LoadSimTune` 0x43e0a0, reading the file as a little-endian '
-            'stream into two records of 0x74 bytes at 0x4df0a8, one per game style. Field names, '
-            "types and order come from the developers' field descriptions `GAMEDATA/CARMODEL/PC/SIMTUNE.DES` "
-            '(`Fixed` = 16.16 fixed point, `Integer` = int), which also embed a copy of the file',
-        }
+    block_description = (
+        'NFS2 / NFS2 SE flight, bounce, ground, collision reset and catch-up tuning '
+        '(`simtune.dat` in `GAMEDATA/SIM/CARDATA/CARDATA.VIV`, 232 bytes; the loose '
+        '`GAMEDATA/CARMODEL/PC/SIMTUNE.DAT` is an identical copy, `SIMTUNE.QDA` next to it a QFS3-compressed one, '
+        'the only copy in NFS2, which has no `CARDATA.VIV`). `Cars_Init` (nfs2sen.exe 0x43dbd0) loads it with '
+        '`Cars_LoadSimTune` 0x43e0a0, reading the file as a little-endian '
+        'stream into two records of 0x74 bytes at 0x4df0a8, one per game style. Field names, '
+        "types and order come from the developers' field descriptions `GAMEDATA/CARMODEL/PC/SIMTUNE.DES` "
+        '(`Fixed` = 16.16 fixed point, `Integer` = int), which also embed a copy of the file'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         simulation = (
@@ -1445,15 +1424,12 @@ def _ai_accel_table():
 
 
 class Nfs2CarAiLevers(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'AI levers of one game style (`.DES` chains "Sim Mode Levers" / "Arcade Mode '
-            'Levers", 232 bytes each): acceleration table, grip and turn rate. The loader (nfs2sen.exe 0x42b7b0) '
-            'keeps those of the current style only: the table at car+0x408, grip at car+0x550, turn rate at '
-            'car+0x554',
-        }
+    block_description = (
+        'AI levers of one game style (`.DES` chains "Sim Mode Levers" / "Arcade Mode '
+        'Levers", 232 bytes each): acceleration table, grip and turn rate. The loader (nfs2sen.exe 0x42b7b0) '
+        'keeps those of the current style only: the table at car+0x408, grip at car+0x550, turn rate at '
+        'car+0x554'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         acceleration_table = (
@@ -1487,23 +1463,20 @@ class Nfs2CarAiLevers(DeclarativeCompoundBlock):
 
 
 class Nfs2CarAi(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS2 / NFS2 SE car AI data (`<car>.dat` in `GAMEDATA/SIM/CARDATA/CARDATA.VIV`, 524 '
-            'bytes, one per racing car; each is listed twice in the archive, as identical copies; NFS2 (not SE) has '
-            "RefPack-compressed `GAMEDATA/SIM/AICARDT/<car>.QDA` instead, made by `COMPRESS.BAT` there with EA's "
-            '`huff` tool: 4 of the 10 are the SE files, the others older versions; the other files of that folder, '
-            '`.AII`, `.CAR`, `.DTA`, `.INF`, `.QDT`, have no name in nfs2sen.exe and look encrypted, entropy above 7 '
-            'bits a byte). `Car_Init` loads '
-            'it for every race car with nfs2sen.exe 0x42b7b0, reading the file as a little-endian stream into the '
-            'car (addresses cited in the field descriptions). Field names, types and order come from the '
-            "developers' field descriptions `GAMEDATA/SIM/CARDATA/MCF1.DES` (`Fixed` = 16.16 fixed point, "
-            '`Integer` = int), a tree of records: chain "AI" with the fields, the chains "Sim Mode Levers" and '
-            '"Arcade Mode Levers" (`Nfs2CarAiLevers`) in the middle; it also embeds a copy of `mcf1.dat`. Five '
-            'cars (futr, dayt, chev, musc, mcf1) have identical files',
-        }
+    block_description = (
+        'NFS2 / NFS2 SE car AI data (`<car>.dat` in `GAMEDATA/SIM/CARDATA/CARDATA.VIV`, 524 '
+        'bytes, one per racing car; each is listed twice in the archive, as identical copies; NFS2 (not SE) has '
+        "RefPack-compressed `GAMEDATA/SIM/AICARDT/<car>.QDA` instead, made by `COMPRESS.BAT` there with EA's "
+        '`huff` tool: 4 of the 10 are the SE files, the others older versions; the other files of that folder, '
+        '`.AII`, `.CAR`, `.DTA`, `.INF`, `.QDT`, have no name in nfs2sen.exe and look encrypted, entropy above 7 '
+        'bits a byte). `Car_Init` loads '
+        'it for every race car with nfs2sen.exe 0x42b7b0, reading the file as a little-endian stream into the '
+        'car (addresses cited in the field descriptions). Field names, types and order come from the '
+        "developers' field descriptions `GAMEDATA/SIM/CARDATA/MCF1.DES` (`Fixed` = 16.16 fixed point, "
+        '`Integer` = int), a tree of records: chain "AI" with the fields, the chains "Sim Mode Levers" and '
+        '"Arcade Mode Levers" (`Nfs2CarAiLevers`) in the middle; it also embeds a copy of `mcf1.dat`. Five '
+        'cars (futr, dayt, chev, musc, mcf1) have identical files'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         ai_shift_duration = (
@@ -1601,15 +1574,12 @@ class Nfs2CarAi(DeclarativeCompoundBlock):
 
 
 class Nfs2TrafficGluePair(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A pair of glue factors (`.DES`: an `Array` record of 2 elements of 4 bytes without '
-            'names, the values are 16.16). nfs2sen.exe 0x42bd60 multiplies element 0 of the chosen pairs into the '
-            'speed glue of the race (0x4d7fa8, 1 / it at 0x4d7f9c), element 1 into the acceleration glue (0x4d7fb4, '
-            '1 / it at 0x4d7fa4)',
-        }
+    block_description = (
+        'A pair of glue factors (`.DES`: an `Array` record of 2 elements of 4 bytes without '
+        'names, the values are 16.16). nfs2sen.exe 0x42bd60 multiplies element 0 of the chosen pairs into the '
+        'speed glue of the race (0x4d7fa8, 1 / it at 0x4d7f9c), element 1 into the acceleration glue (0x4d7fb4, '
+        '1 / it at 0x4d7fa4)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         speed_glue = (
@@ -1630,16 +1600,13 @@ class Nfs2TrafficGluePair(DeclarativeCompoundBlock):
 
 
 class Nfs2TrafficGlue(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Glue factors of one race type (`.DES` chains "Single Race Glue Factors", '
-            '"Tournament Mode Glue Factors", "Knock Out Mode Glue Factors"), 24 values. nfs2sen.exe 0x42bd60 picks '
-            'the table by the race type and multiplies (16.16) the `overall` pair with one pair of each group: '
-            'laps, game style, skill, traffic, opponents; element 0 of the product is the speed glue of the race, '
-            'element 1 the acceleration glue',
-        }
+    block_description = (
+        'Glue factors of one race type (`.DES` chains "Single Race Glue Factors", '
+        '"Tournament Mode Glue Factors", "Knock Out Mode Glue Factors"), 24 values. nfs2sen.exe 0x42bd60 picks '
+        'the table by the race type and multiplies (16.16) the `overall` pair with one pair of each group: '
+        'laps, game style, skill, traffic, opponents; element 0 of the product is the speed glue of the race, '
+        'element 1 the acceleration glue'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         overall = (Nfs2TrafficGluePair(), _des('Overall', 'Always used'))
@@ -1684,13 +1651,10 @@ class Nfs2TrafficGlue(DeclarativeCompoundBlock):
 
 
 class Nfs2AiLookAhead(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Look-ahead of one game style (`.DES` chains "Simulation Mode look ahead" / '
-            '"Arcade Mode look ahead"). nfs2sen.exe 0x42bc40 keeps the pair of the current style only',
-        }
+    block_description = (
+        'Look-ahead of one game style (`.DES` chains "Simulation Mode look ahead" / '
+        '"Arcade Mode look ahead"). nfs2sen.exe 0x42bc40 keeps the pair of the current style only'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         max_lookahead = (
@@ -1710,14 +1674,11 @@ class Nfs2AiLookAhead(DeclarativeCompoundBlock):
 
 
 class Nfs2AiControl(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'AI physics parameters of the AI driving model (`.DES` chains "In Control AI '
-            'Physics parameters" / "Out Of Control AI Physics parameters"), 11 values of type `Fixed`. nfs2sen.exe '
-            '0x42bc40 stores them at 0x4d7fe0 (in control) and 0x4d800c (out of control)',
-        }
+    block_description = (
+        'AI physics parameters of the AI driving model (`.DES` chains "In Control AI '
+        'Physics parameters" / "Out Of Control AI Physics parameters"), 11 values of type `Fixed`. nfs2sen.exe '
+        '0x42bc40 stores them at 0x4d7fe0 (in control) and 0x4d800c (out of control)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         dlpos_to_dlvel = (
@@ -1752,20 +1713,17 @@ class Nfs2AiControl(DeclarativeCompoundBlock):
 
 
 class Nfs2TrafficConfig(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS2 SE AI and traffic configuration (`GAMEDATA/SIM/AI/TRAFCFG.DAT`, 452 bytes; '
-            '`GAMEDATA/SIM/CARDATA/CARDATA.VIV` holds two identical copies, `trafcfg.dat` and `TRAFCFG.DAT`). '
-            'nfs2sen.exe 0x42bb60 loads `trafcfg.dat` at the start of a race, reading it as a little-endian stream: '
-            'the general part (0x42bbc0), the glue factors (0x42bd60) and the AI physics parameters (0x42bc40). '
-            "Field names, types and order come from the developers' field descriptions "
-            '`GAMEDATA/SIM/AI/TRAFCFG.DES` (`Fixed` = 16.16 fixed point, `Integer` = int; `Array` records have no '
-            'element type, their values are 16.16), a tree of records: the chains "General AI Configuration '
-            'Parameters", "Glue Factors" and "AI Physics Configuration Parameters"; it also embeds a copy of the '
-            'file. `MTRAF.BAT` there compiled it into the exe (`bin2src trafcfg.dat trafcfg.c`)',
-        }
+    block_description = (
+        'NFS2 SE AI and traffic configuration (`GAMEDATA/SIM/AI/TRAFCFG.DAT`, 452 bytes; '
+        '`GAMEDATA/SIM/CARDATA/CARDATA.VIV` holds two identical copies, `trafcfg.dat` and `TRAFCFG.DAT`). '
+        'nfs2sen.exe 0x42bb60 loads `trafcfg.dat` at the start of a race, reading it as a little-endian stream: '
+        'the general part (0x42bbc0), the glue factors (0x42bd60) and the AI physics parameters (0x42bc40). '
+        "Field names, types and order come from the developers' field descriptions "
+        '`GAMEDATA/SIM/AI/TRAFCFG.DES` (`Fixed` = 16.16 fixed point, `Integer` = int; `Array` records have no '
+        'element type, their values are 16.16), a tree of records: the chains "General AI Configuration '
+        'Parameters", "Glue Factors" and "AI Physics Configuration Parameters"; it also embeds a copy of the '
+        'file. `MTRAF.BAT` there compiled it into the exe (`bin2src trafcfg.dat trafcfg.c`)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         opp_desired_ahead = (
@@ -1861,16 +1819,13 @@ class Nfs2TrafficConfig(DeclarativeCompoundBlock):
 
 
 class Nfs2PersonalityGrid(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Personality letters of the grid slots, one row of 12 per race kind (`.DES` chain '
-            '"Grid Assignments": 48 `Char` records "slot 0" .. "Slot 11" in 4 chains). nfs2sen.exe 0x42b580 gives '
-            'every AI racer the personality of the letter at its slot (race cars - 1 - its line-up position) in '
-            'the row of the race (0x42bf20: knockout row 0, tournament 1, single race 2 with one AI racer, 3 with '
-            "more); 0x451b60 turns the letter into the personality index (letter - 'a', 0 outside 'a'..'n')",
-        }
+    block_description = (
+        'Personality letters of the grid slots, one row of 12 per race kind (`.DES` chain '
+        '"Grid Assignments": 48 `Char` records "slot 0" .. "Slot 11" in 4 chains). nfs2sen.exe 0x42b580 gives '
+        'every AI racer the personality of the letter at its slot (race cars - 1 - its line-up position) in '
+        'the row of the race (0x42bf20: knockout row 0, tournament 1, single race 2 with one AI racer, 3 with '
+        "more); 0x451b60 turns the letter into the personality index (letter - 'a', 0 outside 'a'..'n')"
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         knockout = (
@@ -1898,14 +1853,11 @@ class Nfs2PersonalityGrid(DeclarativeCompoundBlock):
 
 
 class Nfs2Personality(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A driver personality of the AI racers (`.DES` chains "Car A - ..." .. "Car M: '
-            '..." in "Personalities", 228 bytes). nfs2sen.exe 0x451bd0 keeps it as it is in the file, the letter '
-            'and the 3 unnamed bytes as one int (0x4c6cc0 + index * 0xe4, offsets cited in the field descriptions)',
-        }
+    block_description = (
+        'A driver personality of the AI racers (`.DES` chains "Car A - ..." .. "Car M: '
+        '..." in "Personalities", 228 bytes). nfs2sen.exe 0x451bd0 keeps it as it is in the file, the letter '
+        'and the 3 unnamed bytes as one int (0x4c6cc0 + index * 0xe4, offsets cited in the field descriptions)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         letter = (
@@ -2050,21 +2002,18 @@ def _personality(letter: str, more: str = ''):
 
 
 class Nfs2Personalities(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS2 SE driver personalities of the AI racers (`GAMEDATA/SIM/AI/PRSONAL.DAT`, '
-            '3012 bytes; `prsonal.dat` in `GAMEDATA/SIM/CARDATA/CARDATA.VIV` is an identical copy): the grid '
-            'assignments, then 13 personalities "a" .. "m". nfs2sen.exe 0x451ba0 points 0x4e082c / 0x4e0828 at '
-            'the copy compiled into the exe (0x4c6c90 grid letters, 0x4c6cc0 personalities; `MPERS.BAT`: `bin2src '
-            'prsonal.dat griddata.c 48 perdata.c`) and 0x451bd0 overwrites it from `prsonal.dat`, reading the file '
-            "as a little-endian stream. Field names, types and order come from the developers' field descriptions "
-            '`GAMEDATA/SIM/AI/PRSONAL.DES` (`Fixed` = 16.16 fixed point, `Integer` = int, `Char` = 1 byte; '
-            '`Array` records have no element type, their values are 16.16), a tree of records: the chains "Grid '
-            'Assignments" and "Personalities" (one chain per personality, named after the letter and a '
-            'description); it also embeds a copy of the file',
-        }
+    block_description = (
+        'NFS2 SE driver personalities of the AI racers (`GAMEDATA/SIM/AI/PRSONAL.DAT`, '
+        '3012 bytes; `prsonal.dat` in `GAMEDATA/SIM/CARDATA/CARDATA.VIV` is an identical copy): the grid '
+        'assignments, then 13 personalities "a" .. "m". nfs2sen.exe 0x451ba0 points 0x4e082c / 0x4e0828 at '
+        'the copy compiled into the exe (0x4c6c90 grid letters, 0x4c6cc0 personalities; `MPERS.BAT`: `bin2src '
+        'prsonal.dat griddata.c 48 perdata.c`) and 0x451bd0 overwrites it from `prsonal.dat`, reading the file '
+        "as a little-endian stream. Field names, types and order come from the developers' field descriptions "
+        '`GAMEDATA/SIM/AI/PRSONAL.DES` (`Fixed` = 16.16 fixed point, `Integer` = int, `Char` = 1 byte; '
+        '`Array` records have no element type, their values are 16.16), a tree of records: the chains "Grid '
+        'Assignments" and "Personalities" (one chain per personality, named after the letter and a '
+        'description); it also embeds a copy of the file'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         grid = (Nfs2PersonalityGrid(), {'description': '`.DES` chain "Grid Assignments"'})
@@ -2149,16 +2098,13 @@ class CarpTextInt(_CarpTextValue, IntegerBlock):
 
     reader = 'int'
 
+    block_description = (
+        'Integer in text, read with `atoi` (nfs3.exe 0x4b0700): digits and `-` make the '
+        'number, any other character ends it (a `.` too: `128.000000` reads 128)'
+    )
+
     def __init__(self, **kwargs):
         super().__init__(length=4, is_signed=True, **kwargs)
-
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Integer in text, read with `atoi` (nfs3.exe 0x4b0700): digits and `-` make the '
-            'number, any other character ends it (a `.` too: `128.000000` reads 128)',
-        }
 
 
 class CarpTextByte(_CarpTextValue, IntegerBlock):
@@ -2166,16 +2112,10 @@ class CarpTextByte(_CarpTextValue, IntegerBlock):
 
     reader = 'byte'
 
+    block_description = 'Integer in text, read as `atoi` and kept as a byte (its low 8 bits, nfs3.exe 0x4b07b0)'
+
     def __init__(self, **kwargs):
         super().__init__(length=1, is_signed=False, **kwargs)
-
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Integer in text, read as `atoi` and kept as a byte (its low 8 bits, nfs3.exe '
-            '0x4b07b0)',
-        }
 
 
 class CarpTextFloat(_CarpTextValue, DecimalBlock):
@@ -2183,17 +2123,14 @@ class CarpTextFloat(_CarpTextValue, DecimalBlock):
 
     reader = 'float'
 
+    block_description = (
+        'Decimal number in text, e.g. `1625.000000` (the shipped files write 6 decimals), '
+        'read with `atof` into a float (nfs3.exe 0x4b07d0): digits, `.` and `-` make the number, any other '
+        'character ends it'
+    )
+
     def __init__(self, **kwargs):
         super().__init__(length=4, **kwargs)
-
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Decimal number in text, e.g. `1625.000000` (the shipped files write 6 decimals), '
-            'read with `atof` into a float (nfs3.exe 0x4b07d0): digits, `.` and `-` make the number, any other '
-            'character ends it',
-        }
 
 
 class CarpTextFixed(_CarpTextValue, DecimalBlock):
@@ -2201,16 +2138,13 @@ class CarpTextFixed(_CarpTextValue, DecimalBlock):
 
     reader = 'fixed'
 
+    block_description = (
+        'Decimal number in text, kept by the game as 16.16 fixed point: the float times '
+        '65536, rounded (nfs3.exe 0x4b08b0)'
+    )
+
     def __init__(self, **kwargs):
         super().__init__(length=4, **kwargs)
-
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Decimal number in text, kept by the game as 16.16 fixed point: the float times '
-            '65536, rounded (nfs3.exe 0x4b08b0)',
-        }
 
 
 class CarpTextArray(ArrayBlock):
@@ -2724,29 +2658,26 @@ class Nfs3CarPhysics(DeclarativeCompoundBlock):
     carp_table_index = _NFS3_CARP_TABLE_INDEX
     carp_labels = _NFS3_CARP_LABELS
 
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS3 car physics: `carp.txt` in `GameData/CarModel/<car>/car.viv` (`CAR.VIV` for '
-            'Knoc, Lcop, Peln, Vcop), plain text with CRLF line endings: pairs of a label line (`mass [kg](2)`) and '
-            'a value line (`1625.000000`, arrays comma separated: `0,0,250,250,200,150,100,100`). nfs3.exe parses it '
-            "with 0x4b1380 (Car_LoadSpecs 0x42c2a0) into the car's carp (0x4ac bytes): lines are read without "
-            'spaces and lower-cased (0x4b09d0, empty lines skipped); a line starting with a digit or `-` is a value '
-            'line, any other a label, which selects the first field of the table 0x4af3b0 whose key it contains '
-            'together with its `(n)` (0x4b0940; a label selecting nothing drops the selection); the next value line '
-            'fills the selected field once (a field already read keeps its first value, other value lines are '
-            'skipped); fields missing from the file get the default carp 0x55f874 (0x4b0bb0). Field `(n)` numbers '
-            "are not in file order: 75 to 79 are the automatic gearbox's. Then Carp_TuneCar 0x4a78d6 applies the "
-            "automatic gear set and the menus' tuning sliders, and sets the per gear values and the air drag. Car "
-            'physics steps run at 32 Hz (every 2nd tick of the 64 Hz simulation). Field descriptions: label, place '
-            "in the game's carp, the default for a missing field, then the use, from the nfs3.exe port in nfs-web "
-            '(`src/nfs3/nfs3-physics`); "no reader identified" = no instruction of nfs3.exe reads it through the car\'s '
-            'carp pointer (car+0x528; a linear disassembly of the whole executable, AI, camera and drawing code '
-            'included: nfs-web `decomp/nfs3/port-work/car-specs/carp_readers.py`). Also read from the traffic and '
-            "pursuit cars' `Traffic/<nnnn>/CAR.VIV` and the network placeholder `FeData/Plac/CAR.VIV` (a text with "
-            'the serial number only: every other field takes the default)',
-        }
+    block_description = (
+        'NFS3 car physics: `carp.txt` in `GameData/CarModel/<car>/car.viv` (`CAR.VIV` for '
+        'Knoc, Lcop, Peln, Vcop), plain text with CRLF line endings: pairs of a label line (`mass [kg](2)`) and '
+        'a value line (`1625.000000`, arrays comma separated: `0,0,250,250,200,150,100,100`). nfs3.exe parses it '
+        "with 0x4b1380 (Car_LoadSpecs 0x42c2a0) into the car's carp (0x4ac bytes): lines are read without "
+        'spaces and lower-cased (0x4b09d0, empty lines skipped); a line starting with a digit or `-` is a value '
+        'line, any other a label, which selects the first field of the table 0x4af3b0 whose key it contains '
+        'together with its `(n)` (0x4b0940; a label selecting nothing drops the selection); the next value line '
+        'fills the selected field once (a field already read keeps its first value, other value lines are '
+        'skipped); fields missing from the file get the default carp 0x55f874 (0x4b0bb0). Field `(n)` numbers '
+        "are not in file order: 75 to 79 are the automatic gearbox's. Then Carp_TuneCar 0x4a78d6 applies the "
+        "automatic gear set and the menus' tuning sliders, and sets the per gear values and the air drag. Car "
+        'physics steps run at 32 Hz (every 2nd tick of the 64 Hz simulation). Field descriptions: label, place '
+        "in the game's carp, the default for a missing field, then the use, from the nfs3.exe port in nfs-web "
+        '(`src/nfs3/nfs3-physics`); "no reader identified" = no instruction of nfs3.exe reads it through the car\'s '
+        'carp pointer (car+0x528; a linear disassembly of the whole executable, AI, camera and drawing code '
+        'included: nfs-web `decomp/nfs3/port-work/car-specs/carp_readers.py`). Also read from the traffic and '
+        "pursuit cars' `Traffic/<nnnn>/CAR.VIV` and the network placeholder `FeData/Plac/CAR.VIV` (a text with "
+        'the serial number only: every other field takes the default)'
+    )
 
     Fields = _nfs3_carp_fields_class()
 
@@ -2986,37 +2917,27 @@ def nfs4_carp_exe_read(raw: bytes, readers):
 class CarpTextNfs4Int(CarpTextInt):
     """An integer of an NFS4 carp.txt value line"""
 
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Integer in text, read with `sscanf("%d")` (nfs4.exe 0x502f40): an optional sign '
-            'and digits, the rest of the item ignored (`128.000000` reads 128)',
-        }
+    block_description = (
+        'Integer in text, read with `sscanf("%d")` (nfs4.exe 0x502f40): an optional sign '
+        'and digits, the rest of the item ignored (`128.000000` reads 128)'
+    )
 
 
 class CarpTextNfs4Byte(CarpTextByte):
     """An integer of an NFS4 carp.txt value line, of which the game keeps the low byte"""
 
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Integer in text, read with `sscanf("%d")` and kept as a byte (its low 8 bits, '
-            'nfs4.exe 0x502f40)',
-        }
+    block_description = (
+        'Integer in text, read with `sscanf("%d")` and kept as a byte (its low 8 bits, nfs4.exe 0x502f40)'
+    )
 
 
 class CarpTextNfs4Float(CarpTextFloat):
     """A decimal number of an NFS4 carp.txt value line"""
 
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Decimal number in text, e.g. `1275.000000` (the shipped files write 6 decimals), '
-            'read with `sscanf("%f")` into a float (nfs4.exe 0x503040)',
-        }
+    block_description = (
+        'Decimal number in text, e.g. `1275.000000` (the shipped files write 6 decimals), '
+        'read with `sscanf("%f")` into a float (nfs4.exe 0x503040)'
+    )
 
 
 class CarpTextNfs4Array(CarpTextArray):
@@ -3362,32 +3283,29 @@ class Nfs4CarPhysics(Nfs3CarPhysics):
     carp_table_index = _NFS4_CARP_TABLE_INDEX
     carp_labels = _NFS4_CARP_LABELS
 
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS4 car physics: `carp.txt` in `Data/Cars/<car>/car.viv` (and `traffic/<car>`, '
-            '`traffic/pursuit/<car>`; `carp<n>.txt`, n = game setup car +0x18, instead in race type 4: 1..3 in 11 '
-            'cars, their upgrade levels by their values), plain text with CRLF line endings: pairs of a label line '
-            '(`mass [kg](2)`) and a value line (`1275.000000`, arrays comma separated). nfs4.exe parses it with '
-            "0x503480 (car load 0x445090 -> 0x444fd0) into the car's carp (0x464 bytes): lines are read without "
-            "spaces and lower-cased (0x5031f0, empty lines skipped, the file's last byte never read); a line "
-            'containing the `(n)` of a field of the table 0x5bd414 (the first of the table, 0x503160; no key text '
-            'is compared, unlike NFS3) is a label and the next line is always its value line, whatever it holds; '
-            'other lines are skipped. Values are separated by `,` or tabs, read with `sscanf` ("%d" for integer '
-            'fields, "%f" for floats, 0x502f40 / 0x503040); a value that is not a number ends the line, items a line '
-            'lacks keep what the carp held (TailsLab: the default); a field given twice takes the later values. '
-            'Fields missing from the file get the default carp 0x5be344 (Carp_FillDefaults 0x5032b0, `car_class` '
-            "from 0x5bdee0). 81 fields, NFS3's 80 plus `understeer_gradient` (80); the torque curve has 21 points "
-            "500 rpm apart. Then Carp_TuneCar 0x4fcad0 applies the automatic gear set and the menus' tuning "
-            'sliders, and sets the per gear values and the air drag. Car physics steps run at 32 Hz (every 2nd tick '
-            "of the 64 Hz simulation). Field descriptions: label, place in the game's carp, the default for a "
-            'missing field, then the use, from the nfs4.exe port in nfs-web (`src/nfs4/nfs4-physics`); "no reader '
-            'found" / "no reader" = no instruction of nfs4.exe reads it through the car\'s carp pointer (car+0x474; a '
-            'linear disassembly of the whole executable, AI, camera and drawing code included: nfs-web '
-            "`decomp/nfs4/port-work/car-specs/`). `Data/Plac.viv`'s `carp.txt` is the network placeholder: a text "
-            'with the serial number only, every other field takes the default',
-        }
+    block_description = (
+        'NFS4 car physics: `carp.txt` in `Data/Cars/<car>/car.viv` (and `traffic/<car>`, '
+        '`traffic/pursuit/<car>`; `carp<n>.txt`, n = game setup car +0x18, instead in race type 4: 1..3 in 11 '
+        'cars, their upgrade levels by their values), plain text with CRLF line endings: pairs of a label line '
+        '(`mass [kg](2)`) and a value line (`1275.000000`, arrays comma separated). nfs4.exe parses it with '
+        "0x503480 (car load 0x445090 -> 0x444fd0) into the car's carp (0x464 bytes): lines are read without "
+        "spaces and lower-cased (0x5031f0, empty lines skipped, the file's last byte never read); a line "
+        'containing the `(n)` of a field of the table 0x5bd414 (the first of the table, 0x503160; no key text '
+        'is compared, unlike NFS3) is a label and the next line is always its value line, whatever it holds; '
+        'other lines are skipped. Values are separated by `,` or tabs, read with `sscanf` ("%d" for integer '
+        'fields, "%f" for floats, 0x502f40 / 0x503040); a value that is not a number ends the line, items a line '
+        'lacks keep what the carp held (TailsLab: the default); a field given twice takes the later values. '
+        'Fields missing from the file get the default carp 0x5be344 (Carp_FillDefaults 0x5032b0, `car_class` '
+        "from 0x5bdee0). 81 fields, NFS3's 80 plus `understeer_gradient` (80); the torque curve has 21 points "
+        "500 rpm apart. Then Carp_TuneCar 0x4fcad0 applies the automatic gear set and the menus' tuning "
+        'sliders, and sets the per gear values and the air drag. Car physics steps run at 32 Hz (every 2nd tick '
+        "of the 64 Hz simulation). Field descriptions: label, place in the game's carp, the default for a "
+        'missing field, then the use, from the nfs4.exe port in nfs-web (`src/nfs4/nfs4-physics`); "no reader '
+        'found" / "no reader" = no instruction of nfs4.exe reads it through the car\'s carp pointer (car+0x474; a '
+        'linear disassembly of the whole executable, AI, camera and drawing code included: nfs-web '
+        "`decomp/nfs4/port-work/car-specs/`). `Data/Plac.viv`'s `carp.txt` is the network placeholder: a text "
+        'with the serial number only, every other field takes the default'
+    )
 
     Fields = _nfs4_carp_fields_class()
 
@@ -3439,9 +3357,7 @@ class Latin1Block(UTF8Block):
     """A fixed-length text of 8-bit characters (Windows-1252 / Latin-1: `Coupé`), trailing zeros cut off; bytes after
     the first zero are kept as characters, so a field with leftovers there writes back byte-exact"""
 
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Latin-1 string'}
+    block_description = 'Latin-1 string'
 
     def read(self, ctx, name: str = '', read_bytes_amount=None, resolved_length=None):
         self_len = self.resolve_length(ctx) if resolved_length is None else resolved_length
@@ -3474,20 +3390,17 @@ def _sim(text: str, scale: str = None):
 
 
 class Nfs5CarPhysics(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS5 car physics, `GameData/Simulation/CarData/<spec>.sim` (328 bytes, 86 files). '
-            'Porsche.exe 0x49c6c0 loads `%s%s.sim` with the spec name of the car record (`spec` of '
-            '[Nfs5CarRecord](#nfs5carrecord); `default.sim` when missing): it clears the 0x1c4-byte car specs and '
-            'copies the file to their start, scales fields (cited per field), adds the car setup and the installed '
-            'parts ([Nfs5CarPart](#nfs5carpart)), and 0x49cb50 computes specs +0x148..+0x1c0 (+0x148 tyre '
-            'circumference, +0x14c 1 / redline, +0x168 speed per rpm of each gear slot, +0x190 torque factor per '
-            'gear, +0x1b0 air drag (x forward speed^3), +0x1b4 / +0x1b8 yaw lever and arm, +0x1bc longitudinal force '
-            'scale, +0x1c0 tyre type: 0 road, 1 rain, 2 race). The physics reads the specs from 0x49fd30 on, the '
-            "rigid body update ('newton') from 0x499a70",
-        }
+    block_description = (
+        'NFS5 car physics, `GameData/Simulation/CarData/<spec>.sim` (328 bytes, 86 files). '
+        'Porsche.exe 0x49c6c0 loads `%s%s.sim` with the spec name of the car record (`spec` of '
+        '[Nfs5CarRecord](#nfs5carrecord); `default.sim` when missing): it clears the 0x1c4-byte car specs and '
+        'copies the file to their start, scales fields (cited per field), adds the car setup and the installed '
+        'parts ([Nfs5CarPart](#nfs5carpart)), and 0x49cb50 computes specs +0x148..+0x1c0 (+0x148 tyre '
+        'circumference, +0x14c 1 / redline, +0x168 speed per rpm of each gear slot, +0x190 torque factor per '
+        'gear, +0x1b0 air drag (x forward speed^3), +0x1b4 / +0x1b8 yaw lever and arm, +0x1bc longitudinal force '
+        'scale, +0x1c0 tyre type: 0 road, 1 rain, 2 race). The physics reads the specs from 0x49fd30 on, the '
+        "rigid body update ('newton') from 0x499a70"
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         name = (
@@ -3747,16 +3660,13 @@ class Nfs5CarPhysics(DeclarativeCompoundBlock):
 
 
 class Nfs5CarAi(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS5 car AI data, `GameData/Simulation/AICarData/<ai>.ais` (304 bytes, 22 files): '
-            'how far ahead the AI looks for corners and how fast it takes them. Porsche.exe 0x49ca30 loads `%s%s.ais` '
-            'with the AI spec name of the car record (`ai_spec` of [Nfs5CarRecord](#nfs5carrecord); `default.ais` '
-            'when missing) into the AI specs at car+0x764 for every car; only the AI target speed 0x40b650 reads '
-            'them (AI racers, a car the AI drives for the player). Track slices are 6 m apart on every track',
-        }
+    block_description = (
+        'NFS5 car AI data, `GameData/Simulation/AICarData/<ai>.ais` (304 bytes, 22 files): '
+        'how far ahead the AI looks for corners and how fast it takes them. Porsche.exe 0x49ca30 loads `%s%s.ais` '
+        'with the AI spec name of the car record (`ai_spec` of [Nfs5CarRecord](#nfs5carrecord); `default.ais` '
+        'when missing) into the AI specs at car+0x764 for every car; only the AI target speed 0x40b650 reads '
+        'them (AI racers, a car the AI drives for the player). Track slices are 6 m apart on every track'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         name = (UTF8Block(length=32), {'description': 'Name ("Porsche 356 Family"), read by no code'})
@@ -3797,9 +3707,7 @@ def _bytes(n: int, text: str):
 
 
 class Nfs5PartGeometryEntry(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'A geometry switch of a car part, 6 bytes'}
+    block_description = 'A geometry switch of a car part, 6 bytes'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         a = (
@@ -3824,20 +3732,17 @@ class Nfs5PartGeometryEntry(DeclarativeCompoundBlock):
 
 
 class Nfs5CarPart(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A car part, 360 bytes. Every reader copies whole records: the race installs the '
-            "parts of the race car record's `_PARTINDEX` into the car's 20 part slots (Porsche.exe 0x49c4c0, which "
-            'clears only bytes 0x48..0x50 of an empty slot) and applies them to the specs (0x49cb50; not for the AI '
-            'spec names 959 / 928 / GT2 / GT3); the front end (`FEParts_Init` 0x517ad0) lists, sells, installs, wears '
-            'and repairs them. A part slot is identified by `type` + `name`: installing a part replaces the '
-            'installed part with the same pair (0x518510). Prices (0x5181c0): new price = `sort_key` + `sort_key` x S '
-            '/ 100, S the sum of the inflation table 0x5ba4a4 (62 percentages) over the years since `year`; used '
-            'value = new price x (100 - c) / 100 with c = clamp(2 x `damage` + 20, 0, 100) (0x518220); repair = new '
-            'price x 2 x `damage` / 100 (0x518880)',
-        }
+    block_description = (
+        'A car part, 360 bytes. Every reader copies whole records: the race installs the '
+        "parts of the race car record's `_PARTINDEX` into the car's 20 part slots (Porsche.exe 0x49c4c0, which "
+        'clears only bytes 0x48..0x50 of an empty slot) and applies them to the specs (0x49cb50; not for the AI '
+        'spec names 959 / 928 / GT2 / GT3); the front end (`FEParts_Init` 0x517ad0) lists, sells, installs, wears '
+        'and repairs them. A part slot is identified by `type` + `name`: installing a part replaces the '
+        'installed part with the same pair (0x518510). Prices (0x5181c0): new price = `sort_key` + `sort_key` x S '
+        '/ 100, S the sum of the inflation table 0x5ba4a4 (62 percentages) over the years since `year`; used '
+        'value = new price x (100 - c) / 100 with c = clamp(2 x `damage` + 20, 0, 100) (0x518220); repair = new '
+        'price x 2 x `damage` / 100 (0x518880)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         id = (
@@ -4004,13 +3909,10 @@ class Nfs5CarPart(DeclarativeCompoundBlock):
 
 
 class Nfs5CarParts(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS5 car parts, `FEData/Data/nfs5.prt`: 683 [Nfs5CarPart](#nfs5carpart) records, '
-            'no header (read whole by Porsche.exe `Cars_LoadParts` 0x49c3a0 and `FEParts_Init` 0x517ad0)',
-        }
+    block_description = (
+        'NFS5 car parts, `FEData/Data/nfs5.prt`: 683 [Nfs5CarPart](#nfs5carpart) records, '
+        'no header (read whole by Porsche.exe `Cars_LoadParts` 0x49c3a0 and `FEParts_Init` 0x517ad0)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         parts = (
@@ -4025,13 +3927,10 @@ class Nfs5CarParts(DeclarativeCompoundBlock):
 
 
 class Nfs5DashGauge(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A dial of the HUD dashboard, 12 bytes, sent to the race as options '
-            '(`FE_SendHumanCar` 0x4eb710; HUD 0x42e710 / 0x42e810)',
-        }
+    block_description = (
+        'A dial of the HUD dashboard, 12 bytes, sent to the race as options '
+        '(`FE_SendHumanCar` 0x4eb710; HUD 0x42e710 / 0x42e810)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         style = (
@@ -4073,9 +3972,7 @@ def _argb(text: str):
 
 
 class Nfs5CarPaint(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'A paint of a car, 16 bytes'}
+    block_description = 'A paint of a car, 16 bytes'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         flag = (
@@ -4088,9 +3985,7 @@ class Nfs5CarPaint(DeclarativeCompoundBlock):
 
 
 class Nfs5CarInterior(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'An interior colour of a car, 16 bytes'}
+    block_description = 'An interior colour of a car, 16 bytes'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unused_0 = (IntegerBlock(length=4), {'description': '0, read by no code'})
@@ -4100,18 +3995,15 @@ class Nfs5CarInterior(DeclarativeCompoundBlock):
 
 
 class Nfs5CarRecord(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A car of the NFS5 car database, 0x670 bytes. Only the front end reads the file '
-            '(loader 0x4f3a40, lists 0x4f3e40); an FE car object holds a copy at +4 (and the Evolution saves keep '
-            'it: an edit does not reach cars already in a save). The race gets the fields it uses as options '
-            '(`FE_SendCarRecord` 0x4eeda0, `FE_SendHumanCar` 0x4eb710). Prices: dealer price (0x4ee220) = `price` x '
-            '`value_by_year`[year - `first_year`] / 100 after the first year; current value (0x4f8e50) = `price` x '
-            '`value_by_year`[year - 1948] / 100 (base) + base x the mileage, wear and wins terms + the installed '
-            'parts minus the stock parts, at least base x 0.05',
-        }
+    block_description = (
+        'A car of the NFS5 car database, 0x670 bytes. Only the front end reads the file '
+        '(loader 0x4f3a40, lists 0x4f3e40); an FE car object holds a copy at +4 (and the Evolution saves keep '
+        'it: an edit does not reach cars already in a save). The race gets the fields it uses as options '
+        '(`FE_SendCarRecord` 0x4eeda0, `FE_SendHumanCar` 0x4eb710). Prices: dealer price (0x4ee220) = `price` x '
+        '`value_by_year`[year - `first_year`] / 100 after the first year; current value (0x4f8e50) = `price` x '
+        '`value_by_year`[year - 1948] / 100 (base) + base x the mileage, wear and wins terms + the installed '
+        'parts minus the stock parts, at least base x 0.05'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         id = (
@@ -4335,13 +4227,10 @@ class Nfs5CarRecord(DeclarativeCompoundBlock):
 
 
 class Nfs5Cars(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS5 car database, `FEData/Data/nfs5.car`: 109 [Nfs5CarRecord](#nfs5carrecord) '
-            'records of 0x670 bytes, no header (cars, traffic, cops)',
-        }
+    block_description = (
+        'NFS5 car database, `FEData/Data/nfs5.car`: 109 [Nfs5CarRecord](#nfs5carrecord) '
+        'records of 0x670 bytes, no header (cars, traffic, cops)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         cars = (

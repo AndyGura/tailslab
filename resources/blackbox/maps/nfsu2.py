@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Optional
 
 from library.read_blocks import ArrayBlock, BytesBlock, DeclarativeCompoundBlock, DecimalBlock, IntegerBlock
 from library.read_blocks.misc.value_validators import Eq
@@ -14,9 +14,7 @@ from resources.eac.fields.misc import Point2D
 
 
 class Nfsu2RoadNode(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Node of a road: a point of its centre line, 4..40 m apart'}
+    block_description = 'Node of a road: a point of its centre line, 4..40 m apart'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (
@@ -56,13 +54,10 @@ NFSU2_ROAD_NODE_SIZE = 56
 
 
 class Nfsu2Road(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Road of the location: a polyline of nodes on the ground plane. Roads meet at '
-            'their ends, a road ending on another one ends at one of its nodes or within a few meters of it',
-        }
+    block_description = (
+        'Road of the location: a polyline of nodes on the ground plane. Roads meet at '
+        'their ends, a road ending on another one ends at one of its nodes or within a few meters of it'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk0 = (ArrayBlock(child=IntegerBlock(length=4), length=2), {'is_unknown': True, 'description': 'Always 11'})
@@ -149,14 +144,11 @@ def nfsu2_roads_amount(payload: bytes) -> Optional[int]:
 
 
 class Nfsu2Roads(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Roads of an NFS Underground 2 location (TRACKS/ROUTESLxRx/RoutesAll.bin: every '
-            'road; RoutesFreeRoam.bin, Routes<race>F.bin / B.bin: a part of them). Chunks 0x34122 / 0x34123 '
-            'next to it (links between roads?) are not decoded',
-        }
+    block_description = (
+        'Roads of an NFS Underground 2 location (TRACKS/ROUTESLxRx/RoutesAll.bin: every '
+        'road; RoutesFreeRoam.bin, Routes<race>F.bin / B.bin: a part of them). Chunks 0x34122 / 0x34123 '
+        'next to it (links between roads?) are not decoded'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034121)), {'description': _CHUNK_ID_DESCR})

@@ -1,9 +1,6 @@
-from typing import Dict
-
 from library.read_blocks import (
     DeclarativeCompoundBlock,
     IntegerBlock,
-    ArrayBlock,
     DecimalBlock,
     LengthPrefixedArrayBlock,
 )
@@ -19,9 +16,7 @@ from resources.eac.fields.misc import Point3D
 
 
 class Nfs6AiPathPoint(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'A point of the AI path'}
+    block_description = 'A point of the AI path'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (Point3D(child=DecimalBlock(length=4)), {'description': 'Point position, Y is up'})
@@ -41,13 +36,7 @@ class Nfs6AiPathPoint(DeclarativeCompoundBlock):
 
 
 class Nfs6AiPath(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A road between two graph nodes. Paths with the same start/end node positions '
-            'are connected',
-        }
+    block_description = 'A road between two graph nodes. Paths with the same start/end node positions are connected'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         name = (UTF8Block(length=16), {'description': 'Path name, e.g. "AI_center011"'})
@@ -70,9 +59,7 @@ class Nfs6AiPath(DeclarativeCompoundBlock):
 
 
 class Nfs6AiPathGraph(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'A graph of paths'}
+    block_description = 'A graph of paths'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         nodes = (
@@ -86,14 +73,11 @@ class Nfs6AiPathGraph(DeclarativeCompoundBlock):
 
 
 class Nfs6AiPaths(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFS6 race route (levelNN/aipaths.dat): the road graph for AI cars and the flight '
-            'paths of the police helicopter. Opening it shows the route in 3D: the compartments listed in '
-            'drvpath.ini next to it ("compNN.o" files in the parent folder)',
-        }
+    block_description = (
+        'NFS6 race route (levelNN/aipaths.dat): the road graph for AI cars and the flight '
+        'paths of the police helicopter. Opening it shows the route in 3D: the compartments listed in '
+        'drvpath.ini next to it ("compNN.o" files in the parent folder)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         version = (IntegerBlock(length=4), {'is_unknown': True, 'description': 'Always 1'})

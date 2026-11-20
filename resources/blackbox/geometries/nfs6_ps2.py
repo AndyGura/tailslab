@@ -1,5 +1,3 @@
-from typing import Dict
-
 from library.read_blocks import (
     ArrayBlock,
     BytesBlock,
@@ -27,9 +25,7 @@ def _elevens_field():
 
 
 class Nfs6Ps2SolidPackHeader(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Mesh pack header: path of the pack in the development tools'}
+    block_description = 'Mesh pack header: path of the pack in the development tools'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034001)), {'description': _CHUNK_ID_DESCR})
@@ -41,13 +37,9 @@ class Nfs6Ps2SolidPackHeader(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2MeshHeader(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Mesh header: id, name, amounts, bounding box and the transformation of the mesh in '
-            'the modelling tool',
-        }
+    block_description = (
+        'Mesh header: id, name, amounts, bounding box and the transformation of the mesh in the modelling tool'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034003)), {'description': _CHUNK_ID_DESCR})
@@ -93,9 +85,7 @@ class Nfs6Ps2MeshHeader(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2MeshTextures(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Textures of the mesh, referenced by index by draw groups'}
+    block_description = 'Textures of the mesh, referenced by index by draw groups'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034006)), {'description': _CHUNK_ID_DESCR})
@@ -116,13 +106,10 @@ class Nfs6Ps2MeshTextures(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2MeshDrawGroup(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A run of VIF packets drawn with one texture: one call of the VU1 microprogram per '
-            'packet, each packet a set of triangle strips of up to 40 vertices',
-        }
+    block_description = (
+        'A run of VIF packets drawn with one texture: one call of the VU1 microprogram per '
+        'packet, each packet a set of triangle strips of up to 40 vertices'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         texture_index = (IntegerBlock(length=4), {'description': 'Index of the texture in the textures chunk'})
@@ -162,9 +149,7 @@ class Nfs6Ps2MeshDrawGroup(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2MeshDrawGroups(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Draw groups of the mesh'}
+    block_description = 'Draw groups of the mesh'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034004)), {'description': _CHUNK_ID_DESCR})
@@ -185,13 +170,9 @@ class Nfs6Ps2MeshDrawGroups(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2MeshVifData(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Vertex data: a VIF code stream (UNPACK commands, MSCAL starting the VU1 '
-            'microprogram after every packet)',
-        }
+    block_description = (
+        'Vertex data: a VIF code stream (UNPACK commands, MSCAL starting the VU1 microprogram after every packet)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034005)), {'description': _CHUNK_ID_DESCR})
@@ -207,14 +188,11 @@ class Nfs6Ps2MeshVifData(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2MeshLightingMaterials(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Lighting materials of the mesh (`Nfs6Ps2LightingMaterial` of GLOBAL/GLOBALB), '
-            'referenced by index by draw groups (`material_index`). Looked up by name hash when the mesh is loaded '
-            '(SLUS_203.62 0x10c458), an unknown hash takes the material "Default"',
-        }
+    block_description = (
+        'Lighting materials of the mesh (`Nfs6Ps2LightingMaterial` of GLOBAL/GLOBALB), '
+        'referenced by index by draw groups (`material_index`). Looked up by name hash when the mesh is loaded '
+        '(SLUS_203.62 0x10c458), an unknown hash takes the material "Default"'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x0003401D)), {'description': _CHUNK_ID_DESCR})
@@ -238,9 +216,7 @@ class Nfs6Ps2MeshLightingMaterials(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2Mesh(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Mesh: header, textures, draw groups and VIF data'}
+    block_description = 'Mesh: header, textures, draw groups and VIF data'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x80034002)), {'description': _CHUNK_ID_DESCR})
@@ -258,12 +234,7 @@ class Nfs6Ps2Mesh(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2SolidPack(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Mesh pack (Black Box "solid list"): a header and meshes, found by their mesh id',
-        }
+    block_description = 'Mesh pack (Black Box "solid list"): a header and meshes, found by their mesh id'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x80034000)), {'description': _CHUNK_ID_DESCR})
@@ -272,17 +243,14 @@ class Nfs6Ps2SolidPack(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2LightingParameters(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Lighting parameters of a material, turned into the 4 VU1 vectors of the draw by '
-            'SLUS_203.62 0x116828. The VU1 lighting (.vutext 0x333, `vu_flags` 0x80) per vertex: colour = ambient + '
-            'sum of the 3 lights of light colour * (diffuse * max(N.L, 0) + specular * S(max(R.L, 0.1))), times '
-            '1 + (vertex colour - 255) * vertex_colors / 255, clamped to 0..255; N the vertex normal, L the direction '
-            'to the light, R the camera ray reflected by N, S(d) = specular_scale * d ^ specular_exponent computed '
-            'with the float bit pattern (bits(S) = bits(scale) + exponent * (bits(d) - bits(1.0)))',
-        }
+    block_description = (
+        'Lighting parameters of a material, turned into the 4 VU1 vectors of the draw by '
+        'SLUS_203.62 0x116828. The VU1 lighting (.vutext 0x333, `vu_flags` 0x80) per vertex: colour = ambient + '
+        'sum of the 3 lights of light colour * (diffuse * max(N.L, 0) + specular * S(max(R.L, 0.1))), times '
+        '1 + (vertex colour - 255) * vertex_colors / 255, clamped to 0..255; N the vertex normal, L the direction '
+        'to the light, R the camera ray reflected by N, S(d) = specular_scale * d ^ specular_exponent computed '
+        'with the float bit pattern (bits(S) = bits(scale) + exponent * (bits(d) - bits(1.0)))'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         specular_exponent = (DecimalBlock(length=4), {'description': 'Exponent of the specular highlight'})
@@ -333,13 +301,10 @@ class Nfs6Ps2LightingParameters(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2LightingMaterial(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Lighting material: two parameter sets, the front end one and the race one '
-            '(SLUS_203.62 0x10a438 uploads the race set while a race is loaded, 0x169168)',
-        }
+    block_description = (
+        'Lighting material: two parameter sets, the front end one and the race one '
+        '(SLUS_203.62 0x10a438 uploads the race set while a race is loaded, 0x169168)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         runtime_links = (BytesBlock(length=8), {'description': 'List links, written by the game', 'is_unknown': True})
@@ -354,13 +319,10 @@ class Nfs6Ps2LightingMaterial(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2LightingMaterials(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Lighting materials (GLOBAL/GLOBALB, loader SLUS_203.62 0x114f38), found by name '
-            'hash by the meshes (`Nfs6Ps2MeshLightingMaterials`)',
-        }
+    block_description = (
+        'Lighting materials (GLOBAL/GLOBALB, loader SLUS_203.62 0x114f38), found by name '
+        'hash by the meshes (`Nfs6Ps2MeshLightingMaterials`)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x0003401E)), {'description': _CHUNK_ID_DESCR})
@@ -412,13 +374,10 @@ def _collision_elements_fields(chunk_id: int, items_field: str, item_block, item
 
 
 class Nfs6Ps2Polyhedron(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A collision polyhedron (PipelinePolyhedron object, 0x60 bytes, used in place; '
-            'PipelinePolyhedron::MemoryImageLoad). Its features are the next four sub-chunks',
-        }
+    block_description = (
+        'A collision polyhedron (PipelinePolyhedron object, 0x60 bytes, used in place; '
+        'PipelinePolyhedron::MemoryImageLoad). Its features are the next four sub-chunks'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034021)), {'description': _CHUNK_ID_DESCR})
@@ -480,9 +439,7 @@ class Nfs6Ps2Polyhedron(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2PolyhedronVertex(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'A vertex of a collision polyhedron (VCVertex, 0x14 bytes)'}
+    block_description = 'A vertex of a collision polyhedron (VCVertex, 0x14 bytes)'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         feature_type = (IntegerBlock(length=1, is_signed=True), {'description': 'Feature type: 0, a vertex'})
@@ -505,13 +462,10 @@ class Nfs6Ps2PolyhedronVertex(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2PolyhedronEdge(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'An edge of a collision polyhedron (VCEdge, 12 bytes). Its 4 Voronoi planes border '
-            'its tail vertex, head vertex and its two faces',
-        }
+    block_description = (
+        'An edge of a collision polyhedron (VCEdge, 12 bytes). Its 4 Voronoi planes border '
+        'its tail vertex, head vertex and its two faces'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         feature_type = (IntegerBlock(length=1, is_signed=True), {'description': 'Feature type: 1, an edge'})
@@ -527,9 +481,7 @@ class Nfs6Ps2PolyhedronEdge(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2PolyhedronFace(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'A face of a collision polyhedron (VCFace, 0x18 bytes)'}
+    block_description = 'A face of a collision polyhedron (VCFace, 0x18 bytes)'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         feature_type = (IntegerBlock(length=1, is_signed=True), {'description': 'Feature type: 2, a face'})
@@ -550,13 +502,10 @@ class Nfs6Ps2PolyhedronFace(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2PolyhedronPlane(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A Voronoi plane of a feature of a collision polyhedron (VCVoronoiPlane, 0x18 '
-            'bytes): the border of its region towards a neighbouring feature',
-        }
+    block_description = (
+        'A Voronoi plane of a feature of a collision polyhedron (VCVoronoiPlane, 0x18 '
+        'bytes): the border of its region towards a neighbouring feature'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk = (IntegerBlock(length=4), {'description': 'Leftover bytes', 'is_unknown': True})
@@ -578,9 +527,7 @@ class Nfs6Ps2PolyhedronPlane(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2PolyhedronVertices(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Vertices of a collision polyhedron'}
+    block_description = 'Vertices of a collision polyhedron'
 
     Fields = type(
         'Fields',
@@ -590,9 +537,7 @@ class Nfs6Ps2PolyhedronVertices(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2PolyhedronEdges(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Edges of a collision polyhedron'}
+    block_description = 'Edges of a collision polyhedron'
 
     Fields = type(
         'Fields',
@@ -602,9 +547,7 @@ class Nfs6Ps2PolyhedronEdges(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2PolyhedronFaces(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Faces of a collision polyhedron'}
+    block_description = 'Faces of a collision polyhedron'
 
     Fields = type(
         'Fields',
@@ -614,13 +557,7 @@ class Nfs6Ps2PolyhedronFaces(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2PolyhedronPlanes(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Voronoi planes of a collision polyhedron, the planes of each feature one after the '
-            'other',
-        }
+    block_description = 'Voronoi planes of a collision polyhedron, the planes of each feature one after the other'
 
     Fields = type(
         'Fields',
@@ -630,15 +567,12 @@ class Nfs6Ps2PolyhedronPlanes(DeclarativeCompoundBlock):
 
 
 class Nfs6Ps2CollisionVolumes(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Collision volumes: convex polyhedra for V-Clip collision tests, five sub-chunks per '
-            'polyhedron (LoaderCollisionVolumes SLUS_203.62 0x218e10). A car\'s GEOMETRY has its hull "<model>_CV"; '
-            "the track bundles and GLOBAL/INGAMEB the props' (CS_BarrelA_L, CS_SMOKEBOMB...). Without a hull the "
-            'game takes a box (RectPolyhedron)',
-        }
+    block_description = (
+        'Collision volumes: convex polyhedra for V-Clip collision tests, five sub-chunks per '
+        'polyhedron (LoaderCollisionVolumes SLUS_203.62 0x218e10). A car\'s GEOMETRY has its hull "<model>_CV"; '
+        "the track bundles and GLOBAL/INGAMEB the props' (CS_BarrelA_L, CS_SMOKEBOMB...). Without a hull the "
+        'game takes a box (RectPolyhedron)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x80034020)), {'description': _CHUNK_ID_DESCR})

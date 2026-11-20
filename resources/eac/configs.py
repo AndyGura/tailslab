@@ -1,5 +1,4 @@
 from math import floor, ceil
-from typing import Dict
 
 from library.context import WriteContext, ReadContext
 from library.read_blocks import (
@@ -15,18 +14,15 @@ from resources.eac.fields.numbers import Nfs1TimeField
 
 
 class TnfsTopSpeed(FixedPointBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'TNFS top speed record. Appears to be 24-bit real number (sign unknown because '
-            'big values show up as N/A in the game), little-endian, where last 8 bits is a '
-            'fractional part. For determining speed, ONLY INTEGER PART of this number should '
-            'be multiplied by 2,240000000001 and rounded up, e.g. 0xFF will be equal to '
-            '572mph. Note: probably game multiplies number by 2,24 with some fast algorithm '
-            'so it rounds up even integer result, because 0xFA (*2,24 == 560.0) shows up in '
-            'game as 561mph',
-        }
+    block_description = (
+        'TNFS top speed record. Appears to be 24-bit real number (sign unknown because '
+        'big values show up as N/A in the game), little-endian, where last 8 bits is a '
+        'fractional part. For determining speed, ONLY INTEGER PART of this number should '
+        'be multiplied by 2,240000000001 and rounded up, e.g. 0xFF will be equal to '
+        '572mph. Note: probably game multiplies number by 2,24 with some fast algorithm '
+        'so it rounds up even integer result, because 0xFA (*2,24 == 560.0) shows up in '
+        'game as 561mph'
+    )
 
     def __init__(self, **kwargs):
         super().__init__(length=3, is_signed=False, byte_order='little', fraction_bits=8, **kwargs)

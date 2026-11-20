@@ -1,5 +1,5 @@
 from io import SEEK_CUR
-from typing import Dict, List
+from typing import List
 
 from library.context import ReadContext
 from library.exceptions import BlockDefinitionException
@@ -26,9 +26,7 @@ _ELEVENS_DESCR = (
 
 
 class NfsuVec3(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'A 3D vector padded to 16 bytes'}
+    block_description = 'A 3D vector padded to 16 bytes'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         vector = (Point3D(child=DecimalBlock(length=4)), {'description': 'Vector components'})
@@ -36,13 +34,9 @@ class NfsuVec3(DeclarativeCompoundBlock):
 
 
 class ZeroChunk(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Padding chunk with id 0: filler between meaningful chunks, used for alignment. '
-            'Payload has no meaning',
-        }
+    block_description = (
+        'Padding chunk with id 0: filler between meaningful chunks, used for alignment. Payload has no meaning'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, is_signed=False, value_validator=Eq(0)), {'description': _CHUNK_ID_DESCR})
@@ -57,12 +51,7 @@ class ZeroChunk(DeclarativeCompoundBlock):
 
 
 class UnknownChunk(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A chunk not decoded by the parser: header + raw payload',
-        }
+    block_description = 'A chunk not decoded by the parser: header + raw payload'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, is_signed=False), {'description': _CHUNK_ID_DESCR})
@@ -74,9 +63,7 @@ class UnknownChunk(DeclarativeCompoundBlock):
 
 
 class Chunk80034020(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'The last chunk of the file, purpose unknown'}
+    block_description = 'The last chunk of the file, purpose unknown'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (
@@ -91,13 +78,10 @@ class Chunk80034020(DeclarativeCompoundBlock):
 
 
 class NfsuMeshChunk(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Mesh info chunk: amounts of faces and vertices of the mesh, used to read the '
-            'faces and vertices chunks of the same mesh data container',
-        }
+    block_description = (
+        'Mesh info chunk: amounts of faces and vertices of the mesh, used to read the '
+        'faces and vertices chunks of the same mesh data container'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (
@@ -142,13 +126,10 @@ def elevens_length(ctx, alignment: int = 0x10):
 
 
 class NfsuMeshFacesChunk(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Mesh faces: a triangle list. Amount of faces is defined by the mesh info chunk '
-            '(the first chunk of the same mesh data container)',
-        }
+    block_description = (
+        'Mesh faces: a triangle list. Amount of faces is defined by the mesh info chunk '
+        '(the first chunk of the same mesh data container)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00_13_4B_03)), {'description': _CHUNK_ID_DESCR})
@@ -191,12 +172,7 @@ class NfsuMeshFacesChunk(DeclarativeCompoundBlock):
 
 
 class NfsuVertex(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A single mesh vertex with normal (36 bytes). The most common vertex layout',
-        }
+    block_description = 'A single mesh vertex with normal (36 bytes). The most common vertex layout'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (Point3D(child=DecimalBlock(length=4)), {'description': 'Vertex position'})
@@ -221,14 +197,11 @@ class NfsuVertex(DeclarativeCompoundBlock):
 
 
 class NfsuVertexNoNormal(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A single mesh vertex without normal (24 bytes). Used by a few meshes, e.g. '
-            'SUPRA_STYLE02_HEADLIGHT_C. Same layout as the 36-byte vertex with the normal '
-            'omitted (Direct3D FVF order: position, diffuse color, texture coordinates)',
-        }
+    block_description = (
+        'A single mesh vertex without normal (24 bytes). Used by a few meshes, e.g. '
+        'SUPRA_STYLE02_HEADLIGHT_C. Same layout as the 36-byte vertex with the normal '
+        'omitted (Direct3D FVF order: position, diffuse color, texture coordinates)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (Point3D(child=DecimalBlock(length=4)), {'description': 'Vertex position'})
@@ -238,13 +211,10 @@ class NfsuVertexNoNormal(DeclarativeCompoundBlock):
 
 
 class NfsuVertexSkinned(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A single mesh vertex with normal and skinning data (60 bytes). Used by a few '
-            'world meshes (flags 0x4081 in the mesh info chunk)',
-        }
+    block_description = (
+        'A single mesh vertex with normal and skinning data (60 bytes). Used by a few '
+        'world meshes (flags 0x4081 in the mesh info chunk)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (Point3D(child=DecimalBlock(length=4)), {'description': 'Vertex position'})
@@ -272,14 +242,11 @@ def _vertex_layout_index(ctx):
 
 
 class MeshVerticesChunk(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Mesh vertices. Amount of vertices is defined by the mesh info chunk (the first '
-            'chunk of the same mesh data container). Vertex size (36, 24 or 60 bytes) is '
-            'determined by the chunk length',
-        }
+    block_description = (
+        'Mesh vertices. Amount of vertices is defined by the mesh info chunk (the first '
+        'chunk of the same mesh data container). Vertex size (36, 24 or 60 bytes) is '
+        'determined by the chunk length'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (
@@ -331,12 +298,7 @@ class MeshVerticesChunk(DeclarativeCompoundBlock):
 
 
 class NfsuMeshMaterial(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A part of the mesh drawn with one texture: a range of the triangle list',
-        }
+    block_description = 'A part of the mesh drawn with one texture: a range of the triangle list'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         bounding_box_min = (Point3D(child=DecimalBlock(length=4)), {'description': 'Bounding box minimum corner'})
@@ -356,13 +318,7 @@ class NfsuMeshMaterial(DeclarativeCompoundBlock):
 
 
 class NfsuMeshMaterialsChunk(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Mesh materials: the triangle list of the mesh split into ranges with their own '
-            'texture',
-        }
+    block_description = 'Mesh materials: the triangle list of the mesh split into ranges with their own texture'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (
@@ -463,13 +419,10 @@ def nfsmw_vertex_buffer_materials(materials: list) -> List[List[int]]:
 
 
 class NfsmwMeshHeaderChunk(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFSMW mesh header: id, name, bounding box and transformation of a single mesh. '
-            'Same id as in NFSU, the name is null-terminated',
-        }
+    block_description = (
+        'NFSMW mesh header: id, name, bounding box and transformation of a single mesh. '
+        'Same id as in NFSU, the name is null-terminated'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00_13_40_11)), {'description': _CHUNK_ID_DESCR})
@@ -534,12 +487,7 @@ class NfsmwMeshHeaderChunk(DeclarativeCompoundBlock):
 
 
 class NfsmwMeshChunk(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFSMW mesh info chunk: amounts of materials, vertex buffers and vertex indexes',
-        }
+    block_description = 'NFSMW mesh info chunk: amounts of materials, vertex buffers and vertex indexes'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (
@@ -568,12 +516,7 @@ class NfsmwMeshChunk(DeclarativeCompoundBlock):
 
 
 class NfsmwMeshMaterial(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFSMW mesh material: a range of the triangle list drawn with one texture and effect',
-        }
+    block_description = 'NFSMW mesh material: a range of the triangle list drawn with one texture and effect'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         bounding_box_min = (Point3D(child=DecimalBlock(length=4)), {'description': 'Bounding box minimum corner'})
@@ -606,13 +549,7 @@ class NfsmwMeshMaterial(DeclarativeCompoundBlock):
 
 
 class NfsmwMeshMaterialsChunk(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFSMW mesh materials: the triangle list split into ranges with their own texture '
-            'and effect',
-        }
+    block_description = 'NFSMW mesh materials: the triangle list split into ranges with their own texture and effect'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (
@@ -642,13 +579,7 @@ class NfsmwMeshMaterialsChunk(DeclarativeCompoundBlock):
 
 
 class NfsmwMeshFacesChunk(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFSMW mesh faces: a triangle list. Amount of vertex indexes is defined by the mesh '
-            'info chunk',
-        }
+    block_description = 'NFSMW mesh faces: a triangle list. Amount of vertex indexes is defined by the mesh info chunk'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00_13_4B_03)), {'description': _CHUNK_ID_DESCR})
@@ -687,12 +618,7 @@ class NfsmwMeshFacesChunk(DeclarativeCompoundBlock):
 
 
 class NfsmwVertex44(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFSMW vertex with two texture coordinates (44 bytes), skyshader',
-        }
+    block_description = 'NFSMW vertex with two texture coordinates (44 bytes), skyshader'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (Point3D(child=DecimalBlock(length=4)), {'description': 'Vertex position'})
@@ -704,12 +630,7 @@ class NfsmwVertex44(DeclarativeCompoundBlock):
 
 
 class NfsmwVertex60(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFSMW vertex with tangent (60 bytes), WorldReflectShader and WorldNormalMap effects',
-        }
+    block_description = 'NFSMW vertex with tangent (60 bytes), WorldReflectShader and WorldNormalMap effects'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (Point3D(child=DecimalBlock(length=4)), {'description': 'Vertex position'})
@@ -749,14 +670,11 @@ def _nfsmw_vertex_layout_index(ctx):
 
 
 class NfsmwMeshVerticesChunk(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFSMW vertex buffer. A mesh has one per group of consecutive materials with the same '
-            'effect; amount of vertices is the sum of `vertex_amount` of these materials. Vertex size (36, 44 or 60 '
-            'bytes) depends on the effect',
-        }
+    block_description = (
+        'NFSMW vertex buffer. A mesh has one per group of consecutive materials with the same '
+        'effect; amount of vertices is the sum of `vertex_amount` of these materials. Vertex size (36, 44 or 60 '
+        'bytes) depends on the effect'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (
@@ -800,12 +718,7 @@ class NfsmwMeshVerticesChunk(DeclarativeCompoundBlock):
 
 
 class NfsmwMeshMaterialName(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'NFSMW material name, one chunk per material in the order of materials',
-        }
+    block_description = 'NFSMW material name, one chunk per material in the order of materials'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (
@@ -827,13 +740,9 @@ class NfsmwMeshMaterialName(DeclarativeCompoundBlock):
 
 
 class Chunk80134100(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Mesh data container: holds the mesh info chunk (always first), vertices chunk '
-            'and faces chunk of a single mesh',
-        }
+    block_description = (
+        'Mesh data container: holds the mesh info chunk (always first), vertices chunk and faces chunk of a single mesh'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (
@@ -878,9 +787,7 @@ class Chunk80134100(DeclarativeCompoundBlock):
 
 
 class Chunk00134002(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'File info: original path of the file and unknown values'}
+    block_description = 'File info: original path of the file and unknown values'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (
@@ -922,12 +829,7 @@ class Chunk00134002(DeclarativeCompoundBlock):
 
 
 class Chunk00134003(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'List of mesh ids contained in the file, one item per mesh descriptor chunk',
-        }
+    block_description = 'List of mesh ids contained in the file, one item per mesh descriptor chunk'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (
@@ -954,12 +856,7 @@ class Chunk00134003(DeclarativeCompoundBlock):
 
 
 class Chunk00134011(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Mesh header: id, name, bounding volume and flags of a single mesh',
-        }
+    block_description = 'Mesh header: id, name, bounding volume and flags of a single mesh'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00_13_40_11)), {'description': _CHUNK_ID_DESCR})
@@ -1039,12 +936,7 @@ class Chunk00134011(DeclarativeCompoundBlock):
 
 
 class Chunk00134012(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A list of 32-bit values (hashes) of the mesh, presumably texture ids',
-        }
+    block_description = 'A list of 32-bit values (hashes) of the mesh, presumably texture ids'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (
@@ -1071,12 +963,7 @@ class Chunk00134012(DeclarativeCompoundBlock):
 
 
 class Chunk00134013(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A list of 32-bit values (hashes) of the mesh, presumably shader/material ids',
-        }
+    block_description = 'A list of 32-bit values (hashes) of the mesh, presumably shader/material ids'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (
@@ -1103,14 +990,11 @@ class Chunk00134013(DeclarativeCompoundBlock):
 
 
 class Chunk001340XX(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Unknown chunk with id 0x001340XX, kept as raw bytes. Known ids: 0x00134004 in '
-            'the file info container (20-byte records per mesh, starting with mesh id); '
-            '0x00134017, 0x00134018, 0x00134019, 0x0013401A in mesh descriptors',
-        }
+    block_description = (
+        'Unknown chunk with id 0x001340XX, kept as raw bytes. Known ids: 0x00134004 in '
+        'the file info container (20-byte records per mesh, starting with mesh id); '
+        '0x00134017, 0x00134018, 0x00134019, 0x0013401A in mesh descriptors'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         index = (
@@ -1139,9 +1023,7 @@ class Chunk001340XX(DeclarativeCompoundBlock):
 
 
 class Chunk80134008(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Unknown chunk of the file info container, usually empty'}
+    block_description = 'Unknown chunk of the file info container, usually empty'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (
@@ -1156,15 +1038,12 @@ class Chunk80134008(DeclarativeCompoundBlock):
 
 
 class NfsuMeshDescriptorChunk(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Mesh descriptor: everything about a single mesh (a car part). Contains the mesh '
-            'header chunk, lists of hashes and the mesh data container with vertices and '
-            'faces. The converter exports every descriptor as a separate mesh, named after '
-            '`mesh_name` of the header',
-        }
+    block_description = (
+        'Mesh descriptor: everything about a single mesh (a car part). Contains the mesh '
+        'header chunk, lists of hashes and the mesh data container with vertices and '
+        'faces. The converter exports every descriptor as a separate mesh, named after '
+        '`mesh_name` of the header'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (
@@ -1207,13 +1086,10 @@ class NfsuMeshDescriptorChunk(DeclarativeCompoundBlock):
 
 
 class Chunk80134001(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'File info container: the first meaningful chunk of the file. Holds file info, '
-            'the list of mesh ids and a per-mesh table',
-        }
+    block_description = (
+        'File info container: the first meaningful chunk of the file. Holds file info, '
+        'the list of mesh ids and a per-mesh table'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (
@@ -1255,9 +1131,7 @@ class Chunk80134001(DeclarativeCompoundBlock):
 
 
 class Chunk80134020(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Unknown top-level chunk, kept as raw bytes'}
+    block_description = 'Unknown top-level chunk, kept as raw bytes'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         chunk_id = (
@@ -1330,21 +1204,18 @@ def determine_chunks_class(ctx: ReadContext):
 
 
 class NfsuBinGeometry(DeclarativeCompoundBlock):
+    block_description = (
+        'Geometry pack: car geometry file (GEOMETRY.BIN), also a chunk of track bundles. '
+        'A sequence of chunks, each having 32-bit id and 32-bit payload length; chunks with id '
+        'starting with 0x80 are containers of other chunks. The pack starts with a file info '
+        'container, followed by a mesh descriptor per mesh (car part, scenery object), '
+        'interleaved with zero-id padding chunks'
+    )
+
     def __init__(self, whole_file: bool = True, **kwargs):
         # car GEOMETRY.BIN: chunks after the pack (e.g. 0x80034020) are read as its own chunks, until the end of file
         super().__init__(**kwargs)
         self.whole_file = whole_file
-
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Geometry pack: car geometry file (GEOMETRY.BIN), also a chunk of track bundles. '
-            'A sequence of chunks, each having 32-bit id and 32-bit payload length; chunks with id '
-            'starting with 0x80 are containers of other chunks. The pack starts with a file info '
-            'container, followed by a mesh descriptor per mesh (car part, scenery object), '
-            'interleaved with zero-id padding chunks',
-        }
 
     class Fields(DeclarativeCompoundBlock.Fields):
         header = (

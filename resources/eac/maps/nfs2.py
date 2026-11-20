@@ -1,5 +1,3 @@
-from typing import Dict
-
 from library.context import ReadContext
 from library.read_blocks import (
     DeclarativeCompoundBlock,
@@ -16,21 +14,18 @@ from resources.eac.maps.nfs_common import ColPolygon, ColExtraBlock
 
 
 class TrkBlock(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Track block (NFS2, NFS2 SE): a segment of the track (8 slices of the COL '
-            'collision data) with its terrain at 3 levels of detail and extrablocks (props, road lines, road vectors '
-            'etc.). Vertex coordinates are relative to the block position, defined in `block_positions` of the '
-            'track file. The polygon records after the vertices are 6 consecutive sets, a main and an extra set '
-            '(rails, fences) per level of detail: `low_polygons`, `low_extra_polygons`, `medium_polygons`, '
-            '`medium_extra_polygons`, `high_polygons` (also the road surface of the physics), '
-            '`high_extra_polygons` (the NFS2 SE slot loader 0x437420 sets their pointers one after the other, '
-            'slot +0x484..+0x498). The block drawing (0x4361a0) picks the level by distance (0x437ee0: 2 the '
-            'nearest, 0 the farthest) and draws its main set, then its extra set. NFS2 SE keeps the raw block '
-            'bytes in memory (track reader nfs2sen.exe 0x461b00..)',
-        }
+    block_description = (
+        'Track block (NFS2, NFS2 SE): a segment of the track (8 slices of the COL '
+        'collision data) with its terrain at 3 levels of detail and extrablocks (props, road lines, road vectors '
+        'etc.). Vertex coordinates are relative to the block position, defined in `block_positions` of the '
+        'track file. The polygon records after the vertices are 6 consecutive sets, a main and an extra set '
+        '(rails, fences) per level of detail: `low_polygons`, `low_extra_polygons`, `medium_polygons`, '
+        '`medium_extra_polygons`, `high_polygons` (also the road surface of the physics), '
+        '`high_extra_polygons` (the NFS2 SE slot loader 0x437420 sets their pointers one after the other, '
+        'slot +0x484..+0x498). The block drawing (0x4361a0) picks the level by distance (0x437ee0: 2 the '
+        'nearest, 0 the farthest) and draws its main set, then its extra set. NFS2 SE keeps the raw block '
+        'bytes in memory (track reader nfs2sen.exe 0x461b00..)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         block_size = (
@@ -231,9 +226,7 @@ class TrkBlock(DeclarativeCompoundBlock):
 
 
 class TrkSuperBlock(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'A group of up to 8 consecutive track blocks'}
+    block_description = 'A group of up to 8 consecutive track blocks'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         block_size = (
@@ -257,15 +250,12 @@ class TrkSuperBlock(DeclarativeCompoundBlock):
 
 
 class TrkMap(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Main track file. The track is split into blocks (segments), grouped by 8 into '
-            'superblocks. Each block has a terrain mesh at 3 resolutions and extrablocks '
-            'with props. Polygon texture values index the textures_map extrablock of the '
-            'accompanying COL file, which points to images in <track>0.QFS',
-        }
+    block_description = (
+        'Main track file. The track is split into blocks (segments), grouped by 8 into '
+        'superblocks. Each block has a terrain mesh at 3 resolutions and extrablocks '
+        'with props. Polygon texture values index the textures_map extrablock of the '
+        'accompanying COL file, which points to images in <track>0.QFS'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(length=4, value_validator=Eq('TRAC')), {'description': 'Resource ID'})

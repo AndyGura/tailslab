@@ -1,17 +1,10 @@
-from typing import Dict
-
 from library.context import WriteContext, ReadContext
 from library.exceptions import BlockDefinitionException
 from library.read_blocks import DataBlock
 
 
 class FfmpegSupportedVideo(DataBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A video file, which is supported by FFMPEG and can be converted using only it',
-        }
+    block_description = 'A video file, which is supported by FFMPEG and can be converted using only it'
 
     def serializer_class(self):
         from serializers import FfmpegSupportedVideoSerializer

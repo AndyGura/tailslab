@@ -1,5 +1,3 @@
-from typing import Dict
-
 from library.read_blocks import (
     DeclarativeCompoundBlock,
     UTF8Block,
@@ -55,9 +53,7 @@ class Fce4Color(FceColor):
 
 
 class Fce4Triangle(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'A single triangle of FCE4 mesh'}
+    block_description = 'A single triangle of FCE4 mesh'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         tex_page = (
@@ -155,19 +151,16 @@ def _offset_field(table: str, description: str):
 
 
 class Fce4Geometry(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'FCE 3D model, version 4 (NFS4: High Stakes, Motor City Online). Used for cars '
-            '(car.fce in car.viv), dashboards (dash.fce), police officers, helicopter, menu models. Consists of up '
-            'to 64 parts, each of them is a separate mesh with own position, and up to 16 "dummies": named points, '
-            'which are used for lights, license plates, smoke and water effects. In addition to FCE3, every vertex '
-            'has a "damaged" position, used when car is crashed. Coordinate system: X points right, Y up, Z '
-            'forward. The unit is meter. Texture is a TGA image car00.tga, which is located next to car.fce in '
-            'car.viv. Alpha channel of the texture defines which car color is applied to the pixel: 224 primary, '
-            '164 interior, 96 secondary, 32 driver hair color',
-        }
+    block_description = (
+        'FCE 3D model, version 4 (NFS4: High Stakes, Motor City Online). Used for cars '
+        '(car.fce in car.viv), dashboards (dash.fce), police officers, helicopter, menu models. Consists of up '
+        'to 64 parts, each of them is a separate mesh with own position, and up to 16 "dummies": named points, '
+        'which are used for lights, license plates, smoke and water effects. In addition to FCE3, every vertex '
+        'has a "damaged" position, used when car is crashed. Coordinate system: X points right, Y up, Z '
+        'forward. The unit is meter. Texture is a TGA image car00.tga, which is located next to car.fce in '
+        'car.viv. Alpha channel of the texture defines which car color is applied to the pixel: 224 primary, '
+        '164 interior, 96 secondary, 32 driver hair color'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         version = (

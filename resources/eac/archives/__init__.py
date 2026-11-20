@@ -184,9 +184,7 @@ class WwwwBlock(ArchiveBlock):
 
 
 class BigfItemDescriptionBlock(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Description of a single item of BIGF archive'}
+    block_description = 'Description of a single item of BIGF archive'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         offset = (
@@ -436,9 +434,7 @@ class BigfBlock(ArchiveBlock):
 
 
 class C0fbItemDescriptionBlock(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'Description of a single item of C0FB archive'}
+    block_description = 'Description of a single item of C0FB archive'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         offset = (
@@ -535,15 +531,12 @@ class C0fbBlock(BigfBlock):
 
 
 class SoundBank(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A pack of SFX samples (short audios). Used mostly for car engine sounds, '
-            'crash sounds etc. In TNFS all banks of a race share one 128-entry sample id table: the game loads the '
-            'car bank, the opponent banks, the collision bank (`COLL*`), then `NFS_FMMB`, and a bank loaded later '
-            'replaces the ids it has',
-        }
+    block_description = (
+        'A pack of SFX samples (short audios). Used mostly for car engine sounds, '
+        'crash sounds etc. In TNFS all banks of a race share one 128-entry sample id table: the game loads the '
+        'car bank, the opponent banks, the collision bank (`COLL*`), then `NFS_FMMB`, and a bank loaded later '
+        'replaces the ids it has'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         items_descr = (
@@ -643,20 +636,17 @@ class SoundBank(DeclarativeCompoundBlock):
 
 
 class EaSoundBank(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'EA sound bank "BNKl" (*.BNK of NFS2, NFS2 SE, NFS3, NFS4, NFS5, NFS6): a table of '
-            'sound patches, then their wave data. Car banks (NFS2 `<car>.BNK` / `O<car>.BNK` (opponent) / '
-            '`S<car>.BNK`, NFS3 `car.bnk` / `ocar.bnk` / `scar.bnk` in car.viv, NFS4 `careng.bnk` / `ocareng.bnk` / '
-            '`scareng.bnk`, NFS3/NFS4 `GENCAR.BNK`, traffic `TRUCK.BNK`...) use indices 0 and 1 for the engine '
-            '(looped), 2 for a one-shot with random detune range 200-250 (gear shift, like `gear` of TNFS car banks) '
-            'and 3 for the horn (looped). Opponent banks have the engine and the horn only: NFS2 `O<car>.BNK` in '
-            'slots 0 and 1 of a 2-slot table, NFS3 `ocar.bnk` / NFS4 `ocareng.bnk` in slots 0 and 3. NFS4 '
-            '`careng.bnk` has more engine samples at higher indices (presumably one per RPM range). `W*.BNK` of NFS2 '
-            'SE are car speech',
-        }
+    block_description = (
+        'EA sound bank "BNKl" (*.BNK of NFS2, NFS2 SE, NFS3, NFS4, NFS5, NFS6): a table of '
+        'sound patches, then their wave data. Car banks (NFS2 `<car>.BNK` / `O<car>.BNK` (opponent) / '
+        '`S<car>.BNK`, NFS3 `car.bnk` / `ocar.bnk` / `scar.bnk` in car.viv, NFS4 `careng.bnk` / `ocareng.bnk` / '
+        '`scareng.bnk`, NFS3/NFS4 `GENCAR.BNK`, traffic `TRUCK.BNK`...) use indices 0 and 1 for the engine '
+        '(looped), 2 for a one-shot with random detune range 200-250 (gear shift, like `gear` of TNFS car banks) '
+        'and 3 for the horn (looped). Opponent banks have the engine and the horn only: NFS2 `O<car>.BNK` in '
+        'slots 0 and 1 of a 2-slot table, NFS3 `ocar.bnk` / NFS4 `ocareng.bnk` in slots 0 and 3. NFS4 '
+        '`careng.bnk` has more engine samples at higher indices (presumably one per RPM range). `W*.BNK` of NFS2 '
+        'SE are car speech'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(length=4, value_validator=Eq('BNKl')), {'description': 'Resource ID'})

@@ -1,5 +1,3 @@
-from typing import Dict
-
 from library.read_blocks import ArrayBlock, BytesBlock, DecimalBlock, DeclarativeCompoundBlock, IntegerBlock
 
 # NFS5 (Porsche Unleashed) track sky: GameData/Track/Sky/<track>.fsh (textures), <track>.txt (sky layers) and
@@ -9,20 +7,17 @@ from library.read_blocks import ArrayBlock, BytesBlock, DecimalBlock, Declarativ
 
 
 class Nfs5SkyBin(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Sky settings of an NFS5 track, `GameData/Track/Sky/<track>.bin`: a memory dump of '
-            'a settings struct (29148 bytes, 3544 in `Monaco.bin` and `default.bin`; the tail of the bigger ones is '
-            'filled with 0xCB, uninitialised memory). Checked against Porsche.exe (the unprotected one): '
-            'the horizon is 16 flat quads on a cylinder of radius 400 around the eye, each showing a cell of the '
-            'horizon texture `horz` of the FSH of the same name, coloured by `hzcl` (16x2: top and bottom vertex '
-            'colours); the sky levels of the `.txt` are drawn on a dome, a 16x16 vertex grid curved down from its '
-            'centre (`hor0`, `hor1`... are copies of `horz` with other details, their use not traced). '
-            '`autobahn_lightning.bin` / `industrial_lightning.bin` (5216 bytes) '
-            'are another format, not read',
-        }
+    block_description = (
+        'Sky settings of an NFS5 track, `GameData/Track/Sky/<track>.bin`: a memory dump of '
+        'a settings struct (29148 bytes, 3544 in `Monaco.bin` and `default.bin`; the tail of the bigger ones is '
+        'filled with 0xCB, uninitialised memory). Checked against Porsche.exe (the unprotected one): '
+        'the horizon is 16 flat quads on a cylinder of radius 400 around the eye, each showing a cell of the '
+        'horizon texture `horz` of the FSH of the same name, coloured by `hzcl` (16x2: top and bottom vertex '
+        'colours); the sky levels of the `.txt` are drawn on a dome, a 16x16 vertex grid curved down from its '
+        'centre (`hor0`, `hor1`... are copies of `horz` with other details, their use not traced). '
+        '`autobahn_lightning.bin` / `industrial_lightning.bin` (5216 bytes) '
+        'are another format, not read'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         version = (IntegerBlock(length=4), {'description': '9, 7 in `Monaco.bin` and `default.bin` (the old ones)'})

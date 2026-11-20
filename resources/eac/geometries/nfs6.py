@@ -51,9 +51,7 @@ ELF_HEADER_SIZE = 52
 
 
 class EaglSectionHeader(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'ELF32 section header'}
+    block_description = 'ELF32 section header'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         name_offset = (IntegerBlock(length=4), {'description': 'Offset of section name in the section names table'})
@@ -75,14 +73,11 @@ class EaglSectionHeader(DeclarativeCompoundBlock):
 
 
 class EaglModel(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'EAGL model, used by NFS6 for track compartments, sky, cars and other geometry. A 32-bit '
-            'little-endian MIPS ELF relocatable object file with model data in ".data" section, where named symbols '
-            'point to render methods, vertex/index buffers and texture references',
-        }
+    block_description = (
+        'EAGL model, used by NFS6 for track compartments, sky, cars and other geometry. A 32-bit '
+        'little-endian MIPS ELF relocatable object file with model data in ".data" section, where named symbols '
+        'point to render methods, vertex/index buffers and texture references'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         magic = (IntegerBlock(length=4, value_validator=Eq(0x464C457F)), {'description': 'ELF magic "\\x7fELF"'})

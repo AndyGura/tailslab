@@ -1,6 +1,5 @@
 from io import SEEK_CUR
 from math import floor
-from typing import Dict
 
 from library.context import ReadContext, WriteContext
 from library.exceptions import DataIntegrityException
@@ -31,12 +30,7 @@ from resources.eac.psx import CRCF_FOOTER_LENGTH, PsxCrcFooter, with_crc_footer
 
 
 class OripPolygon(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A geometry polygon',
-        }
+    block_description = 'A geometry polygon'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         polygon_type = (
@@ -101,16 +95,12 @@ class OripPolygon(DeclarativeCompoundBlock):
 
 
 class OripVertexUV(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Texture coordinates for vertex, where each coordinate is: '
-            + IntegerBlock(length=4).schema['block_description']
-            + '. The unit is a pixels amount of assigned texture. So it should be changed when selecting '
-            'texture with different size',
-            'inline_description': True,
-        }
+    inline_description = (
+        'Texture coordinates for vertex, where each coordinate is: '
+        + IntegerBlock(length=4).schema['block_description']
+        + '. The unit is a pixels amount of assigned texture. So it should be changed when selecting '
+        'texture with different size'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         u = IntegerBlock(length=4, is_signed=True)
@@ -118,12 +108,7 @@ class OripVertexUV(DeclarativeCompoundBlock):
 
 
 class OripMaterial(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A material: FSH bitmap and flat colour of the polygons that use it',
-        }
+    block_description = 'A material: FSH bitmap and flat colour of the polygons that use it'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         name = (
@@ -162,13 +147,10 @@ class OripMaterial(DeclarativeCompoundBlock):
 
 
 class OripMorph(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A morph (verified): vertices moved by delta vectors times a weight, '
-            '`vertex = base + round(delta * weight / 0x10000)` per component (weight in 16.16 fixed point, linear)',
-        }
+    block_description = (
+        'A morph (verified): vertices moved by delta vectors times a weight, '
+        '`vertex = base + round(delta * weight / 0x10000)` per component (weight in 16.16 fixed point, linear)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         name = (
@@ -194,16 +176,13 @@ class OripMorph(DeclarativeCompoundBlock):
 
 
 class OripPartition(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A partition: a named list of polygons, depth-sorted and drawn as a whole. The game '
-            'draws a car as its `inside`, then `surface`, then `outside` partition (verified), each sorted on its '
-            'own and painted completely over the previous one: `inside` (the inner tyre faces `circ`, the tyre '
-            "bottoms `shad`, the Warrior's `bott` and `tire`, some body parts) is always under the body, "
-            '`outside` (the 4 wheel quads in every full car model) always over it',
-        }
+    block_description = (
+        'A partition: a named list of polygons, depth-sorted and drawn as a whole. The game '
+        'draws a car as its `inside`, then `surface`, then `outside` partition (verified), each sorted on its '
+        'own and painted completely over the previous one: `inside` (the inner tyre faces `circ`, the tyre '
+        "bottoms `shad`, the Warrior's `bott` and `tire`, some body parts) is always under the body, "
+        '`outside` (the 4 wheel quads in every full car model) always over it'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         name = (
@@ -243,15 +222,11 @@ class OripPartition(DeclarativeCompoundBlock):
 
 
 class NamedIndex(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': '12-bytes record, first 8 bytes is null-terminated UTF-8 string, last'
-            ' 4 bytes is an unsigned integer (little-endian). Used by ORIP `fx_polys` (index is a vertex index) and '
-            '`labels` (index is a polygon index)',
-            'inline_description': True,
-        }
+    inline_description = (
+        '12-bytes record, first 8 bytes is null-terminated UTF-8 string, last'
+        ' 4 bytes is an unsigned integer (little-endian). Used by ORIP `fx_polys` (index is a vertex index) and '
+        '`labels` (index is a polygon index)'
+    )
 
     @property
     def size_doc_str(self):
@@ -291,15 +266,12 @@ class NamedIndex(DeclarativeCompoundBlock):
 
 # TODO check additional info in http://3dodev.com/documentation/file_formats/games/nfs
 class OripGeometry(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Geometry block for 3D model with few materials: TNFS car models (CFM) and track '
-            'props (FAM). Exported to OBJ + MTL, and imported from them: the polygons, labels and partitions of the OBJ '
-            'replace the geometry, the rest (material names and colours, morphs, fx points) follows the replaced '
-            'model and the wheel quads',
-        }
+    block_description = (
+        'Geometry block for 3D model with few materials: TNFS car models (CFM) and track '
+        'props (FAM). Exported to OBJ + MTL, and imported from them: the polygons, labels and partitions of the OBJ '
+        'replace the geometry, the rest (material names and colours, morphs, fx points) follows the replaced '
+        'model and the wheel quads'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(value_validator=Eq('ORIP'), length=4), {'description': 'Resource ID'})
@@ -606,13 +578,9 @@ class OripGeometry(DeclarativeCompoundBlock):
 
 
 class OrixPolygon(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A polygon of a PSX geometry: the ORIP polygon with the type of the GPU primitive '
-            'the game draws it with',
-        }
+    block_description = (
+        'A polygon of a PSX geometry: the ORIP polygon with the type of the GPU primitive the game draws it with'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         polygon_type = (
@@ -662,14 +630,10 @@ class OrixPolygon(DeclarativeCompoundBlock):
 
 
 class OrixPolygonTexture(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Texture of one polygon (verified): the PSX version cuts the texture of a material '
-            'into one small image per polygon',
-            'inline_description': True,
-        }
+    inline_description = (
+        'Texture of one polygon (verified): the PSX version cuts the texture of a material '
+        'into one small image per polygon'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         polygon_index = (IntegerBlock(length=4), {'description': 'Index of the polygon in `polygons`'})
@@ -683,13 +647,9 @@ class OrixPolygonTexture(DeclarativeCompoundBlock):
 
 
 class OrixMaterial(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A material of a PSX geometry: the image of the polygons that use it, or the list '
-            'of their own images',
-        }
+    block_description = (
+        'A material of a PSX geometry: the image of the polygons that use it, or the list of their own images'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         name = (
@@ -772,22 +732,19 @@ def _in_wwww_archive(ctx) -> bool:
 
 
 class OrixGeometry(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Geometry block of the PSX TNFS: car models (`<car>.por` / `<car>l.por` of the car '
-            'archives `.VSM` / `.WSM`) and track props (`Z<track>_POR.FAM`). The PSX counterpart of ORIP: the same '
-            'header with 8 more bytes, 16-byte polygons, 24-byte materials and a table of per-polygon textures. '
-            'Textures are the images of the PSH archive of the same name in the car archive (`<car>.psh`, the item '
-            'after it in the US disc; in a `_POR.FAM`: the item of the same index in `Z<track>_PSH.FAM`); the wheel '
-            'quads (materials `frntires` / `rertires`) get the texture of material `tire4` at load (`tyr4`, `Tir4` '
-            'in the Japanese disc). Brake lights are no part of the model: in the high-poly '
-            'textures of a racer the game takes every CLUT entry of pure green (5-bit red < 2, green > 29, blue < '
-            '2, at most 5) and writes 0x0008 (dark red) to it, 0x001F (red) while the brake is at 11 or more; the '
-            "cop's pure red and pure blue entries exchange red (0x001F) and blue (0x7C00) every 16 clock units "
-            'during a chase (verified). Exported to OBJ + MTL',
-        }
+    block_description = (
+        'Geometry block of the PSX TNFS: car models (`<car>.por` / `<car>l.por` of the car '
+        'archives `.VSM` / `.WSM`) and track props (`Z<track>_POR.FAM`). The PSX counterpart of ORIP: the same '
+        'header with 8 more bytes, 16-byte polygons, 24-byte materials and a table of per-polygon textures. '
+        'Textures are the images of the PSH archive of the same name in the car archive (`<car>.psh`, the item '
+        'after it in the US disc; in a `_POR.FAM`: the item of the same index in `Z<track>_PSH.FAM`); the wheel '
+        'quads (materials `frntires` / `rertires`) get the texture of material `tire4` at load (`tyr4`, `Tir4` '
+        'in the Japanese disc). Brake lights are no part of the model: in the high-poly '
+        'textures of a racer the game takes every CLUT entry of pure green (5-bit red < 2, green > 29, blue < '
+        '2, at most 5) and writes 0x0008 (dark red) to it, 0x001F (red) while the brake is at 11 or more; the '
+        "cop's pure red and pure blue entries exchange red (0x001F) and blue (0x7C00) every 16 clock units "
+        'during a chase (verified). Exported to OBJ + MTL'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(value_validator=Eq('ORIX'), length=4), {'description': 'Resource ID'})
@@ -1022,14 +979,11 @@ class OrixGeometry(DeclarativeCompoundBlock):
 
 
 class TnfsSaturnOrixPolygon(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A polygon of a Sega Saturn geometry: the PSX ORIX polygon, its first 8 bytes in reverse '
-            'order (the GPU primitive word first, then the bytes `unk`, `material_index`, `mapping`, `polygon_type`), '
-            'the offsets big-endian',
-        }
+    block_description = (
+        'A polygon of a Sega Saturn geometry: the PSX ORIX polygon, its first 8 bytes in reverse '
+        'order (the GPU primitive word first, then the bytes `unk`, `material_index`, `mapping`, `polygon_type`), '
+        'the offsets big-endian'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         draw_type = (
@@ -1062,12 +1016,7 @@ class TnfsSaturnOrixPolygon(DeclarativeCompoundBlock):
 
 
 class TnfsSaturnOrixMaterial(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A material of a Sega Saturn geometry: the PSX ORIX material, big-endian',
-        }
+    block_description = 'A material of a Sega Saturn geometry: the PSX ORIX material, big-endian'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         name = (
@@ -1226,18 +1175,15 @@ def _tnfs_saturn_orix_fields():
 
 
 class TnfsSaturnOrixGeometry(OrixGeometry):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': "Car model of the Sega Saturn TNFS port Over Drivin' GT-R: the PSX ORIX, big-endian (SH-2), "
-            'version 800, without the CRC footer, with its own polygon and material layouts (`TnfsSaturnOrixPolygon`, '
-            '`TnfsSaturnOrixMaterial`). The models are not files of the disc: the executable `0` holds them (pointer '
-            'table at 0x84f14: 9 high-poly models, the 8 cars and the Warrior, 13 zeros, the 9 low-poly ones; car '
-            'model ids 0..7 = the PC car order SUPRA, DIABLO, PORSCHE, VETTE, TESTA, VIPER, NSX, RX7), sliced to '
-            "`MODELS/<car>/high.orix` / `low.orix`. Textures: the texture banks of the car's `CARS/<car>.ALL` "
-            '(`TnfsSaturnCarBundle`). Exported to OBJ + MTL / gg-web-engine GLB as the PC and PSX models',
-        }
+    block_description = (
+        "Car model of the Sega Saturn TNFS port Over Drivin' GT-R: the PSX ORIX, big-endian (SH-2), "
+        'version 800, without the CRC footer, with its own polygon and material layouts (`TnfsSaturnOrixPolygon`, '
+        '`TnfsSaturnOrixMaterial`). The models are not files of the disc: the executable `0` holds them (pointer '
+        'table at 0x84f14: 9 high-poly models, the 8 cars and the Warrior, 13 zeros, the 9 low-poly ones; car '
+        'model ids 0..7 = the PC car order SUPRA, DIABLO, PORSCHE, VETTE, TESTA, VIPER, NSX, RX7), sliced to '
+        "`MODELS/<car>/high.orix` / `low.orix`. Textures: the texture banks of the car's `CARS/<car>.ALL` "
+        '(`TnfsSaturnCarBundle`). Exported to OBJ + MTL / gg-web-engine GLB as the PC and PSX models'
+    )
 
     Fields = _tnfs_saturn_orix_fields()
 

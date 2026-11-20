@@ -162,6 +162,11 @@ class EaFieldDescriptionShape(CompoundBlock):
 class EaFieldDescriptionRecord(CompoundBlock):
     """A field (or a group of fields, `Chain`) of the described data. `depth`: how many chain bodies hold it"""
 
+    block_description = (
+        'A field description: type and name, then the size of the field, then the '
+        'type-specific part (a `Chain` holds the body of its group)'
+    )
+
     def __init__(self, depth: int = 0, **kwargs):
         self.depth = depth
         if depth + 1 < DES_MAX_DEPTH:
@@ -250,17 +255,14 @@ class EaFieldDescriptionRecord(CompoundBlock):
             **kwargs,
         )
 
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A field description: type and name, then the size of the field, then the '
-            'type-specific part (a `Chain` holds the body of its group)',
-        }
-
 
 class EaFieldDescriptionBody(CompoundBlock):
     """Data copy and field records of a file or of a `Chain` group. `depth`: how many chain bodies hold it"""
+
+    block_description = (
+        'A copy of the described data and the descriptions of its fields (the whole file, or '
+        'the body of a `Chain` record)'
+    )
 
     def __init__(self, depth: int = 0, **kwargs):
         self.depth = depth
@@ -313,34 +315,23 @@ class EaFieldDescriptionBody(CompoundBlock):
             **kwargs,
         )
 
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A copy of the described data and the descriptions of its fields (the whole file, or '
-            'the body of a `Chain` record)',
-        }
-
 
 class EaFieldDescriptions(EaFieldDescriptionBody):
     """A `.DES` file: a body (`EaFieldDescriptionBody`)"""
 
+    block_description = (
+        "EA's field description file (`.DES`): the developers' description of a data file "
+        '(`.DAT`) written by their data editor, read by no game. NFS2 / NFS2 SE: `P<car>.DES` next to '
+        '`P<car>.DAT` (`Nfs2CarPhysics`), `GAMEDATA/CARMODEL/PC/SIMTUNE.DES` (`Nfs2SimTune`), '
+        '`GAMEDATA/SIM/CARDATA/MCF1.DES` (`Nfs2CarAi`), `GAMEDATA/SIM/AI/TRAFCFG.DES` (`Nfs2TrafficConfig`) and '
+        '`PRSONAL.DES` (`Nfs2Personalities`), `GAMEDATA/TRACKS/DATA/PC/SM<track>.DES` (the smackables `SM*.DAT`, '
+        'not parsed); NFS5: `GameData/Simulation/AI/TRAFCFG.DES`. A body: memory garbage, a copy of the data, '
+        'then one record per field (type, name, size), groups of fields as `Chain` records holding a body of '
+        'their own. Field names and types of the data files come from them'
+    )
+
     def __init__(self, **kwargs):
         super().__init__(depth=0, **kwargs)
-
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': "EA's field description file (`.DES`): the developers' description of a data file "
-            '(`.DAT`) written by their data editor, read by no game. NFS2 / NFS2 SE: `P<car>.DES` next to '
-            '`P<car>.DAT` (`Nfs2CarPhysics`), `GAMEDATA/CARMODEL/PC/SIMTUNE.DES` (`Nfs2SimTune`), '
-            '`GAMEDATA/SIM/CARDATA/MCF1.DES` (`Nfs2CarAi`), `GAMEDATA/SIM/AI/TRAFCFG.DES` (`Nfs2TrafficConfig`) and '
-            '`PRSONAL.DES` (`Nfs2Personalities`), `GAMEDATA/TRACKS/DATA/PC/SM<track>.DES` (the smackables `SM*.DAT`, '
-            'not parsed); NFS5: `GameData/Simulation/AI/TRAFCFG.DES`. A body: memory garbage, a copy of the data, '
-            'then one record per field (type, name, size), groups of fields as `Chain` records holding a body of '
-            'their own. Field names and types of the data files come from them',
-        }
 
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
         res = super().read(ctx, name, read_bytes_amount)

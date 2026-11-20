@@ -35,7 +35,13 @@ Commonly overridden:
 - `schema` (property) — `{**super().schema, 'block_description': ..., ...}`. Feeds both docs and
   GUI. `DataBlock.schema` already includes `block_class_mro` (the `__`-joined class name chain,
   most specific first — see "GUI dispatch" below), `value_validator`, `is_programmatic`, and
-  `serialization` (from `serializer_class()`).
+  `serialization` (from `serializer_class()`). A fixed description is a class attribute
+  `block_description = '...'` instead: `DataBlock.__init_subclass__` gives a class defining it a
+  `schema` that sets it over the one of the class (or its base classes), as such an override would;
+  subclasses inherit it, a subclass's own `schema` override still wins. Framework classes in
+  `library/read_blocks` don't define it (their descriptions depend on the instance).
+  `CompoundBlock.inline_description` (the constructor argument, or a class attribute of a subclass)
+  renders a compound block inline in the docs with that description.
 - `size_doc_str` (property) — a short string used only for documentation (`"4"`, `"0..4"`,
   `"width*height"`, `"?"` if unknowable). Must tolerate being evaluated with a
   `DocumentationContext` (see below) — arithmetic/comparison ops only, no branching on real values.

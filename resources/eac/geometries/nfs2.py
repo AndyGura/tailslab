@@ -1,5 +1,3 @@
-from typing import Dict
-
 from library.read_blocks import (
     DeclarativeCompoundBlock,
     UTF8Block,
@@ -19,15 +17,12 @@ from resources.eac.fields.misc import Point3D
 
 
 class GeoPolygon(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A single polygon of the mesh. Texture coordinates seem to be hardcoded in game:'
-            'for triangles `[[0, 0], [1, 0], [1, 1]]` if "uv_flip" else '
-            '`[[0, 1], [1, 1], [1, 0]]`, for quads `[[0, 1], [1, 1], [1, 0], [0, 0]]` if '
-            '"uv_flip" else `[[0, 0], [1, 0], [1, 1], [0, 1]]`',
-        }
+    block_description = (
+        'A single polygon of the mesh. Texture coordinates seem to be hardcoded in game:'
+        'for triangles `[[0, 0], [1, 0], [1, 1]]` if "uv_flip" else '
+        '`[[0, 1], [1, 1], [1, 0]]`, for quads `[[0, 1], [1, 1], [1, 0], [0, 0]]` if '
+        '"uv_flip" else `[[0, 0], [1, 0], [1, 1], [0, 1]]`'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         mapping = (
@@ -79,9 +74,7 @@ class GeoPolygon(DeclarativeCompoundBlock):
 
 
 class GeoMesh(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {**super().schema, 'block_description': 'A single mesh, can use multiple textures'}
+    block_description = 'A single mesh, can use multiple textures'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         num_vrtx = (IntegerBlock(length=4), {'description': 'number of vertices in block'})
@@ -145,15 +138,12 @@ class GeoMesh(DeclarativeCompoundBlock):
 
 
 class GeoGeometry(DeclarativeCompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'A set of 3D meshes, used for cars and props. Contains multiple meshes with '
-            'high details, medium and low LOD-s. Textures are in a separate QFS archive: '
-            '<name>.QFS next to the GEO file (NFS2), or CARMODEL/PC/<name>.QFS for GEO '
-            'items of CARDATA.VIV (NFS2SE)',
-        }
+    block_description = (
+        'A set of 3D meshes, used for cars and props. Contains multiple meshes with '
+        'high details, medium and low LOD-s. Textures are in a separate QFS archive: '
+        '<name>.QFS next to the GEO file (NFS2), or CARMODEL/PC/<name>.QFS for GEO '
+        'items of CARDATA.VIV (NFS2SE)'
+    )
 
     class Fields(DeclarativeCompoundBlock.Fields):
         unk0 = (
