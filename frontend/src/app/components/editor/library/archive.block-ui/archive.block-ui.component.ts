@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject, ViewChild, forwardRef } from '@angular/core';
 import { BlockData, BlockSchema } from '../../types';
-import { joinId } from '../../../../utils/join-id';
+import { isFileId, joinId } from '../../../../utils/join-id';
 import { fileFormatIcon } from '../../../../utils/file-format-icon';
 import { SubscribableGuiComponent } from '../../gui.component';
 import { MatDialog } from '@angular/material/dialog';
@@ -346,7 +346,7 @@ export class ArchiveBlockUiComponent extends SubscribableGuiComponent<{
   childLabel(child: ArchiveChildData, index: number): string {
     if (child.alias) return child.alias;
     const id = this.resourceId || '';
-    const extension = id.includes('__') ? null : id.slice(id.lastIndexOf('.')).toUpperCase();
+    const extension = isFileId(id) ? id.slice(id.lastIndexOf('.')).toUpperCase() : null;
     const names = extension ? ArchiveBlockUiComponent.WWWW_SLOT_NAMES[extension] : undefined;
     if (names && this.resourceData?.children.length === names.length) {
       return `${index} · ${names[index]}`;

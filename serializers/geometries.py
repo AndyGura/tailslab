@@ -10,7 +10,7 @@ from PIL import Image
 
 from library.exceptions import DataIntegrityException
 from library.utils import path_join
-from library.utils.id import join_id
+from library.utils.id import is_file_id, join_id, split_id, split_last_id_part
 from resources.eac.archives import ShpiBlock, ShppBlock
 from resources.eac.bitmaps import EacImage
 from serializers import BaseFileSerializer
@@ -682,10 +682,10 @@ class OrixGeometrySerializer(OripGeometrySerializer):
         `Z<track>_POR.FAM`"""
         from library import require_resource
 
-        file_path, _, item_path = id.partition('__')
-        if file_path.upper().endswith('_POR.FAM'):
-            is_lower = file_path[-7:-4].islower()
-            psh_id = f'{file_path[:-7]}{"psh" if is_lower else "PSH"}{file_path[-4:]}__{item_path}'
+        file_id, item_path = split_id(id)
+        if file_id.upper().endswith('_POR.FAM'):
+            is_lower = file_id[-7:-4].islower()
+            psh_id = join_id(f'{file_id[:-7]}{"psh" if is_lower else "PSH"}{file_id[-4:]}', item_path)
         else:
             psh_id = self._archive_sibling_id(id, '.psh')
             if psh_id is None:
@@ -705,13 +705,13 @@ class OrixGeometrySerializer(OripGeometrySerializer):
         without such an item, or for a model which is no archive item"""
         from library import require_resource
 
-        if '__' not in id or 'children/' not in id:
+        if is_file_id(id) or 'children/' not in id:
             return None
-        archive_id, _, entry_path = id.rpartition('children/')
+        archive_path, _, entry_path = id.rpartition('children/')
         if not entry_path.split('/')[0].isdigit():
             return None
         index = int(entry_path.split('/')[0])
-        archive_id = archive_id[: -len('__')] if archive_id.endswith('__') else archive_id.rstrip('/')
+        archive_id, _ = split_last_id_part(archive_path + 'children')
         (_, _, archive_data), _ = require_resource(archive_id)
         children = (archive_data.get('children') if isinstance(archive_data, dict) else None) or []
         alias = children[index].get('alias') if index < len(children) else None
@@ -1642,7 +1642,7 @@ class NfsuBinGeometrySerializer(BaseFileSerializer):
 
         super().serialize(data, path)
 
-        textures = find_nfsu_car_textures(id_to_path(id)) if id and '__' not in id else {}
+        textures = find_nfsu_car_textures(id_to_path(id)) if id and is_file_id(id) else {}
         texture_names = {}
         alpha_modes = {}
 
@@ -1741,7 +1741,7 @@ def _find_fce_siblings(id: str) -> Tuple[Optional[str], List[Tuple[str, bytes]]]
             item_data = (child['item'] or {}).get('data')
             if alias.lower().endswith('.tga') and isinstance(item_data, bytes):
                 textures.append((alias[:-4], item_data))
-    elif '__' not in id:
+    elif is_file_id(id):
         file_path = id_to_path(id)
         file_name = os.path.basename(file_path)
         directory = os.path.dirname(file_path) or '.'

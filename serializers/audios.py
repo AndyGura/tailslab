@@ -7,6 +7,7 @@ from typing import List, Dict, Optional, Tuple
 
 from config import general_config
 from library.utils import audio_ima_adpcm_codec, audio_ea_xa_codec, format_exception, path_join
+from library.utils.id import is_file_id
 from serializers import BaseFileSerializer
 
 
@@ -264,7 +265,7 @@ class EaAudioStreamsSerializer(BaseFileSerializer):
         from library import require_file
         from library.loader import id_to_path
 
-        if not id or '__' in id:
+        if not id or not is_file_id(id):
             return None, None
         file_path = id_to_path(id)
         directory, file_name = os.path.split(file_path)
@@ -695,7 +696,7 @@ class TnfsPsxVagBankSerializer(BaseFileSerializer):
         from serializers.misc.tnfs_psx_car_sounds import tnfs_psx_car_bank
 
         super().serialize(data, path)
-        vb_path = id_to_path(id) if id and '__' not in id else None
+        vb_path = id_to_path(id) if id and is_file_id(id) else None
         vh_path = self._patch_bank_path(vb_path) if vb_path else None
         output = []
         if vh_path is None:

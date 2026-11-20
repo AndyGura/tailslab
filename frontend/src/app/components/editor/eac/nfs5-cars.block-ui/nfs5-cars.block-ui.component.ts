@@ -21,9 +21,9 @@ import {
   NFS5_FEDATA_TO_SIM,
   nfs5PendingSelection,
   Nfs5PartInfo,
-  resourcePath,
   takePendingSelection,
 } from '../nfs5-car-physics.block-ui/nfs5-files';
+import { idToPath } from '../../../../utils/join-id';
 import {
   NFS5_AVAILABILITY,
   NFS5_CAR_KINDS,
@@ -167,7 +167,7 @@ export class Nfs5CarsBlockUiComponent extends CarSpecEditorBase implements OnIni
   }
 
   get dir(): string {
-    return this.resourceId ? dirOf(resourcePath(this.resourceId)) : '';
+    return this.resourceId ? dirOf(idToPath(this.resourceId)) : '';
   }
 
   get hasUnsavedChanges(): boolean {

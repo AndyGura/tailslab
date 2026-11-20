@@ -75,7 +75,9 @@ def _png_hex(internal_color: int) -> str:
 
 def car_model_name(shpi_id: str) -> str:
     """CFM file name without extension, upper-cased, of an id of a resource in it"""
-    file_path = shpi_id.split('__')[0].replace('\\', '/')
+    from library.utils.id import id_to_path
+
+    file_path = id_to_path(shpi_id).replace('\\', '/')
     return file_path.split('/')[-1].rsplit('.', 1)[0].upper()
 
 

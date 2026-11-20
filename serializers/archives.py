@@ -9,7 +9,7 @@ import config
 import serializers
 from library.exceptions import DataIntegrityException
 from library.utils import format_exception, path_join
-from library.utils.id import join_id
+from library.utils.id import is_file_id, join_id
 from resources.eac.archives import ShpiBlock
 from resources.eac.bitmaps import EacImage, EacPalette
 from resources.eac.geometries import OripGeometry
@@ -329,7 +329,7 @@ class ShppArchiveSerializer(ShpiArchiveSerializer):
                 if isinstance(item_data, Exception) or item_block.__class__.__name__ != 'PsxImage':
                     return []
                 sectors[name] = item_data
-        if len(sectors) < SECTOR_IMAGES or not id or '__' in id:
+        if len(sectors) < SECTOR_IMAGES or not id or not is_file_id(id):
             # the settings file is found next to the PSH file
             return []
         info_path = horizon_info_path(id_to_path(id))

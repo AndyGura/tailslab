@@ -4,6 +4,7 @@ from os.path import getsize
 from typing import Set, Tuple
 
 from library.read_blocks import DataBlock, OptionalBlock
+from library.utils.id import id_to_path, path_to_name, split_id
 
 
 def _file_or_archive_item_name(file_path: str) -> str:
@@ -653,14 +654,6 @@ def probe_block_class(
     raise NotImplementedError('Don`t have parser for such resource')
 
 
-def path_to_name(path: str) -> str:
-    return path.replace('\\', '/').replace(':', '---DRIVE').replace('__', '_%5F')
-
-
-def id_to_path(id: str) -> str:
-    return id.split('__')[0].replace('_%5F', '__').replace('---DRIVE', ':')
-
-
 def require_resource(id: str) -> Tuple[Tuple[str, 'DataBlock', dict], Tuple[str, 'DataBlock', dict]]:
     file_path = id_to_path(id)
     (file_id, block, data) = require_file(file_path)
@@ -668,7 +661,7 @@ def require_resource(id: str) -> Tuple[Tuple[str, 'DataBlock', dict], Tuple[str,
         return (id, None, None), (file_id, None, None)
     if file_id == id:
         return (file_id, block, data), (file_id, block, data)
-    resource_path = [x for x in id.split('__')[1].split('/') if x]
+    resource_path = [x for x in split_id(id)[1].split('/') if x]
     (res_block, res) = (block, data)
     for key in resource_path:
         (res_block, res) = res_block.get_child_block_with_data(res, key)

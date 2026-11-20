@@ -2,18 +2,7 @@
 // (GameData/Simulation/CarData) and .ais (GameData/Simulation/AICarData) and lists nfs5.prt part ids. The editors read
 // the files next to the opened one through the backend (find_files: case-insensitive, `..` allowed; retrieve_value)
 
-// the file path of a resource id (library/loader.py id_to_path)
-export function resourcePath(id: string): string {
-  return id
-    .split('__')[0]
-    .replace(/_%5F/g, '__')
-    .replace(/---DRIVE/g, ':');
-}
-
-// the resource id of a file path (library/loader.py path_to_name)
-export function pathToResourceId(path: string): string {
-  return path.replace(/\\/g, '/').replace(/:/g, '---DRIVE').replace(/__/g, '_%5F');
-}
+import { pathToId } from '../../../../utils/join-id';
 
 export function dirOf(path: string): string {
   const p = path.replace(/\\/g, '/');
@@ -50,7 +39,7 @@ export async function findNfs5File(api: Nfs5FileApi, dir: string, patterns: stri
 // a file's parsed data, or null
 export async function loadNfs5File<T = any>(api: Nfs5FileApi, path: string): Promise<T | null> {
   try {
-    return await api.retrieveValue<T>(pathToResourceId(path));
+    return await api.retrieveValue<T>(pathToId(path));
   } catch (err) {
     console.warn('Could not read', path, err);
     return null;

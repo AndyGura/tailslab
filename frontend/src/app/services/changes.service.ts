@@ -73,7 +73,7 @@ class ChangeExecutor {
 
   private static setResourceValue(resource: Resource, id: string, value: any) {
     const [superId, lastKey] = splitLastIdPart(id);
-    const data = ChangeExecutor.locateId(resource, superId, true);
+    const data = superId === resource.id ? resource.data : ChangeExecutor.locateId(resource, superId, true);
     if (data === null || (isLazyStub(data) && !(lastKey in data))) return;
     if (data[lastKey] === undefined && data[+lastKey] !== undefined) {
       data[+lastKey] = value;

@@ -124,6 +124,11 @@ When you do:
   time). Follow that pattern there rather than importing at module top level.
 - Field extras dict (third tuple element in `Fields`) keys: `description`, `is_unknown`,
   `custom_offset`, `usage` (comma-separated subset of `ui`/`io`/`doc`, default = everywhere).
+- Resource ids (`library/utils/id.py`, `frontend/src/app/utils/join-id.ts`, the same rules): a file's id is
+  `path_to_name` of its path (`__` escaped as `_%5F`, `:` as `---DRIVE`), a resource in it adds `__` and its path in
+  the file's data (`children/3/item/data`), which never contains `__` nor starts with `_`; ids split at their last
+  `__` (a file name ending in `_` gives `TRACK___children/0`). Build ids with `path_to_name` + `join_id`, read them
+  with `split_id` / `is_file_id` / `id_to_path` / `split_last_id_part`, never by splitting `__` by hand.
 - `frontend/src/nfs-three-lib/` (README there) is copied into the nfs-web game as it is: its files import only each
   other and `three`, `@gg-web-engine/core`, `rxjs`, nothing else of the frontend (a part they need is brought into it),
   and hold no specs (they are tested next to the GUI components using them). It has `TnfsCarMeshController` (and

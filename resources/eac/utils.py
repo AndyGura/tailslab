@@ -79,9 +79,10 @@ def determine_palette_for_8_bit_bitmap(block, data: dict, id: str):
         # TNFS has QFS files without palette in this directory, and 7C bitmap resource data seems to not differ in this case :(
         from library import require_resource
 
-        (_, shpi_block, shpi_data), _ = require_resource(
-            '/'.join(id.split('__')[0].split('/')[:-1]) + '/CENTRAL.QFS__data'
-        )
+        from library.utils.id import join_id, split_id
+
+        directory = split_id(id)[0].rpartition('/')[0]
+        (_, shpi_block, shpi_data), _ = require_resource(join_id(f'{directory}/CENTRAL.QFS', 'data'))
         (palette_block, palette_data) = _get_palette_from_shpi(shpi_block, shpi_data)
 
     return palette_block, palette_data

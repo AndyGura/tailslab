@@ -22,9 +22,9 @@ import {
   findNfs5File,
   loadNfs5File,
   nfs5PendingSelection,
-  resourcePath,
   takePendingSelection,
 } from '../nfs5-car-physics.block-ui/nfs5-files';
+import { idToPath } from '../../../../utils/join-id';
 import {
   NFS5_TYRE_TYPES,
   Nfs5Part,
@@ -392,7 +392,7 @@ export class Nfs5CarPartsBlockUiComponent extends CarSpecEditorBase implements O
 
   private async loadCars() {
     if (!this.resourceId || !this.main?.api) return;
-    const dir = dirOf(resourcePath(this.resourceId));
+    const dir = dirOf(idToPath(this.resourceId));
     this.carsPath = await findNfs5File(this.main.api, dir, ['nfs5.car']);
     if (!this.carsPath) {
       this.carsNote = 'nfs5.car is not next to this file: the cars using a part are not shown.';

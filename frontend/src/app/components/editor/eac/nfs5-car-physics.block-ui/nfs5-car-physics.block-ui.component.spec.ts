@@ -15,7 +15,6 @@ import {
   nfs5TorqueAt,
   nfs5TyreCircumference,
 } from './nfs5-car-physics';
-import { pathToResourceId, resourcePath } from './nfs5-files';
 
 // GameData/Simulation/CarData/993coupe36.sim as parsed
 export const nfs5Sim993 = (): { [key: string]: any } => ({
@@ -112,11 +111,6 @@ describe('NFS5 car physics helpers', () => {
     expect(nfs5SteeringLock(16.5, 0)).toBeCloseTo(20 * (17 / 16.5), 6);
     expect(nfs5SteeringLock(16.5, 40)).toBeCloseTo(17, 6);
     expect(nfs5SteeringLock(16.5, 100)).toBeCloseTo(17 / 1.25, 6);
-  });
-
-  it('maps resource ids and paths like the backend', () => {
-    expect(resourcePath('C---DRIVE/Games/my_%5Fdir/nfs5.car__cars/3')).toBe('C:/Games/my__dir/nfs5.car');
-    expect(pathToResourceId('C:\\Games\\my__dir\\nfs5.prt')).toBe('C---DRIVE/Games/my_%5Fdir/nfs5.prt');
   });
 });
 

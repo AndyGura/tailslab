@@ -277,9 +277,10 @@ def _sibling(path: str, extension: str) -> Optional[str]:
 
 def is_nfs5_sky_archive(id: Optional[str]) -> bool:
     """`GameData/Track/Sky/<track>.fsh` of NFS5 (a file of its own, with the `.txt` next to it)"""
-    if not id or '__' in id:
+    from library.utils.id import id_to_path, is_file_id
+
+    if not id or not is_file_id(id):
         return False
-    from library.loader import id_to_path
 
     path = id_to_path(id).replace('\\', '/')
     return re.search(r'/track/sky/[^/]+\.fsh$', path, re.I) is not None and _sibling(path, '.txt') is not None

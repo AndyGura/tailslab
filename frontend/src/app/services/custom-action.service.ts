@@ -5,6 +5,7 @@ import { firstValueFrom } from 'rxjs';
 import { MainService } from './main.service';
 import { CustomAction } from '../components/editor/types';
 import { RunCustomActionDialogComponent } from '../components/run-custom-action.dialog/run-custom-action.dialog.component';
+import { splitLastIdPart } from '../utils/join-id';
 
 @Injectable({
   providedIn: 'root',
@@ -24,7 +25,7 @@ export class CustomActionService {
   ): Promise<boolean> {
     if (action.idDepth) {
       for (let i = 0; i < action.idDepth; i++) {
-        resourceId = resourceId.substring(0, Math.max(resourceId.lastIndexOf('/'), resourceId.lastIndexOf('__')));
+        resourceId = splitLastIdPart(resourceId)[0];
       }
     }
 

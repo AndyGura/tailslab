@@ -997,12 +997,14 @@ def _add_quads(model: Mesh, polygons: list, vertices: list, get_texture):
 def _require_track_sibling(id: str, file_name: str, sub_id: str = ''):
     """Loads a file next to the track one (`<dir>/<file_name>`), ignoring letter case, or its resource `sub_id`"""
     from library import require_resource
+    from library.loader import id_to_path, path_to_name
     from library.utils.file_utils import find_files_case_insensitive
+    from library.utils.id import join_id
 
-    dirpath, _, _ = id.rpartition('/')
+    dirpath, _, _ = id_to_path(id).rpartition('/')
     path = f'{dirpath}/{file_name}' if dirpath else file_name
     path = next(iter(find_files_case_insensitive([path])), path).replace('\\', '/')
-    return require_resource(path + sub_id)
+    return require_resource(join_id(path_to_name(path), sub_id) if sub_id else path_to_name(path))
 
 
 def shpi_texture_names(shpi_block, shpi_data: dict, save_palettes: bool) -> List[Optional[str]]:
@@ -1281,7 +1283,7 @@ class TrkMapSerializer(EacTrackSerializer):
             traceback.print_exc()
 
         def texture_archive():
-            return _require_track_sibling(id, f'{track_name}0.QFS', '__data')
+            return _require_track_sibling(id, f'{track_name}0.QFS', 'data')
 
         # polygons and props refer to the COL textures_map, whose records pick the QFS image by index
         texture_map, texture_names = [], []
@@ -1488,7 +1490,7 @@ class FrdMapSerializer(EacTrackSerializer):
         track_name = id.split('/')[-1][:-4]
 
         def texture_archive():
-            return _require_track_sibling(id, f'{track_name}0.QFS', '__data')
+            return _require_track_sibling(id, f'{track_name}0.QFS', 'data')
 
         # Unlike NFS2 (TRK/COL), terrain polygon "tex_id" in FRD is not an index into the COL
         # texture map: it directly indexes the FRD file's own "texture_blocks" table, which in
@@ -1666,9 +1668,11 @@ def _require_nfs4_texture_archive(id):
     # archive named after this FRD's own basename first, and fall back to the same path with a
     # trailing "n" (the reverse-track marker) stripped before giving up.
     from library import require_resource
+    from library.loader import id_to_path, path_to_name
     from library.utils.file_utils import find_files_case_insensitive
+    from library.utils.id import join_id
 
-    dirpath, _, filename = id.rpartition('/')
+    dirpath, _, filename = id_to_path(id).rpartition('/')
     prefix = f'{dirpath}/' if dirpath else ''
     basename = filename[:-4]
     candidates = [basename]
@@ -1680,7 +1684,7 @@ def _require_nfs4_texture_archive(id):
         # Game files' letter case varies ("tr0.qfs", "TRN0.qFS"), which matters on case-sensitive file systems
         path = next(iter(find_files_case_insensitive([path])), path).replace('\\', '/')
         try:
-            return require_resource(f'{path}__data')
+            return require_resource(join_id(path_to_name(path), 'data'))
         except Exception as e:
             last_error = e
     raise last_error

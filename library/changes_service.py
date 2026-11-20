@@ -1,7 +1,7 @@
 from typing import List, Dict, Any
 
 from library import require_resource
-from library.utils.id import split_last_id_part
+from library.utils.id import split_id, split_last_id_part
 from library.utils.logging_setup import R
 from serializers.misc.json_utils import convert_bytes
 
@@ -21,28 +21,26 @@ class ChangeExecutor:
         resource = parent_resource[id]
 
         if change['op'] == 'set':
-            print(f'✏️ {(parent_id + "__").split("__")[1]}/{id} = {R.repr(change["newValue"])}')
+            print(f'✏️ {split_id(parent_id)[1]}/{id} = {R.repr(change["newValue"])}')
             if isinstance(parent_resource, list):
                 parent_resource[int(id)] = change['newValue']
             else:
                 parent_resource[id] = change['newValue']
         elif change['op'] == 'array_insert':
-            print(
-                f'✏️ {(parent_id + "__").split("__")[1]}/{id} insert item at index {change["index"]}: {R.repr(change["value"])}'
-            )
+            print(f'✏️ {split_id(parent_id)[1]}/{id} insert item at index {change["index"]}: {R.repr(change["value"])}')
             resource.insert(change['index'], change['value'])
         elif change['op'] == 'array_remove':
-            print(f'✏️ {(parent_id + "__").split("__")[1]}/{id} remove item at index {change["index"]}')
+            print(f'✏️ {split_id(parent_id)[1]}/{id} remove item at index {change["index"]}')
             del resource[change['index']]
         elif change['op'] == 'array_swap':
-            print(f'✏️ {(parent_id + "__").split("__")[1]}/{id} swap indexes {change["indexA"]} and {change["indexB"]}')
+            print(f'✏️ {split_id(parent_id)[1]}/{id} swap indexes {change["indexA"]} and {change["indexB"]}')
             (resource[change['indexA']], resource[change['indexB']]) = (
                 resource[change['indexB']],
                 resource[change['indexA']],
             )
         elif change['op'] == 'binary_delta':
             print(
-                f'✏️ {(parent_id + "__").split("__")[1]}/{id} binary delta at {change["index"]}: {R.repr(change["oldPart"])} -> {R.repr(change["newPart"])}'
+                f'✏️ {split_id(parent_id)[1]}/{id} binary delta at {change["index"]}: {R.repr(change["oldPart"])} -> {R.repr(change["newPart"])}'
             )
             parent_resource[id] = (
                 parent_resource[id][: change['index']]
@@ -66,28 +64,28 @@ class ChangeExecutor:
         resource = parent_resource[id]
 
         if change['op'] == 'set':
-            print(f'✏️ {(parent_id + "__").split("__")[1]}/{id} = {R.repr(change["oldValue"])}')
+            print(f'✏️ {split_id(parent_id)[1]}/{id} = {R.repr(change["oldValue"])}')
             if isinstance(parent_resource, list):
                 parent_resource[int(id)] = change['oldValue']
             else:
                 parent_resource[id] = change['oldValue']
         elif change['op'] == 'array_insert':
-            print(f'✏️ {(parent_id + "__").split("__")[1]}/{id} remove item at index {change["index"]}')
+            print(f'✏️ {split_id(parent_id)[1]}/{id} remove item at index {change["index"]}')
             del resource[change['index']]
         elif change['op'] == 'array_remove':
             print(
-                f'✏️ {(parent_id + "__").split("__")[1]}/{id} insert item at index {change["index"]}: {R.repr(change["oldValue"])}'
+                f'✏️ {split_id(parent_id)[1]}/{id} insert item at index {change["index"]}: {R.repr(change["oldValue"])}'
             )
             resource.insert(change['index'], change['oldValue'])
         elif change['op'] == 'array_swap':
-            print(f'✏️ {(parent_id + "__").split("__")[1]}/{id} swap indexes {change["indexA"]} and {change["indexB"]}')
+            print(f'✏️ {split_id(parent_id)[1]}/{id} swap indexes {change["indexA"]} and {change["indexB"]}')
             (resource[change['indexA']], resource[change['indexB']]) = (
                 resource[change['indexB']],
                 resource[change['indexA']],
             )
         elif change['op'] == 'binary_delta':
             print(
-                f'✏️ {(parent_id + "__").split("__")[1]}/{id} binary delta at {change["index"]}: {R.repr(change["newPart"])} -> {R.repr(change["oldPart"])}'
+                f'✏️ {split_id(parent_id)[1]}/{id} binary delta at {change["index"]}: {R.repr(change["newPart"])} -> {R.repr(change["oldPart"])}'
             )
             parent_resource[id] = (
                 parent_resource[id][: change['index']]

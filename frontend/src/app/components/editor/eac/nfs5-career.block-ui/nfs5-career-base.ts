@@ -10,8 +10,8 @@ import {
   Nfs5CarInfo,
   nfs5PendingSelection,
   Nfs5PartInfo,
-  resourcePath,
 } from '../nfs5-car-physics.block-ui/nfs5-files';
+import { idToPath } from '../../../../utils/join-id';
 
 export type Nfs5IdRow = { slot: number; id: number; label: string; missing: boolean };
 
@@ -38,7 +38,7 @@ export abstract class Nfs5CareerEditorBase extends CarSpecEditorBase implements 
 
   private async loadLookups() {
     if (!this.resourceId || !this.main?.api) return;
-    const dir = dirOf(resourcePath(this.resourceId));
+    const dir = dirOf(idToPath(this.resourceId));
     const [cars, parts] = await Promise.all([loadNfs5Cars(this.main.api, dir), loadNfs5Parts(this.main.api, dir)]);
     this.carsPath = cars?.path || null;
     this.cars = cars?.byId || null;

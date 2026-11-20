@@ -13,6 +13,7 @@ import { ApiDelegateService } from './services/api/api-delegate.service';
 import { GeneralConfig } from './services/api/api-types';
 import { Title } from '@angular/platform-browser';
 import { HotkeyAction, hotkeyAction, hotkeyLabels, isTextField } from './utils/hotkeys';
+import { splitId } from './utils/join-id';
 
 @Component({
   selector: 'app-root',
@@ -242,11 +243,7 @@ export class AppComponent implements OnInit {
   }
 
   formatChange(change: ChangeEntry): string {
-    let renderId = change.id;
-    const doubleUnderscoreIndex = renderId.lastIndexOf('__');
-    if (doubleUnderscoreIndex !== -1) {
-      renderId = renderId.substring(doubleUnderscoreIndex + 2);
-    }
+    const renderId = splitId(change.id)[1] || change.id;
     // a palette color (0xRRGGBBAA)
     const value = (v: any) =>
       /\/colors\/data\/\d+$/.test(change.id) && typeof v === 'number'
