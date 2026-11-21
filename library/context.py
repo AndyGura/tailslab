@@ -156,7 +156,7 @@ class ReadContext(BaseContext):
 
 class WriteContext(BaseContext):
     def get_or_create_child(self, name: str, block=None):
-        existing_child = self.children.get('name')
+        existing_child = self.children.get(name)
         if existing_child:
             if block is not None:
                 existing_child.block = block
@@ -233,7 +233,7 @@ class DocumentationContext(BaseContext):
         return DocumentationCtxData('local_offset')
 
     def get_or_create_child(self, name: str, block=None):
-        existing_child = self.children.get('name')
+        existing_child = self.children.get(name)
         if existing_child:
             if block is not None:
                 existing_child.block = block
