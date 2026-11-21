@@ -13,6 +13,18 @@ from serializers import BaseFileSerializer
 from serializers.base import DIRECTORY_UI, UiSerialization, write_skipped
 
 
+def eacs_loop_meta(header: Dict) -> Dict:
+    """`loop`, `loop_start_time_ms`, `loop_end_time_ms` of the loop of an EACS header (`EacsAudioHeader`, `AsfAudio`):
+    `repeat_loop_length` samples from `repeat_loop_beginning` (the TNFS DOS mixer jumps back to the loop start when it
+    reaches start + length, 0xa6c1a; vgmstream `ea_1snh.c` alike), the end its last sample"""
+    loop_start_time_ms = 1000 * header['repeat_loop_beginning'] / header['sampling_rate']
+    return {
+        'loop': header['repeat_loop_length'] > 0,
+        'loop_start_time_ms': loop_start_time_ms,
+        'loop_end_time_ms': loop_start_time_ms + 1000 * (header['repeat_loop_length'] - 1) / header['sampling_rate'],
+    }
+
+
 class EacsAudioSerializer(BaseFileSerializer):
     def serialize(self, data: dict, path: str, id=None, block=None, meta: dict = None, **kwargs) -> List[str]:
         super().serialize(data, path)
@@ -29,17 +41,8 @@ class EacsAudioSerializer(BaseFileSerializer):
             # unsigned
             else:
                 wave_bytes = wave_bytes
-        loop_start_time_ms = 1000 * data['header']['repeat_loop_beginning'] / data['header']['sampling_rate']
-        loop_end_time_ms = (
-            loop_start_time_ms + 1000 * (data['header']['repeat_loop_length'] - 1) / data['header']['sampling_rate']
-        )
         header = data['header']
-        meta = {
-            'loop': header['repeat_loop_length'] > 0,
-            'loop_start_time_ms': loop_start_time_ms,
-            'loop_end_time_ms': loop_end_time_ms,
-            **(meta or {}),
-        }
+        meta = {**eacs_loop_meta(header), **(meta or {})}
         return write_wav_with_meta(
             path, wave_bytes, header['channels'], header['sampling_rate'], meta, header['sound_resolution']
         )
@@ -52,14 +55,7 @@ class FfmpegSupportedAudioSerializer(BaseFileSerializer):
         subprocess.run(
             [general_config().ffmpeg_executable, '-y', '-nostats', '-loglevel', '0', '-i', id, wav_path], check=True
         )
-        loop_start_time_ms = 1000 * data['repeat_loop_beginning'] / data['sampling_rate']
-        loop_end_time_ms = loop_start_time_ms + 1000 * data['repeat_loop_length'] / data['sampling_rate']
-        meta = {
-            'loop': data['repeat_loop_length'] > 0,
-            'loop_start_time_ms': loop_start_time_ms,
-            'loop_end_time_ms': loop_end_time_ms,
-        }
-        return [wav_path, write_meta(path, meta)]
+        return [wav_path, write_meta(path, eacs_loop_meta(data))]
 
 
 def decode_ea_sound_patch_layer(layer: Dict, wave_data: bytes) -> Tuple[bytes, int, int]:

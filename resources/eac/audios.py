@@ -50,16 +50,17 @@ class EacsAudioHeader(DeclarativeCompoundBlock):
         repeat_loop_beginning = (
             IntegerBlock(length=4),
             {
-                'description': 'When audio ends, it repeats in loop from here. Should be '
+                'description': 'First sample of the loop (0xFFFFFFFF in a standalone `.EAS` without one). Should be '
                 'multiplied by sound_resolution to calculate offset in bytes'
             },
         )
         repeat_loop_length = (
             IntegerBlock(length=4),
             {
-                'description': 'If play audio in loop, at this point we should rewind to repeat_'
-                'loop_beginning. Should be multiplied by sound_resolution to '
-                'calculate offset in bytes'
+                'description': 'Number of samples of the loop, 0 = no loop: the loop is the samples '
+                '`repeat_loop_beginning` .. `repeat_loop_beginning` + `repeat_loop_length` - 1 (the TNFS DOS mixer '
+                'jumps back to the loop start when it reaches start + length, 0xa6c1a). Should be multiplied by '
+                'sound_resolution to calculate the length in bytes'
             },
         )
         wave_data_offset = (
@@ -238,7 +239,9 @@ class AsfAudio(DeclarativeCompoundBlock):
     block_description = (
         'An audio file, which is supported by FFMPEG and can be converted using only it. '
         'Has some explanation [here](https://wiki.multimedia.cx/index.php/Electronic_'
-        'Arts_Formats_(2))'
+        'Arts_Formats_(2)). The TNFS DOS stream player (0x941f1) plays the data of each `1SNh` chunk without its loop '
+        '(it sets loop start -1, length 0) and loops the music at the `1SNl` chunk, which seeks the stream '
+        '(0x945fc, 0x91260); the converter writes the header loop to the meta as for EACS samples'
     )
     serializer = 'FfmpegSupportedAudioSerializer'
 

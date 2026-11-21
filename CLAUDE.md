@@ -1257,7 +1257,9 @@ When you do:
 ## Music (TNFS `1SNh`, NFS2-NFS6 `SCHl` streams, `PFDx` maps)
 
 - TNFS SE `FRONTEND/MUSIC/*.ASF` / `*.AS4` (`1SNh`) = `AsfAudio`: FFmpeg converts the file by its path
-  (`FfmpegSupportedAudioSerializer`). `CREDITS.ASF` has 1.75 MB of junk after its end block.
+  (`FfmpegSupportedAudioSerializer`), the meta loop from the header as for EACS samples (`eacs_loop_meta`:
+  `repeat_loop_length` samples from `repeat_loop_beginning`, the end their last one, as the TNFS DOS mixer plays them,
+  0xa6c1a; the game's stream player ignores these fields and loops at the `1SNl` chunk). `CREDITS.ASF` has 1.75 MB of junk after its end block.
 - `SCHl` files hold EA audio streams: `EaAudioStreams` (`resources/eac/audios.py`), an array of `EaAudioStream`
   (header chunk with an `EaSoundPatch`, then the SCCl / SCDl / SCLl / SCEl chunks as raw bytes, then padding up to the
   next `SCHl`). The loader picks it for a `SCHl` file whose first chunks are all audio ones
