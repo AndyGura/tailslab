@@ -133,8 +133,12 @@ class DelegateBlock(DataBlock):
 
 
 class AutoDetectBlock(DelegateBlock):
-    def __init__(self, **kwargs):
+    """Reads the first of `possible_blocks` of the class the loader picks for the bytes (`probe_block_class`), the
+    `BytesBlock` one when it picks none. `exact_class`: a block of that very class first, before one subclassing it"""
+
+    def __init__(self, exact_class=False, **kwargs):
         super().__init__(choice_index=self.detect, **kwargs)
+        self.exact_class = exact_class
 
     @property
     def schema(self) -> Dict:
@@ -155,6 +159,10 @@ class AutoDetectBlock(DelegateBlock):
             )
         except NotImplementedError:
             block_class = None
+        if self.exact_class and block_class is not None:
+            for i, block in enumerate(self.possible_blocks):
+                if type(block) is block_class:
+                    return i
         for i, block in enumerate(self.possible_blocks):
             # we match BytesBlock by class name, because some blocks like TargeImage are subclasses of BytesBlock
             if isinstance(block, block_class) if block_class else block.__class__.__name__ == 'BytesBlock':

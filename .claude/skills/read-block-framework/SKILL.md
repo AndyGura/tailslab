@@ -175,7 +175,9 @@ the context tree (`unpack_from_bytes` and bare `ReadContext`s are eager).
   every archive/bundle/compressed sample.
 - `EacCompressedBlock` data is `CompressedData` (dict remembering the compressed bytes and a digest of
   the uncompressed ones): written back as the original compressed bytes while the inner bytes are
-  unchanged; `estimate_packed_size` is the compressed size.
+  unchanged; `estimate_packed_size` is the compressed size. `EacCompressedBlock(possible_blocks, compression=...)`:
+  one algorithm for every read and write (JDLZ, COMP). `AutoDetectBlock(exact_class=True)` prefers a possible block of
+  the loader's very class over an earlier one subclassing it.
 
 ## Adding a new generic block class
 
