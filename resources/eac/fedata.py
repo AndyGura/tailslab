@@ -14,7 +14,6 @@ from library.read_blocks import (
     IntegerBlock,
     UTF8Block,
 )
-from resources.eac.car_specs import Latin1Block
 from resources.eac.fields.numbers import s16, s32, u16, u8
 
 # The spec sheet texts by index, as the front end draws them (nfs3.exe 0x453940 spec sheet, 0x453f60 history, 0x4397c0
@@ -185,7 +184,7 @@ class Nfs3CarFeData(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         car_id = (
-            Latin1Block(length=4),
+            UTF8Block(length=4, encoding='latin-1'),
             {
                 'description': 'Car id, 4 characters (`Diab`, `AMD7`; the case varies), copied to car list +0x315 '
                 '(0x439290). The car is found by its folder name, not by this'
@@ -374,21 +373,21 @@ class Nfs4CarFeData(DeclarativeCompoundBlock):
             },
         )
         name = (
-            Latin1Block(length=256),
+            UTF8Block(length=256, encoding='latin-1'),
             {
                 'description': "Record +0x10, the car's name in the lists; empty in the files: the loader writes text 2 "
                 '(`full_name`) over it'
             },
         )
         car_id = (
-            Latin1Block(length=256),
+            UTF8Block(length=256, encoding='latin-1'),
             {
                 'description': "Car id (`Mcf1`, record +0x110): the loader copies it to +0x315, then puts the car's "
                 'folder name in its place'
             },
         )
         folder = (
-            Latin1Block(length=256),
+            UTF8Block(length=256, encoding='latin-1'),
             {'description': "Record +0x210, empty in the files: the loader writes the car's folder name there"},
         )
         runtime_0x310 = (

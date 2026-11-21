@@ -1,8 +1,14 @@
 from typing import Optional
 
-from library.read_blocks import ArrayBlock, BytesBlock, DeclarativeCompoundBlock, DecimalBlock, IntegerBlock, CountOf
-from library.context import WriteContext
-from library.exceptions import DataIntegrityException
+from library.read_blocks import (
+    FittedBytesBlock,
+    ArrayBlock,
+    BytesBlock,
+    DeclarativeCompoundBlock,
+    DecimalBlock,
+    IntegerBlock,
+    CountOf,
+)
 from library.read_blocks.strings import NullTerminatedUTF8Block
 from resources.eac.fields.misc import Point2D
 from resources.blackbox.chunks import RecordsChunk, is_name_bytes, records_to_chunk_end
@@ -67,7 +73,7 @@ class Nfsu2Road(DeclarativeCompoundBlock):
             {'description': 'Name of the source the road was made of ("TrackRoutesA32"), up to 31 bytes'},
         )
         name_padding = (
-            BytesBlock(length=(lambda ctx: 31 - len(ctx.data('name').encode('utf-8')), '31 - len(name)')),
+            FittedBytesBlock(length=(lambda ctx: 31 - len(ctx.data('name').encode('utf-8')), '31 - len(name)')),
             {'description': 'Rest of the 32-byte name field: zeros, or leftovers of other texts'},
         )
         unk3 = (DecimalBlock(length=4), {'is_unknown': True, 'description': 'Always 1.0'})
@@ -106,14 +112,6 @@ class Nfsu2Road(DeclarativeCompoundBlock):
             ArrayBlock(child=Nfsu2RoadNode(), length='num_nodes'),
             {'description': 'Nodes'},
         )
-
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        # the name field stays 32 bytes long whatever the name
-        padding_length = 31 - len(data['name'].encode('utf-8'))
-        if padding_length < 0:
-            raise DataIntegrityException(f'Road name "{data["name"]}" is longer than 31 bytes', ctx=ctx)
-        padding = (bytes(data['name_padding']) + bytes(padding_length))[:padding_length]
-        return super().write({**data, 'name_padding': padding}, ctx, name)
 
 
 class Nfsu2Roads(RecordsChunk):

@@ -595,7 +595,7 @@ When you do:
   by size under `/Simulation/CarData/`; torque in lb·ft), `.ais` `Nfs5CarAi` (304 bytes: corner look-ahead in 6 m
   track slices and target speeds, read only by the AI target speed 0x40b650), `nfs5.prt` `Nfs5CarParts` (360-byte
   records; `sort_key` is the price), `nfs5.car` `Nfs5Cars` (0x670-byte records starting with the car id, no header;
-  colours stored A, R, G, B, read as big-endian 0xAARRGGBB; texts are Latin-1: `Latin1Block`), and in
+  colours stored A, R, G, B, read as big-endian 0xAARRGGBB; texts are Latin-1: `UTF8Block(length, encoding='latin-1')`), and in
   `nfs5_career.py` `nfs5.fac` `Nfs5FactoryMissions` (0xf0), `nfs5.trn` `Nfs5Tournaments` (0xd40), `nfs5.per`
   `Nfs5Personalities` (0x2c), picked by name and record size; `<track>.jnc` `Nfs5Junctions`, `<track>.edg`
   `Nfs5WallEdges`. Every byte is a named field (`padding_*` / `unused_*`: read by no code); the few values with no

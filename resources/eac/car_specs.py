@@ -3219,34 +3219,6 @@ class Nfs4CarPhysics(Nfs3CarPhysics):
 # Ranges in brackets are those of the game files.
 
 
-class Latin1Block(UTF8Block):
-    """A fixed-length text of 8-bit characters (Windows-1252 / Latin-1: `Coupé`), trailing zeros cut off; bytes after
-    the first zero are kept as characters, so a field with leftovers there writes back byte-exact"""
-
-    block_description = 'Latin-1 string'
-
-    def read(self, ctx, name: str = '', read_bytes_amount=None, resolved_length=None):
-        self_len = self.resolve_length(ctx) if resolved_length is None else resolved_length
-        raw = ctx.buffer.read(self_len)
-        if len(raw) < self_len:
-            from library.exceptions import EndOfBufferException
-
-            raise EndOfBufferException(ctx=ctx)
-        return raw.decode('latin-1').rstrip('\x00')
-
-    def estimate_packed_size(self, data, ctx=None):
-        return max(len(data), self._get_static_length())
-
-    def write(self, data, ctx=None, name: str = '') -> bytes:
-        raw = data.encode('latin-1')
-        static_length = self._get_static_length()
-        if len(raw) > static_length:
-            from library.exceptions import DataIntegrityException
-
-            raise DataIntegrityException(f'"{data}" is {len(raw)} bytes, {name or "the field"} holds {static_length}')
-        return raw + b'\x00' * (static_length - len(raw))
-
-
 def _sim(text: str, scale: str = None):
     return {'description': text + (f'. Scaled by {scale} at load (Porsche.exe 0x49c6c0)' if scale else '')}
 
@@ -3616,7 +3588,7 @@ class Nfs5CarPart(DeclarativeCompoundBlock):
             },
         )
         family = (
-            Latin1Block(length=30),
+            UTF8Block(length=30, encoding='latin-1'),
             {
                 'description': 'Car family ("356", "911 (993)", "Boxster"), shown before the name ("911 (993) Sport '
                 'Brake Package", 0x515cc0); not used to match parts to cars (nfs5.car lists the parts of each car)'
@@ -3632,7 +3604,7 @@ class Nfs5CarPart(DeclarativeCompoundBlock):
             },
         )
         name = (
-            Latin1Block(length=30),
+            UTF8Block(length=30, encoding='latin-1'),
             {
                 'description': 'Internal name; with `type` the slot it fills. Porsche.exe compares it with "Engine" '
                 '(type 1: replaces the torque curve), "Turbo" (aspiration 1), "Supercharged" (aspiration 2: the file '
@@ -3864,7 +3836,7 @@ class Nfs5CarRecord(DeclarativeCompoundBlock):
             },
         )
         display_name = (
-            Latin1Block(length=0x32),
+            UTF8Block(length=0x32, encoding='latin-1'),
             {
                 'description': 'Display name ("\'50 356 1100 Cabriolet"): the dealer list draws bytes 0..2 as the '
                 'year column and the rest from byte 4 (0x4f3510), so it starts "\'YY "; network games send it as '
@@ -3872,48 +3844,48 @@ class Nfs5CarRecord(DeclarativeCompoundBlock):
             },
         )
         short_name = (
-            Latin1Block(length=0x19),
+            UTF8Block(length=0x19, encoding='latin-1'),
             {'description': 'Short name ("911 Turbo"), accessor field SHORT (0x4f3020), `_FEMULTIPLAYERCARNAME`'},
         )
         locale_id = (
-            Latin1Block(length=0x32),
+            UTF8Block(length=0x32, encoding='latin-1'),
             {'description': 'Showcase text file: `FEData/Locale/<locale_id>.loc` (0x508b70)'},
         )
         model = (
-            Latin1Block(length=0x32),
+            UTF8Block(length=0x32, encoding='latin-1'),
             {
                 'description': 'Model: `GameData/CarModel/<model>.crp` (`_FILENAME`); a car without the file is '
                 'left out of the lists (0x4f3e40)'
             },
         )
         spec = (
-            Latin1Block(length=0x32),
+            UTF8Block(length=0x32, encoding='latin-1'),
             {
                 'description': 'Spec: the `.sim` file name ([Nfs5CarPhysics](#nfs5carphysics), `_SPECNAME`); the '
                 'all-cars cheat sends "993coupe36"'
             },
         )
         showcase_picture = (
-            Latin1Block(length=0x32),
+            UTF8Block(length=0x32, encoding='latin-1'),
             {
                 'description': 'Showcase picture: `FEData/Showcase/<name>.fsh` ("356-14", "b1"; missing: "993tCo96", '
                 '0x508b70)'
             },
         )
         ai_spec = (
-            Latin1Block(length=0x32),
+            UTF8Block(length=0x32, encoding='latin-1'),
             {
                 'description': 'AI spec: the `.ais` file name ([Nfs5CarAi](#nfs5carai), `_AISPECNAME`), also compared '
                 'with "GT1", "959"... by the race'
             },
         )
         logos = (
-            Latin1Block(length=0x32),
+            UTF8Block(length=0x32, encoding='latin-1'),
             {
                 'description': 'Logos: `FEData/Art/<logos>.fsh` ("finallogos2"), images 2 x `logo_index` and the next (0x4c1660)'
             },
         )
-        sound = (Latin1Block(length=0x32), {'description': 'Sound set ("sd1b", `_SOUNDNAME`)'})
+        sound = (UTF8Block(length=0x32, encoding='latin-1'), {'description': 'Sound set ("sd1b", `_SOUNDNAME`)'})
         padding_1ab = _bytes(1, 'Zero, read by no code (padding)')
         class_string_id = (
             IntegerBlock(length=4, is_signed=True),
@@ -3928,7 +3900,7 @@ class Nfs5CarRecord(DeclarativeCompoundBlock):
             {'description': 'Era, an FEStrings id: 521 CLASSIC, 522 GOLDEN, 523 MODERN ERA (CLASSLISTING, 0x4f0a50)'},
         )
         body_text = (
-            Latin1Block(length=0xB),
+            UTF8Block(length=0xB, encoding='latin-1'),
             {'description': 'Body text ("Cabrio", "Convertibl": 10 characters), read by no code'},
         )
         convertible = (
@@ -3945,7 +3917,10 @@ class Nfs5CarRecord(DeclarativeCompoundBlock):
                 '`[style<n + 1>]` (0x437b00), as does the front end viewer'
             },
         )
-        engine_text = (Latin1Block(length=0x32), {'description': 'Engine text ("2.0 L S"), read by no code'})
+        engine_text = (
+            UTF8Block(length=0x32, encoding='latin-1'),
+            {'description': 'Engine text ("2.0 L S"), read by no code'},
+        )
         kind = (
             IntegerBlock(length=2, is_signed=True),
             {'description': 'Kind: 0 car, 1 traffic, 2 cop (the lists of 0x4f3e40)'},

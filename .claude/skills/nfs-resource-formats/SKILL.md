@@ -34,8 +34,11 @@ new parsing primitives. Skim the cheat-sheet below before reaching for `read-blo
 - `DecimalBlock(length ∈ {4,8}, byte_order)` — IEEE float/double.
 - `EnumByteBlock(enum_names=[(int, str), ...], raise_error_on_unknown=False)` — 1-byte enum, unknown
   values pass through as their stringified number unless `raise_error_on_unknown`.
-- `UTF8Block(length)` / `NullTerminatedUTF8Block(length)` / `LengthPrefixedUtf8Block(length_block)`
-  (`library.read_blocks.strings`) — fixed/null-terminated/length-prefixed text.
+- `UTF8Block(length, encoding='utf-8')` / `NullTerminatedUTF8Block(length)` / `LengthPrefixedUtf8Block(length_block)`
+  (`library.read_blocks.strings`) — fixed/null-terminated/length-prefixed text; `encoding='latin-1'` for 8-bit
+  characters (`Coupé`). `FittedBytesBlock(length)`: the rest of a fixed-size name field after a
+  `NullTerminatedUTF8Block` name (`length=(lambda ctx: 31 - len(ctx.data('name').encode('utf-8')), '31 - len(name)')`):
+  leftovers kept for byte-exact writes, cut or zero-padded when the name changes length, no write override needed.
 - `BytesBlock(length, allow_negative_length=False)` — raw bytes; `length` may be an int, a field
   path (`length='data_size'`), a `lambda ctx: ...`, `REMAINING` (the bytes the block is read with:
   an archive item's slot, else the rest of the parent; also `UTF8Block`'s length, and an array's

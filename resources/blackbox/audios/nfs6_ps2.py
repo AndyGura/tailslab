@@ -2,6 +2,7 @@ from typing import List, Optional
 
 from library.context import WriteContext
 from library.read_blocks import (
+    FittedBytesBlock,
     ArrayBlock,
     BytesBlock,
     DeclarativeCompoundBlock,
@@ -20,13 +21,6 @@ NFS6_PS2_JUKEBOX_TRACK_HEADER_LENGTH = 0x30
 NFS6_PS2_JUKEBOX_NAME_LENGTH = 84
 NFS6_PS2_JUKEBOX_GROUP_NAME_LENGTH = 60
 NFS6_PS2_JUKEBOX_SECTOR = 2048
-
-
-def _fit_name_padding(padding: bytes, name: str, field_length: int) -> bytes:
-    """Rest of a fixed-length name field after the name and its terminating zero: `padding` cut or zero-padded to
-    fit"""
-    length = field_length - len(name.encode('utf-8')) - 1
-    return (bytes(padding or b'') + bytes(max(0, length)))[: max(0, length)]
 
 
 class Nfs6Ps2JukeboxTrack(DeclarativeCompoundBlock):
@@ -71,7 +65,7 @@ class Nfs6Ps2JukeboxGroup(DeclarativeCompoundBlock):
             {'description': 'Name of the group: "InGame"'},
         )
         name_padding = (
-            BytesBlock(
+            FittedBytesBlock(
                 length=(
                     lambda ctx: NFS6_PS2_JUKEBOX_GROUP_NAME_LENGTH - len(ctx.data('name').encode('utf-8')) - 1,
                     f'{NFS6_PS2_JUKEBOX_GROUP_NAME_LENGTH - 1} - len(name)',
@@ -79,11 +73,6 @@ class Nfs6Ps2JukeboxGroup(DeclarativeCompoundBlock):
             ),
             {'description': f'Rest of the {NFS6_PS2_JUKEBOX_GROUP_NAME_LENGTH}-byte name field: 0xCC bytes'},
         )
-
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        # the name field stays 60 bytes long whatever the name
-        padding = _fit_name_padding(data['name_padding'], data['name'], NFS6_PS2_JUKEBOX_GROUP_NAME_LENGTH)
-        return super().write({**data, 'name_padding': padding}, ctx, name)
 
 
 class Nfs6Ps2JukeboxEntry(DeclarativeCompoundBlock):
@@ -111,7 +100,7 @@ class Nfs6Ps2JukeboxEntry(DeclarativeCompoundBlock):
             },
         )
         name_padding = (
-            BytesBlock(
+            FittedBytesBlock(
                 length=(
                     lambda ctx: NFS6_PS2_JUKEBOX_NAME_LENGTH - len(ctx.data('name').encode('utf-8')) - 1,
                     f'{NFS6_PS2_JUKEBOX_NAME_LENGTH - 1} - len(name)',
@@ -226,9 +215,7 @@ class Nfs6Ps2Jukebox(ArchiveBlock):
                 'num_blocks': layout.length >> 16,
                 'unk0': 0,
                 'name': child['alias'],
-                'name_padding': _fit_name_padding(
-                    name_paddings[i] if i < len(name_paddings) else b'', child['alias'], NFS6_PS2_JUKEBOX_NAME_LENGTH
-                ),
+                'name_padding': name_paddings[i] if i < len(name_paddings) else b'',
             }
             for i, (child, layout) in enumerate(zip(data['children'], layouts))
         ]

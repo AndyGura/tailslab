@@ -6,6 +6,7 @@ from .array import (
 from .basic import (
     DataBlock,
     BytesBlock,
+    FittedBytesBlock,
     Padding,
     REMAINING,
 )

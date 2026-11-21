@@ -6,15 +6,21 @@ from library.read_blocks.basic import DataBlock, LengthPrefixed, read_length
 from library.read_blocks.references import is_static_param, param_doc, param_value
 
 
+_ENCODING_NAMES = {'utf-8': 'UTF-8', 'latin-1': 'Latin-1'}
+
+
 class UTF8Block(DataBlock):
-    # `length`: a block parameter (library/read_blocks/references.py)
-    def __init__(self, length, **kwargs):
+    # `length`: a block parameter (library/read_blocks/references.py). `encoding`: of the text, 'latin-1' for 8-bit
+    # characters (Windows-1252 / Latin-1: `Coupé`; bytes after the first zero are kept as characters, so a field with
+    # leftovers there writes back byte-exact)
+    def __init__(self, length, encoding: str = 'utf-8', **kwargs):
         super().__init__(**kwargs)
         self._length = length
+        self.encoding = encoding
 
     @property
     def schema(self) -> Dict:
-        descr = 'UTF-8 string'
+        descr = f'{_ENCODING_NAMES.get(self.encoding, self.encoding)} string'
         if self.value_validator:
             descr += f'. {self.value_validator}'
         return {**super().schema, 'block_description': descr, 'length': self.size_doc_str}
@@ -43,20 +49,20 @@ class UTF8Block(DataBlock):
         raw = ctx.buffer.read(self_len)
         if len(raw) < self_len:
             raise EndOfBufferException(ctx=ctx)
-        res = raw.decode('utf-8')
+        res = raw.decode(self.encoding)
         if self._length == self_len:
             res = res.rstrip('\x00')
         return res
 
     def estimate_packed_size(self, data, ctx: WriteContext = None):
         static_length = self._get_static_length()
-        length = len(data.encode('utf-8'))
+        length = len(data.encode(self.encoding))
         if static_length is not None:
             return max(length, static_length)
         return length
 
     def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        raw = data.encode('utf-8')
+        raw = data.encode(self.encoding)
         static_length = self._get_static_length()
         if static_length is not None:
             if len(raw) > static_length:
@@ -100,13 +106,20 @@ class NullTerminatedUTF8Block(DataBlock):
         return '1..?'
 
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
+        # up to the first zero, past `length` too; read in slots of `length` bytes
+        start = ctx.buffer.tell()
+        slot = self._length if type(self._length) is int and self._length > 0 else 64
         res = b''
         while True:
-            nxt = ctx.buffer.read(1)
-            if nxt == b'\00':
-                break
-            res += nxt
-        return res.decode('utf-8', errors=self.errors)
+            chunk = ctx.buffer.read(slot)
+            if not chunk:
+                raise EndOfBufferException(ctx=ctx)
+            end = chunk.find(b'\0')
+            if end >= 0:
+                res += chunk[:end]
+                ctx.buffer.seek(start + len(res) + 1)
+                return res.decode('utf-8', errors=self.errors)
+            res += chunk
 
     def encode(self, data: str) -> bytes:
         return data.encode('utf-8', errors='surrogateescape' if self.errors == 'surrogateescape' else 'strict')

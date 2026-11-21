@@ -302,6 +302,24 @@ class BytesBlock(DataBlock):
         return data
 
 
+class FittedBytesBlock(BytesBlock):
+    """Bytes of a length the data gives (`length`, a block parameter), written cut or zero-padded to the length the data
+    has then: the rest of a fixed-size name field after the name, leftovers kept for writing it back byte-exact and
+    refitted when the name changes length. A negative length (no room left) raises on write"""
+
+    def _fitted(self, data: bytes, ctx: WriteContext) -> bytes:
+        length = param_value(self._length, ctx)
+        if length < 0:
+            raise DataIntegrityException(ctx=ctx, message=f'No room for {param_doc(self._length)}: {length} bytes')
+        return (bytes(data or b'') + bytes(length))[:length]
+
+    def estimate_packed_size(self, data, ctx: WriteContext = None):
+        return len(data) if ctx is None else len(self._fitted(data, ctx))
+
+    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
+        return data if ctx is None else self._fitted(data, ctx)
+
+
 class Padding(BytesBlock):
     def __init__(self, to, is_global=False, **kwargs):
         # `to`: a block parameter (library/read_blocks/references.py)

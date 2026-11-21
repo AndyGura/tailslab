@@ -1,4 +1,5 @@
 from library.read_blocks import (
+    FittedBytesBlock,
     REMAINING,
     DeclarativeCompoundBlock,
     IntegerBlock,
@@ -16,10 +17,6 @@ from library.read_blocks import (
 )
 from library.read_blocks.misc.value_validators import Eq
 from resources.eac.fields.misc import Point3D, Quaternion
-
-
-def _resize_bytes(value: bytes, length: int) -> bytes:
-    return (value + bytes(max(length - len(value), 0)))[:length]
 
 
 class FrdPositionBlock(DeclarativeCompoundBlock):
@@ -350,13 +347,10 @@ class FrdBlock(DeclarativeCompoundBlock):
             {'description': 'References to the objects of the first POLYOBJ chunk of the block'},
         )
         polyobj_unused = (
-            BytesBlock(
+            FittedBytesBlock(
                 length=(
                     lambda ctx: sum(4 for x in ctx.data('polyobj') if x['type'] != 4),
                     '4 * (amount of `polyobj` items with type != 4)',
-                ),
-                programmatic_value=lambda ctx: _resize_bytes(
-                    ctx.data('polyobj_unused'), sum(4 for x in ctx.data('polyobj') if x['type'] != 4)
                 ),
             ),
             {
