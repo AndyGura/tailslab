@@ -7,6 +7,7 @@ from .basic import (
     DataBlock,
     BytesBlock,
     FittedBytesBlock,
+    LengthPrefixedBytesBlock,
     Padding,
     REMAINING,
 )

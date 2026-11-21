@@ -86,8 +86,8 @@ Commonly overridden:
   min_decimals)`: the shortest fixed-point text a game reads back as the same 32-bit float. Users: `Nfs3CarPhysics`
   (carp.txt), `IniFile`.
 - `LengthPrefixed` (`library/read_blocks/basic.py`): mixin of a block stored after a length field
-  (`LengthPrefixedArrayBlock`, `LengthPrefixedUtf8Block`): reads the field and passes it as `resolved_length`, writes
-  `prefix_value(data, packed_size)` before the value.
+  (`LengthPrefixedArrayBlock`, `LengthPrefixedUtf8Block`, `LengthPrefixedBytesBlock`): reads the field and passes it
+  as `resolved_length`, writes `prefix_value(data, packed_size)` before the value.
 - `ArrayBlock(child, byte_length=...)` (a block parameter): the items take that many bytes. A child with a
   `fixed_size` is read as a counted array of as many as fit (struct fast path; the rest is left to the next field),
   other children one by one until they took them (`DataIntegrityException` past them); documented by the

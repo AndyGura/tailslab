@@ -63,7 +63,8 @@ new parsing primitives. Skim the cheat-sheet below before reaching for `read-blo
   `file size / <item size>` items). `stop_after=(lambda item: ..., 'doc')`: a terminator that is the last item
   (EA sound patch tags up to tag `end`); `stop_before=(lambda ctx: ctx.peek(2) == b'\xff\xff', 'doc')`: a
   terminator read by the next field (the PSX `.GRO` records). Both also stop at `ctx.read_end`.
-  `LengthPrefixedArrayBlock(length_block, child)` — length read from a leading field.
+  `LengthPrefixedArrayBlock(length_block, child)` — length read from a leading field (`LengthPrefixedUtf8Block` /
+  `LengthPrefixedBytesBlock(length_block)`: the byte length of a text / of raw bytes).
   `SubByteArrayBlock(length, bits_per_value, value_deserialize_func=None, value_serialize_func=None)`
   — packed sub-byte values (e.g. 4-bit-per-pixel bitmaps).
 - `SubByteCompoundBlock(schema=[(bits, alias, type, details, description), ...])` — bitfields packed

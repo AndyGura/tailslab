@@ -210,8 +210,9 @@ def read_length(param, ctx, read_bytes_amount=None):
 
 class LengthPrefixed:
     """Mixin of a block stored after a length field `length_block`, mixed into a block whose `read` takes
-    `resolved_length` (`LengthPrefixedArrayBlock`: the number of items, `LengthPrefixedUtf8Block`: the length in
-    bytes). `prefix_value(data, packed_size)` is the value of the length field"""
+    `resolved_length` (`LengthPrefixedArrayBlock`: the number of items, `LengthPrefixedUtf8Block` and
+    `LengthPrefixedBytesBlock`: the length in bytes). `prefix_value(data, packed_size)` is the value of the length
+    field"""
 
     def __init__(self, length_block: DataBlock, **kwargs):
         super().__init__(length=None, **kwargs)
@@ -283,8 +284,8 @@ class BytesBlock(DataBlock):
             return b''
         return bytes([0] * self_len)
 
-    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
-        self_len = read_length(self._length, ctx, read_bytes_amount)
+    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None, resolved_length=None):
+        self_len = read_length(self._length, ctx, read_bytes_amount) if resolved_length is None else resolved_length
         if self_len < 0:
             if self.allow_negative_length:
                 ctx.buffer.seek(self_len, SEEK_CUR)
@@ -300,6 +301,15 @@ class BytesBlock(DataBlock):
 
     def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
         return data
+
+
+class LengthPrefixedBytesBlock(LengthPrefixed, BytesBlock):
+    @property
+    def schema(self) -> Dict:
+        return {**super().schema, 'block_description': 'Bytes, prefixed with length field'}
+
+    def prefix_value(self, data, packed_size: int) -> int:
+        return packed_size
 
 
 class FittedBytesBlock(BytesBlock):

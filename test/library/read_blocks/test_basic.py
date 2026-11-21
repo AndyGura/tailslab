@@ -3,7 +3,7 @@ from io import BytesIO
 
 from library.context import ReadContext
 from library.exceptions import DataIntegrityException
-from library.read_blocks import DeclarativeCompoundBlock, FittedBytesBlock
+from library.read_blocks import DeclarativeCompoundBlock, FittedBytesBlock, LengthPrefixedBytesBlock
 from library.read_blocks.basic import BytesBlock
 from library.read_blocks.strings import NullTerminatedUTF8Block
 from library.read_blocks.numbers import IntegerBlock
@@ -108,3 +108,16 @@ class TestFittedBytes(unittest.TestCase):
         self.assertEqual(block.estimate_packed_size({**data, 'name': 'a'}), 8)
         with self.assertRaises(DataIntegrityException):
             block.pack({**data, 'name': 'abcdefghi'})
+
+
+class TestLengthPrefixedBytes(unittest.TestCase):
+    def test_read_write(self):
+        field = LengthPrefixedBytesBlock(length_block=IntegerBlock(length=2))
+        buffer = BytesIO(bytes([3, 0, 7, 8, 9, 99]))
+        self.assertEqual(field.unpack(ReadContext(buffer)), bytes([7, 8, 9]))
+        self.assertEqual(buffer.tell(), 5)
+        self.assertEqual(field.pack(bytes([1, 2])), bytes([2, 0, 1, 2]))
+        self.assertEqual(field.estimate_packed_size(bytes([1, 2])), 4)
+        self.assertEqual(field.size_doc_str, '2..?')
+        self.assertEqual(field.new_data(), b'')
+        self.assertEqual(field.schema['block_description'], 'Bytes, prefixed with length field')
