@@ -29,7 +29,7 @@ from library.read_blocks import (
 from library.read_blocks.misc.value_validators import Eq
 from library.utils.colors import decode_colors, rgb_palette, rgba_image
 from resources.eac.car_specs import CarAiAndCrashBody, PlayerCarPhysics
-from resources.eac.fields.byte_order import big_endian_copy
+from resources.eac.fields.byte_order import derive_fields
 
 # car slots of the game (the PC cars' file names), in the order of the car model ids 0..7, the cars they hold and
 # their short names in the executable (0x47df0)
@@ -78,15 +78,6 @@ def saturn_color_to_rgba(color: int) -> int:
     return int(saturn_colors_to_rgba(color))
 
 
-def _tnfs_saturn_car_physics_fields():
-    # the PC layout, big-endian
-    return type(
-        'Fields',
-        (DeclarativeCompoundBlock.Fields,),
-        {name: (big_endian_copy(block), extras) for name, (block, extras) in PlayerCarPhysics.Fields.fields},
-    )
-
-
 class TnfsSaturnCarPhysics(PlayerCarPhysics):
     block_description = (
         "Player car physics of the Sega Saturn TNFS port (Over Drivin' GT-R): the PC "
@@ -96,7 +87,8 @@ class TnfsSaturnCarPhysics(PlayerCarPhysics):
         "as in the PC game. The Warrior's physics (not in the car folders) are the PC TRAFFC.PBS byte for byte"
     )
 
-    Fields = _tnfs_saturn_car_physics_fields()
+    # the PC layout, big-endian
+    Fields = derive_fields(PlayerCarPhysics.Fields)
 
 
 def _tnfs_saturn_car_ai_fields():
@@ -120,10 +112,7 @@ def _tnfs_saturn_car_ai_fields():
             },
         ),
     }
-    fields = {}
-    for name, (block, extras) in CarAiAndCrashBody.Fields.fields:
-        fields[name] = replaced.get(name, (big_endian_copy(block), extras))
-    return type('Fields', (DeclarativeCompoundBlock.Fields,), fields)
+    return derive_fields(CarAiAndCrashBody.Fields, replace=replaced)
 
 
 class TnfsSaturnCarAiAndCrashBody(CarAiAndCrashBody):

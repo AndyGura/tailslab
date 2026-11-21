@@ -9,7 +9,7 @@ from library.read_blocks import (
     CountOf,
 )
 from resources.eac.fields.misc import Point3D
-from resources.eac.geometries.nfs3 import FceColor
+from resources.eac.geometries.nfs3 import Fce3Geometry, FceColor
 
 # size of FCE4 header. Offsets of all data tables are relative to it
 FCE4_HEADER_SIZE = 0x2038
@@ -169,19 +169,10 @@ class Fce4Geometry(DeclarativeCompoundBlock):
             IntegerBlock(length=4),
             {'description': 'Format version. 0x00101014 in NFS4, 0x00101015 in Motor City Online (FCE4M)'},
         )
-        unk0 = (IntegerBlock(length=4), {'is_unknown': True})
-        num_triangles = (
-            IntegerBlock(length=4, programmatic_value=CountOf('triangles')),
-            {'usage': 'io,doc', 'description': 'Number of triangles in the model'},
-        )
-        num_vertices = (
-            IntegerBlock(length=4, programmatic_value=CountOf('vertices')),
-            {'usage': 'io,doc', 'description': 'Number of vertices in the model'},
-        )
-        num_arts = (
-            IntegerBlock(length=4),
-            {'description': 'Number of "arts" (texture pages?). 1, unless triangles use non-zero `tex_page`'},
-        )
+        unk0 = Fce3Geometry.Fields.unk0
+        num_triangles = Fce3Geometry.Fields.num_triangles
+        num_vertices = Fce3Geometry.Fields.num_vertices
+        num_arts = Fce3Geometry.Fields.num_arts
         vertices_offset = _offset_field(
             'vertices',
             'Offset of vertices table, relative to header end (0x2038). Tables go one after another in order: '
@@ -223,35 +214,14 @@ class Fce4Geometry(DeclarativeCompoundBlock):
                 'z up)'
             },
         )
-        num_dummies = (IntegerBlock(length=4), {'description': 'Number of used dummies, 0..16'})
-        dummy_positions = (
-            ArrayBlock(child=Point3D(child=DecimalBlock(length=4)), length=16),
-            {'description': 'Positions of dummies. Only first `num_dummies` are used'},
-        )
-        num_parts = (IntegerBlock(length=4), {'description': 'Number of used parts, 0..64'})
-        part_positions = (
-            ArrayBlock(child=Point3D(child=DecimalBlock(length=4)), length=64),
-            {
-                'description': 'Positions of parts. Vertices of the part are relative to it. Only first `num_parts` '
-                'are used'
-            },
-        )
-        part_first_vertex = (
-            ArrayBlock(child=IntegerBlock(length=4), length=64),
-            {'description': 'Index of first vertex of each part'},
-        )
-        part_num_vertices = (
-            ArrayBlock(child=IntegerBlock(length=4), length=64),
-            {'description': 'Number of vertices in each part'},
-        )
-        part_first_triangle = (
-            ArrayBlock(child=IntegerBlock(length=4), length=64),
-            {'description': 'Index of first triangle of each part'},
-        )
-        part_num_triangles = (
-            ArrayBlock(child=IntegerBlock(length=4), length=64),
-            {'description': 'Number of triangles in each part'},
-        )
+        num_dummies = Fce3Geometry.Fields.num_dummies
+        dummy_positions = Fce3Geometry.Fields.dummy_positions
+        num_parts = Fce3Geometry.Fields.num_parts
+        part_positions = Fce3Geometry.Fields.part_positions
+        part_first_vertex = Fce3Geometry.Fields.part_first_vertex
+        part_num_vertices = Fce3Geometry.Fields.part_num_vertices
+        part_first_triangle = Fce3Geometry.Fields.part_first_triangle
+        part_num_triangles = Fce3Geometry.Fields.part_num_triangles
         num_colors = (
             IntegerBlock(length=4),
             {

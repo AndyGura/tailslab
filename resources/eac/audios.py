@@ -245,45 +245,16 @@ class AsfAudio(DeclarativeCompoundBlock):
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(value_validator=Eq('1SNh'), length=4), {'description': 'Resource ID'})
         unk0 = (BytesBlock(length=8), {'is_unknown': True})
-        sampling_rate = (IntegerBlock(length=4), {'description': 'Sampling rate of audio'})
-        sound_resolution = (IntegerBlock(length=1), {'description': 'How many bytes in one wave data entry'})
-        channels = (IntegerBlock(length=1), {'description': 'Channels amount. 1 is mono, 2 is stereo'})
-        compression = (
-            IntegerBlock(length=1),
-            {
-                'description': 'If equals to 2, wave data is compressed with [IMA ADPCM codec]('
-                'https://wiki.multimedia.cx/index.php/Electronic_Arts_Formats_(2)'
-                '#IMA_ADPCM_Decompression_Algorithm)'
-            },
-        )
-        unk1 = (IntegerBlock(length=1), {'is_unknown': True})
-        wave_data_length = (
-            IntegerBlock(length=4),
-            {
-                'description': 'Amount of wave data entries. Should be multiplied by '
-                'sound_resolution to calculated the size of data in bytes'
-            },
-        )
-        repeat_loop_beginning = (
-            IntegerBlock(length=4),
-            {
-                'description': 'When audio ends, it repeats in loop from here. Should be '
-                'multiplied by sound_resolution to calculate offset in bytes'
-            },
-        )
-        repeat_loop_length = (
-            IntegerBlock(length=4),
-            {
-                'description': 'If play audio in loop, at this point we should rewind to repeat_'
-                'loop_beginning. Should be multiplied by sound_resolution to '
-                'calculate offset in bytes'
-            },
-        )
-        wave_data_offset = (
-            IntegerBlock(length=4),
-            {'description': 'Offset of wave data start in current file, relative to start of the file itself'},
-        )
-        unk2 = (IntegerBlock(length=4), {'is_unknown': True})
+        sampling_rate = EacsAudioHeader.Fields.sampling_rate
+        sound_resolution = EacsAudioHeader.Fields.sound_resolution
+        channels = EacsAudioHeader.Fields.channels
+        compression = EacsAudioHeader.Fields.compression
+        unk1 = EacsAudioHeader.Fields.unk0
+        wave_data_length = EacsAudioHeader.Fields.wave_data_length
+        repeat_loop_beginning = EacsAudioHeader.Fields.repeat_loop_beginning
+        repeat_loop_length = EacsAudioHeader.Fields.repeat_loop_length
+        wave_data_offset = EacsAudioHeader.Fields.wave_data_offset
+        unk2 = EacsAudioHeader.Fields.unk1
         offset = (
             Padding(to=(lambda ctx: ctx.data('wave_data_offset') + 40, 'wave_data_offset + 40')),
             {'description': 'Padding between the header and wave data'},

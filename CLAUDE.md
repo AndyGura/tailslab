@@ -781,7 +781,7 @@ When you do:
   `geometries/tnfs.py`, the Sega sound driver tone bank in `resources/common/audios/saturn_tone_bank.py`, `PcxImage` in
   `resources/common/bitmaps`.
   The loader picks them in `_tnfs_saturn_block_class` (by name and content; ORIX by version 800 stored big-endian).
-  Big-endian copies of PC layouts are made with `big_endian_copy` (`resources/eac/fields/byte_order.py`). The car
+  Big-endian copies of PC layouts are made with `derive_fields` / `big_endian_copy` (`resources/eac/fields/byte_order.py`). The car
   formats are not traced in the Saturn executable: descriptions say what the files show ("checked") and keep the PC /
   PSX meanings. The menu art, the pictures and the in-car view are traced in it (nfs-web's Ghidra project
   `decomp/tnfs_saturn_gtr`, addresses in the descriptions).

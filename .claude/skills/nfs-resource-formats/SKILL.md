@@ -27,7 +27,9 @@ new parsing primitives. Skim the cheat-sheet below before reaching for `read-blo
 ## Cheat-sheet: existing blocks (import from `library.read_blocks` unless noted)
 
 **Leaves**
-- `IntegerBlock(length, is_signed=False, byte_order='little')` — fixed-width int.
+- `IntegerBlock(length, is_signed=False, byte_order='little')` — fixed-width int. A struct mapped from decompiled
+  code uses the C-type shorthands of `resources/eac/fields/numbers.py`: `u8()`, `u16()`, `s16()`, `u32()`, `s32()`,
+  `f32()`, `fixed16()` / `ufixed16()` (16.16), `fixed8()` (24.8), keyword arguments passed on (`byte_order='big'`).
 - `FixedPointBlock(length, fraction_bits, ...)` — int with N fractional bits, read/written as float.
 - `DecimalBlock(length ∈ {4,8}, byte_order)` — IEEE float/double.
 - `EnumByteBlock(enum_names=[(int, str), ...], raise_error_on_unknown=False)` — 1-byte enum, unknown
@@ -232,9 +234,14 @@ class SomeThing(DeclarativeCompoundBlock):
 
 When a console version stores the same structure in another byte order, with a few fields missing or reused
 (TNFS 3DO `.BigSpecsFam` vs PC `.PBS`), subclass the existing block and build its `Fields` class from the
-existing one with `type('Fields', (DeclarativeCompoundBlock.Fields,), {...})` (field order = dict order): deep
-copies of the blocks with `byte_order` switched (`big_endian_copy`, `resources/eac/fields/byte_order.py`), the missing fields left out, renamed / retyped ones replaced, and
-the platform's own descriptions (see `_tnfs_3do_car_physics_fields` in `resources/eac/car_specs.py`; Sega Saturn: `TnfsSaturnCarPhysics`, `TnfsSaturnCarAiAndCrashBody` in `resources/eac/tnfs_saturn.py`, `TnfsSaturnOrixGeometry`). The subclass
+existing one with `derive_fields(Base.Fields, transform=big_endian_copy, replace={name: (block, extras)},
+drop={...})` (`resources/eac/fields/byte_order.py`: deep copies of the blocks with `byte_order` switched, in order,
+retyped ones replaced in place, missing ones left out; Sega Saturn: `TnfsSaturnCarPhysics`,
+`TnfsSaturnCarAiAndCrashBody` in `resources/eac/tnfs_saturn.py`, `TnfsSaturnOrixGeometry`). Renamed fields and the
+platform's own descriptions for every field: a `type('Fields', (DeclarativeCompoundBlock.Fields,), {...})` of its
+own (`_tnfs_3do_car_physics_fields` in `resources/eac/car_specs.py`). A format variant of the same byte order
+takes the fields it shares as they are: `num_parts = Fce3Geometry.Fields.num_parts` in the new `Fields` class body
+(not inherited: `CompoundBlockFields.fields` reads the class's own attributes). The subclass
 keeps the parent in `block_class_mro`, so the parent's bespoke GUI component renders it; let the component branch on
 `block_class_mro` for the differences. Give the variant its own `EXPORT_RESOURCES` game entry when the platform has
 its own doc.

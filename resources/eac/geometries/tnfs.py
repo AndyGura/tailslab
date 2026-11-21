@@ -20,7 +20,7 @@ from library.read_blocks import (
 )
 from library.read_blocks.misc.value_validators import Eq
 from library.read_blocks.strings import NullTerminatedUTF8Block
-from resources.eac.fields.byte_order import big_endian_copy
+from resources.eac.fields.byte_order import big_endian_copy, derive_fields
 from resources.eac.fields.misc import Point3D
 from resources.eac.psx import PsxCrcFooter, PsxItemCrcFooterMixin
 
@@ -1086,15 +1086,7 @@ def _tnfs_saturn_orix_fields():
             },
         ),
     }
-    fields = {}
-    for name, (block, extras) in OrixGeometry.Fields.fields:
-        if name == 'crc_footer':
-            continue
-        if name in replaced:
-            fields[name] = replaced[name]
-        else:
-            fields[name] = (big_endian_copy(block), extras)
-    return type('Fields', (DeclarativeCompoundBlock.Fields,), fields)
+    return derive_fields(OrixGeometry.Fields, replace=replaced, drop={'crc_footer'})
 
 
 class TnfsSaturnOrixGeometry(OrixGeometry):
