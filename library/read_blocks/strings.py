@@ -2,7 +2,7 @@ from typing import Dict
 
 from library.context import ReadContext, WriteContext
 from library.exceptions import DataIntegrityException, EndOfBufferException
-from library.read_blocks.basic import DataBlock, read_length
+from library.read_blocks.basic import DataBlock, LengthPrefixed, read_length
 from library.read_blocks.references import is_static_param, param_doc, param_value
 
 
@@ -67,41 +67,13 @@ class UTF8Block(DataBlock):
         return raw
 
 
-class LengthPrefixedUtf8Block(UTF8Block):
-    def __init__(self, length_block: DataBlock, **kwargs):
-        super().__init__(length=None, **kwargs)
-        self.length_block = length_block
-
+class LengthPrefixedUtf8Block(LengthPrefixed, UTF8Block):
     @property
     def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Utf-8 block, prefixed with length field',
-            'length_schema': self.length_block.schema,
-        }
+        return {**super().schema, 'block_description': 'Utf-8 block, prefixed with length field'}
 
-    # For auto-generated documentation only
-    @property
-    def size_doc_str(self):
-        return f'{self.length_block.size_doc_str}..?'
-
-    def new_data(self, patch=None):
-        return ''
-
-    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
-        self_ctx = ctx.get_or_create_child(name, self, read_bytes_amount)
-        resolved_length = self.length_block.unpack(ctx=self_ctx, name='length')
-        res = super().read(ctx, name, read_bytes_amount, resolved_length=resolved_length)
-        self_ctx._data = res
-        return res
-
-    def estimate_packed_size(self, data, ctx: WriteContext = None):
-        length = super().estimate_packed_size(data, ctx)
-        return length + self.length_block.estimate_packed_size(length, ctx=ctx)
-
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        data = super().write(data=data, ctx=ctx, name=name)
-        return self.length_block.write(len(data), ctx, 'length') + data
+    def prefix_value(self, data, packed_size: int) -> int:
+        return packed_size
 
 
 class NullTerminatedUTF8Block(DataBlock):

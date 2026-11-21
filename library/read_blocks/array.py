@@ -5,7 +5,7 @@ from typing import Dict, Tuple, Any, Optional, List
 
 from library.context import ReadContext, WriteContext
 from library.exceptions import DataIntegrityException, EndOfBufferException
-from library.read_blocks.basic import DataBlock, DataBlockWithChildren, read_length
+from library.read_blocks.basic import DataBlock, DataBlockWithChildren, LengthPrefixed, read_length
 from library.read_blocks.numbers import IntegerBlock
 from library.read_blocks.references import is_static_param, param_doc, param_value
 from library.utils.docs import multiply_doc_numbers, needs_parentheses
@@ -240,37 +240,13 @@ class ArrayBlock(DataBlockWithChildren, DataBlock, ABC):
         return [self.child.pack(data=item, ctx=self_ctx, name=str(i)) for i, item in enumerate(data)]
 
 
-# TODO maybe merge with LengthPrefixedUtf8Block, make abstract
-class LengthPrefixedArrayBlock(ArrayBlock):
-    def __init__(self, length_block: DataBlock, **kwargs):
-        super().__init__(length=None, **kwargs)
-        self.length_block = length_block
-
+class LengthPrefixedArrayBlock(LengthPrefixed, ArrayBlock):
     @property
     def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Array, prefixed with length field',
-            'length_schema': self.length_block.schema,
-        }
+        return {**super().schema, 'block_description': 'Array, prefixed with length field'}
 
-    # For auto-generated documentation only
-    @property
-    def size_doc_str(self):
-        return f'{self.length_block.size_doc_str}..?'
-
-    def new_data(self, patch=None):
-        return []
-
-    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
-        self_ctx = ctx.get_or_create_child(name, self, read_bytes_amount)
-        resolved_length = self.length_block.unpack(ctx=self_ctx, name='length')
-        res = super().read(ctx, name, read_bytes_amount, resolved_length=resolved_length)
-        self_ctx._data = res
-        return res
-
-    def estimate_packed_size(self, data, ctx: WriteContext = None):
-        return super().estimate_packed_size(data, ctx) + self.length_block.estimate_packed_size(len(data), ctx=ctx)
+    def prefix_value(self, data, packed_size: int) -> int:
+        return len(data)
 
     def offset_to_child_when_packed(self, data, child_name: str, ctx: WriteContext = None):
         index = int(child_name)
@@ -280,10 +256,6 @@ class LengthPrefixedArrayBlock(ArrayBlock):
         for item in data[:index]:
             res += self.child.estimate_packed_size(data=item, ctx=ctx)
         return res
-
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        items = super().write(data=data, ctx=ctx, name=name)
-        return self.length_block.write(len(data), ctx, 'length') + items
 
 
 class SubByteArrayBlock(DataBlock):

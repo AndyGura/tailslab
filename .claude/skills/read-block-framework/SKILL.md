@@ -79,6 +79,9 @@ Commonly overridden:
 - `DeclarativeCompoundBlock.declared_fields()` (classmethod) builds the field list from the `Fields` class (the
   fields of its own body: `CompoundBlockFields.fields`, cached per class); a base class adding fields to every
   subclass overrides it (`ChunkBlock` in `resources/blackbox/chunks.py`: the chunk header).
+- `LengthPrefixed` (`library/read_blocks/basic.py`): mixin of a block stored after a length field
+  (`LengthPrefixedArrayBlock`, `LengthPrefixedUtf8Block`): reads the field and passes it as `resolved_length`, writes
+  `prefix_value(data, packed_size)` before the value.
 - `ArrayBlock(child, byte_length=...)` (a block parameter): the items take that many bytes. A child with a
   `fixed_size` is read as a counted array of as many as fit (struct fast path; the rest is left to the next field),
   other children one by one until they took them (`DataIntegrityException` past them); documented by the
@@ -122,8 +125,8 @@ Commonly overridden:
 - `WriteContext` mirrors the same API against the data being written.
 - `DocumentationContext` is a **fake** context fed to length/condition lambdas at doc-generation
   time, so e.g. `lambda ctx: ctx.data('width') * ctx.data('height')` degrades to the *string*
-  `"width*height"` (via `DocumentationCtxData`, which overloads arithmetic/comparison operators)
-  instead of crashing. **Implication:** keep length/condition/choice-index lambdas pure arithmetic
+  `"width*height"` (via `DocumentationCtxData`, whose arithmetic / bit / comparison operators come from the
+  `_DOC_OPERATORS` table: symbol and the characters that put each operand in brackets) instead of crashing. **Implication:** keep length/condition/choice-index lambdas pure arithmetic
   or comparisons on `ctx.data(...)` — no `if`/branching logic that assumes a real number, no
   Python built-ins that don't work on `DocumentationCtxData`. If a lambda can't be made doc-safe,
   it's fine — `size_doc_str` swallows exceptions and shows `'?'`/`'custom_func'`.

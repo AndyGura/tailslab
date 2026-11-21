@@ -123,7 +123,8 @@ condition or arithmetic beyond a constant stays a lambda (`lambda ctx: len(ctx.d
 
 **Domain helpers** (`resources.eac.fields`): `Point2D(child, normalized=False)`,
 `Point3D(child, normalized=False)`, `Quaternion(child)` (x, y, z, w; NFS2/NFS3 animation keyframes use 2.14 fixed
-point), `RGBBlock()`, `Nfs1Angle8()`/`Nfs1Angle14()` (8/14-bit angle → radians float), `IntegerAngleBlock(full_turn, length=...)` (angle
+point), all `VectorBlock(child, axes='xyz', normalized=False)` (another vector: a subclass with its
+`description_prefix`), `RGBBlock()`, `Nfs1Angle8()`/`Nfs1Angle14()` (8/14-bit angle → radians float), `IntegerAngleBlock(full_turn, length=...)` (angle
 kept as the stored integer, `full_turn` units per 360°; the GUI shows it in degrees / radians), `Nfs1TimeField()` (ticks →
 seconds float). `normalized=True` rescales the vector to unit length on write, which breaks a byte-exact round trip
 of stored vectors that are slightly off unit length or zero; leave it off for data read from game files.

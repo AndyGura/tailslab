@@ -208,6 +208,43 @@ def read_length(param, ctx, read_bytes_amount=None):
     return param_value(param, ctx)
 
 
+class LengthPrefixed:
+    """Mixin of a block stored after a length field `length_block`, mixed into a block whose `read` takes
+    `resolved_length` (`LengthPrefixedArrayBlock`: the number of items, `LengthPrefixedUtf8Block`: the length in
+    bytes). `prefix_value(data, packed_size)` is the value of the length field"""
+
+    def __init__(self, length_block: DataBlock, **kwargs):
+        super().__init__(length=None, **kwargs)
+        self.length_block = length_block
+
+    @property
+    def schema(self) -> Dict:
+        return {**super().schema, 'length_schema': self.length_block.schema}
+
+    # For auto-generated documentation only
+    @property
+    def size_doc_str(self):
+        return f'{self.length_block.size_doc_str}..?'
+
+    def prefix_value(self, data, packed_size: int) -> int:
+        raise NotImplementedError
+
+    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
+        self_ctx = ctx.get_or_create_child(name, self, read_bytes_amount)
+        resolved_length = self.length_block.unpack(ctx=self_ctx, name='length')
+        res = super().read(ctx, name, read_bytes_amount, resolved_length=resolved_length)
+        self_ctx._data = res
+        return res
+
+    def estimate_packed_size(self, data, ctx: WriteContext = None):
+        size = super().estimate_packed_size(data, ctx)
+        return size + self.length_block.estimate_packed_size(self.prefix_value(data, size), ctx=ctx)
+
+    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
+        packed = super().write(data, ctx, name)
+        return self.length_block.write(self.prefix_value(data, len(packed)), ctx, 'length') + packed
+
+
 class BytesBlock(DataBlock):
     serializer = 'PlainBinarySerializer'
 

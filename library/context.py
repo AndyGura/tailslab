@@ -172,163 +172,51 @@ class WriteContext(BaseContext):
 
 
 class DocumentationCtxData:
+    """A value of a `DocumentationContext`: operators on it build the expression as text (`width*height`)"""
+
     def __init__(self, label):
         self.label = label
 
     def __str__(self):
         return self.label
 
-    def __add__(self, other):
-        a = str(self)
-        b = str(other)
-        return DocumentationCtxData(f'{a}+{b}')
+    # comparisons give expressions, not booleans
+    __hash__ = None
 
-    def __radd__(self, other):
-        a = str(other)
-        b = str(self)
-        return DocumentationCtxData(f'{a}+{b}')
 
-    def __sub__(self, other):
-        a = str(self)
-        b = str(other)
-        return DocumentationCtxData(f'{a}-{b}')
+# operator: (text between the operands, characters of the left / right operand putting it in brackets)
+_DOC_OPERATORS = {
+    'add': ('+', '', ''),
+    'sub': ('-', '', ''),
+    'mul': ('*', '+-/', '+-'),
+    'floordiv': ('/', '+-', '+-*'),
+    'lshift': (' << ', '+-*/', '+-*/'),
+    'rshift': (' >> ', '+-*/', '+-*/'),
+    'and': (' & ', '', ''),
+    'or': (' | ', '', ''),
+    'xor': (' ^ ', '', ''),
+}
+_DOC_COMPARISONS = {'eq': ' == ', 'ne': ' != ', 'lt': ' < ', 'le': ' <= ', 'gt': ' > ', 'ge': ' >= '}
 
-    def __rsub__(self, other):
-        a = str(other)
-        b = str(self)
-        return DocumentationCtxData(f'{a}-{b}')
 
-    def __mul__(self, other):
-        a = str(self)
-        b = str(other)
-        if '+' in a or '-' in a or '/' in a:
-            a = f'({a})'
-        if '+' in b or '-' in b:
-            b = f'({b})'
-        return DocumentationCtxData(f'{a}*{b}')
+def _doc_operand(value, brackets: str) -> str:
+    text = str(value)
+    return f'({text})' if any(c in text for c in brackets) else text
 
-    def __rmul__(self, other):
-        a = str(other)
-        b = str(self)
-        if '+' in a or '-' in a or '/' in a:
-            a = f'({a})'
-        if '+' in b or '-' in b:
-            b = f'({b})'
-        return DocumentationCtxData(f'{a}*{b}')
 
-    def __floordiv__(self, other):
-        a = str(self)
-        b = str(other)
-        if '+' in a or '-' in a:
-            a = f'({a})'
-        if '+' in b or '-' in b or '*' in b:
-            b = f'({b})'
-        return DocumentationCtxData(f'{a}/{b}')
+def _doc_operator(symbol: str, left_brackets: str, right_brackets: str, reflected=False):
+    def operator(self, other):
+        left, right = (other, self) if reflected else (self, other)
+        return DocumentationCtxData(f'{_doc_operand(left, left_brackets)}{symbol}{_doc_operand(right, right_brackets)}')
 
-    def __rfloordiv__(self, other):
-        a = str(other)
-        b = str(self)
-        if '+' in a or '-' in a:
-            a = f'({a})'
-        if '+' in b or '-' in b or '*' in b:
-            b = f'({b})'
-        return DocumentationCtxData(f'{a}/{b}')
+    return operator
 
-    def __lshift__(self, other):
-        a = str(self)
-        b = str(other)
-        if '+' in a or '-' in a or '*' in a or '/' in a:
-            a = f'({a})'
-        if '+' in b or '-' in a or '*' in a or '/' in b:
-            b = f'({b})'
-        return DocumentationCtxData(f'{a} << {b}')
 
-    def __rlshift__(self, other):
-        a = str(other)
-        b = str(self)
-        if '+' in a or '-' in a or '*' in a or '/' in a:
-            a = f'({a})'
-        if '+' in b or '-' in a or '*' in a or '/' in b:
-            b = f'({b})'
-        return DocumentationCtxData(f'{a} << {b}')
-
-    def __rshift__(self, other):
-        a = str(self)
-        b = str(other)
-        if '+' in a or '-' in a or '*' in a or '/' in a:
-            a = f'({a})'
-        if '+' in b or '-' in a or '*' in a or '/' in b:
-            b = f'({b})'
-        return DocumentationCtxData(f'{a} >> {b}')
-
-    def __rrshift__(self, other):
-        a = str(other)
-        b = str(self)
-        if '+' in a or '-' in a or '*' in a or '/' in a:
-            a = f'({a})'
-        if '+' in b or '-' in a or '*' in a or '/' in b:
-            b = f'({b})'
-        return DocumentationCtxData(f'{a} >> {b}')
-
-    def __eq__(self, other):
-        a = str(self)
-        b = str(other)
-        return DocumentationCtxData(f'{a} == {b}')
-
-    def __ne__(self, other):
-        a = str(self)
-        b = str(other)
-        return DocumentationCtxData(f'{a} != {b}')
-
-    def __lt__(self, other):
-        a = str(self)
-        b = str(other)
-        return DocumentationCtxData(f'{a} < {b}')
-
-    def __le__(self, other):
-        a = str(self)
-        b = str(other)
-        return DocumentationCtxData(f'{a} <= {b}')
-
-    def __gt__(self, other):
-        a = str(self)
-        b = str(other)
-        return DocumentationCtxData(f'{a} > {b}')
-
-    def __ge__(self, other):
-        a = str(self)
-        b = str(other)
-        return DocumentationCtxData(f'{a} >= {b}')
-
-    def __and__(self, other):
-        a = str(self)
-        b = str(other)
-        return DocumentationCtxData(f'{a} & {b}')
-
-    def __rand__(self, other):
-        a = str(other)
-        b = str(self)
-        return DocumentationCtxData(f'{a} & {b}')
-
-    def __or__(self, other):
-        a = str(self)
-        b = str(other)
-        return DocumentationCtxData(f'{a} | {b}')
-
-    def __ror__(self, other):
-        a = str(other)
-        b = str(self)
-        return DocumentationCtxData(f'{a} | {b}')
-
-    def __xor__(self, other):
-        a = str(self)
-        b = str(other)
-        return DocumentationCtxData(f'{a} ^ {b}')
-
-    def __rxor__(self, other):
-        a = str(other)
-        b = str(self)
-        return DocumentationCtxData(f'{a} ^ {b}')
+for _name, (_symbol, _left, _right) in _DOC_OPERATORS.items():
+    setattr(DocumentationCtxData, f'__{_name}__', _doc_operator(_symbol, _left, _right))
+    setattr(DocumentationCtxData, f'__r{_name}__', _doc_operator(_symbol, _left, _right, reflected=True))
+for _name, _symbol in _DOC_COMPARISONS.items():
+    setattr(DocumentationCtxData, f'__{_name}__', _doc_operator(_symbol, '', ''))
 
 
 class DocumentationContext(BaseContext):
