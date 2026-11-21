@@ -1,0 +1,87 @@
+// games on the left, the picked game's formats on the right with the selected one's details under them
+mat-dialog-content.panes {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 16px;
+  height: 64vh;
+  max-height: none;
+  overflow: hidden;
+}
+
+.games-pane,
+.formats-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.games-pane {
+  gap: 8px;
+  border-right: 1px solid rgba(0, 0, 0, 0.12);
+  padding-right: 16px;
+
+  .search {
+    width: 100%;
+  }
+
+  .games {
+    flex: 1;
+    overflow-y: auto;
+    padding-top: 0;
+  }
+
+  .game {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .count {
+    color: rgba(0, 0, 0, 0.54);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.pane-title {
+  margin: 0 0 4px 16px;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.formats {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.file-name {
+  font-family: 'Roboto Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.details {
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+  padding: 12px 16px 0;
+  font-size: 13px;
+  line-height: 1.45;
+
+  .details-title {
+    font-weight: 500;
+    font-size: 14px;
+  }
+
+  p {
+    margin: 4px 0 0;
+  }
+
+  .folder,
+  .used-by {
+    color: rgba(0, 0, 0, 0.6);
+  }
+}
+
+.empty {
+  margin: 16px;
+  color: rgba(0, 0, 0, 0.6);
+}

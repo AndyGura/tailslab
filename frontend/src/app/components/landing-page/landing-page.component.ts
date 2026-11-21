@@ -2,7 +2,6 @@ import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { ApiDelegateService } from '../../services/api/api-delegate.service';
 
 import { MatDialog } from '@angular/material/dialog';
-import { firstValueFrom } from 'rxjs';
 import { NewFileDialogComponent } from '../new-file.dialog/new-file.dialog.component';
 
 @Component({
@@ -26,16 +25,7 @@ export class LandingPageComponent {
   }
 
   async createNewFile() {
-    const dialogRef = this.dialog.open(NewFileDialogComponent, {
-      width: '400px',
-    });
-    const format = await firstValueFrom(dialogRef.afterClosed());
-    if (format) {
-      const path = await this.api.saveFileDialog(`Untitled.${format}`);
-      if (path) {
-        await this.api.createNewFile(path, format);
-      }
-    }
+    await NewFileDialogComponent.createNewFile(this.dialog, this.api);
   }
 
   async openRecentFile(path: string) {
