@@ -1,15 +1,14 @@
 from library.context import WriteContext, ReadContext
-from library.read_blocks import UTF8Block
+from library.read_blocks import REMAINING, UTF8Block
 
 
 class DashDeclarationFile(UTF8Block):
     serializer = 'JsonSerializer'
 
     def __init__(self, **kwargs):
-        super().__init__(length=0, **kwargs)
+        super().__init__(length=REMAINING, **kwargs)
 
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
-        self._length = read_bytes_amount
         text = super().read(ctx, name, read_bytes_amount)
         dictionary = {}
         values = text.splitlines()

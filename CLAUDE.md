@@ -143,6 +143,9 @@ When you do:
   (an offset table of the items of array `x`) as programmatic values,
   and a length that is a sibling field is its path (`ArrayBlock(length='num_x')`, `Padding(to='x_ptr')`), not
   lambdas: offsets and sizes are then filled in after the write instead of estimated (skill `nfs-resource-formats`).
+  An array without a stored count takes `byte_length=` (`REMAINING`: up to the end of the file or archive item),
+  `stop_before=` / `stop_after=` (a terminator), never a function counting its items in the bytes first; the rest
+  of a file is `BytesBlock(length=REMAINING)`.
   A Black Box chunk is a `ChunkBlock` of `resources/blackbox/chunks.py` (`CHUNK_ID`, `ALIGNMENT`: the id, length and
   0x11 filler fields), its records `records_to_chunk_end(child[, size])`, its sub-chunks `chunks_field(...)`.
 - A record whose type is a magic id or type tag at a fixed offset (a `switch (id)` over a union in decompiled code) is

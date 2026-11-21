@@ -75,7 +75,7 @@ class WwwwBlock(ArchiveBlock):
             },
         )
         data_bytes = (
-            BytesBlock(length=lambda ctx: ctx.read_bytes_remaining),
+            BytesBlock(length=REMAINING),
             {
                 'usage': 'io,doc',
                 'description': 'A part of block, where items data is located. Offsets are defined in previous '
@@ -239,7 +239,7 @@ class BigfBlock(ArchiveBlock):
             },
         )
         data_bytes = (
-            BytesBlock(length=lambda ctx: ctx.read_bytes_remaining),
+            BytesBlock(length=REMAINING),
             {
                 'usage': 'io,doc',
                 'description': 'A part of block, where items data is located. Offsets and lengths are defined '
@@ -363,7 +363,7 @@ class C0fbBlock(BigfBlock):
             {'description': 'Bytes between the end of `items_descr` and the first item: zero padding to 4 bytes'},
         )
         data_bytes = (
-            BytesBlock(length=lambda ctx: ctx.read_bytes_remaining),
+            BytesBlock(length=REMAINING),
             {
                 'usage': 'io,doc',
                 'description': 'A part of block, where items data is located, each item padded with zeros to 4 '
@@ -422,7 +422,7 @@ class SoundBank(DeclarativeCompoundBlock):
             },
         )
         wave_data = (
-            BytesBlock(length=lambda ctx: ctx.read_bytes_remaining),
+            BytesBlock(length=REMAINING),
             {
                 'description': 'Raw byte data, which is sliced according to provided offsets and used as wave data',
                 'usage': 'io,doc',
@@ -542,7 +542,7 @@ class EaSoundBank(DeclarativeCompoundBlock):
             },
         )
         data_bytes = (
-            BytesBlock(length=lambda ctx: ctx.read_bytes_remaining),
+            BytesBlock(length=REMAINING),
             {
                 'description': 'Sound patches ([EaSoundPatch](#easoundpatch)) at the offsets of `items_descr`, then '
                 'wave data',

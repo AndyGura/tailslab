@@ -79,10 +79,16 @@ Commonly overridden:
 - `DeclarativeCompoundBlock.declared_fields()` (classmethod) builds the field list from the `Fields` class (the
   fields of its own body: `CompoundBlockFields.fields`, cached per class); a base class adding fields to every
   subclass overrides it (`ChunkBlock` in `resources/blackbox/chunks.py`: the chunk header).
-- `ArrayBlock(child, byte_length=...)` (a block parameter): items read one by one until they took that many bytes,
-  for items of any size up to the end of a record; documented by the parameter's doc text (size and length).
-- `BytesBlock(length=REMAINING)`: the block takes the bytes it is read with (`read_bytes_amount`), else
-  the rest of its parent: the raw choice of archive items.
+- `ArrayBlock(child, byte_length=...)` (a block parameter): the items take that many bytes. A child with a
+  `fixed_size` is read as a counted array of as many as fit (struct fast path; the rest is left to the next field),
+  other children one by one until they took them (`DataIntegrityException` past them); documented by the
+  parameter's doc text (size) and, for children with a numeric `size_doc_str`, `<doc> / <item size>` items.
+  `stop_before(ctx)` / `stop_after(item)` (functions or `(function, doc)`): items one by one up to
+  `ReadContext.read_end`, ended before an item (`ctx.peek(n)`) or after one; the doc text is the length,
+  the size is length x item size.
+- `REMAINING` (`library/read_blocks/basic.py`): a length parameter taking the bytes the block is read with
+  (`read_bytes_amount`, `read_length(param, ctx, read_bytes_amount)`), else `ctx.read_bytes_remaining` of the
+  parent: `BytesBlock` (the raw choice of archive items), `UTF8Block`, `ArrayBlock(byte_length=REMAINING)`.
 - Block parameters (`library/read_blocks/references.py`): the `length` of `BytesBlock` / `ArrayBlock`
   / `SubByteArrayBlock` / `UTF8Block` and `Padding(to=...)` are a number, a field path (`'num_items'`,
   `'../count'`: `ctx.data` of it, documented as the path), a `lambda ctx: ...`, or one of these with
@@ -110,7 +116,9 @@ Commonly overridden:
 - `ReadContext` wraps the buffer and builds a tree of children mirroring the block tree as you
   read, so a lambda deep in one field can read siblings/ancestors: `ctx.data('other_field')`,
   `ctx.data('../parent_field')`, `ctx.relative_block('other_field')`. Also
-  `ctx.local_buffer_pos`, `ctx.read_bytes_remaining`.
+  `ctx.local_buffer_pos`, `ctx.read_bytes_remaining` (None when the block was read without an amount: array
+  items), `ctx.read_end` (absolute end offset of the closest context read with an amount, else the buffer end)
+  and `ctx.peek(n)` (bytes ahead up to `read_end`, position kept).
 - `WriteContext` mirrors the same API against the data being written.
 - `DocumentationContext` is a **fake** context fed to length/condition lambdas at doc-generation
   time, so e.g. `lambda ctx: ctx.data('width') * ctx.data('height')` degrades to the *string*

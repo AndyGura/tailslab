@@ -1,6 +1,7 @@
 from typing import Dict
 
 from library.read_blocks import (
+    REMAINING,
     ArrayBlock,
     BitFlagsBlock,
     BytesBlock,
@@ -16,7 +17,7 @@ from resources.blackbox.bitmaps.nfs6_ps2 import Nfs6Ps2TexturePack
 from resources.blackbox.geometries.nfs6_ps2 import Nfs6Ps2CollisionVolumes, Nfs6Ps2LightingMaterials, Nfs6Ps2SolidPack
 from resources.eac.fields.misc import Point2D, Point3D
 from resources.eac.fields.numbers import IntegerAngleBlock
-from resources.blackbox.chunks import ChunkBlock, ZeroChunk, bytes_remaining, chunks_field, records_to_chunk_end
+from resources.blackbox.chunks import ChunkBlock, ZeroChunk, chunks_field, records_to_chunk_end
 
 # NFS Hot Pursuit 2 (PS2) sceneries: loader SLUS_203.62 0x14ecdc. The world of a track is the scenery instances of
 # TRACKS/TRACKB<track>.LZC (track = location * 10 + variant), meshes of its mesh packs, textures of
@@ -1569,9 +1570,7 @@ class Nfs6Ps2ChunkBundle(DeclarativeCompoundBlock):
     serializer = 'Nfs6Ps2ChunkBundleSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
-        chunks = chunks_field(
-            NFS6_PS2_BUNDLE_CHUNK_BLOCKS, 'Chunks', byte_length=(bytes_remaining, 'until the end of file')
-        )
+        chunks = chunks_field(NFS6_PS2_BUNDLE_CHUNK_BLOCKS, 'Chunks', byte_length=(REMAINING, 'until the end of file'))
 
 
 class Nfs6Ps2TrackBundle(Nfs6Ps2ChunkBundle):

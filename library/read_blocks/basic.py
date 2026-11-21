@@ -198,6 +198,16 @@ class Remaining:
 REMAINING = Remaining()
 
 
+def read_length(param, ctx, read_bytes_amount=None):
+    """The value of a length parameter while reading a block: `REMAINING` is `read_bytes_amount` when the block is
+    read with one"""
+    if isinstance(param, tuple):
+        param = param[0]
+    if isinstance(param, Remaining) and read_bytes_amount is not None:
+        return read_bytes_amount
+    return param_value(param, ctx)
+
+
 class BytesBlock(DataBlock):
     serializer = 'PlainBinarySerializer'
 
@@ -237,11 +247,7 @@ class BytesBlock(DataBlock):
         return bytes([0] * self_len)
 
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
-        param = self._length[0] if isinstance(self._length, tuple) else self._length
-        if isinstance(param, Remaining) and read_bytes_amount is not None:
-            self_len = read_bytes_amount
-        else:
-            self_len = self.resolve_length(ctx)
+        self_len = read_length(self._length, ctx, read_bytes_amount)
         if self_len < 0:
             if self.allow_negative_length:
                 ctx.buffer.seek(self_len, SEEK_CUR)

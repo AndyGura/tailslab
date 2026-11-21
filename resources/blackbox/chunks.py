@@ -335,11 +335,6 @@ def chunks_field(
     )
 
 
-def bytes_remaining(ctx) -> int:
-    """`byte_length` of chunks up to the end of the file (or the part read)"""
-    return ctx.read_bytes_remaining
-
-
 class RecordsChunk(ChunkBlock):
     """A chunk of variable-size records back to back up to the end of its payload (its field:
     `records_to_chunk_end(child)`). `RECORD_HEADER_SIZE` and `record_size(payload, pos)` measure them

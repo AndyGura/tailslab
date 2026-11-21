@@ -6,9 +6,8 @@ VAB format ("pBAV"), though the file extensions are the same. Addresses: the US 
 SLPS_010.24 has the same sound library at other addresses (`sfx_voice_start` 0x800b4350 there).
 """
 
-from typing import Dict, Optional
+from typing import Dict
 
-from library.context import ReadContext
 from library.read_blocks import (
     ArrayBlock,
     BytesBlock,
@@ -197,17 +196,11 @@ def tnfs_psx_bank_patches(data: dict) -> Dict[int, dict]:
     }
 
 
-def _bytes_to_end(ctx: ReadContext) -> Optional[int]:
-    while ctx is not None and (not isinstance(ctx, ReadContext) or ctx.read_bytes_remaining is None):
-        ctx = ctx.parent
-    return ctx.read_bytes_remaining if ctx is not None else None
-
-
 def _bytes_to_next_sample(ctx) -> int:
     """Bytes from here up to the next "VAGp" header (at a multiple of 16 bytes) or to the end of the samples (the CRC
     footer or the end of the file)"""
-    remaining = _bytes_to_end(ctx)
-    if remaining is None or remaining <= 0:
+    remaining = ctx.read_end - ctx.buffer.tell()
+    if remaining <= 0:
         return 0
     position = ctx.buffer.tell()
     try:

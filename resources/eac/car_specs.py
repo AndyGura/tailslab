@@ -5,6 +5,7 @@ from copy import deepcopy
 from typing import Dict
 
 from library.read_blocks import (
+    REMAINING,
     BytesBlock,
     DeclarativeCompoundBlock,
     IntegerBlock,
@@ -3873,7 +3874,7 @@ class Nfs5CarParts(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         parts = (
-            ArrayBlock(child=Nfs5CarPart(), length=(lambda ctx: ctx.read_bytes_remaining // 0x168, 'file size / 360')),
+            ArrayBlock(child=Nfs5CarPart(), byte_length=(REMAINING, 'file size')),
             {'description': 'The parts'},
         )
 
@@ -4187,8 +4188,6 @@ class Nfs5Cars(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         cars = (
-            ArrayBlock(
-                child=Nfs5CarRecord(), length=(lambda ctx: ctx.read_bytes_remaining // 0x670, 'file size / 1648')
-            ),
+            ArrayBlock(child=Nfs5CarRecord(), byte_length=(REMAINING, 'file size')),
             {'description': 'The cars'},
         )

@@ -27,8 +27,6 @@ from library.read_blocks import (
 DES_BODY_HEADER_LENGTH = 94
 DES_RECORD_TYPE_LENGTH = 10
 DES_RECORD_NAME_LENGTH = 80
-# type + name + data size + n
-DES_RECORD_HEADER_LENGTH = DES_RECORD_TYPE_LENGTH + DES_RECORD_NAME_LENGTH + 8
 # bodies nested in chains: the shipped files have up to 3 (TRAFCFG.DES: "Glue Factors" > "Single Race Glue Factors" >
 # "Laps"); chains deeper than this keep their body as raw bytes
 DES_MAX_DEPTH = 6
@@ -112,27 +110,6 @@ class DesTextRestBlock(BytesBlock):
     def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
         length = self._length_for(ctx) if ctx is not None else None
         return data if length is None else _fit_text_rest(data, length)
-
-
-def _peek_record_count(ctx) -> int:
-    """Records of a body: walked over their n (at +94 of each record) until the body's records size is used up"""
-    end = ctx.buffer.tell() + ctx.data('records_size')
-    start = ctx.buffer.tell()
-    count = 0
-    try:
-        pos = start
-        while pos < end:
-            ctx.buffer.seek(pos + DES_RECORD_HEADER_LENGTH - 4)
-            n = int.from_bytes(ctx.buffer.read(4), 'little', signed=True)
-            if n < 0:
-                raise DataIntegrityException(ctx=ctx, message=f'Negative record length {n} at {pos}')
-            pos += DES_RECORD_HEADER_LENGTH + n
-            count += 1
-        if pos != end:
-            raise DataIntegrityException(ctx=ctx, message='Records do not end with the records size of the body')
-    finally:
-        ctx.buffer.seek(start)
-    return count
 
 
 def _record_extra_choice(ctx, **_) -> int:
@@ -273,7 +250,7 @@ class EaFieldDescriptionBody(CompoundBlock):
         self.depth = depth
         records = ArrayBlock(
             child=EaFieldDescriptionRecord(depth=depth),
-            length=(_peek_record_count, 'until `records_size` bytes are read'),
+            byte_length=('records_size', 'until `records_size` bytes are read'),
         )
         super().__init__(
             fields=[

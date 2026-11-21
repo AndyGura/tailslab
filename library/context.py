@@ -74,6 +74,29 @@ class ReadContext(BaseContext):
             return None
         return self.read_bytes_amount - self.local_buffer_pos
 
+    @property
+    def read_end(self) -> int:
+        """Absolute buffer offset where the bytes the block may read end: the end of the closest context (this one or
+        a parent) read with a known amount of bytes (the file, an archive item, a field of a compound block), else
+        the end of the buffer"""
+        ctx = self
+        while ctx is not None:
+            if ctx.read_bytes_amount is not None and ctx.read_start_offset is not None:
+                return ctx.read_start_offset + ctx.read_bytes_amount
+            ctx = ctx.parent
+        position = self.buffer.tell()
+        end = self.buffer.seek(0, 2)
+        self.buffer.seek(position)
+        return end
+
+    def peek(self, length: int) -> bytes:
+        """Up to `length` bytes at the buffer position, not past `read_end`; the position stays"""
+        position = self.buffer.tell()
+        try:
+            return self.buffer.read(max(0, min(length, self.read_end - position)))
+        finally:
+            self.buffer.seek(position)
+
     def get_or_create_child(self, name, block=None, read_bytes_amount=None, data=None):
         existing_child = self.children.get(name)
         if existing_child:

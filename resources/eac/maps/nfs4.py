@@ -1,4 +1,5 @@
 from library.read_blocks import (
+    REMAINING,
     DeclarativeCompoundBlock,
     CompoundBlock,
     IntegerBlock,
@@ -987,7 +988,7 @@ class Nfs4HeightsSim(DeclarativeCompoundBlock):
         heights = (
             ArrayBlock(
                 child=DecimalBlock(length=4),
-                length=(lambda ctx: ctx.read_bytes_remaining // 4, 'file size / 4'),
+                byte_length=(REMAINING, 'file size'),
             ),
             {
                 'description': 'Ceiling height above the ground of each slice in meters, used where the car is '

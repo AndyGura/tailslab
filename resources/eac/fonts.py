@@ -2,6 +2,7 @@ from typing import Dict
 
 from library.context import ReadContext, WriteContext
 from library.read_blocks import (
+    REMAINING,
     IntegerBlock,
     UTF8Block,
     DeclarativeCompoundBlock,
@@ -307,7 +308,7 @@ class FfnFont(DeclarativeCompoundBlock):
         )
         bitmap = (EacImage(), {'description': 'Font atlas bitmap data'})
         remaining_bytes = (
-            BytesBlock(length=(lambda ctx: ctx.read_bytes_remaining, 'remaining bytes')),
+            BytesBlock(length=(REMAINING, 'remaining bytes')),
             {'is_unknown': True},
         )
 

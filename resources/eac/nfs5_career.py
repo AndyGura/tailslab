@@ -1,4 +1,5 @@
 from library.read_blocks import (
+    REMAINING,
     ArrayBlock,
     BytesBlock,
     DecimalBlock,
@@ -194,9 +195,7 @@ class Nfs5FactoryMissions(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         missions = (
-            ArrayBlock(
-                child=Nfs5FactoryMission(), length=(lambda ctx: ctx.read_bytes_remaining // 0xF0, 'file size / 240')
-            ),
+            ArrayBlock(child=Nfs5FactoryMission(), byte_length=(REMAINING, 'file size')),
             {'description': 'The missions'},
         )
 
@@ -372,9 +371,7 @@ class Nfs5Tournaments(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         tournaments = (
-            ArrayBlock(
-                child=Nfs5Tournament(), length=(lambda ctx: ctx.read_bytes_remaining // 0xD40, 'file size / 3392')
-            ),
+            ArrayBlock(child=Nfs5Tournament(), byte_length=(REMAINING, 'file size')),
             {'description': 'The tournaments'},
         )
 
@@ -420,8 +417,6 @@ class Nfs5Personalities(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         personalities = (
-            ArrayBlock(
-                child=Nfs5Personality(), length=(lambda ctx: ctx.read_bytes_remaining // 0x2C, 'file size / 44')
-            ),
+            ArrayBlock(child=Nfs5Personality(), byte_length=(REMAINING, 'file size')),
             {'description': 'The personalities'},
         )

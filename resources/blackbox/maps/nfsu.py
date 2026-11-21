@@ -1,6 +1,7 @@
 from typing import Dict, Optional
 
 from library.read_blocks import (
+    REMAINING,
     ArrayBlock,
     BytesBlock,
     DeclarativeCompoundBlock,
@@ -20,7 +21,6 @@ from resources.blackbox.chunks import (
     ChunkBlock,
     RecordsChunk,
     ZeroChunk,
-    bytes_remaining,
     chunks_field,
     is_name_bytes,
     peek_chunk_length,
@@ -661,9 +661,7 @@ class NfsuChunkBundle(DeclarativeCompoundBlock):
     )
 
     class Fields(DeclarativeCompoundBlock.Fields):
-        chunks = chunks_field(
-            NFSU_BUNDLE_CHUNK_BLOCKS, 'Chunks', byte_length=(bytes_remaining, 'until the end of file')
-        )
+        chunks = chunks_field(NFSU_BUNDLE_CHUNK_BLOCKS, 'Chunks', byte_length=(REMAINING, 'until the end of file'))
 
 
 class NfsuTrackBundle(NfsuChunkBundle):

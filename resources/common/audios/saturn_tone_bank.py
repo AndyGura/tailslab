@@ -6,6 +6,7 @@ fields after the slot registers are named by what the data shows"""
 from typing import List
 
 from library.read_blocks import (
+    REMAINING,
     ArrayBlock,
     BytesBlock,
     DeclarativeCompoundBlock,
@@ -257,7 +258,7 @@ class SaturnToneBank(DeclarativeCompoundBlock):
             {'description': 'The voices, back to back'},
         )
         wave_data = (
-            BytesBlock(length=(lambda ctx: ctx.read_bytes_remaining, 'up to the end of the file')),
+            BytesBlock(length=(REMAINING, 'up to the end of the file')),
             {
                 'description': "The samples (and a few padding bytes); a layer's `start_address` counts from the "
                 'start of the bank'

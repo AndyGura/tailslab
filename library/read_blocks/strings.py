@@ -2,7 +2,7 @@ from typing import Dict
 
 from library.context import ReadContext, WriteContext
 from library.exceptions import DataIntegrityException, EndOfBufferException
-from library.read_blocks.basic import DataBlock
+from library.read_blocks.basic import DataBlock, read_length
 from library.read_blocks.references import is_static_param, param_doc, param_value
 
 
@@ -39,7 +39,7 @@ class UTF8Block(DataBlock):
 
     # lengths are in bytes: a character outside ASCII takes 2..4 of them
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None, resolved_length=None):
-        self_len = self.resolve_length(ctx) if resolved_length is None else resolved_length
+        self_len = read_length(self._length, ctx, read_bytes_amount) if resolved_length is None else resolved_length
         raw = ctx.buffer.read(self_len)
         if len(raw) < self_len:
             raise EndOfBufferException(ctx=ctx)

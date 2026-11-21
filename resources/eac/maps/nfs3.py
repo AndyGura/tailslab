@@ -1,4 +1,5 @@
 from library.read_blocks import (
+    REMAINING,
     DeclarativeCompoundBlock,
     IntegerBlock,
     BytesBlock,
@@ -723,7 +724,7 @@ class Nfs3SimHeights(DeclarativeCompoundBlock):
         heights = (
             ArrayBlock(
                 child=DecimalBlock(length=4),
-                length=(lambda ctx: ctx.read_bytes_remaining // 4, 'file size / 4'),
+                byte_length=(REMAINING, 'file size'),
             ),
             {
                 'description': 'Ceiling height of each slice in meters, used where the slice is covered (wall '
@@ -779,7 +780,7 @@ class Nfs3SpeedsFile(DeclarativeCompoundBlock):
                         (4, 'unk', 'number', [], '0 in every NFS3 file; never read (0x40e0c0 shifts it out)'),
                     ],
                 ),
-                length=(lambda ctx: ctx.read_bytes_remaining, 'n'),
+                byte_length=(REMAINING, 'n'),
             ),
             {
                 'description': 'A byte per slice: the high 4 bits are the recommended lane of the slice for the AI '

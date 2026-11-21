@@ -1,4 +1,4 @@
-from library.read_blocks import ArrayBlock, BytesBlock, DecimalBlock, DeclarativeCompoundBlock, IntegerBlock
+from library.read_blocks import REMAINING, ArrayBlock, BytesBlock, DecimalBlock, DeclarativeCompoundBlock, IntegerBlock
 
 # NFS5 (Porsche Unleashed) track sky: GameData/Track/Sky/<track>.fsh (textures), <track>.txt (sky layers) and
 # <track>.bin (this block), picked by the track name (alps.crp -> Alps.*). Fields checked against the unprotected
@@ -108,7 +108,7 @@ class Nfs5SkyBin(DeclarativeCompoundBlock):
             },
         )
         rest = (
-            BytesBlock(length=(lambda ctx: ctx.read_bytes_remaining, 'up to end of file')),
+            BytesBlock(length=(REMAINING, 'up to end of file')),
             {
                 'is_unknown': True,
                 'description': 'Not decoded (other sky objects read structs at 0xDDC, 0x1A5C, 0x655C, beyond the '

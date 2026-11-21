@@ -252,24 +252,6 @@ GOURAUD_RECORD_LENGTH = 14
 GOURAUD_LIST_END = 0xFFFF
 
 
-def _gouraud_record_count(ctx) -> int:
-    """Records before the one of polygon 0xFFFF, which ends the list"""
-    position = ctx.buffer.tell()
-    remaining = ctx.read_bytes_remaining
-    count = 0
-    try:
-        while remaining is None or remaining >= 2 * GOURAUD_RECORD_LENGTH:
-            head = ctx.buffer.read(GOURAUD_RECORD_LENGTH)
-            if len(head) < GOURAUD_RECORD_LENGTH or int.from_bytes(head[:2], 'little') == GOURAUD_LIST_END:
-                break
-            count += 1
-            if remaining is not None:
-                remaining -= GOURAUD_RECORD_LENGTH
-    finally:
-        ctx.buffer.seek(position)
-    return count
-
-
 class TnfsPsxGouraudRecord(DeclarativeCompoundBlock):
     block_description = 'The corner colours of one polygon'
 
@@ -307,7 +289,10 @@ class TnfsPsxGouraudColors(PsxCrcFooterMixin, DeclarativeCompoundBlock):
         records = (
             ArrayBlock(
                 child=TnfsPsxGouraudRecord(),
-                length=(_gouraud_record_count, 'up to the record of polygon 0xFFFF'),
+                stop_before=(
+                    lambda ctx: ctx.peek(2) == GOURAUD_LIST_END.to_bytes(2, 'little'),
+                    'up to the record of polygon 0xFFFF',
+                ),
             ),
             {'description': 'The polygons with colours of their own, by polygon index'},
         )

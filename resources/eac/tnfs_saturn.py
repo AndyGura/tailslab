@@ -15,6 +15,7 @@ import numpy as np
 
 from library.context import ReadContext, WriteContext
 from library.read_blocks import (
+    REMAINING,
     SizeOf,
     ArrayBlock,
     BytesBlock,
@@ -638,7 +639,7 @@ class TnfsSaturnGtrExecutable(DeclarativeCompoundBlock):
             },
         )
         rest = (
-            BytesBlock(length=(lambda ctx: ctx.read_bytes_remaining, 'up to the end of the file')),
+            BytesBlock(length=(REMAINING, 'up to the end of the file')),
             {'description': 'Code and data after the car AI pointers'},
         )
 
@@ -688,20 +689,6 @@ class TnfsSaturnPcxListEntry(DeclarativeCompoundBlock):
         )
 
 
-def _pcx_list_amount(ctx) -> Optional[int]:
-    start = ctx.buffer.tell()
-    remaining = ctx.read_bytes_remaining
-    pos, amount = 0, 0
-    try:
-        while pos + 4 <= remaining:
-            ctx.buffer.seek(start + pos)
-            pos += 4 + int.from_bytes(ctx.buffer.read(4), 'big')
-            amount += 1
-    finally:
-        ctx.buffer.seek(start)
-    return amount
-
-
 class TnfsSaturnPcxList(DeclarativeCompoundBlock):
     block_description = (
         "Pictures of a car showcase page of Over Drivin' GT-R: `UIDATA/<car>GEN.DAT` (general), "
@@ -716,7 +703,7 @@ class TnfsSaturnPcxList(DeclarativeCompoundBlock):
         pictures = (
             ArrayBlock(
                 child=TnfsSaturnPcxListEntry(),
-                length=(lambda ctx: _pcx_list_amount(ctx), 'up to the end of the file'),
+                byte_length=(REMAINING, 'up to the end of the file'),
             ),
             {'description': 'The pictures, back to back'},
         )
@@ -1005,10 +992,6 @@ class TnfsSaturnFrontendArt(DeclarativeCompoundBlock):
         )
 
 
-def _sprite_banks_amount(ctx) -> int:
-    return len(_walk_sprite_banks(ctx.buffer, ctx.read_bytes_remaining))
-
-
 class TnfsSaturnSpriteBanks(DeclarativeCompoundBlock):
     block_description = (
         'Sprite banks back to back up to the end of the file: `UIDATA/SHOWCASE.DAT` of Over '
@@ -1021,7 +1004,7 @@ class TnfsSaturnSpriteBanks(DeclarativeCompoundBlock):
         sprite_banks = (
             ArrayBlock(
                 child=TnfsSaturnSpriteBank(),
-                length=(lambda ctx: _sprite_banks_amount(ctx), 'up to the end of the file'),
+                byte_length=(REMAINING, 'up to the end of the file'),
             ),
             {'description': 'The sprite banks'},
         )
@@ -1174,7 +1157,7 @@ class TnfsSaturnRlePicture(DeclarativeCompoundBlock):
             {'description': 'Size of the decoded picture in bytes: 0x23000 = 320 x 224 x 2 in every file'},
         )
         data = (
-            BytesBlock(length=(lambda ctx: ctx.read_bytes_remaining, 'up to the end of the file')),
+            BytesBlock(length=(REMAINING, 'up to the end of the file')),
             {'description': 'The runs'},
         )
 
@@ -1336,20 +1319,6 @@ def is_tnfs_saturn_sized_rle_image_list(buffer, length: int) -> bool:
         buffer.seek(start)
 
 
-def _sized_rle_images_amount(ctx) -> int:
-    start = ctx.buffer.tell()
-    remaining = ctx.read_bytes_remaining
-    pos, amount = 0, 0
-    try:
-        while pos + 4 <= remaining:
-            ctx.buffer.seek(start + pos)
-            pos += int.from_bytes(ctx.buffer.read(4), 'big') or remaining
-            amount += 1
-    finally:
-        ctx.buffer.seek(start)
-    return amount
-
-
 class TnfsSaturnSizedRleImageList(DeclarativeCompoundBlock):
     block_description = (
         "Size-prefixed 8-bit pictures of Over Drivin' GT-R back to back up to the end of the file "
@@ -1365,7 +1334,7 @@ class TnfsSaturnSizedRleImageList(DeclarativeCompoundBlock):
         images = (
             ArrayBlock(
                 child=TnfsSaturnSizedRleImage(),
-                length=(lambda ctx: _sized_rle_images_amount(ctx), 'up to the end of the file'),
+                byte_length=(REMAINING, 'up to the end of the file'),
             ),
             {'description': 'The pictures'},
         )

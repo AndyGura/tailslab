@@ -50,7 +50,7 @@ class Nfs6Ps2JukeboxTrack(DeclarativeCompoundBlock):
         unk2 = (IntegerBlock(length=4, byte_order='big'), {'is_unknown': True, 'description': 'Always 0'})
         channels = (IntegerBlock(length=4, byte_order='big'), {'description': 'Channels: 2'})
         wave_data = (
-            BytesBlock(length=(lambda ctx: ctx.read_bytes_remaining, 'up to the next track')),
+            BytesBlock(length=(REMAINING, 'up to the next track')),
             {
                 'description': 'PS-ADPCM frames (16 bytes, 28 samples) of the channels in blocks of `interleave` '
                 'sectors of the jukebox (0x8000 bytes): a block of the left channel, a block of the right one, and so '
@@ -187,7 +187,7 @@ class Nfs6Ps2Jukebox(ArchiveBlock):
             },
         )
         data_bytes = (
-            BytesBlock(length=lambda ctx: ctx.read_bytes_remaining),
+            BytesBlock(length=REMAINING),
             {
                 'usage': 'io,doc',
                 'description': 'The tracks, at the offsets of `items_descr`. Each one is a '

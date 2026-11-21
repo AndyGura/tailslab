@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 from library.read_blocks import (
+    REMAINING,
     DeclarativeCompoundBlock,
     IntegerBlock,
     ArrayBlock,
@@ -117,7 +118,7 @@ class EaglModel(DeclarativeCompoundBlock):
             {'description': 'Section headers table'},
         )
         trailing_bytes = (
-            BytesBlock(length=(lambda ctx: ctx.read_bytes_remaining, 'up to end of file')),
+            BytesBlock(length=(REMAINING, 'up to end of file')),
             {
                 'usage': 'io,doc',
                 'description': 'Zeros after section headers, usually none. Car "skeleton.o" has 40 of them: a '

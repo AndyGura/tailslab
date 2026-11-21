@@ -1,9 +1,9 @@
 from copy import deepcopy
-from io import SEEK_CUR
 from typing import Dict
 
 from library.context import ReadContext, WriteContext
 from library.read_blocks import (
+    REMAINING,
     SizeOf,
     DeclarativeCompoundBlock,
     UTF8Block,
@@ -343,28 +343,6 @@ EA_SOUND_PATCH_TAGS = [
 EA_SOUND_PATCH_MARKERS = ['padding', 'info_start', 'layer_end', 'end']
 
 
-def _ea_sound_patch_tag_count(ctx) -> int:
-    """Amount of tags of the patch at the current buffer position, up to and including the end tag 0xFF"""
-    start = ctx.buffer.tell()
-    count = 0
-    try:
-        while True:
-            tag = ctx.buffer.read(1)
-            if not tag:
-                return count
-            count += 1
-            if tag[0] == 0xFF:
-                return count
-            if tag[0] in (0xFC, 0xFD, 0xFE):
-                continue
-            length = ctx.buffer.read(1)
-            if not length:
-                return count
-            ctx.buffer.seek(length[0], SEEK_CUR)
-    finally:
-        ctx.buffer.seek(start)
-
-
 class EaSoundPatchTag(DeclarativeCompoundBlock):
     block_description = (
         'A tag of EA sound patch: tag id, then (except for tags 0xFC-0xFF) the length of the '
@@ -436,7 +414,10 @@ class EaSoundPatch(DeclarativeCompoundBlock):
         platform_magic = (UTF8Block(length=2, value_validator=Eq('PT')), {'description': 'Patch header magic'})
         platform = (IntegerBlock(length=2), {'description': 'Platform id, 0 is PC'})
         tags = (
-            ArrayBlock(child=EaSoundPatchTag(), length=(_ea_sound_patch_tag_count, 'up to and including tag "end"')),
+            ArrayBlock(
+                child=EaSoundPatchTag(),
+                stop_after=(lambda tag: tag['tag'] == 'end', 'up to and including tag "end"'),
+            ),
             {'description': 'Tags'},
         )
 
@@ -458,20 +439,6 @@ class EaSoundPatch(DeclarativeCompoundBlock):
 
 # chunk ids of an EA audio stream: header, chunk count, data, loop end, end
 EA_AUDIO_STREAM_CHUNK_IDS = (b'SCHl', b'SCCl', b'SCDl', b'SCLl', b'SCEl')
-
-
-def _read_end(ctx) -> int:
-    """Absolute buffer offset where the bytes the block may read end: the end of the closest context with a known
-    amount of bytes to read (the file, an archive item), else the end of the buffer"""
-    c = ctx
-    while c is not None:
-        if getattr(c, 'read_bytes_amount', None) is not None and getattr(c, 'read_start_offset', None) is not None:
-            return c.read_start_offset + c.read_bytes_amount
-        c = c.parent
-    pos = ctx.buffer.tell()
-    end = ctx.buffer.seek(0, 2)
-    ctx.buffer.seek(pos)
-    return end
 
 
 def scan_ea_audio_stream_chunks(buffer, end: int) -> int:
@@ -530,28 +497,6 @@ def is_ea_audio_stream(buffer, length: int = None) -> bool:
         buffer.seek(start)
 
 
-def _ea_audio_streams_count(ctx) -> int:
-    buffer = ctx.buffer
-    start = buffer.tell()
-    end = _read_end(ctx)
-    count = 0
-    pos = start
-    try:
-        while pos + 8 <= end:
-            buffer.seek(pos)
-            head = buffer.read(8)
-            if head[:4] != b'SCHl':
-                break
-            count += 1
-            buffer.seek(pos + int.from_bytes(head[4:], 'little'))
-            pos = buffer.tell() + scan_ea_audio_stream_chunks(buffer, end)
-            buffer.seek(pos)
-            pos += scan_ea_audio_stream_padding(buffer, end)
-        return count
-    finally:
-        buffer.seek(start)
-
-
 class EaAudioStream(DeclarativeCompoundBlock):
     block_description = (
         'EA audio stream (NFS2 - NFS6 music, NFS6 speech): header chunk "SCHl" '
@@ -590,7 +535,7 @@ class EaAudioStream(DeclarativeCompoundBlock):
         data = (
             BytesBlock(
                 length=(
-                    lambda ctx: scan_ea_audio_stream_chunks(ctx.buffer, _read_end(ctx)),
+                    lambda ctx: scan_ea_audio_stream_chunks(ctx.buffer, ctx.read_end),
                     'chunks up to and including the end chunk SCEl',
                 )
             ),
@@ -599,7 +544,7 @@ class EaAudioStream(DeclarativeCompoundBlock):
         padding = (
             BytesBlock(
                 length=(
-                    lambda ctx: scan_ea_audio_stream_padding(ctx.buffer, _read_end(ctx)),
+                    lambda ctx: scan_ea_audio_stream_padding(ctx.buffer, ctx.read_end),
                     'up to the next stream or the end of file',
                 )
             ),
@@ -621,7 +566,7 @@ class EaAudioStreams(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         streams = (
-            ArrayBlock(child=EaAudioStream(), length=(_ea_audio_streams_count, 'streams up to the end of file')),
+            ArrayBlock(child=EaAudioStream(), byte_length=(REMAINING, 'streams up to the end of file')),
             {'description': 'Audio streams'},
         )
 

@@ -36,8 +36,9 @@ new parsing primitives. Skim the cheat-sheet below before reaching for `read-blo
   (`library.read_blocks.strings`) — fixed/null-terminated/length-prefixed text.
 - `BytesBlock(length, allow_negative_length=False)` — raw bytes; `length` may be an int, a field
   path (`length='data_size'`), a `lambda ctx: ...`, `REMAINING` (the bytes the block is read with:
-  an archive item's slot, else the rest of the parent), or any of these as `(length, "doc string")` to
-  control what `size_doc_str` shows.
+  an archive item's slot, else the rest of the parent; also `UTF8Block`'s length, and an array's
+  `byte_length`), or any of these as `(length, "doc string")` to control what `size_doc_str` shows.
+  Never `lambda ctx: ctx.read_bytes_remaining` for "the rest": that is `REMAINING`.
   `Padding(to, is_global=False)` — `BytesBlock` subclass that pads up to an absolute/local offset
   (`to='vertices_ptr'`: up to the offset an earlier pointer field holds).
 - A new leaf storing a value as an integer (angle, scaled number, code) subclasses `IntegerBlock` and
@@ -49,9 +50,14 @@ new parsing primitives. Skim the cheat-sheet below before reaching for `read-blo
 **Containers**
 - `CompoundBlock(fields=[(name, block, extras), ...])` / `DeclarativeCompoundBlock` (fields declared
   as a nested `Fields` class — the pattern almost everything uses, see below).
-- `ArrayBlock(child, length)` — `length` int, field path (`length='num_items'`) or `lambda ctx: ...`;
-  `ArrayBlock(child, byte_length=...)`: items of any size read one by one until they took that many bytes (no
-  counting pre-scan).
+- `ArrayBlock(child, length)` — `length` int, field path (`length='num_items'`) or `lambda ctx: ...`.
+  Arrays whose count is not stored never count their items in a pre-scan of the bytes:
+  `byte_length=...` (a block parameter): the items take that many bytes, fixed-size ones as many as fit (the
+  rest goes to the next field), others read one by one, raising if they run past it;
+  `byte_length=(REMAINING, 'file size')` = records up to the end of the file / item (documented as
+  `file size / <item size>` items). `stop_after=(lambda item: ..., 'doc')`: a terminator that is the last item
+  (EA sound patch tags up to tag `end`); `stop_before=(lambda ctx: ctx.peek(2) == b'\xff\xff', 'doc')`: a
+  terminator read by the next field (the PSX `.GRO` records). Both also stop at `ctx.read_end`.
   `LengthPrefixedArrayBlock(length_block, child)` — length read from a leading field.
   `SubByteArrayBlock(length, bits_per_value, value_deserialize_func=None, value_serialize_func=None)`
   — packed sub-byte values (e.g. 4-bit-per-pixel bitmaps).
@@ -66,7 +72,7 @@ new parsing primitives. Skim the cheat-sheet below before reaching for `read-blo
   `TrailingOptionalBlock(child, criteria=None)` (`library.read_blocks.optional`) — same idea for
   presence only observable while reading: leftover space at the end of a structure/file (default
   criteria: `ctx.read_bytes_remaining > 0`), or a custom `criteria(ctx)` that peeks at upcoming
-  bytes (`ctx.buffer.read(n)` then `ctx.buffer.seek(-n, SEEK_CUR)` to undo the peek) and checks
+  bytes (`ctx.peek(n)`: up to n bytes ahead, the buffer position kept) and checks
   whether they look like the expected format - the way to parse a sequence of same-shaped,
   independently-optional trailing chunks in a known order (stack one `TrailingOptionalBlock` per
   chunk, each sniffing its own signature). When the chunks link to each other (an offset to the
@@ -131,7 +137,7 @@ class (a header field declared there, e.g. a length with a validator, replaces t
 `records_to_chunk_end(child, size)` is an array of fixed-size records up to the end of the payload,
 `records_to_chunk_end(child)` of records of any size (read one by one up to there), `chunk_rest()` the raw bytes up
 to it. A container's `sub_chunks = chunks_field([...], description)` holds its sub-chunks (lazy parts, unknown ids as
-`UnknownChunk`); a bundle's top level is `chunks_field(blocks, 'Chunks', byte_length=(bytes_remaining, ...))`.
+`UnknownChunk`); a bundle's top level is `chunks_field(blocks, 'Chunks', byte_length=(REMAINING, ...))`.
 Several layouts of one id: give the blocks `matches_chunk(ctx)`, checked before the others, peeking with
 `peek_chunk_payload`, `peek_sub_chunks` / `peek_sub_chunk_payload` (seek over sub-chunk headers, never copy a
 container payload) or `peek_bytes`; a chunk of variable-size records filling its payload is a `RecordsChunk`

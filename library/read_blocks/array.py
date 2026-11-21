@@ -4,22 +4,39 @@ from math import ceil
 from typing import Dict, Tuple, Any, Optional, List
 
 from library.context import ReadContext, WriteContext
-from library.exceptions import EndOfBufferException
-from library.read_blocks.basic import DataBlock, DataBlockWithChildren
+from library.exceptions import DataIntegrityException, EndOfBufferException
+from library.read_blocks.basic import DataBlock, DataBlockWithChildren, read_length
 from library.read_blocks.numbers import IntegerBlock
 from library.read_blocks.references import is_static_param, param_doc, param_value
-from library.utils.docs import multiply_doc_numbers
+from library.utils.docs import multiply_doc_numbers, needs_parentheses
+
+
+def _stop_doc(stop) -> str:
+    return stop[1] if isinstance(stop, tuple) else '?'
 
 
 class ArrayBlock(DataBlockWithChildren, DataBlock, ABC):
-    # `length`: the number of items, a block parameter (library/read_blocks/references.py). `byte_length` instead (a
-    # block parameter too): the items take that many bytes, read one by one until they are read (items of any size up
-    # to the end of a record, without counting them first)
-    def __init__(self, child: DataBlock, length=None, byte_length=None, **kwargs):
+    # How many items, one of:
+    # - `length`: the number of items, a block parameter (library/read_blocks/references.py)
+    # - `byte_length`: the items take that many bytes (a block parameter too; `REMAINING`: the bytes the array is read
+    #   with, the rest of its compound block). Fixed-size items: as many as fit (bytes left over go to the next field);
+    #   other items are read one by one until they took them (any size, without counting them first), an item
+    #   running past them raises
+    # - `stop_before` / `stop_after` (a function or (function, doc)): items read one by one up to the end of the bytes
+    #   the array may read (`ReadContext.read_end`) or until `stop_before(ctx)` is True before an item (the array's
+    #   read context, the buffer at the item: `ctx.peek(n)` gives the bytes ahead; a terminator after the array) or
+    #   `stop_after(item)` after it (a terminator that is the last item)
+    def __init__(self, child: DataBlock, length=None, byte_length=None, stop_before=None, stop_after=None, **kwargs):
         super().__init__(**kwargs)
         self.child = child
         self._length = length
         self.byte_length = byte_length
+        self.stop_before = stop_before
+        self.stop_after = stop_after
+
+    @property
+    def is_terminated(self) -> bool:
+        return self.stop_before is not None or self.stop_after is not None
 
     @property
     def schema(self) -> Dict:
@@ -28,20 +45,30 @@ class ArrayBlock(DataBlockWithChildren, DataBlock, ABC):
             'block_description': f'Array of `{self.length_doc_str}` items',
             'child_schema': self.child.schema,
         }
-        if self.byte_length is None and is_static_param(self._length):
+        if self.byte_length is None and not self.is_terminated and is_static_param(self._length):
             schema['length'] = self._length[0] if isinstance(self._length, tuple) else self._length
         return schema
 
     # For auto-generated documentation only
     @property
     def length_doc_str(self):
-        return param_doc(self._length if self.byte_length is None else self.byte_length)
+        if self.is_terminated:
+            return _stop_doc(self.stop_before if self.stop_before is not None else self.stop_after)
+        if self.byte_length is not None:
+            byte_doc = param_doc(self.byte_length)
+            item_size = str(self.child.size_doc_str)
+            if not item_size.isdigit() or int(item_size) <= 1:
+                return byte_doc
+            return f'({byte_doc}) / {item_size}' if needs_parentheses(byte_doc) else f'{byte_doc} / {item_size}'
+        return param_doc(self._length)
 
     # For auto-generated documentation only
     @property
     def size_doc_str(self):
         if self.byte_length is not None:
             return param_doc(self.byte_length)
+        if self.is_terminated:
+            return multiply_doc_numbers(self.length_doc_str, self.child.size_doc_str)
         if self._length == 0:
             return '0'
         # when set to 0 and added some label, assume that it has some custom logic
@@ -129,11 +156,24 @@ class ArrayBlock(DataBlockWithChildren, DataBlock, ABC):
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None, resolved_length=None):
         res = []
         self_ctx = ctx.get_or_create_child(name, self, read_bytes_amount, res)
-        if self.byte_length is not None and resolved_length is None:
-            end = ctx.buffer.tell() + param_value(self.byte_length, ctx)
-            while ctx.buffer.tell() < end:
-                res.append(self.child.unpack(ctx=self_ctx, name=str(len(res))))
-            return res
+        if resolved_length is None and self.is_terminated:
+            return self._read_until_stop(ctx, self_ctx, res)
+        if resolved_length is None and self.byte_length is not None:
+            byte_length = read_length(self.byte_length, ctx, read_bytes_amount)
+            item_size = self.child.fixed_size
+            if item_size:
+                resolved_length = byte_length // item_size
+            else:
+                start = ctx.buffer.tell()
+                end = start + byte_length
+                while ctx.buffer.tell() < end:
+                    res.append(self.child.unpack(ctx=self_ctx, name=str(len(res))))
+                if ctx.buffer.tell() > end:
+                    raise DataIntegrityException(
+                        ctx=self_ctx,
+                        message=f'The items take {ctx.buffer.tell() - start} bytes instead of {byte_length}',
+                    )
+                return res
         self_len = self.resolve_length(ctx) if resolved_length is None else resolved_length
         if self.child.__class__ == IntegerBlock and self.child.length == 1 and not self.child.is_signed:
             res = list(ctx.buffer.read(self_len))
@@ -152,6 +192,19 @@ class ArrayBlock(DataBlockWithChildren, DataBlock, ABC):
                 ctx.buffer.seek(start)
         for i in range(self_len):
             res.append(self.child.unpack(ctx=self_ctx, name=str(i)))
+        return res
+
+    def _read_until_stop(self, ctx: ReadContext, self_ctx: ReadContext, res: list) -> list:
+        stop_before = self.stop_before[0] if isinstance(self.stop_before, tuple) else self.stop_before
+        stop_after = self.stop_after[0] if isinstance(self.stop_after, tuple) else self.stop_after
+        end = self_ctx.read_end
+        while ctx.buffer.tell() < end:
+            if stop_before is not None and stop_before(self_ctx):
+                break
+            item = self.child.unpack(ctx=self_ctx, name=str(len(res)))
+            res.append(item)
+            if stop_after is not None and stop_after(item):
+                break
         return res
 
     def estimate_packed_size(self, data, ctx: WriteContext = None):
