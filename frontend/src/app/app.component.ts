@@ -130,16 +130,7 @@ export class AppComponent implements OnInit {
   }
 
   async createNewFile() {
-    const dialogRef = this.dialog.open(NewFileDialogComponent, {
-      width: '400px',
-    });
-    const format = await firstValueFrom(dialogRef.afterClosed());
-    if (format) {
-      const path = await this.mainService.api.saveFileDialog(`Untitled.${format}`);
-      if (path) {
-        await this.mainService.api.createNewFile(path, format);
-      }
-    }
+    await NewFileDialogComponent.createNewFile(this.dialog, this.mainService.api);
   }
 
   async openRecentFile(path: string) {

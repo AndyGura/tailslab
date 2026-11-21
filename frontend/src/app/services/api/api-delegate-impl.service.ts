@@ -14,6 +14,7 @@ import {
   ExecutableDetectionResult,
   ExecutableKind,
   GeneralConfig,
+  NewFileFormats,
 } from './api-types';
 import { findNestedObjects } from '../../utils/find-nested-object';
 
@@ -101,6 +102,10 @@ export class ApiDelegateImplService {
       data,
     });
     return size;
+  }
+
+  public async newFileFormats(): Promise<NewFileFormats> {
+    return this.wrapCall('new_file_formats');
   }
 
   public async createNewFile(path: string, format: string) {

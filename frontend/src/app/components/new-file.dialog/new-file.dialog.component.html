@@ -1,15 +1,86 @@
 <h2 mat-dialog-title>Create New File</h2>
-<mat-dialog-content>
-  <mat-selection-list [multiple]="false" (selectionChange)="selectedFormat = $event.options[0].value">
-    @for (format of formats; track format.id) {
-      <mat-list-option [value]="format.id" [selected]="selectedFormat === format.id">
-        <mat-icon matListItemIcon>{{ fileFormatIcon(format.iconBlockClass) }}</mat-icon>
-        <span matListItemTitle>{{ format.description }}</span>
-      </mat-list-option>
+<mat-dialog-content class="panes">
+  <div class="games-pane">
+    <mat-form-field class="search" appearance="outline" subscriptSizing="dynamic">
+      <mat-icon matPrefix>search</mat-icon>
+      <input
+        matInput
+        placeholder="Search all games"
+        [value]="search"
+        (input)="setSearch($any($event.target).value)"
+        (keydown.enter)="onCreate()" />
+      @if (searching) {
+        <button matSuffix mat-icon-button aria-label="Clear search" (click)="setSearch('')">
+          <mat-icon>close</mat-icon>
+        </button>
+      }
+    </mat-form-field>
+    <mat-selection-list
+      class="games"
+      aria-label="Game"
+      [multiple]="false"
+      hideSingleSelectionIndicator
+      (selectionChange)="pickGame($event.options[0].value)">
+      @for (game of games; track game.id) {
+        <mat-list-option [value]="game.id" [selected]="!searching && game.id === gameId">
+          <span matListItemTitle class="game">
+            <span>{{ game.name }}</span>
+            <span class="count">{{ counts[game.id] || 0 }}</span>
+          </span>
+        </mat-list-option>
+      }
+    </mat-selection-list>
+  </div>
+
+  <div class="formats-pane">
+    <h3 class="pane-title">{{ searching ? 'Search results' : gameName }}</h3>
+    <div class="formats">
+      @if (sections.length) {
+        <mat-selection-list
+          aria-label="Format"
+          [multiple]="false"
+          hideSingleSelectionIndicator
+          (selectionChange)="selectedId = $event.options[0].value">
+          @for (section of sections; track section.kind) {
+            <div mat-subheader>{{ section.kind }}</div>
+            @for (format of section.formats; track format.id) {
+              <mat-list-option [value]="format.id" [selected]="selectedId === format.id" (dblclick)="onCreate()">
+                <mat-icon matListItemIcon>{{ fileFormatIcon(format.block_class_mro) }}</mat-icon>
+                <span matListItemTitle>{{ format.label }}</span>
+                <span matListItemLine>
+                  <span class="file-name">{{ format.file_name }}</span>
+                  @if (searching) {
+                    · {{ gameNames(format) }}
+                  }
+                </span>
+              </mat-list-option>
+            }
+          }
+        </mat-selection-list>
+      } @else if (searching) {
+        <p class="empty">No format matches "{{ search.trim() }}".</p>
+      }
+    </div>
+    @if (selected; as format) {
+      <div class="details">
+        <div class="details-title">
+          {{ format.label }} <span class="file-name">{{ format.file_name }}</span>
+        </div>
+        <p>{{ format.description }}</p>
+        @if (format.folder) {
+          <p class="folder">
+            <mat-icon inline>folder</mat-icon>
+            Save it inside <span class="file-name">{{ format.folder }}/</span>: TailsLab recognises it only there.
+          </p>
+        }
+        @if (format.games.length > 1) {
+          <p class="used-by">Used by {{ gameNames(format) }}.</p>
+        }
+      </div>
     }
-  </mat-selection-list>
+  </div>
 </mat-dialog-content>
 <mat-dialog-actions align="end">
   <button mat-button (click)="onCancel()">Cancel</button>
-  <button mat-raised-button color="primary" (click)="onCreate()">Create</button>
+  <button mat-raised-button color="primary" [disabled]="!selectedId" (click)="onCreate()">Create…</button>
 </mat-dialog-actions>

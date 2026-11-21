@@ -15,6 +15,7 @@ import {
   ExecutableDetectionResult,
   ExecutableKind,
   GeneralConfig,
+  NewFileFormats,
 } from './api-types';
 
 export abstract class BaseApiDelegateService {
@@ -100,6 +101,10 @@ export abstract class BaseApiDelegateService {
 
   public async saveFile(): Promise<number | null> {
     return (await this.getImpl()).saveFile();
+  }
+
+  public async newFileFormats(): Promise<NewFileFormats> {
+    return (await this.getImpl()).newFileFormats();
   }
 
   public async createNewFile(path: string, format: string): Promise<Resource | ResourceError> {

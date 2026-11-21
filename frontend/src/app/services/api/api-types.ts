@@ -7,6 +7,33 @@ export type GeneralConfig = {
   lazy_loading: boolean;
   file_cache_size: number;
   show_orip_import_guide: boolean;
+  // the game the New file dialog opened at last
+  new_file_game: string;
+};
+
+// a format of the New file dialog (`library/new_files.py`)
+export type NewFileFormat = {
+  id: string;
+  // ids of the games it is listed in
+  games: string[];
+  // the section it is listed in
+  kind: string;
+  label: string;
+  // what the file is in the game
+  description: string;
+  // default name of the new file
+  file_name: string;
+  // the folder the file is recognised in only (`Cars/<car>`)
+  folder: string | null;
+  // of the file's data block, for its icon
+  block_class_mro: string;
+};
+
+// the New file dialog's games and sections, in order, and its formats
+export type NewFileFormats = {
+  games: { id: string; name: string }[];
+  kinds: string[];
+  formats: NewFileFormat[];
 };
 
 export type ExecutableKind = 'blender' | 'ffmpeg';
