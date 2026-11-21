@@ -31,3 +31,4 @@ from .delegates import (
 )
 from .strings import UTF8Block
 from .references import CountOf, OffsetOf, SizeOf, OwnSize, ItemOffsetsOf
+from .text import ParsedByParent, TextFileBlock, f32_text, source_text_field

@@ -1,6 +1,5 @@
 import math
 import re
-import struct
 from copy import deepcopy
 from typing import Dict
 
@@ -14,6 +13,10 @@ from library.read_blocks import (
     FixedPointBlock,
     UTF8Block,
     DecimalBlock,
+    ParsedByParent,
+    TextFileBlock,
+    f32_text,
+    source_text_field,
 )
 from library.read_blocks.misc.value_validators import Eq, Lte
 from resources.eac.fields.byte_order import big_endian_copy
@@ -2022,24 +2025,13 @@ _CARP_NUMBER_CHARS = {
 _CARP_LINE_BUFFER = 2000  # the parser's line buffer (0x4b1380), zeroed once per file
 
 
-class _CarpTextValue:
+class _CarpTextValue(ParsedByParent):
     """Marks a value of a carp.txt value line. `reader` names the nfs3.exe number reader"""
 
+    parsed_by = 'Nfs3CarPhysics'
+    size_doc = '1 line'
     reader = 'int'
     is_text_value = True
-
-    @property
-    def size_doc_str(self):
-        return '1 line'
-
-    def read(self, ctx, name: str = '', read_bytes_amount=None):
-        raise NotImplementedError('carp.txt values are read by Nfs3CarPhysics')
-
-    def write(self, data, ctx=None, name: str = '') -> bytes:
-        raise NotImplementedError('carp.txt values are written by Nfs3CarPhysics')
-
-    def estimate_packed_size(self, data, ctx=None):
-        raise NotImplementedError('carp.txt values are written by Nfs3CarPhysics')
 
 
 class CarpTextInt(_CarpTextValue, IntegerBlock):
@@ -2096,9 +2088,11 @@ class CarpTextFixed(_CarpTextValue, DecimalBlock):
         super().__init__(length=4, **kwargs)
 
 
-class CarpTextArray(ArrayBlock):
+class CarpTextArray(ParsedByParent, ArrayBlock):
     """Several numbers of one carp.txt value line"""
 
+    parsed_by = 'Nfs3CarPhysics'
+    size_doc = '1 line'
     is_text_value = True
 
     @property
@@ -2112,19 +2106,6 @@ class CarpTextArray(ArrayBlock):
             'block_description': f'{self._length} numbers in one value line, separated by commas (any character '
             'that is not part of a number separates them)',
         }
-
-    @property
-    def size_doc_str(self):
-        return '1 line'
-
-    def read(self, ctx, name: str = '', read_bytes_amount=None):
-        raise NotImplementedError('carp.txt values are read by Nfs3CarPhysics')
-
-    def write(self, data, ctx=None, name: str = '') -> bytes:
-        raise NotImplementedError('carp.txt values are written by Nfs3CarPhysics')
-
-    def estimate_packed_size(self, data, ctx=None):
-        raise NotImplementedError('carp.txt values are written by Nfs3CarPhysics')
 
 
 def _carp_atoi(text: str) -> int:
@@ -2219,13 +2200,7 @@ def nfs3_carp_exe_read(raw: bytes, readers):
 def _carp_format_float(value: float, decimals: int = 6) -> str:
     """Fixed-point text of a float: `decimals` digits (the files' style), more when the game would read another
     float from it (no exponent: the game's reader would stop at the `e`)"""
-    value = float(value)
-    target = struct.unpack('<f', struct.pack('<f', value))[0] if math.isfinite(value) else 0.0
-    for d in range(decimals, 13):
-        text = f'{value:.{d}f}'
-        if struct.unpack('<f', struct.pack('<f', float(text)))[0] == target:
-            return text
-    return f'{value:.12f}'
+    return f32_text(value, decimals) or f'{float(value):.12f}'
 
 
 def _carp_format_item(value, reader: str, old_item: str = None) -> str:
@@ -2578,30 +2553,24 @@ def _carp_field_description(labels, number, offset, default, text):
     return f'`{label}` ({where}; {missing}). {text}'
 
 
-def _nfs3_carp_fields_class():
+def _carp_fields_class(carp_fields, labels):
     fields = {
         name: (
             block,
             {
-                'description': _carp_field_description(_NFS3_CARP_LABELS, number, offset, default, text),
+                'description': _carp_field_description(labels, number, offset, default, text),
                 'custom_offset': f'({number})',
             },
         )
-        for name, number, offset, block, default, text in _NFS3_CARP_FIELDS
+        for name, number, offset, block, default, text in carp_fields
     }
-    fields['source_text'] = (
-        UTF8Block(length=0),
-        {
-            'description': 'The file as read (bytes as Latin-1 characters). Writing puts the values over it: labels, '
-            'number formats, line endings, lines the game skips and trailing bytes stay as they are, a changed '
-            'number is written in the style of the one it replaces',
-            'usage': 'io',
-        },
+    fields['source_text'] = source_text_field(
+        'labels, number formats, line endings, lines the game skips and trailing bytes'
     )
     return type('Fields', (DeclarativeCompoundBlock.Fields,), fields)
 
 
-class Nfs3CarPhysics(DeclarativeCompoundBlock):
+class Nfs3CarPhysics(TextFileBlock):
     # the format's tables, overridden by Nfs4CarPhysics
     carp_fields = _NFS3_CARP_FIELDS
     carp_table_index = _NFS3_CARP_TABLE_INDEX
@@ -2628,12 +2597,8 @@ class Nfs3CarPhysics(DeclarativeCompoundBlock):
         'the serial number only: every other field takes the default)'
     )
 
-    Fields = _nfs3_carp_fields_class()
+    Fields = _carp_fields_class(_NFS3_CARP_FIELDS, _NFS3_CARP_LABELS)
     serializer = 'Nfs3CarPhysicsSerializer'
-
-    @property
-    def size_doc_str(self):
-        return '?'
 
     def new_data(self, patch=None):
         res = {}
@@ -2667,14 +2632,6 @@ class Nfs3CarPhysics(DeclarativeCompoundBlock):
         res['source_text'] = raw.decode('latin-1')
         return res
 
-    def read(self, ctx, name: str = '', read_bytes_amount=None):
-        res = {}
-        self_ctx = ctx.get_or_create_child(name, self, read_bytes_amount, res)
-        remaining = self_ctx.read_bytes_remaining
-        raw = ctx.buffer.read() if remaining is None else ctx.buffer.read(remaining)
-        res.update(self.parse_text(raw))
-        return res
-
     @staticmethod
     def _as_list(value, block):
         values = list(value) if isinstance(block, ArrayBlock) else [value]
@@ -2702,7 +2659,7 @@ class Nfs3CarPhysics(DeclarativeCompoundBlock):
                 return ''.join(parts).encode('latin-1')
         return ','.join(_carp_format_item(v, reader) for v in new_values).encode('latin-1')
 
-    def _render(self, data):
+    def render(self, data):
         """The file bytes of data, and the offset of each field's value line in them"""
         raw = (data.get('source_text') or '').encode('latin-1')
         read = self.carp_exe_read(raw)
@@ -2768,15 +2725,6 @@ class Nfs3CarPhysics(DeclarativeCompoundBlock):
             out += label + eol
             offsets[name] = len(out)
             out += line + eol
-
-    def write(self, data, ctx=None, name: str = '') -> bytes:
-        return self._render(data)[0]
-
-    def estimate_packed_size(self, data, ctx=None):
-        return len(self._render(data)[0])
-
-    def offset_to_child_when_packed(self, data, child_name: str, ctx=None):
-        return self._render(data)[1].get(child_name, 0)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -3200,29 +3148,6 @@ _NFS4_CARP_READERS = {
 }
 
 
-def _nfs4_carp_fields_class():
-    fields = {
-        name: (
-            block,
-            {
-                'description': _carp_field_description(_NFS4_CARP_LABELS, number, offset, default, text),
-                'custom_offset': f'({number})',
-            },
-        )
-        for name, number, offset, block, default, text in _NFS4_CARP_FIELDS
-    }
-    fields['source_text'] = (
-        UTF8Block(length=0),
-        {
-            'description': 'The file as read (bytes as Latin-1 characters). Writing puts the values over it: labels, '
-            'number formats, line endings, lines the game skips and trailing bytes stay as they are, a changed '
-            'number is written in the style of the one it replaces',
-            'usage': 'io',
-        },
-    )
-    return type('Fields', (DeclarativeCompoundBlock.Fields,), fields)
-
-
 class Nfs4CarPhysics(Nfs3CarPhysics):
     carp_fields = _NFS4_CARP_FIELDS
     carp_table_index = _NFS4_CARP_TABLE_INDEX
@@ -3252,7 +3177,7 @@ class Nfs4CarPhysics(Nfs3CarPhysics):
         'with the serial number only, every other field takes the default'
     )
 
-    Fields = _nfs4_carp_fields_class()
+    Fields = _carp_fields_class(_NFS4_CARP_FIELDS, _NFS4_CARP_LABELS)
     serializer = 'Nfs3CarPhysicsSerializer'
 
     @classmethod

@@ -79,6 +79,12 @@ Commonly overridden:
 - `DeclarativeCompoundBlock.declared_fields()` (classmethod) builds the field list from the `Fields` class (the
   fields of its own body: `CompoundBlockFields.fields`, cached per class); a base class adding fields to every
   subclass overrides it (`ChunkBlock` in `resources/blackbox/chunks.py`: the chunk header).
+- Text files (`library/read_blocks/text.py`): `TextFileBlock` reads the file whole into values (`parse_text(raw)`)
+  and writes it with `render(data)` -> (bytes, {field: offset}), which also gives its size and field offsets; the
+  file as read is its hidden `source_text_field(kept)`, the value blocks of its fields mix in `ParsedByParent`
+  (`parsed_by`, `size_doc`: they type the field for the GUI and docs, their own read / write raise). `f32_text(value,
+  min_decimals)`: the shortest fixed-point text a game reads back as the same 32-bit float. Users: `Nfs3CarPhysics`
+  (carp.txt), `IniFile`.
 - `LengthPrefixed` (`library/read_blocks/basic.py`): mixin of a block stored after a length field
   (`LengthPrefixedArrayBlock`, `LengthPrefixedUtf8Block`): reads the field and passes it as `resolved_length`, writes
   `prefix_value(data, packed_size)` before the value.

@@ -17,9 +17,7 @@ Which line holds the value the game reads follows the INI parser of the game (`I
 PC (`NFSHP2.exe`) uses EA's CINI classes (parser 0x5b5180, lookups 0x527460 / 0x527560 / 0x527650), see `parse_ini`.
 """
 
-import math
 import re
-import struct
 from copy import deepcopy
 from typing import Dict, List, NamedTuple, Optional, Tuple
 
@@ -30,7 +28,11 @@ from library.read_blocks import (
     DecimalBlock,
     DeclarativeCompoundBlock,
     IntegerBlock,
+    ParsedByParent,
+    TextFileBlock,
     UTF8Block,
+    f32_text,
+    source_text_field,
 )
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -216,35 +218,25 @@ _INT_RE = re.compile(rb'[ \t\n\v\f\r]*([+-]?\d+)')
 _FLOAT_RE = re.compile(rb'[ \t\n\v\f\r]*([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)')
 
 
-def _f32(value: float) -> float:
-    return struct.unpack('<f', struct.pack('<f', value))[0] if math.isfinite(value) else value
-
-
 def format_ini_float(value: float, old: str = None) -> str:
     """A float in the style of the number it replaces (its decimals; a whole number stays whole), else the shortest
     text the game reads as the same 32-bit float, with at least one decimal"""
     value = float(value)
     if old is not None:
         match = re.fullmatch(r'[+-]?\d*\.(\d*)', old)
-        if match:
-            decimals = len(match.group(1))
-            for d in range(decimals, 13):
-                text = f'{value:.{d}f}'
-                if _f32(float(text)) == _f32(value):
-                    return text
+        text = f32_text(value, len(match.group(1))) if match else None
+        if text is not None:
+            return text
         if re.fullmatch(r'[+-]?\d+', old) and value.is_integer():
             return str(int(value))
-    for d in range(1, 13):
-        text = f'{value:.{d}f}'
-        if _f32(float(text)) == _f32(value):
-            return text
-    return repr(value)
+    return f32_text(value, 1) or repr(value)
 
 
-class _IniValue:
+class _IniValue(ParsedByParent):
     """A typed value of an INI key. `key` is the name the game looks up (None: the field name), `default` what the
     game uses when the key is missing (None: nothing, or not read), `reader` the game's reader (for the docs)"""
 
+    parsed_by = 'their IniFile'
     is_ini_value = True
     kind = 'string'
 
@@ -254,24 +246,11 @@ class _IniValue:
         self.default = default
         self.unit = unit
 
-    @property
-    def size_doc_str(self):
-        return '?'
-
     def _type_text(self, kind: str) -> str:
         return kind + (f', {self.unit}' if self.unit else '')
 
     def new_data(self, patch=None):
         return deepcopy(self.default)
-
-    def read(self, ctx, name: str = '', read_bytes_amount=None):
-        raise NotImplementedError('INI values are read by their IniFile')
-
-    def write(self, data, ctx=None, name: str = '') -> bytes:
-        raise NotImplementedError('INI values are written by their IniFile')
-
-    def estimate_packed_size(self, data, ctx=None):
-        raise NotImplementedError('INI values are written by their IniFile')
 
     def parse(self, text: str):
         """The value the game gets from the value text, None when its reader fails (the key counts as missing)"""
@@ -392,9 +371,10 @@ class IniString(_IniValue, UTF8Block):
         return str(value)
 
 
-class IniArray(ArrayBlock):
+class IniArray(ParsedByParent, ArrayBlock):
     """Values of numbered keys (`key_format` % index, e.g. `torqueCurve_%d`), item i = key i; a missing key is None"""
 
+    parsed_by = 'their IniFile'
     is_ini_value = True
 
     def __init__(self, child: _IniValue, length: int, key_format: str, first_index: int = 0, **kwargs):
@@ -414,21 +394,8 @@ class IniArray(ArrayBlock):
             'block_description': f'{self._length} keys `{self.key_format}` (from {self.first_index}), one value each',
         }
 
-    @property
-    def size_doc_str(self):
-        return '?'
-
     def new_data(self, patch=None):
         return [self.child.new_data() for _ in range(self._length)]
-
-    def read(self, ctx, name: str = '', read_bytes_amount=None):
-        raise NotImplementedError('INI values are read by their IniFile')
-
-    def write(self, data, ctx=None, name: str = '') -> bytes:
-        raise NotImplementedError('INI values are written by their IniFile')
-
-    def estimate_packed_size(self, data, ctx=None):
-        raise NotImplementedError('INI values are written by their IniFile')
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -436,19 +403,8 @@ class IniArray(ArrayBlock):
 # ---------------------------------------------------------------------------------------------------------------------
 
 
-class _IniStructure:
-    @property
-    def size_doc_str(self):
-        return '?'
-
-    def read(self, ctx, name: str = '', read_bytes_amount=None):
-        raise NotImplementedError('INI sections are read by their IniFile')
-
-    def write(self, data, ctx=None, name: str = '') -> bytes:
-        raise NotImplementedError('INI sections are written by their IniFile')
-
-    def estimate_packed_size(self, data, ctx=None):
-        raise NotImplementedError('INI sections are written by their IniFile')
+class _IniStructure(ParsedByParent):
+    parsed_by = 'their IniFile'
 
 
 class IniKeyValue(_IniStructure, DeclarativeCompoundBlock):
@@ -583,7 +539,7 @@ class _Edits:
         return bytes(out)
 
 
-class IniFile(DeclarativeCompoundBlock):
+class IniFile(TextFileBlock):
     """Base of typed INI files: subclasses set `Fields = ini_fields_class([...])` with `IniSection` and
     `IniSectionGroup` fields. Reads and writes the whole remaining buffer as Latin-1 text"""
 
@@ -598,10 +554,6 @@ class IniFile(DeclarativeCompoundBlock):
 
     def _is_comment_key(self, key: IniKey) -> bool:
         return key.name.startswith(self.comment_prefixes)
-
-    @property
-    def size_doc_str(self):
-        return '?'
 
     def sections_and_groups(self):
         return [
@@ -714,14 +666,6 @@ class IniFile(DeclarativeCompoundBlock):
         res['source_text'] = raw.decode('latin-1')
         return res
 
-    def read(self, ctx, name: str = '', read_bytes_amount=None):
-        res = {}
-        self_ctx = ctx.get_or_create_child(name, self, read_bytes_amount, res)
-        remaining = self_ctx.read_bytes_remaining
-        raw = ctx.buffer.read() if remaining is None else ctx.buffer.read(remaining)
-        res.update(self.parse_text(raw))
-        return res
-
     # writing
 
     @staticmethod
@@ -830,7 +774,7 @@ class IniFile(DeclarativeCompoundBlock):
         if name is not None and name != section.name:
             edits.replace(section.name_start, section.name_end, self._encode(name))
 
-    def _render(self, data: dict) -> Tuple[bytes, Dict[str, int]]:
+    def render(self, data: dict) -> Tuple[bytes, Dict[str, int]]:
         raw = (data.get('source_text') or '').encode('latin-1')
         text = parse_ini(raw)
         eol = self._eol(raw)
@@ -891,15 +835,6 @@ class IniFile(DeclarativeCompoundBlock):
                 out += (eol if out else b'') + section_bytes
         return out, offsets
 
-    def write(self, data, ctx=None, name: str = '') -> bytes:
-        return self._render(data)[0]
-
-    def estimate_packed_size(self, data, ctx=None):
-        return len(self._render(data)[0])
-
-    def offset_to_child_when_packed(self, data, child_name: str, ctx=None):
-        return self._render(data)[1].get(child_name, 0)
-
 
 def ini_fields_class(sections: list, other_sections_description: str = None):
     """`Fields` of an IniFile from (name, IniSection | IniSectionGroup, extras) tuples, plus `other_sections` and the
@@ -913,14 +848,8 @@ def ini_fields_class(sections: list, other_sections_description: str = None):
             'first), in file order. The game reads none of them',
         },
     )
-    fields['source_text'] = (
-        UTF8Block(length=0),
-        {
-            'description': 'The file as read (bytes as Latin-1 characters). Writing puts the values over it: '
-            'comments, blank lines, line endings, key spelling and lines the game skips stay, a changed number is '
-            'written in the style of the one it replaces',
-            'usage': 'io',
-        },
+    fields['source_text'] = source_text_field(
+        'comments, blank lines, line endings, key spelling and lines the game skips'
     )
     return type('Fields', (DeclarativeCompoundBlock.Fields,), fields)
 

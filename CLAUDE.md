@@ -42,7 +42,7 @@ docs and a working GUI editor for free.
 
 | Path | What lives there |
 |---|---|
-| `library/read_blocks/` | Generic, reusable binary-parsing primitives — the framework. `archives.py`: `ArchiveBlock`, the read / write / size template of offset-table archives (WWWW, BIGF, SHPI, the NFS HP2 PS2 jukebox), skill `nfs-resource-formats`. |
+| `library/read_blocks/` | Generic, reusable binary-parsing primitives — the framework. `archives.py`: `ArchiveBlock`, the read / write / size template of offset-table archives (WWWW, BIGF, SHPI, the NFS HP2 PS2 jukebox), skill `nfs-resource-formats`. `text.py`: `TextFileBlock` (a text file parsed and rendered whole, `source_text_field`) and `ParsedByParent` (its value blocks, typing fields for the GUI and docs only). |
 | `library/context.py` | `ReadContext`/`WriteContext`/`DocumentationContext` passed through the block tree while reading/writing/documenting. |
 | `library/lazy.py` | Lazy parts: `LazyDict` archive entries / bundle chunks parsed on first access, untouched ones written back as original bytes; file and memory sources. `require_file` is lazy by default (`lazy_loading` setting). The GUI receives unloaded parts as `__lazy__` markers and fetches them with `load_lazy_part` when shown. |
 | `library/loader.py` | File-type auto-detection (`probe_block_class`) by extension/magic bytes; top-level `require_file`/`require_resource` with an in-process file cache bounded by the `file_cache_size` setting (least recently required files dropped, `pin_file` keeps the GUI's open file). |
@@ -463,7 +463,7 @@ When you do:
 
 - Typed INI files (`resources/eac/ini.py`): an `IniFile` subclass declares `IniSection`s and `IniSectionGroup`s
   (numbered sections: `[skin00]`.., by a name regex) of typed keys (`IniInt`, `IniFloat`, `IniString`, `IniArray` of
-  numbered keys `torqueCurve_%d`); the block reads and writes the whole text itself (`source_text`, `usage: io`): a
+  numbered keys `torqueCurve_%d`); the block (a `TextFileBlock`) reads and writes the whole text itself (`source_text`, `usage: io`): a
   changed number keeps the old one's style, a new key goes after the definition's previous key, a missing key is
   None (an empty GUI input removes the line). Keys the definition lacks go to the section's `other_keys`, sections to
   `other_sections` (repeated sections after the first too). Which line the game reads follows NFSHP2.exe's CINI
@@ -1082,8 +1082,8 @@ When you do:
   contains; the next value line fills the field once; the 2000-byte line buffer's leftovers are read for missing
   array items, as in the exe), 80 fields named after nfs-web's port (`src/nfs3/nfs3-physics`, `nfs3_carp` in
   `nfs3.h`); missing fields take the exe's default carp. The value blocks (`CarpTextInt`, `CarpTextByte`,
-  `CarpTextFloat`, `CarpTextFixed`, `CarpTextArray`) only type the fields for the GUI and docs: the top-level block
-  reads and writes the text. The hidden `source_text` field keeps the file as read; `write` puts the values over it,
+  `CarpTextFloat`, `CarpTextFixed`, `CarpTextArray`, `ParsedByParent`) only type the fields for the GUI and docs: the
+  top-level block (a `TextFileBlock`) reads and writes the text. The hidden `source_text` field keeps the file as read; `write` puts the values over it,
   each changed number in the style of the one it replaces (decimals, `128.000000` for an integer field), fields the
   text lacks appended when they differ from the default, so all 16 files write back byte-exact
   (`test/samples/nfs3_carp/`, `test/resources/eac/test_nfs3_car_physics.py`, which also checks the values against
