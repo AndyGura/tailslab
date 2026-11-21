@@ -7,8 +7,22 @@ from typing import List, Dict, Optional, Tuple
 
 from config import general_config
 from library.utils import audio_ima_adpcm_codec, audio_ea_xa_codec, format_exception, path_join
+from library.utils.file_utils import find_file_case_insensitive
 from library.utils.id import is_file_id
 from serializers import BaseFileSerializer
+from serializers.base import DIRECTORY_UI, UiSerialization, write_skipped
+
+
+def eacs_loop_meta(header: Dict) -> Dict:
+    """`loop`, `loop_start_time_ms`, `loop_end_time_ms` of the loop of an EACS header (`EacsAudioHeader`, `AsfAudio`):
+    `repeat_loop_length` samples from `repeat_loop_beginning` (the TNFS DOS mixer jumps back to the loop start when it
+    reaches start + length, 0xa6c1a; vgmstream `ea_1snh.c` alike), the end its last sample"""
+    loop_start_time_ms = 1000 * header['repeat_loop_beginning'] / header['sampling_rate']
+    return {
+        'loop': header['repeat_loop_length'] > 0,
+        'loop_start_time_ms': loop_start_time_ms,
+        'loop_end_time_ms': loop_start_time_ms + 1000 * (header['repeat_loop_length'] - 1) / header['sampling_rate'],
+    }
 
 
 class EacsAudioSerializer(BaseFileSerializer):
@@ -27,55 +41,21 @@ class EacsAudioSerializer(BaseFileSerializer):
             # unsigned
             else:
                 wave_bytes = wave_bytes
-        loop_start_time_ms = 1000 * data['header']['repeat_loop_beginning'] / data['header']['sampling_rate']
-        loop_end_time_ms = (
-            loop_start_time_ms + 1000 * (data['header']['repeat_loop_length'] - 1) / data['header']['sampling_rate']
+        header = data['header']
+        meta = {**eacs_loop_meta(header), **(meta or {})}
+        return write_wav_with_meta(
+            path, wave_bytes, header['channels'], header['sampling_rate'], meta, header['sound_resolution']
         )
-        self._save_wave_data(data['header'], wave_bytes, path)
-        with open(f'{path}.meta.json', 'w') as file:
-            file.write(
-                json.dumps(
-                    {
-                        'loop': data['header']['repeat_loop_length'] > 0,
-                        'loop_start_time_ms': loop_start_time_ms,
-                        'loop_end_time_ms': loop_end_time_ms,
-                        **(meta or {}),
-                    },
-                    indent=4,
-                )
-            )
-        return [f'{path}.wav', f'{path}.meta.json']
-
-    def _save_wave_data(self, eacs_header, wave_data, path):
-        with wave.open(f'{path}.wav', 'w') as wf:
-            wf.setnchannels(eacs_header['channels'])
-            wf.setsampwidth(eacs_header['sound_resolution'])
-            wf.setframerate(eacs_header['sampling_rate'])
-            wf.writeframesraw(wave_data)
 
 
 class FfmpegSupportedAudioSerializer(BaseFileSerializer):
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
         super().serialize(data, path)
         wav_path = f'{path}.wav'
-        meta_path = f'{path}.meta.json'
         subprocess.run(
             [general_config().ffmpeg_executable, '-y', '-nostats', '-loglevel', '0', '-i', id, wav_path], check=True
         )
-        with open(meta_path, 'w') as file:
-            loop_start_time_ms = 1000 * data['repeat_loop_beginning'] / data['sampling_rate']
-            loop_end_time_ms = loop_start_time_ms + 1000 * data['repeat_loop_length'] / data['sampling_rate']
-            file.write(
-                json.dumps(
-                    {
-                        'loop': data['repeat_loop_length'] > 0,
-                        'loop_start_time_ms': loop_start_time_ms,
-                        'loop_end_time_ms': loop_end_time_ms,
-                    },
-                    indent=4,
-                )
-            )
-        return [wav_path, meta_path]
+        return [wav_path, write_meta(path, eacs_loop_meta(data))]
 
 
 def decode_ea_sound_patch_layer(layer: Dict, wave_data: bytes) -> Tuple[bytes, int, int]:
@@ -128,29 +108,17 @@ class EaSoundBankSerializer(BaseFileSerializer):
                 except Exception as ex:
                     traceback.print_exc()
                     skipped.append((name, format_exception(ex)))
-        if skipped:
-            with open(path_join(path, 'skipped.txt'), 'w') as f:
-                for item in skipped:
-                    f.write('%s\t\t%s\n' % item)
-            output.append(path_join(path, 'skipped.txt'))
+        output += write_skipped(path, skipped)
         return output
 
     def _serialize_layer(self, layer: Dict, wave_data: bytes, path: str) -> List[str]:
         pcm, sample_width, channels = decode_ea_sound_patch_layer(layer, wave_data)
         sampling_rate = layer.get('sampling_rate', 22050)
-        num_samples = layer['num_samples']
-        with wave.open(f'{path}.wav', 'w') as wf:
-            wf.setnchannels(channels)
-            wf.setsampwidth(sample_width)
-            wf.setframerate(sampling_rate)
-            wf.writeframesraw(pcm)
         meta = {
-            **ea_sound_patch_loop_meta(layer, num_samples, sampling_rate),
+            **ea_sound_patch_loop_meta(layer, layer['num_samples'], sampling_rate),
             **{k: v for k, v in layer.items() if k not in self.WAVE_DATA_TAGS},
         }
-        with open(f'{path}.meta.json', 'w') as file:
-            file.write(json.dumps(meta, indent=4))
-        return [f'{path}.wav', f'{path}.meta.json']
+        return write_wav_with_meta(path, pcm, channels, sampling_rate, meta, sample_width)
 
 
 def ea_sound_patch_loop_meta(layer: Dict, num_samples: int, sampling_rate: int) -> Dict:
@@ -159,19 +127,36 @@ def ea_sound_patch_loop_meta(layer: Dict, num_samples: int, sampling_rate: int) 
     is_loop = 'loop_start' in layer or 'loop_end' in layer
     loop_start = layer.get('loop_start', 0) if is_loop else 0
     loop_end = layer.get('loop_end', num_samples - 1) if is_loop else num_samples - 1
-    return {
-        'loop': is_loop,
-        'loop_start_time_ms': 1000 * loop_start / sampling_rate,
-        'loop_end_time_ms': 1000 * loop_end / sampling_rate,
-    }
+    return loop_meta(is_loop, loop_start, loop_end, sampling_rate)
 
 
-def _save_wav(path: str, pcm: bytes, channels: int, sampling_rate: int):
+def write_wav(path: str, pcm: bytes, channels: int, sampling_rate: int, sample_width: int = 2):
     with wave.open(path, 'w') as wf:
         wf.setnchannels(channels)
-        wf.setsampwidth(2)
+        wf.setsampwidth(sample_width)
         wf.setframerate(sampling_rate)
         wf.writeframesraw(pcm)
+
+
+def write_meta(stem: str, meta: dict) -> str:
+    """`<stem>.meta.json` of a WAV: the loop keys (`loop_meta`) and the sample's settings, read by nfs-web"""
+    with open(f'{stem}.meta.json', 'w') as file:
+        file.write(json.dumps(meta, indent=4))
+    return f'{stem}.meta.json'
+
+
+def write_wav_with_meta(
+    stem: str, pcm: bytes, channels: int, sampling_rate: int, meta: dict, sample_width: int = 2
+) -> List[str]:
+    """`<stem>.wav` (PCM of `sample_width` bytes per sample, channels interleaved) and `<stem>.meta.json`"""
+    write_wav(f'{stem}.wav', pcm, channels, sampling_rate, sample_width)
+    return [f'{stem}.wav', write_meta(stem, meta)]
+
+
+def loop_meta(loop: bool, start: int, end: int, rate: int) -> Dict:
+    """`loop`, `loop_start_time_ms`, `loop_end_time_ms` of the meta of a WAV: `start` / `end` the first / last sample of
+    the loop (of the sample without one)"""
+    return {'loop': loop, 'loop_start_time_ms': 1000 * start / rate, 'loop_end_time_ms': 1000 * end / rate}
 
 
 def ea_audio_stream_pcm16(chunks: bytes, channels: int) -> bytes:
@@ -208,17 +193,12 @@ class EaAudioStreamsSerializer(BaseFileSerializer):
         return len(data['streams']) > 1
 
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
-        if path.endswith('/') or path.endswith('\\'):
-            path += id.replace('\\', '/').rsplit('/', 1)[-1]
+        path = self.output_path(path, id)
         stream_block = block.field_blocks_map['streams'].child
         streams = data['streams']
         if len(streams) == 1:
             os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
-            pcm, channels, sampling_rate, meta = self._decode_stream(stream_block, streams[0])
-            _save_wav(f'{path}.wav', pcm, channels, sampling_rate)
-            with open(f'{path}.meta.json', 'w') as file:
-                file.write(json.dumps(meta, indent=4))
-            return [f'{path}.wav', f'{path}.meta.json']
+            return write_wav_with_meta(path, *self._decode_stream(stream_block, streams[0]))
         os.makedirs(path, exist_ok=True)
         map_name, music_map = self._find_music_map(id)
         stream_offsets = []
@@ -246,16 +226,9 @@ class EaAudioStreamsSerializer(BaseFileSerializer):
                 skipped.append((name, format_exception(ex)))
                 continue
             decoded[node] = (pcm, channels, sampling_rate, meta)
-            _save_wav(path_join(path, f'{name}.wav'), pcm, channels, sampling_rate)
-            with open(path_join(path, f'{name}.meta.json'), 'w') as file:
-                file.write(json.dumps(meta, indent=4))
-            output += [path_join(path, f'{name}.wav'), path_join(path, f'{name}.meta.json')]
+            output += write_wav_with_meta(path_join(path, name), pcm, channels, sampling_rate, meta)
         output = self._save_playthrough(path, decoded, map_name, music_map) + output
-        if skipped:
-            with open(path_join(path, 'skipped.txt'), 'w') as f:
-                for item in skipped:
-                    f.write('%s\t\t%s\n' % item)
-            output.append(path_join(path, 'skipped.txt'))
+        output += write_skipped(path, skipped)
         return output
 
     @staticmethod
@@ -268,23 +241,18 @@ class EaAudioStreamsSerializer(BaseFileSerializer):
         if not id or not is_file_id(id):
             return None, None
         file_path = id_to_path(id)
-        directory, file_name = os.path.split(file_path)
-        stem = file_name.rsplit('.', 1)[0].lower()
-        try:
-            names = os.listdir(directory or '.')
-        except OSError:
-            return None, None
+        stem = os.path.splitext(file_path)[0]
         for extension in ['lin', 'map']:
-            map_name = next((x for x in names if x.lower() == f'{stem}.{extension}'), None)
-            if not map_name:
+            map_path = find_file_case_insensitive(f'{stem}.{extension}')
+            if not map_path:
                 continue
             try:
-                _, map_block, map_data = require_file(path_join(directory, map_name), lazy=False)
+                _, map_block, map_data = require_file(map_path, lazy=False)
             except Exception:
                 traceback.print_exc()
                 continue
             if map_block.__class__.__name__ == 'EaMusicMap':
-                return map_name, map_data
+                return os.path.basename(map_path), map_data
         return None, None
 
     def _playthrough_nodes(self, music_map, nodes) -> Tuple[List[int], int]:
@@ -325,7 +293,6 @@ class EaAudioStreamsSerializer(BaseFileSerializer):
                 loop_start_frame = len(pcm) // frame_size
             pcm += node_pcm
         num_frames = len(pcm) // frame_size
-        _save_wav(path_join(path, 'playthrough.wav'), bytes(pcm), channels, sampling_rate)
         meta = {
             'loop': loop_index is not None,
             'loop_start_time_ms': 1000 * loop_start_frame / sampling_rate if loop_index is not None else 0,
@@ -333,9 +300,7 @@ class EaAudioStreamsSerializer(BaseFileSerializer):
             'nodes': nodes,
             **({'map': map_name, 'state_value': self.PLAYTHROUGH_STATE_VALUE} if music_map else {}),
         }
-        with open(path_join(path, 'playthrough.meta.json'), 'w') as file:
-            file.write(json.dumps(meta, indent=4))
-        return [path_join(path, 'playthrough.wav'), path_join(path, 'playthrough.meta.json')]
+        return write_wav_with_meta(path_join(path, 'playthrough'), bytes(pcm), channels, sampling_rate, meta)
 
     @staticmethod
     def _decode_stream(stream_block, stream: Dict) -> Tuple[bytes, int, int, Dict]:
@@ -391,8 +356,7 @@ class Nfs6Ps2JukeboxTrackSerializer(BaseFileSerializer):
         from library.utils import audio_ps_adpcm_codec
         from resources.blackbox.audios.nfs6_ps2 import NFS6_PS2_JUKEBOX_SECTOR
 
-        if path.endswith('/') or path.endswith('\\'):
-            path += id.replace('\\', '/').rsplit('/', 1)[-1]
+        path = self.output_path(path, id)
         super().serialize(data, path)
         if interleave is None:
             from library import require_resource
@@ -402,11 +366,8 @@ class Nfs6Ps2JukeboxTrackSerializer(BaseFileSerializer):
         pcm = audio_ps_adpcm_codec.decode_interleaved(
             data['wave_data'], data['channels'], interleave, data['data_size']
         )
-        num_samples = len(pcm) // (2 * data['channels'])
-        _save_wav(f'{path}.wav', pcm, data['channels'], data['sampling_rate'])
-        with open(f'{path}.meta.json', 'w') as file:
-            file.write(json.dumps(ea_sound_patch_loop_meta({}, num_samples, data['sampling_rate']), indent=4))
-        return [f'{path}.wav', f'{path}.meta.json']
+        meta = ea_sound_patch_loop_meta({}, len(pcm) // (2 * data['channels']), data['sampling_rate'])
+        return write_wav_with_meta(path, pcm, data['channels'], data['sampling_rate'], meta)
 
 
 class Nfs6Ps2JukeboxSerializer(BaseFileSerializer):
@@ -445,11 +406,7 @@ class Nfs6Ps2JukeboxSerializer(BaseFileSerializer):
             except Exception as ex:
                 traceback.print_exc()
                 skipped.append((name, format_exception(ex)))
-        if skipped:
-            with open(path_join(path, 'skipped.txt'), 'w') as f:
-                for item in skipped:
-                    f.write('%s\t\t%s\n' % item)
-            output.append(path_join(path, 'skipped.txt'))
+        output += write_skipped(path, skipped)
         return output
 
 
@@ -514,17 +471,10 @@ class SaturnToneBankSerializer(BaseFileSerializer):
     `volume` (DISDL, TL), `pan` (DIPAN: 64 for a stereo pair) from the bank; `priority`, `random_range`, `unknown_0x16`
     are the PC banks' values for the sample (`SATURN_PC_BANK_META`, not in the tone bank)"""
 
+    ui = DIRECTORY_UI
+
     def __init__(self):
         super().__init__(is_dir=True)
-
-    def ui_serialization(self):
-        return {
-            'file_type': 'directory',
-            'is_directory': True,
-            'output_file_name_suffix': None,
-            'reversible': False,
-            'reversible_settings_patch': {},
-        }
 
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
         import struct
@@ -573,24 +523,22 @@ class SaturnToneBankSerializer(BaseFileSerializer):
                 rate = round(saturn_tone_layer_sample_rate(layer))
                 count = min(len(c) for c in channels)
                 pcm = struct.pack(f'<{count * len(channels)}h', *[c[i] for i in range(count) for c in channels])
-                wav_path = path_join(path, f'{file_name}.wav')
-                _save_wav(wav_path, pcm, len(channels), rate)
                 pc_meta = dict(SATURN_PC_BANK_META.get(note_names.get(start_note), SATURN_PC_BANK_META['engine_on']))
                 if is_opponent and note_names.get(start_note) == 'honk':
                     pc_meta['priority'] = SATURN_PC_OPPONENT_HONK_PRIORITY
                 meta = {
-                    'loop': layer['sample_control']['loop_control'] != 'no_loop',
-                    'loop_start_time_ms': 1000 * layer['loop_start'] / rate,
-                    'loop_end_time_ms': 1000 * layer['loop_end'] / rate,
+                    **loop_meta(
+                        layer['sample_control']['loop_control'] != 'no_loop',
+                        layer['loop_start'],
+                        layer['loop_end'],
+                        rate,
+                    ),
                     'bend_range_semitones': voice['mode']['bend_range'],
                     'volume': saturn_tone_layer_volume(layer),
                     'pan': pan,
                     **pc_meta,
                 }
-                meta_path = path_join(path, f'{file_name}.meta.json')
-                with open(meta_path, 'w') as file:
-                    file.write(json.dumps(meta, indent=4))
-                output += [wav_path, meta_path]
+                output += write_wav_with_meta(path_join(path, file_name), pcm, len(channels), rate, meta)
         return output
 
 
@@ -614,36 +562,21 @@ def tnfs_psx_vag_pcm(channels: List[dict]) -> Tuple[bytes, int, Optional[int]]:
 def tnfs_psx_loop_meta(count: int, loop_start: Optional[int], rate: int) -> Dict:
     """`loop`, `loop_start_time_ms`, `loop_end_time_ms` (the last sample of the loop, as the PC banks' export) of a
     decoded PSX sample"""
-    return {
-        'loop': loop_start is not None,
-        'loop_start_time_ms': 1000 * (loop_start or 0) / rate,
-        'loop_end_time_ms': 1000 * (count - 1) / rate,
-    }
+    return loop_meta(loop_start is not None, loop_start or 0, count - 1, rate)
 
 
 class TnfsPsxVagSampleSerializer(BaseFileSerializer):
     """A PSX "VAGp" sample file (`TnfsPsxVagSample`) to `<name>.wav` + `<name>.meta.json` (`loop`, `loop_start_time_ms`,
     `loop_end_time_ms` from the flags of its frames, `name`), at the sampling rate of its header"""
 
-    def ui_serialization(self):
-        return {
-            'file_type': 'wav',
-            'is_directory': False,
-            'output_file_name_suffix': '.wav',
-            'reversible': False,
-            'reversible_settings_patch': {},
-        }
+    ui = UiSerialization('wav', suffix='.wav')
 
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
-        if path.endswith('/') or path.endswith('\\'):
-            path += id.replace('\\', '/').rsplit('/', 1)[-1]
+        path = self.output_path(path, id)
         super().serialize(data, path)
         pcm, count, loop_start = tnfs_psx_vag_pcm([data])
-        _save_wav(f'{path}.wav', pcm, 1, data['sampling_rate'])
-        with open(f'{path}.meta.json', 'w') as file:
-            meta = {**tnfs_psx_loop_meta(count, loop_start, data['sampling_rate']), 'name': data['name']}
-            file.write(json.dumps(meta, indent=4))
-        return [f'{path}.wav', f'{path}.meta.json']
+        meta = {**tnfs_psx_loop_meta(count, loop_start, data['sampling_rate']), 'name': data['name']}
+        return write_wav_with_meta(path, pcm, 1, data['sampling_rate'], meta)
 
 
 class TnfsPsxVagBankSerializer(BaseFileSerializer):
@@ -662,27 +595,14 @@ class TnfsPsxVagBankSerializer(BaseFileSerializer):
     `volume_by_pitch_value` (128 volumes 0..128, the layer's volume by the engine's pitch value, from the
     executable). Without a `.VH`: every sample as `<index>.wav` at its header's sampling rate"""
 
+    ui = DIRECTORY_UI
+
     def __init__(self):
         super().__init__(is_dir=True)
 
-    def ui_serialization(self):
-        return {
-            'file_type': 'directory',
-            'is_directory': True,
-            'output_file_name_suffix': None,
-            'reversible': False,
-            'reversible_settings_patch': {},
-        }
-
     @staticmethod
     def _patch_bank_path(vb_path: str) -> Optional[str]:
-        directory, name = os.path.split(vb_path)
-        wanted = f'{os.path.splitext(name)[0]}.vh'.lower()
-        try:
-            names = {x.lower(): x for x in os.listdir(directory or '.')}
-        except OSError:
-            return None
-        return os.path.join(directory, names[wanted]) if wanted in names else None
+        return find_file_case_insensitive(f'{os.path.splitext(vb_path)[0]}.vh')
 
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
         from library.loader import id_to_path
@@ -720,8 +640,6 @@ class TnfsPsxVagBankSerializer(BaseFileSerializer):
             channels = [samples[x] for x in offsets]
             pcm, count, loop_start = tnfs_psx_vag_pcm(channels)
             rate = round(psx_spu_sample_rate(patch['pitch']))
-            wav_path = path_join(path, f'{name}.wav')
-            _save_wav(wav_path, pcm, len(channels), rate)
             meta = {
                 **tnfs_psx_loop_meta(count, loop_start, rate),
                 'bend_range_semitones': patch['bend_range'],
@@ -737,13 +655,6 @@ class TnfsPsxVagBankSerializer(BaseFileSerializer):
             }
             if car_bank and sample_id in car_bank.layer_volumes:
                 meta['volume_by_pitch_value'] = list(car_bank.layer_volumes[sample_id])
-            meta_path = path_join(path, f'{name}.meta.json')
-            with open(meta_path, 'w') as file:
-                file.write(json.dumps(meta, indent=4))
-            output += [wav_path, meta_path]
-        if skipped:
-            with open(path_join(path, 'skipped.txt'), 'w') as f:
-                for item in skipped:
-                    f.write('%s\t\t%s\n' % item)
-            output.append(path_join(path, 'skipped.txt'))
+            output += write_wav_with_meta(path_join(path, name), pcm, len(channels), rate, meta)
+        output += write_skipped(path, skipped)
         return output

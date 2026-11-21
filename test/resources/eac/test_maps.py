@@ -321,6 +321,51 @@ class TestMapColFile(unittest.TestCase):
         self.assertAlmostEqual(q['y'] ** 2 + q['w'] ** 2, 1, places=3)
 
 
+class TestExtrablockEdits(unittest.TestCase):
+    """Extrablocks are written from their parsed data: edits are saved, offsets and sizes follow"""
+
+    @staticmethod
+    def _drop_last_record(extrablocks) -> dict:
+        extrablock = next(
+            x for x in extrablocks if isinstance(x['data_records']['data'], list) and len(x['data_records']['data']) > 1
+        )
+        extrablock['data_records']['data'].pop()
+        return extrablock
+
+    def test_col_edit_should_be_saved(self):
+        (name, block, data) = require_file('test/golden_corpus/TR02.COL')
+        data = deepcopy(data)
+        self._drop_last_record(data['extrablocks'])
+        raw = block.pack(data, name=name)
+        reread = block.unpack_from_bytes(raw)
+        self.assertEqual(reread['block_size'], len(raw))
+        for edited, read in zip(data['extrablocks'], reread['extrablocks']):
+            self.assertEqual(read['data_records'], edited['data_records'])
+            self.assertEqual(read['num_data_records'], len(edited['data_records']['data']))
+
+    def test_trk_edit_should_be_saved(self):
+        (name, block, data) = require_file('test/golden_corpus/TR02.TRK')
+        data = deepcopy(data)
+        edited_block = data['superblocks'][0]['blocks'][1]
+        self._drop_last_record(edited_block['extrablocks'])
+        raw = block.pack(data, name=name)
+        reread = block.unpack_from_bytes(raw)
+        for edited_sb, read_sb in zip(data['superblocks'], reread['superblocks']):
+            for edited, read in zip(edited_sb['blocks'], read_sb['blocks']):
+                self.assertEqual(
+                    [x['data_records'] for x in read['extrablocks']], [x['data_records'] for x in edited['extrablocks']]
+                )
+        # the offset tables follow the smaller block: every block and superblock is where they say
+        offsets = reread['superblock_offsets']
+        for i, superblock in enumerate(reread['superblocks'][:-1]):
+            self.assertEqual(offsets[i + 1], offsets[i] + superblock['block_size'])
+        first = reread['superblocks'][0]
+        for i, trk_block in enumerate(first['blocks'][:-1]):
+            self.assertEqual(first['block_offsets'][i + 1], first['block_offsets'][i] + trk_block['block_size'])
+        original = require_file('test/golden_corpus/TR02.TRK')[2]['superblocks'][0]['blocks'][1]['block_size']
+        self.assertLess(first['blocks'][1]['block_size'], original)
+
+
 class TestTrkMap(unittest.TestCase):
     def test_trk_should_remain_the_same_and_read_special_props(self):
         (name, block, data) = require_file('test/golden_corpus/TR02.TRK')

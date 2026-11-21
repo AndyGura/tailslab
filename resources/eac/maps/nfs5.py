@@ -1,4 +1,4 @@
-from library.read_blocks import ArrayBlock, BytesBlock, DecimalBlock, DeclarativeCompoundBlock, IntegerBlock
+from library.read_blocks import REMAINING, ArrayBlock, BytesBlock, DecimalBlock, DeclarativeCompoundBlock, IntegerBlock
 from resources.eac.fields.misc import Point3D
 
 # NFS5 (Porsche Unleashed) track files next to `GameData/Track/<track>.crp`, read by Porsche.exe (nfs-web
@@ -49,7 +49,7 @@ class Nfs5Junctions(DeclarativeCompoundBlock):
         junctions = (
             ArrayBlock(
                 child=Nfs5Junction(),
-                length=(lambda ctx: ctx.read_bytes_remaining // NFS5_JUNCTION_SIZE, 'file size / 36'),
+                byte_length=(REMAINING, 'file size'),
             ),
             {'description': 'The junctions'},
         )
@@ -104,7 +104,7 @@ class Nfs5WallEdges(DeclarativeCompoundBlock):
         edges = (
             ArrayBlock(
                 child=Nfs5WallEdge(),
-                length=(lambda ctx: ctx.read_bytes_remaining // NFS5_WALL_EDGE_SIZE, '(file size - 4) / 28'),
+                byte_length=(REMAINING, 'file size - 4'),
             ),
             {'description': 'The edges'},
         )

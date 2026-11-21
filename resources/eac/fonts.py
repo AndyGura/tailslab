@@ -2,6 +2,7 @@ from typing import Dict
 
 from library.context import ReadContext, WriteContext
 from library.read_blocks import (
+    REMAINING,
     IntegerBlock,
     UTF8Block,
     DeclarativeCompoundBlock,
@@ -11,6 +12,8 @@ from library.read_blocks import (
     Padding,
     SubByteCompoundBlock,
     OptionalBlock,
+    CountOf,
+    OffsetOf,
 )
 from library.read_blocks.misc.value_validators import Or
 from resources.eac.bitmaps import EacImage, get_bitmap_len
@@ -120,7 +123,7 @@ def calc_ffn_block_size(ctx):
     data = ctx.get_full_data()
     block_ctx = WriteContext(data=data, block=ctx.block, parent=None)
     res = 0
-    for name, field in ctx.block.field_blocks:
+    for name, field in ctx.block.io_field_blocks:
         if name == 'padding_2' and ctx.data('version') <= 101:
             continue
         if name == 'bitmap' and data['bitmap']['resource_id'] == '8Bit' and data['bitmap']['embedded_palette']:
@@ -129,9 +132,6 @@ def calc_ffn_block_size(ctx):
             continue
 
         # fallback default compound block estimate_packed_size logic
-        usage = ctx.block.field_extras_map.get(name, {}).get('usage', 'everywhere')
-        if usage != 'everywhere' and 'io' not in usage:
-            continue
         res += field.estimate_packed_size(data=data.get(name), ctx=block_ctx)
     return res
 
@@ -193,7 +193,7 @@ class FfnFont(DeclarativeCompoundBlock):
             },
         )
         num_glyphs = (
-            IntegerBlock(length=2, programmatic_value=lambda ctx: len(ctx.data('definitions'))),
+            IntegerBlock(length=2, programmatic_value=CountOf('definitions')),
             {'usage': 'io,doc', 'description': 'Amount of symbols, defined in this font'},
         )
         flags = (
@@ -252,12 +252,7 @@ class FfnFont(DeclarativeCompoundBlock):
             },
         )
         definitions_ptr = (
-            IntegerBlock(
-                length=4,
-                programmatic_value=lambda ctx: ctx.block.offset_to_child_when_packed(
-                    ctx.get_full_data(), 'definitions'
-                ),
-            ),
+            IntegerBlock(length=4, programmatic_value=OffsetOf('definitions')),
             {'usage': 'io,doc', 'description': 'Pointer to definitions block'},
         )
         kernings_ptr = (
@@ -272,15 +267,12 @@ class FfnFont(DeclarativeCompoundBlock):
             {'usage': 'io,doc', 'description': 'Pointer to kernings. 0 if there is no kernings table'},
         )
         bdata_ptr = (
-            IntegerBlock(
-                length=4,
-                programmatic_value=lambda ctx: ctx.block.offset_to_child_when_packed(ctx.get_full_data(), 'bitmap'),
-            ),
+            IntegerBlock(length=4, programmatic_value=OffsetOf('bitmap')),
             {'usage': 'io,doc', 'description': 'Pointer to bitmap block'},
         )
-        padding_0 = (Padding(to=lambda ctx: ctx.data('definitions_ptr')), {'is_unknown': True})
+        padding_0 = (Padding(to='definitions_ptr'), {'is_unknown': True})
         definitions = (
-            ArrayBlock(child=GlyphDefinition(), length=lambda ctx: ctx.data('num_glyphs')),
+            ArrayBlock(child=GlyphDefinition(), length='num_glyphs'),
             {
                 'description': 'Definitions of chars in this bitmap font, sorted by `code` (the writer keeps this '
                 'order, stable sort by `code`)'
@@ -288,7 +280,7 @@ class FfnFont(DeclarativeCompoundBlock):
         )
         padding_1 = (
             OptionalBlock(
-                child=Padding(to=lambda ctx: ctx.data('kernings_ptr')),
+                child=Padding(to='kernings_ptr'),
                 criteria=lambda ctx: ctx.data('kernings_ptr') != 0 or len(ctx.data('kernings') or []) != 0,
             ),
             {'is_unknown': True},
@@ -305,7 +297,7 @@ class FfnFont(DeclarativeCompoundBlock):
             },
         )
         padding_2 = (
-            Padding(to=lambda ctx: ctx.data('bdata_ptr')),
+            Padding(to='bdata_ptr'),
             {
                 'is_unknown': True,
                 'description': 'Puts the bitmap at the offset the game files use: versions < 309 at a multiple of 16 '
@@ -316,7 +308,7 @@ class FfnFont(DeclarativeCompoundBlock):
         )
         bitmap = (EacImage(), {'description': 'Font atlas bitmap data'})
         remaining_bytes = (
-            BytesBlock(length=(lambda ctx: ctx.read_bytes_remaining, 'remaining bytes')),
+            BytesBlock(length=(REMAINING, 'remaining bytes')),
             {'is_unknown': True},
         )
 

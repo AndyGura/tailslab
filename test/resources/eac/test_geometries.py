@@ -3,28 +3,61 @@ import unittest
 from io import BytesIO
 from os.path import getsize
 
-from library.read_blocks import DataBlock
+from library.context import ReadContext
 from resources.eac.compressions.ref_pack import RefPackCompression
 from resources.eac.geometries.nfs5 import CrpGeometry, determine_triangle_info_row_type
 
 
 class TestCrpGeometry(unittest.TestCase):
-    @unittest.skip
+    @classmethod
+    def setUpClass(cls):
+        with open('test/samples/356b.crp', 'rb') as f:
+            cls.uncompressed = RefPackCompression().uncompress(f, getsize('test/samples/356b.crp'))
+
+    def _read(self, raw: bytes):
+        return CrpGeometry().unpack(ReadContext(BytesIO(raw), read_bytes_amount=len(raw)), read_bytes_amount=len(raw))
+
     def test_crp_should_remain_the_same(self):
-        compression = RefPackCompression()
-        b = open('test/samples/356b.crp', 'rb', buffering=100 * 1024 * 1024)
-        uncompressed = compression.uncompress(b, getsize('test/samples/356b.crp'))
+        data = self._read(self.uncompressed)
+        output = CrpGeometry().pack(data)
+        self.assertEqual(len(output), 3346432)
+        self.assertEqual(output, self.uncompressed)
 
+    def test_parts_end_with_the_last_part_of_an_article(self):
+        data = self._read(self.uncompressed)
+        first_part = 1 + len(data['articles']) + len(data['common_parts'])
+        ends = [1 + i + a['local_offset'] + a['num_parts'] - first_part for i, a in enumerate(data['articles'])]
+        self.assertEqual(len(data['parts']), max(ends))
+
+    def test_edited_parts_are_laid_out_again(self):
         block = CrpGeometry()
-        DataBlock.root_read_ctx.buffer = BytesIO(uncompressed)
-        DataBlock.root_read_ctx.read_start_offset = 0
-        DataBlock.root_read_ctx.read_bytes_amount = len(uncompressed)
-        data = block.unpack(DataBlock.root_read_ctx, name='356b.crp', read_bytes_amount=len(uncompressed))
-        output = block.pack(data, name='356b.crp')
-
-        self.assertEqual(len(uncompressed), len(output))
-        for i, x in enumerate(uncompressed):
-            self.assertEqual(x, output[i], f'Wrong value at index {i}')
+        data = self._read(self.uncompressed)
+        vertices = next(p for p in data['parts'] if p['data']['identifier'] == 'tv')['data']
+        vertices['data'].append(dict(vertices['data'][0]))
+        name = next(p for p in data['parts'] if p['data']['identifier'] == 'emaN')['data']
+        name['data'] = name['data'] + '_with_a_longer_name'
+        output = block.pack(data)
+        self.assertEqual(len(output) % 0x1000, 0)
+        again = self._read(output)
+        self.assertEqual([p['data']['data'] for p in again['parts']], [p['data']['data'] for p in data['parts']])
+        self.assertEqual(
+            [p['data']['data'] for p in again['common_parts']], [p['data']['data'] for p in data['common_parts']]
+        )
+        chunk = 1 + len(again['articles'])
+        spans = []
+        for part in again['common_parts'] + again['parts']:
+            start = 16 * chunk + part['data']['offset']
+            self.assertEqual(start % 16, 0)
+            spans.append((start, start + part['data']['len']))
+            chunk += 1
+        spans.sort()
+        self.assertGreaterEqual(spans[0][0], 16 * chunk)
+        for (_, end), (start, _) in zip(spans, spans[1:]):
+            self.assertLessEqual(end, start)
+        self.assertEqual(
+            next(p for p in again['parts'] if p['data']['identifier'] == 'tv')['data']['num_vertices'],
+            len(vertices['data']),
+        )
 
 
 class TestCrpTriangleInfoRows(unittest.TestCase):

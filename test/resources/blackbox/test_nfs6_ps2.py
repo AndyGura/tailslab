@@ -75,6 +75,14 @@ class TestCompCompression(unittest.TestCase):
         with open(COMPRESSED, 'rb') as f:
             self.assertEqual(f.read(), block.pack(data, name=name))
 
+    def test_compressed_plain_bundle_should_be_no_track(self):
+        # the loader's class itself, not the first possible block subclassing it (Nfs6Ps2TrackBundle)
+        with open(GLOBALB, 'rb') as f:
+            raw = f.read()
+        block = Nfs6Ps2CompressedBlock()
+        data = block.unpack_from_bytes(CompCompression().compress(BytesIO(raw), len(raw)), name='GLOBALB.LZC')
+        self.assertIs(type(block.possible_blocks[data['choice_index']]), Nfs6Ps2ChunkBundle)
+
 
 class TestNfs6Ps2TrackBundle(unittest.TestCase):
     def test_bundle_should_be_read_and_remain_the_same(self):

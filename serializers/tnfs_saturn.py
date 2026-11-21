@@ -6,7 +6,9 @@ from io import BytesIO
 from typing import Dict, List, Optional
 
 from library.utils import path_join
+from library.utils.file_utils import find_file_case_insensitive
 from serializers import BaseFileSerializer
+from serializers.base import DIRECTORY_UI, PNG_UI
 
 
 def tnfs_saturn_texture_file_name(name: str) -> str:
@@ -71,17 +73,10 @@ class TnfsSaturnCarBundleSerializer(BaseFileSerializer):
     gg-web-engine export, with `car_colors.json`), and from `CARS` `dashboard.png` and `steering_wheel.png` (colour 0
     transparent)"""
 
+    ui = DIRECTORY_UI
+
     def __init__(self):
         super().__init__(is_dir=True)
-
-    def ui_serialization(self):
-        return {
-            'file_type': 'directory',
-            'is_directory': True,
-            'output_file_name_suffix': None,
-            'reversible': False,
-            'reversible_settings_patch': {},
-        }
 
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
         from resources.eac.tnfs_saturn import tnfs_saturn_rle_image
@@ -102,17 +97,10 @@ class TnfsSaturnGtrExecutableSerializer(BaseFileSerializer):
     """The car AI records of the executable `0` to `<slot>.PDN.json` (`SUPRA`.. `RX7`, `WARRIOR`): the keys of the PC
     PDN JSON, top speeds in the PC's m/s (`TnfsSaturnCarAiAndCrashBody.pc_data`)"""
 
+    ui = DIRECTORY_UI
+
     def __init__(self):
         super().__init__(is_dir=True)
-
-    def ui_serialization(self):
-        return {
-            'file_type': 'directory',
-            'is_directory': True,
-            'output_file_name_suffix': None,
-            'reversible': False,
-            'reversible_settings_patch': {},
-        }
 
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
         from resources.eac.car_specs import CarAiAndCrashBody
@@ -130,17 +118,10 @@ class TnfsSaturnGtrExecutableSerializer(BaseFileSerializer):
 class TnfsSaturnPcxListSerializer(BaseFileSerializer):
     """`UIDATA/*.DAT` picture lists to a folder of `<index>.png`"""
 
+    ui = DIRECTORY_UI
+
     def __init__(self):
         super().__init__(is_dir=True)
-
-    def ui_serialization(self):
-        return {
-            'file_type': 'directory',
-            'is_directory': True,
-            'output_file_name_suffix': None,
-            'reversible': False,
-            'reversible_settings_patch': {},
-        }
 
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
         from PIL import Image
@@ -158,23 +139,7 @@ def tnfs_saturn_car_bundle_path(orix_path: str) -> Optional[str]:
     """`CARS/<car>.ALL` of a model `MODELS/<car>/high.orix` / `low.orix` (letter case of the folder as found)"""
     car_dir = os.path.dirname(orix_path)
     game_dir = os.path.dirname(os.path.dirname(car_dir))
-    slot = os.path.basename(car_dir)
-    for cars in ('CARS', 'cars', 'Cars'):
-        for name in (f'{slot}.ALL', f'{slot}.all'):
-            candidate = path_join(game_dir, cars, name)
-            if os.path.isfile(candidate):
-                return candidate
-    return None
-
-
-def _directory_ui_serialization():
-    return {
-        'file_type': 'directory',
-        'is_directory': True,
-        'output_file_name_suffix': None,
-        'reversible': False,
-        'reversible_settings_patch': {},
-    }
+    return find_file_case_insensitive(path_join(game_dir, 'CARS', f'{os.path.basename(car_dir)}.ALL'))
 
 
 def tnfs_saturn_sprite_bank_files(bank: dict, bank_index: int, path: str, palettes: dict) -> List[str]:
@@ -203,11 +168,10 @@ class TnfsSaturnFrontendArtSerializer(BaseFileSerializer):
     `TNFS_SATURN_FRONTEND_PCX_PALETTES`, `pcx_<index>_<palette>.png` for the other palettes of
     `TNFS_SATURN_FRONTEND_PCX_TINTS`"""
 
+    ui = DIRECTORY_UI
+
     def __init__(self):
         super().__init__(is_dir=True)
-
-    def ui_serialization(self):
-        return _directory_ui_serialization()
 
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
         from resources.eac.tnfs_saturn import (
@@ -249,26 +213,18 @@ class TnfsSaturnFrontendArtSerializer(BaseFileSerializer):
 def tnfs_saturn_frontend_art_path(file_path: str) -> Optional[str]:
     """`FRONTEND.DAT` (or the German `GRONTEND.DAT`) in the folder of `file_path`, any case"""
     folder = os.path.dirname(file_path)
-    try:
-        names = os.listdir(folder or '.')
-    except OSError:
-        return None
-    for wanted in ('FRONTEND.DAT', 'GRONTEND.DAT'):
-        for name in names:
-            if name.upper() == wanted:
-                return path_join(folder, name)
-    return None
+    found = (find_file_case_insensitive(path_join(folder, name)) for name in ('FRONTEND.DAT', 'GRONTEND.DAT'))
+    return next((x for x in found if x), None)
 
 
 class TnfsSaturnSpriteBanksSerializer(BaseFileSerializer):
     """`UIDATA/SHOWCASE.DAT` (`TnfsSaturnSpriteBanks`) to a folder of `<bank>_<index>.png` (RGBA, colour index 0
     transparent), each sprite with its palette of the palette table of `FRONTEND.DAT` in the same folder"""
 
+    ui = DIRECTORY_UI
+
     def __init__(self):
         super().__init__(is_dir=True)
-
-    def ui_serialization(self):
-        return _directory_ui_serialization()
 
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
         from library import require_file
@@ -293,22 +249,50 @@ class TnfsSaturnRlePictureSerializer(BaseFileSerializer):
     """A word run-length encoded picture (`TnfsSaturnRlePicture`: `ELOAD/<car>/<n>.BIN`, `ECREDITS/0<n>.BIN`) to an
     RGB PNG, `<name>.png`"""
 
-    def ui_serialization(self):
-        return {
-            'file_type': 'png',
-            'is_directory': False,
-            'output_file_name_suffix': '.png',
-            'reversible': False,
-            'reversible_settings_patch': {},
-        }
+    ui = PNG_UI
 
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
         from resources.eac.tnfs_saturn import tnfs_saturn_rle_picture_image
-        from serializers.misc.path_utils import escape_chars
+        from serializers.misc.path_utils import escaped_file_path
 
         super().serialize(data, path, id=id, block=block)
-        file_path = escape_chars(path)
-        if not file_path.endswith('.png'):
-            file_path += '.png'
+        file_path = escaped_file_path(path, '.png')
         tnfs_saturn_rle_picture_image(data).save(file_path, 'PNG')
         return [file_path]
+
+
+class TnfsSaturnSizedRleImageSerializer(BaseFileSerializer):
+    """A size-prefixed 8-bit picture (`TnfsSaturnSizedRleImage`: `HORIZON/*.IM`, `DASH/*.IM`) to an RGBA PNG,
+    `<name>.png`, colour 0 transparent"""
+
+    ui = PNG_UI
+
+    def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
+        from resources.eac.tnfs_saturn import tnfs_saturn_rle_image
+        from serializers.misc.path_utils import escaped_file_path
+
+        super().serialize(data, path, id=id, block=block)
+        file_path = escaped_file_path(path, '.png')
+        tnfs_saturn_rle_image(data['image']).save(file_path, 'PNG')
+        return [file_path]
+
+
+class TnfsSaturnSizedRleImageListSerializer(BaseFileSerializer):
+    """Size-prefixed 8-bit pictures back to back (`TnfsSaturnSizedRleImageList`: `DASH/EMEM3.DAT`) to a folder of
+    `<index>.png` (RGBA, colour 0 transparent)"""
+
+    ui = DIRECTORY_UI
+
+    def __init__(self):
+        super().__init__(is_dir=True)
+
+    def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
+        from resources.eac.tnfs_saturn import tnfs_saturn_rle_image
+
+        super().serialize(data, path)
+        output = []
+        for i, picture in enumerate(data['images']):
+            file_path = path_join(path, f'{i}.png')
+            tnfs_saturn_rle_image(picture['image']).save(file_path, 'PNG')
+            output.append(file_path)
+        return output

@@ -1,9 +1,8 @@
+from ..chunks import UnknownChunk, ZeroChunk
 from .nfsu import (
     NfsuVec3,
     NfsuVertex,
     NfsuVertexNoNormal,
-    ZeroChunk,
-    UnknownChunk,
     Chunk80034020,
     NfsuMeshChunk,
     NfsuMeshFacesChunk,

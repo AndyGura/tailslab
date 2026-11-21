@@ -1,5 +1,6 @@
 from copy import deepcopy
-from typing import Dict, List
+from io import BytesIO
+from typing import Dict, List, Optional
 
 from library.context import ReadContext, WriteContext
 from library.read_blocks import (
@@ -10,8 +11,10 @@ from library.read_blocks import (
     AutoDetectBlock,
     BytesBlock,
     OptionalBlock,
+    CountOf,
+    REMAINING,
 )
-from library.read_blocks.archives import ArchiveBlock, pre_items_payload_length, slot_lengths
+from library.read_blocks.archives import ArchiveBlock, EntryLayout, ItemDescription, pre_items_payload_length
 from library.read_blocks.misc.value_validators import Eq
 from library.read_blocks.strings import NullTerminatedUTF8Block
 from resources.eac.audios import EacsAudioFile, SoundBankHeaderEntry, EaSoundPatch, EaAudioStreams
@@ -22,26 +25,11 @@ from .compressed_block import EacCompressedBlock
 
 
 class WwwwBlock(ArchiveBlock):
+    block_description = (
+        'A block-container with various data: image archives, geometries, other wwww blocks. '
+        'If has ORIP 3D model, next item is always SHPI block with textures to this 3D model'
+    )
     serializer = 'WwwwArchiveSerializer'
-
-    @property
-    def schema(self) -> Dict:
-        # this schema has recursion problem. Workaround applied here
-        if getattr(self, 'schema_call_recv', False):
-            return {
-                'block_class_mro': '__'.join(
-                    [x.__name__ for x in self.__class__.mro() if x.__name__ not in ['object', 'ABC']]
-                ),
-                'is_recursive_ref': True,
-            }
-        self.schema_call_recv = True
-        schema = {
-            **super().schema,
-            'block_description': 'A block-container with various data: image archives, geometries, other wwww blocks. '
-            'If has ORIP 3D model, next item is always SHPI block with textures to this 3D model',
-        }
-        delattr(self, 'schema_call_recv')
-        return schema
 
     def __init__(self, **kwargs):
         from resources.eac.geometries import OripGeometry, OrixGeometry
@@ -54,19 +42,7 @@ class WwwwBlock(ArchiveBlock):
                     OripGeometry(),
                     OrixGeometry(),
                     self,
-                    BytesBlock(
-                        length=(
-                            lambda ctx: next(
-                                x
-                                for x in (
-                                    x - ctx.local_buffer_pos
-                                    for x in (sorted(ctx.data('items_descr')) + [ctx.read_bytes_amount])
-                                )
-                                if x > 0
-                            ),
-                            'item_length',
-                        )
-                    ),
+                    BytesBlock(length=(REMAINING, 'item_length')),
                 ]
             ),
             **kwargs,
@@ -75,11 +51,11 @@ class WwwwBlock(ArchiveBlock):
     class Fields(ArchiveBlock.Fields):
         resource_id = (UTF8Block(value_validator=Eq('wwww'), length=4), {'description': 'Resource ID'})
         num_items = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('items_descr'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('items_descr')),
             {'description': 'An amount of items'},
         )
         items_descr = (
-            ArrayBlock(child=IntegerBlock(length=4), length=lambda ctx: ctx.data('num_items')),
+            ArrayBlock(child=IntegerBlock(length=4), length='num_items'),
             {
                 'usage': 'io,doc',
                 'description': 'An array of offsets to items data in file, relatively to wwww block start '
@@ -99,7 +75,7 @@ class WwwwBlock(ArchiveBlock):
             },
         )
         data_bytes = (
-            BytesBlock(length=lambda ctx: ctx.read_bytes_remaining),
+            BytesBlock(length=REMAINING),
             {
                 'usage': 'io,doc',
                 'description': 'A part of block, where items data is located. Offsets are defined in previous '
@@ -118,54 +94,15 @@ class WwwwBlock(ArchiveBlock):
             head[:4], 'BytesBlock'
         )
 
-    def estimate_packed_size(self, data, ctx: WriteContext = None):
-        total_length = 8 + len(data.get('pre_items_payload', b''))
-        for i, child in enumerate(data['children']):
-            total_length += sum(self.entry_sizes(child, ctx))
-            total_length += 4
-        return total_length
+    def item_descriptions(self, header: dict) -> List[ItemDescription]:
+        # offset 0: an entry without data
+        return [ItemDescription(i, offset or None) for i, offset in enumerate(header['items_descr'])]
 
-    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
-        block_start = ctx.buffer.tell()
-        res, self_ctx, region_start, region_length = self.read_header(ctx, name, read_bytes_amount)
-        end_pos = region_start + region_length
+    def make_items_descr(self, data: dict, layouts: List[Optional[EntryLayout]], heap_offset: int) -> list:
+        return [0 if layout is None else heap_offset + layout.offset for layout in layouts]
 
-        offsets = [block_start + x for x in res['items_descr']]
-        items = [(i, offset) for i, offset in enumerate(offsets) if offset != block_start]
-        lengths = slot_lengths([offset for _, offset in items], end_pos)
-        # entries are parsed later in lazy mode: keep header (with io-only fields) for their contexts
-        entry_ctx = self_ctx.detached(ctx.buffer, data=dict(res)) if self_ctx.lazy else self_ctx
-        # self-reference, ignore
-        children = [
-            {'item': {'choice_index': self.bytes_choice, 'data': b''}, 'post_offset_payload': b''} for _ in offsets
-        ]
-        for (i, offset), length in zip(items, lengths):
-            children[i] = self.read_entry(entry_ctx, name=str(i), offset=offset, length=length)
-        res['children'] = children
-        ctx.buffer.seek(end_pos)
-        del res['items_descr']
-        return res
-
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        data['data_bytes'] = b''
-        data['items_descr'] = []
-        for i, child in enumerate(data['children']):
-            if self._is_empty_entry(child):
-                # offset 0: an entry without data, as the files mark it (read as empty bytes)
-                data['items_descr'].append(None)
-                continue
-            item_data, post = self.entry_bytes(child, ctx, str(i))
-            data['items_descr'].append(len(data['data_bytes']))
-            data['data_bytes'] += item_data
-            data['data_bytes'] += post
-        heap_offset = 8 + len(data['items_descr']) * 4 + len(data.get('pre_items_payload', b''))
-        data['items_descr'] = [0 if x is None else x + heap_offset for x in data['items_descr']]
-        ret = super().write(data=data, ctx=ctx, name=name)
-        del data['items_descr']
-        del data['data_bytes']
-        return ret
-
-    def _is_empty_entry(self, child) -> bool:
+    def is_empty_entry(self, child) -> bool:
+        # offset 0: an entry without data, as the files mark it (read as empty bytes)
         from library.lazy import LazyDict
 
         if isinstance(child, LazyDict) and not child.is_loaded:
@@ -196,28 +133,13 @@ class BigfItemDescriptionBlock(DeclarativeCompoundBlock):
 
 
 class BigfBlock(ArchiveBlock):
+    block_description = (
+        'A block-container with various data: image archives, GEO geometries, sound banks, '
+        'other BIGF blocks... In the PSX TNFS car archives (`.VSM` / `.WSM`) every item ends with its own CRC '
+        'footer, counted in the item length. The PSX TNFS archive reader (SLUS_002.04 0x800aee94, 0x800aef68) '
+        'takes BIGF and C0FB (its compact form) archives alike and finds an item by its name, ignoring case'
+    )
     serializer = 'BigfArchiveSerializer'
-
-    @property
-    def schema(self) -> Dict:
-        # this schema has recursion problem. Workaround applied here
-        if getattr(self, 'schema_call_recv', False):
-            return {
-                'block_class_mro': '__'.join(
-                    [x.__name__ for x in self.__class__.mro() if x.__name__ not in ['object', 'ABC']]
-                ),
-                'is_recursive_ref': True,
-            }
-        self.schema_call_recv = True
-        schema = {
-            **super().schema,
-            'block_description': 'A block-container with various data: image archives, GEO geometries, sound banks, '
-            'other BIGF blocks... In the PSX TNFS car archives (`.VSM` / `.WSM`) every item ends with its own CRC '
-            'footer, counted in the item length. The PSX TNFS archive reader (SLUS_002.04 0x800aee94, 0x800aef68) '
-            'takes BIGF and C0FB (its compact form) archives alike and finds an item by its name, ignoring case',
-        }
-        delattr(self, 'schema_call_recv')
-        return schema
 
     # bytes of the header before the item descriptions, and of an item description without its name
     HEADER_FIELDS_LENGTH = 16
@@ -264,14 +186,7 @@ class BigfBlock(ArchiveBlock):
                     Nfs6EngineAudioTable(),
                     TnfsPsxGouraudColors(),
                     self,
-                    BytesBlock(
-                        length=(
-                            lambda ctx: next(x for x in ctx.data('items_descr') if x['offset'] == ctx.local_buffer_pos)[
-                                'length'
-                            ],
-                            'item_length',
-                        )
-                    ),
+                    BytesBlock(length=(REMAINING, 'item_length')),
                 ]
             ),
             alias_field=NullTerminatedUTF8Block(length=8),
@@ -292,7 +207,7 @@ class BigfBlock(ArchiveBlock):
             },
         )
         num_items = (
-            IntegerBlock(length=4, byte_order='big', programmatic_value=lambda ctx: len(ctx.data('items_descr'))),
+            IntegerBlock(length=4, byte_order='big', programmatic_value=CountOf('items_descr')),
             {'description': 'An amount of items'},
         )
         header_length = (
@@ -308,7 +223,7 @@ class BigfBlock(ArchiveBlock):
             },
         )
         items_descr = (
-            ArrayBlock(length=lambda ctx: ctx.data('num_items'), child=BigfItemDescriptionBlock()),
+            ArrayBlock(length='num_items', child=BigfItemDescriptionBlock()),
             {'usage': 'io,doc', 'description': 'Descriptions of items: offset, length and name of each of them'},
         )
         pre_items_payload = (
@@ -324,7 +239,7 @@ class BigfBlock(ArchiveBlock):
             },
         )
         data_bytes = (
-            BytesBlock(length=lambda ctx: ctx.read_bytes_remaining),
+            BytesBlock(length=REMAINING),
             {
                 'usage': 'io,doc',
                 'description': 'A part of block, where items data is located. Offsets and lengths are defined '
@@ -344,10 +259,9 @@ class BigfBlock(ArchiveBlock):
     def length_field_value(self, data) -> int:
         """Value of "length" header field: block size, or (NFS6) size without padding between items. The second
         one is used when the field read from file has it"""
-        size = self.estimate_packed_size(data)
-        padding = len(data.get('pre_items_payload', b'')) + sum(
-            post for (_, post) in map(self.entry_sizes, data['children'])
-        )
+        layouts = [x for x in self.entry_layouts(data) if x is not None]
+        size = self.heap_offset(data, layouts) + sum(x.length for x in layouts)
+        padding = len(data.get('pre_items_payload', b'')) + sum(x.length - x.item_length for x in layouts)
         unpadded = size - padding
         return unpadded if data.get('length') == unpadded else size
 
@@ -365,66 +279,22 @@ class BigfBlock(ArchiveBlock):
             return descriptions_end
         return descriptions_end + len(data.get('pre_items_payload', b''))
 
-    def estimate_packed_size(self, data, ctx: WriteContext = None):
-        total_length = self.descriptions_end(data) + len(data.get('pre_items_payload', b''))
-        for i, child in enumerate(data['children']):
-            total_length += sum(self.entry_sizes(child, ctx))
-        return total_length
+    def item_descriptions(self, header: dict) -> List[ItemDescription]:
+        entries = sorted(enumerate(header['items_descr']), key=lambda x: x[1]['offset'])
+        return [ItemDescription(i, x['offset'], x['name'], x['length'], f'{i}_{x["name"]}') for i, x in entries]
 
-    def last_slot_end(self, res, block_start: int, end_pos: int, last_item_end: int) -> int:
-        """Where the slot of the last item ends: at the block length from the header (NFS6 has it without padding)"""
-        return min(end_pos, max(block_start + (res.get('length') or 0), last_item_end))
+    def slots_end(self, header: dict, block_start: int, region_end: int, descriptions: List[ItemDescription]) -> int:
+        # at the block length from the header (NFS6 has it without padding)
+        last = descriptions[-1]
+        last_item_end = block_start + last.offset + last.item_length
+        return min(region_end, max(block_start + (header.get('length') or 0), last_item_end))
 
-    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
-        block_start = ctx.buffer.tell()
-        res, self_ctx, region_start, region_length = self.read_header(ctx, name, read_bytes_amount)
-        end_pos = region_start + region_length
-
-        entries = sorted(list(enumerate(res['items_descr'])), key=lambda x: x[1]['offset'])
-        offsets = [block_start + x['offset'] for _, x in entries]
-        lengths = []
-        if entries:
-            last_item_end = offsets[-1] + entries[-1][1]['length']
-            lengths = slot_lengths(offsets, self.last_slot_end(res, block_start, end_pos, last_item_end))
-        # entries are parsed later in lazy mode: keep header (with io-only fields) for their contexts
-        entry_ctx = self_ctx.detached(ctx.buffer, data=dict(res)) if self_ctx.lazy else self_ctx
-        children = [None] * len(entries)
-        for i, ((descr_index, descr), offset, length) in enumerate(zip(entries, offsets, lengths)):
-            children[descr_index] = self.read_entry(
-                entry_ctx,
-                name=f'{descr_index}_{descr["name"]}',
-                offset=offset,
-                length=length,
-                item_length=descr['length'],
-                alias=descr['name'],
-            )
-        res['children'] = children
-        ctx.buffer.seek(end_pos)
-        del res['items_descr']
-        return res
-
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        data['data_bytes'] = b''
-        children = []
-        for i, child in enumerate(data['children']):
-            item_data, post = self.entry_bytes(child, ctx, str(i))
-            children.append((child['alias'], len(data['data_bytes']), len(item_data)))
-            data['data_bytes'] += item_data
-            data['data_bytes'] += post
-        data['items_descr'] = [
-            {'name': name, 'offset': offset, 'length': length}
-            for (name, offset, length) in children
-            if name is not None
+    def make_items_descr(self, data: dict, layouts: List[Optional[EntryLayout]], heap_offset: int) -> list:
+        return [
+            {'name': child['alias'], 'offset': heap_offset + layout.offset, 'length': layout.item_length}
+            for child, layout in zip(data['children'], layouts)
+            if child['alias'] is not None
         ]
-        heap_offset = self.HEADER_FIELDS_LENGTH + len(data.get('pre_items_payload', b''))
-        for x in data['items_descr']:
-            heap_offset += self.DESCRIPTION_FIELDS_LENGTH + len(x['name']) + 1
-        for x in data['items_descr']:
-            x['offset'] += heap_offset
-        ret = super().write(data=data, ctx=ctx, name=name)
-        del data['items_descr']
-        del data['data_bytes']
-        return ret
 
 
 class C0fbItemDescriptionBlock(DeclarativeCompoundBlock):
@@ -445,21 +315,15 @@ class C0fbItemDescriptionBlock(DeclarativeCompoundBlock):
 class C0fbBlock(BigfBlock):
     """EA's compact BIGF: the same archive with a shorter header, 24-bit offsets and lengths"""
 
-    @property
-    def schema(self) -> Dict:
-        schema = super().schema
-        if schema.get('is_recursive_ref'):
-            return schema
-        return {
-            **schema,
-            'block_description': 'EA\'s compact [BigfBlock](#bigfblock) ("C0FB"): the same container with a '
-            'shorter header and 24-bit offsets and lengths. Items start at 4-byte aligned offsets (zero padding), '
-            'in no particular order: the game looks them up by name. In PSX TNFS it is read like a BIGF archive '
-            '(SLUS_002.04 0x800aee94: magic C0 FB; 0x800aef68: an item by its name, ignoring case); the Japanese '
-            "disc Over Drivin' Skyline Memorial (SLPS-01024) has its car archives `Z<car>.VSM` / `Z<car>.WSM` and "
-            '`SPEECH.VIV` in it, every item ending with its own CRC footer (counted in the item length). NFS5 '
-            '`GameData/Track/Data/tr<nn>a.viv` are C0FB archives too',
-        }
+    block_description = (
+        'EA\'s compact [BigfBlock](#bigfblock) ("C0FB"): the same container with a '
+        'shorter header and 24-bit offsets and lengths. Items start at 4-byte aligned offsets (zero padding), '
+        'in no particular order: the game looks them up by name. In PSX TNFS it is read like a BIGF archive '
+        '(SLUS_002.04 0x800aee94: magic C0 FB; 0x800aef68: an item by its name, ignoring case); the Japanese '
+        "disc Over Drivin' Skyline Memorial (SLPS-01024) has its car archives `Z<car>.VSM` / `Z<car>.WSM` and "
+        '`SPEECH.VIV` in it, every item ending with its own CRC footer (counted in the item length). NFS5 '
+        '`GameData/Track/Data/tr<nn>a.viv` are C0FB archives too'
+    )
 
     HEADER_FIELDS_LENGTH = 6
     DESCRIPTION_FIELDS_LENGTH = 6
@@ -482,11 +346,11 @@ class C0fbBlock(BigfBlock):
             },
         )
         num_items = (
-            IntegerBlock(length=2, byte_order='big', programmatic_value=lambda ctx: len(ctx.data('items_descr'))),
+            IntegerBlock(length=2, byte_order='big', programmatic_value=CountOf('items_descr')),
             {'description': 'An amount of items'},
         )
         items_descr = (
-            ArrayBlock(length=lambda ctx: ctx.data('num_items'), child=C0fbItemDescriptionBlock()),
+            ArrayBlock(length='num_items', child=C0fbItemDescriptionBlock()),
             {'usage': 'io,doc', 'description': 'Descriptions of items: offset, length and name of each of them'},
         )
         pre_items_payload = (
@@ -499,7 +363,7 @@ class C0fbBlock(BigfBlock):
             {'description': 'Bytes between the end of `items_descr` and the first item: zero padding to 4 bytes'},
         )
         data_bytes = (
-            BytesBlock(length=lambda ctx: ctx.read_bytes_remaining),
+            BytesBlock(length=REMAINING),
             {
                 'usage': 'io,doc',
                 'description': 'A part of block, where items data is located, each item padded with zeros to 4 '
@@ -519,9 +383,9 @@ class C0fbBlock(BigfBlock):
         """Value of "header_length" field: the offset of the first item minus 4"""
         return self.descriptions_end(data) + len(data.get('pre_items_payload', b'')) - 4
 
-    def last_slot_end(self, res, block_start: int, end_pos: int, last_item_end: int) -> int:
+    def slots_end(self, header: dict, block_start: int, region_end: int, descriptions: List[ItemDescription]) -> int:
         # no block length in the header: the last item owns the rest of the block
-        return end_pos
+        return region_end
 
 
 class SoundBank(DeclarativeCompoundBlock):
@@ -558,7 +422,7 @@ class SoundBank(DeclarativeCompoundBlock):
             },
         )
         wave_data = (
-            BytesBlock(length=lambda ctx: ctx.read_bytes_remaining),
+            BytesBlock(length=REMAINING),
             {
                 'description': 'Raw byte data, which is sliced according to provided offsets and used as wave data',
                 'usage': 'io,doc',
@@ -648,7 +512,7 @@ class EaSoundBank(DeclarativeCompoundBlock):
             },
         )
         num_items = (
-            IntegerBlock(length=2, programmatic_value=lambda ctx: len(ctx.data('items_descr'))),
+            IntegerBlock(length=2, programmatic_value=CountOf('items_descr')),
             {'description': 'Amount of slots in `items_descr`'},
         )
         header_length = (
@@ -671,14 +535,14 @@ class EaSoundBank(DeclarativeCompoundBlock):
             {'is_unknown': True},
         )
         items_descr = (
-            ArrayBlock(child=IntegerBlock(length=4), length=lambda ctx: ctx.data('num_items')),
+            ArrayBlock(child=IntegerBlock(length=4), length='num_items'),
             {
                 'description': 'Offset of every patch, relative to its own position in this table, the array index '
                 'being the sample index used by the game. 0 is an empty slot'
             },
         )
         data_bytes = (
-            BytesBlock(length=lambda ctx: ctx.read_bytes_remaining),
+            BytesBlock(length=REMAINING),
             {
                 'description': 'Sound patches ([EaSoundPatch](#easoundpatch)) at the offsets of `items_descr`, then '
                 'wave data',
@@ -713,22 +577,32 @@ class EaSoundBank(DeclarativeCompoundBlock):
         offset = layer['data_offset'] - self._table_offset(data) - 4 * len(data['items_descr'])
         return data['data_bytes'][offset:]
 
+    def _read_patches(self, data) -> list:
+        """The patches in `data_bytes`, read from one buffer (no copy of the bytes after each patch)"""
+        patch_block = self.field_blocks_map['items'].child
+        data_bytes = data['data_bytes']
+        buffer = BytesIO(data_bytes)
+        res = []
+        for i, pos in enumerate(self._patch_positions(data)):
+            buffer.seek(pos)
+            res.append(
+                patch_block.unpack(ReadContext(buffer), name=f'items/{i}', read_bytes_amount=len(data_bytes) - pos)
+            )
+        return res
+
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
         res = super().read(ctx, name, read_bytes_amount)
-        patch_block = self.field_blocks_map['items'].child
-        res['items'] = [
-            patch_block.unpack_from_bytes(res['data_bytes'][pos:], name=f'items/{i}')
-            for (i, pos) in enumerate(self._patch_positions(res))
-        ]
+        res['items'] = self._read_patches(res)
         return res
 
     def _native_data(self, data):
         data = deepcopy(data)
         patch_block = self.field_blocks_map['items'].child
         data_bytes = bytearray(data['data_bytes'])
-        for pos, item in zip(self._patch_positions(data), data['items']):
+        originals = self._read_patches(data)
+        for pos, item, original in zip(self._patch_positions(data), data['items'], originals):
             packed = patch_block.pack(item)
-            original_length = patch_block.estimate_packed_size(patch_block.unpack_from_bytes(data['data_bytes'][pos:]))
+            original_length = patch_block.estimate_packed_size(original)
             if len(packed) != original_length:
                 raise ValueError('Cannot change the length of a sound patch tag value')
             data_bytes[pos : pos + len(packed)] = packed

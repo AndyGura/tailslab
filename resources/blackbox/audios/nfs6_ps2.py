@@ -1,13 +1,17 @@
-from library.context import ReadContext, WriteContext
+from typing import List, Optional
+
+from library.context import WriteContext
 from library.read_blocks import (
+    FittedBytesBlock,
     ArrayBlock,
     BytesBlock,
     DeclarativeCompoundBlock,
     DelegateBlock,
     IntegerBlock,
     UTF8Block,
+    REMAINING,
 )
-from library.read_blocks.archives import ArchiveBlock, pre_items_payload_length, slot_lengths
+from library.read_blocks.archives import ArchiveBlock, EntryLayout, ItemDescription, pre_items_payload_length
 from library.read_blocks.misc.value_validators import Eq
 from library.read_blocks.strings import NullTerminatedUTF8Block
 
@@ -17,13 +21,6 @@ NFS6_PS2_JUKEBOX_TRACK_HEADER_LENGTH = 0x30
 NFS6_PS2_JUKEBOX_NAME_LENGTH = 84
 NFS6_PS2_JUKEBOX_GROUP_NAME_LENGTH = 60
 NFS6_PS2_JUKEBOX_SECTOR = 2048
-
-
-def _fit_name_padding(padding: bytes, name: str, field_length: int) -> bytes:
-    """Rest of a fixed-length name field after the name and its terminating zero: `padding` cut or zero-padded to
-    fit"""
-    length = field_length - len(name.encode('utf-8')) - 1
-    return (bytes(padding or b'') + bytes(max(0, length)))[: max(0, length)]
 
 
 class Nfs6Ps2JukeboxTrack(DeclarativeCompoundBlock):
@@ -47,7 +44,7 @@ class Nfs6Ps2JukeboxTrack(DeclarativeCompoundBlock):
         unk2 = (IntegerBlock(length=4, byte_order='big'), {'is_unknown': True, 'description': 'Always 0'})
         channels = (IntegerBlock(length=4, byte_order='big'), {'description': 'Channels: 2'})
         wave_data = (
-            BytesBlock(length=(lambda ctx: ctx.read_bytes_remaining, 'up to the next track')),
+            BytesBlock(length=(REMAINING, 'up to the next track')),
             {
                 'description': 'PS-ADPCM frames (16 bytes, 28 samples) of the channels in blocks of `interleave` '
                 'sectors of the jukebox (0x8000 bytes): a block of the left channel, a block of the right one, and so '
@@ -68,7 +65,7 @@ class Nfs6Ps2JukeboxGroup(DeclarativeCompoundBlock):
             {'description': 'Name of the group: "InGame"'},
         )
         name_padding = (
-            BytesBlock(
+            FittedBytesBlock(
                 length=(
                     lambda ctx: NFS6_PS2_JUKEBOX_GROUP_NAME_LENGTH - len(ctx.data('name').encode('utf-8')) - 1,
                     f'{NFS6_PS2_JUKEBOX_GROUP_NAME_LENGTH - 1} - len(name)',
@@ -76,11 +73,6 @@ class Nfs6Ps2JukeboxGroup(DeclarativeCompoundBlock):
             ),
             {'description': f'Rest of the {NFS6_PS2_JUKEBOX_GROUP_NAME_LENGTH}-byte name field: 0xCC bytes'},
         )
-
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        # the name field stays 60 bytes long whatever the name
-        padding = _fit_name_padding(data['name_padding'], data['name'], NFS6_PS2_JUKEBOX_GROUP_NAME_LENGTH)
-        return super().write({**data, 'name_padding': padding}, ctx, name)
 
 
 class Nfs6Ps2JukeboxEntry(DeclarativeCompoundBlock):
@@ -108,7 +100,7 @@ class Nfs6Ps2JukeboxEntry(DeclarativeCompoundBlock):
             },
         )
         name_padding = (
-            BytesBlock(
+            FittedBytesBlock(
                 length=(
                     lambda ctx: NFS6_PS2_JUKEBOX_NAME_LENGTH - len(ctx.data('name').encode('utf-8')) - 1,
                     f'{NFS6_PS2_JUKEBOX_NAME_LENGTH - 1} - len(name)',
@@ -135,18 +127,7 @@ class Nfs6Ps2Jukebox(ArchiveBlock):
             item_block=DelegateBlock(
                 possible_blocks=[
                     Nfs6Ps2JukeboxTrack(),
-                    BytesBlock(
-                        length=(
-                            lambda ctx: (
-                                min(
-                                    [x['offset'] for x in ctx.data('items_descr') if x['offset'] > ctx.local_buffer_pos]
-                                    + [ctx.read_bytes_amount]
-                                )
-                                - ctx.local_buffer_pos
-                            ),
-                            'up to the next track',
-                        )
-                    ),
+                    BytesBlock(length=(REMAINING, 'up to the next track')),
                 ],
                 choice_index=(_track_block_index, '0 for a "VAGp" track, else 1'),
             ),
@@ -179,7 +160,7 @@ class Nfs6Ps2Jukebox(ArchiveBlock):
         unk1 = (BytesBlock(length=12), {'is_unknown': True, 'description': 'Zeros'})
         group = (Nfs6Ps2JukeboxGroup(), {'description': 'The group of the tracks'})
         items_descr = (
-            ArrayBlock(child=Nfs6Ps2JukeboxEntry(), length=lambda ctx: ctx.data('group/num_tracks')),
+            ArrayBlock(child=Nfs6Ps2JukeboxEntry(), length='group/num_tracks'),
             {'usage': 'io,doc', 'description': 'The tracks: offset, length and name of each one'},
         )
         pre_items_payload = (
@@ -195,7 +176,7 @@ class Nfs6Ps2Jukebox(ArchiveBlock):
             },
         )
         data_bytes = (
-            BytesBlock(length=lambda ctx: ctx.read_bytes_remaining),
+            BytesBlock(length=REMAINING),
             {
                 'usage': 'io,doc',
                 'description': 'The tracks, at the offsets of `items_descr`. Each one is a '
@@ -215,65 +196,33 @@ class Nfs6Ps2Jukebox(ArchiveBlock):
     def entry_kind_hint(self, head: bytes):
         return 'Nfs6Ps2JukeboxTrack' if head[:4] == b'VAGp' else 'BytesBlock'
 
-    def estimate_packed_size(self, data, ctx: WriteContext = None):
-        return (
-            NFS6_PS2_JUKEBOX_RECORD_LENGTH * (1 + len(data['children']))
-            + len(data.get('pre_items_payload', b''))
-            + sum(sum(self.entry_sizes(child, ctx)) for child in data['children'])
-        )
+    def item_descriptions(self, header: dict) -> List[ItemDescription]:
+        return [ItemDescription(i, x['offset'], x['name']) for i, x in enumerate(header['items_descr'])]
 
-    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
-        block_start = ctx.buffer.tell()
-        res, self_ctx, region_start, region_length = self.read_header(ctx, name, read_bytes_amount)
-        end_pos = region_start + region_length
-        descriptions = res['items_descr']
-        offsets = [block_start + x['offset'] for x in descriptions]
-        lengths = slot_lengths(offsets, end_pos)
-        # entries are parsed later in lazy mode: keep header (with io-only fields) for their contexts
-        entry_ctx = self_ctx.detached(ctx.buffer, data=dict(res)) if self_ctx.lazy else self_ctx
-        res['children'] = [
-            self.read_entry(entry_ctx, name=str(i), offset=offset, length=length, alias=descr['name'])
-            for i, (descr, offset, length) in enumerate(zip(descriptions, offsets, lengths))
+    def after_read(self, res: dict, descriptions: List[ItemDescription]):
+        res['name_paddings'] = [x['name_padding'] for x in res['items_descr']]
+
+    def heap_offset(self, data, layouts: List[Optional[EntryLayout]]) -> int:
+        # the header and each entry take a record
+        return NFS6_PS2_JUKEBOX_RECORD_LENGTH * (1 + len(layouts)) + len(data.get('pre_items_payload', b''))
+
+    def make_items_descr(self, data: dict, layouts: List[Optional[EntryLayout]], heap_offset: int) -> list:
+        name_paddings = data.get('name_paddings') or []
+        return [
+            {
+                'offset': heap_offset + layout.offset,
+                'header_length': NFS6_PS2_JUKEBOX_TRACK_HEADER_LENGTH,
+                'num_blocks': layout.length >> 16,
+                'unk0': 0,
+                'name': child['alias'],
+                'name_padding': name_paddings[i] if i < len(name_paddings) else b'',
+            }
+            for i, (child, layout) in enumerate(zip(data['children'], layouts))
         ]
-        res['name_paddings'] = [x['name_padding'] for x in descriptions]
-        ctx.buffer.seek(end_pos)
-        del res['items_descr']
-        return res
 
     def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        children = data['children']
-        name_paddings = data.get('name_paddings') or []
-        offset = NFS6_PS2_JUKEBOX_RECORD_LENGTH * (1 + len(children)) + len(data.get('pre_items_payload', b''))
-        data_bytes = []
-        descriptions = []
-        for i, child in enumerate(children):
-            item_data, post = self.entry_bytes(child, ctx, str(i))
-            descriptions.append(
-                {
-                    'offset': offset,
-                    'header_length': NFS6_PS2_JUKEBOX_TRACK_HEADER_LENGTH,
-                    'num_blocks': (len(item_data) + len(post)) >> 16,
-                    'unk0': 0,
-                    'name': child['alias'],
-                    'name_padding': _fit_name_padding(
-                        name_paddings[i] if i < len(name_paddings) else b'',
-                        child['alias'],
-                        NFS6_PS2_JUKEBOX_NAME_LENGTH,
-                    ),
-                }
-            )
-            data_bytes += [item_data, post]
-            offset += len(item_data) + len(post)
-        return super().write(
-            {
-                **data,
-                'group': {**data['group'], 'num_tracks': len(children)},
-                'items_descr': descriptions,
-                'data_bytes': b''.join(data_bytes),
-            },
-            ctx=ctx,
-            name=name,
-        )
+        group = {**data['group'], 'num_tracks': len(data['children'])}
+        return super().write({**data, 'group': group}, ctx=ctx, name=name)
 
 
 def _track_block_index(ctx, **_) -> int:

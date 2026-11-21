@@ -1,7 +1,9 @@
+import glob
 import os
 import shutil
 import subprocess
 import sys
+from typing import Optional
 
 
 def start_file(filename):
@@ -74,3 +76,16 @@ def find_files_case_insensitive(patterns: list) -> list:
             if fnmatch(entry.lower(), name_pattern.lower()) and os.path.isfile(path) and path not in result:
                 result.append(path)
     return result
+
+
+def find_file_case_insensitive(path: str) -> Optional[str]:
+    """The existing file `path` with any letter case of its folders and name (no wildcards), spelled as on disk; None
+    without one"""
+    directory, name = os.path.split(path)
+    found = find_files_case_insensitive([os.path.join(directory, glob.escape(name))])
+    return found[0] if found else None
+
+
+def find_folder_case_insensitive(path: str) -> Optional[str]:
+    """The existing folder `path` with any letter case of its parts, spelled as on disk; None without one"""
+    return _resolve_dir_case_insensitive(path) if path else None

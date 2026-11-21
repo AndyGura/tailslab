@@ -2,7 +2,7 @@ import unittest
 from io import BytesIO
 
 from library.context import ReadContext
-from library.exceptions import DataIntegrityException
+from library.exceptions import DataIntegrityException, EndOfBufferException
 from library.read_blocks.misc.value_validators import Eq
 from library.read_blocks.strings import UTF8Block
 
@@ -80,6 +80,24 @@ class TestStrings(unittest.TestCase):
         self.assertEqual(name, '\udc80\x02')
         self.assertEqual(field.pack(name), raw)
         self.assertEqual(field.estimate_packed_size(name), 3)
+
+    def test_null_terminated_reads_up_to_the_zero(self):
+        from library.read_blocks.strings import NullTerminatedUTF8Block
+
+        # past the slot of `length` bytes too; the buffer stays after the zero
+        buffer = BytesIO(b'TrackRoutesA32\x00rest')
+        self.assertEqual(NullTerminatedUTF8Block(length=4).unpack(ReadContext(buffer)), 'TrackRoutesA32')
+        self.assertEqual(buffer.read(), b'rest')
+        with self.assertRaises(EndOfBufferException):
+            NullTerminatedUTF8Block(length=8).unpack(ReadContext(BytesIO(b'no zero')))
+
+    def test_latin1(self):
+        field = UTF8Block(length=8, encoding='latin-1')
+        raw = 'Coupé'.encode('latin-1') + bytes(3)
+        self.assertEqual(field.unpack(ReadContext(BytesIO(raw))), 'Coupé')
+        self.assertEqual(field.pack('Coupé'), raw)
+        self.assertEqual(field.estimate_packed_size('Coupé'), 8)
+        self.assertEqual(field.schema['block_description'], 'Latin-1 string')
 
     def test_lengths_are_in_bytes(self):
         from library.read_blocks import IntegerBlock

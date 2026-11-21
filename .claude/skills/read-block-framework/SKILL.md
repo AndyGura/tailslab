@@ -50,6 +50,71 @@ Commonly overridden:
   (default) if it isn't independently convertible. `DataBlock.serializer_class()` resolves the name
   (`BytesBlock`: `PlainBinarySerializer`, `DelegateBlock`: `DelegateBlockSerializer`); override
   `serializer_class()` only for a serializer that depends on the block's settings.
+- `fixed_size` (cached property) — the packed size of every value (what `estimate_packed_size`
+  returns for any data), `None` (default) when it depends on the data. `IntegerBlock` / `DecimalBlock`:
+  their length; `CompoundBlock`: the sum of its io fields; `ArrayBlock` with a positive int length:
+  length × child (0 marks arrays filled by custom code). Compound and array estimates return it
+  without walking the data; `ArrayBlock.estimate_packed_size` is `len(data) × child.fixed_size`.
+- Struct records — `struct_format` (cached: byte order `'<'` / `'>'` or `''`, and the `struct`
+  format characters), `struct_raw` (the value is the unpacked value as it is), `from_struct(values,
+  index)` / `to_struct(data, values)`, `struct_record` (the compiled `StructRecord`,
+  `library/read_blocks/struct_record.py`). Integer / float leaves, compounds of them (nested ones
+  too) and arrays of a positive int length of them have one when no block in them has a value
+  validator or programmatic value and the byte orders agree. `CompoundBlock.read` / `write` and the
+  items of `ArrayBlock.read` / `write` (`struct.iter_unpack`, one `struct.pack` per item) then go
+  through it, without a context per field; on any exception (end of buffer, a value out of range,
+  a wrong array length) they fall back to the field by field path, which raises the error with its
+  context. Caches are left out of copies (`DataBlock.__getstate__`): `big_endian_copy` changes the
+  byte order of a copy.
+- Number leaves storing another value as an integer (fixed point, enum, angle, time, bit fields:
+  `SubByteCompoundBlock`) override `IntegerBlock.from_raw(raw)` / `to_raw(value)`, never `read` /
+  `write`: a leaf class overriding `read` / `write` has no struct format, and neither has a record
+  holding it.
+- `CompoundBlock.field_by_field_io` — the class's `read` / `write` / `estimate_packed_size` are
+  `CompoundBlock`'s; only then do `fixed_size` and `struct_format` come from the fields. A subclass
+  whose override changes nothing (`Point3D` without `normalized`) overrides it
+  (`ArrayBlock.item_by_item_io` likewise). `CompoundBlock.io_field_blocks` = the `(name, block)` of
+  the fields with io usage (`is_io_usage`), computed in `__init__`: use it instead of filtering
+  `field_blocks` by `usage`.
+- `DeclarativeCompoundBlock.declared_fields()` (classmethod) builds the field list from the `Fields` class (the
+  fields of its own body: `CompoundBlockFields.fields`, cached per class); a base class adding fields to every
+  subclass overrides it (`ChunkBlock` in `resources/blackbox/chunks.py`: the chunk header).
+- Text files (`library/read_blocks/text.py`): `TextFileBlock` reads the file whole into values (`parse_text(raw)`)
+  and writes it with `render(data)` -> (bytes, {field: offset}), which also gives its size and field offsets; the
+  file as read is its hidden `source_text_field(kept)`, the value blocks of its fields mix in `ParsedByParent`
+  (`parsed_by`, `size_doc`: they type the field for the GUI and docs, their own read / write raise). `f32_text(value,
+  min_decimals)`: the shortest fixed-point text a game reads back as the same 32-bit float. Users: `Nfs3CarPhysics`
+  (carp.txt), `IniFile`.
+- `LengthPrefixed` (`library/read_blocks/basic.py`): mixin of a block stored after a length field
+  (`LengthPrefixedArrayBlock`, `LengthPrefixedUtf8Block`, `LengthPrefixedBytesBlock`): reads the field and passes it
+  as `resolved_length`, writes `prefix_value(data, packed_size)` before the value.
+- `ArrayBlock(child, byte_length=...)` (a block parameter): the items take that many bytes. A child with a
+  `fixed_size` is read as a counted array of as many as fit (struct fast path; the rest is left to the next field),
+  other children one by one until they took them (`DataIntegrityException` past them); documented by the
+  parameter's doc text (size) and, for children with a numeric `size_doc_str`, `<doc> / <item size>` items.
+  `stop_before(ctx)` / `stop_after(item)` (functions or `(function, doc)`): items one by one up to
+  `ReadContext.read_end`, ended before an item (`ctx.peek(n)`) or after one; the doc text is the length,
+  the size is length x item size.
+- `REMAINING` (`library/read_blocks/basic.py`): a length parameter taking the bytes the block is read with
+  (`read_bytes_amount`, `read_length(param, ctx, read_bytes_amount)`), else `ctx.read_bytes_remaining` of the
+  parent: `BytesBlock` (the raw choice of archive items), `UTF8Block`, `ArrayBlock(byte_length=REMAINING)`.
+- Block parameters (`library/read_blocks/references.py`): the `length` of `BytesBlock` / `ArrayBlock`
+  / `SubByteArrayBlock` / `UTF8Block` and `Padding(to=...)` are a number, a field path (`'num_items'`,
+  `'../count'`: `ctx.data` of it, documented as the path), a `lambda ctx: ...`, or one of these with
+  its doc text `(param, 'doc')`. A new block taking such a parameter resolves it with
+  `param_value(param, ctx)`, documents it with `param_doc(param)` and tells a fixed one with
+  `is_static_param(param)`, instead of unwrapping it itself.
+- Field references (same module), programmatic values computed from other fields of the compound:
+  `CountOf(path)` (`len(ctx.data(path))`), and the `LayoutReference`s `OffsetOf(name)`,
+  `SizeOf(*names)`, `OwnSize()`, `ItemOffsetsOf(name)` (an offset table: the offset of each item of an
+  array field; `CompoundBlock.write` packs that array item by item, `ArrayBlock.write_items`); `+ n` /
+  `- n` adds a constant. `CompoundBlock.write` writes a
+  fixed-size field holding a `LayoutReference` as zeros, writes the other fields, then fills it from
+  where they were written (`back_patched_fields`, `from_spans`): no `estimate_packed_size` pass, so
+  nested size fields cost nothing extra. `ctx.result` holds those zeros until the end of the
+  compound's write. Called like any programmatic value (another block's `write` packing the field,
+  a class overriding `estimate_packed_size` for `OwnSize` or `offset_to_child_when_packed` for
+  `OffsetOf`, a reference to a non-io field), a reference estimates instead.
 - For container blocks, subclass `DataBlockWithChildren` too and implement
   `get_child_block(name)`, `get_child_block_with_data(unpacked_data, name)`, and
   `offset_to_child_when_packed(data, child_name, ctx)` — these back the GUI's per-field navigation
@@ -60,12 +125,14 @@ Commonly overridden:
 - `ReadContext` wraps the buffer and builds a tree of children mirroring the block tree as you
   read, so a lambda deep in one field can read siblings/ancestors: `ctx.data('other_field')`,
   `ctx.data('../parent_field')`, `ctx.relative_block('other_field')`. Also
-  `ctx.local_buffer_pos`, `ctx.read_bytes_remaining`.
+  `ctx.local_buffer_pos`, `ctx.read_bytes_remaining` (None when the block was read without an amount: array
+  items), `ctx.read_end` (absolute end offset of the closest context read with an amount, else the buffer end)
+  and `ctx.peek(n)` (bytes ahead up to `read_end`, position kept).
 - `WriteContext` mirrors the same API against the data being written.
 - `DocumentationContext` is a **fake** context fed to length/condition lambdas at doc-generation
   time, so e.g. `lambda ctx: ctx.data('width') * ctx.data('height')` degrades to the *string*
-  `"width*height"` (via `DocumentationCtxData`, which overloads arithmetic/comparison operators)
-  instead of crashing. **Implication:** keep length/condition/choice-index lambdas pure arithmetic
+  `"width*height"` (via `DocumentationCtxData`, whose arithmetic / bit / comparison operators come from the
+  `_DOC_OPERATORS` table: symbol and the characters that put each operand in brackets) instead of crashing. **Implication:** keep length/condition/choice-index lambdas pure arithmetic
   or comparisons on `ctx.data(...)` — no `if`/branching logic that assumes a real number, no
   Python built-ins that don't work on `DocumentationCtxData`. If a lambda can't be made doc-safe,
   it's fine — `size_doc_str` swallows exceptions and shows `'?'`/`'custom_func'`.
@@ -108,7 +175,9 @@ the context tree (`unpack_from_bytes` and bare `ReadContext`s are eager).
   every archive/bundle/compressed sample.
 - `EacCompressedBlock` data is `CompressedData` (dict remembering the compressed bytes and a digest of
   the uncompressed ones): written back as the original compressed bytes while the inner bytes are
-  unchanged; `estimate_packed_size` is the compressed size.
+  unchanged; `estimate_packed_size` is the compressed size. `EacCompressedBlock(possible_blocks, compression=...)`:
+  one algorithm for every read and write (JDLZ, COMP). `AutoDetectBlock(exact_class=True)` prefers a possible block of
+  the loader's very class over an earlier one subclassing it.
 
 ## Adding a new generic block class
 
@@ -155,17 +224,22 @@ and `BlockActionsComponent` to the app. Consequences:
 
 `serializers/base.py` defines the serializer contract:
 - `ResourceSerializer` (ABC): `serialize(data, path, id=None, block=None, **kwargs) -> List[str]`,
-  optional `deserialize(...)`, `ui_serialization()`, `patch_settings(dict)`.
-- `BaseFileSerializer`: adds `is_dir` (file vs directory output).
+  optional `deserialize(...)`, `ui` (class attribute, a `UiSerialization`), `patch_settings(dict)`.
+- `BaseFileSerializer`: adds `is_dir` (file vs directory output) and `output_path(path, id)` (a file output in a
+  folder path named after the resource).
+- Shared helpers there: `current_resource(id, block)` (the data an import replaces), `export_child` /
+  `write_skipped` / `unique_name` (archive items and `skipped.txt`).
 - `DelegateBlockSerializer`: dispatches to the serializer of whichever block a `DelegateBlock`
   actually resolved to at read time — the pattern to follow if you add another
   dispatch/composition-style block.
 
 Only extend these classes here for behavior that should apply across many resource kinds.
 Format-specific serializers (PNG export, OBJ export, WAV export, ...) belong in
-`nfs-resource-formats`. `ui_serialization()`'s return shape drives the GUI "convert" panel:
-`{file_type, is_directory, output_file_name_suffix, reversible, reversible_settings_patch}`
-(`None` hides the block from the convert UI). The only wiring point back into the system is a
+`nfs-resource-formats`. `ui = UiSerialization(file_type, is_directory, suffix, reversible, settings_patch,
+import_guide)` drives the GUI "convert" panel (common ones: `JSON_UI`, `REVERSIBLE_JSON_UI`, `PNG_UI`,
+`REVERSIBLE_PNG_UI`, `DIRECTORY_UI`; a variant `dataclasses.replace(Base.ui, ...)`); `ui_serialization()` sends it
+as `{file_type, is_directory, output_file_name_suffix, reversible, reversible_settings_patch[, import_guide]}` in
+`schema['serialization']` (`ui = None` hides the block from the convert UI). The only wiring point back into the system is a
 `DataBlock` subclass's `serializer` attribute naming your class — `get_serializer()` in
 `serializers/__init__.py` calls `serializer_class()`, which looks the name up in the `serializers`
 package — so a new serializer class needs an import in `serializers/__init__.py`, but no separate

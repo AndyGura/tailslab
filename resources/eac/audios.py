@@ -1,9 +1,10 @@
 from copy import deepcopy
-from io import SEEK_CUR
 from typing import Dict
 
 from library.context import ReadContext, WriteContext
 from library.read_blocks import (
+    REMAINING,
+    SizeOf,
     DeclarativeCompoundBlock,
     UTF8Block,
     IntegerBlock,
@@ -13,6 +14,7 @@ from library.read_blocks import (
     EnumByteBlock,
     OptionalBlock,
     BitFlagsBlock,
+    CountOf,
 )
 from library.read_blocks.misc.value_validators import Eq
 
@@ -48,16 +50,17 @@ class EacsAudioHeader(DeclarativeCompoundBlock):
         repeat_loop_beginning = (
             IntegerBlock(length=4),
             {
-                'description': 'When audio ends, it repeats in loop from here. Should be '
+                'description': 'First sample of the loop (0xFFFFFFFF in a standalone `.EAS` without one). Should be '
                 'multiplied by sound_resolution to calculate offset in bytes'
             },
         )
         repeat_loop_length = (
             IntegerBlock(length=4),
             {
-                'description': 'If play audio in loop, at this point we should rewind to repeat_'
-                'loop_beginning. Should be multiplied by sound_resolution to '
-                'calculate offset in bytes'
+                'description': 'Number of samples of the loop, 0 = no loop: the loop is the samples '
+                '`repeat_loop_beginning` .. `repeat_loop_beginning` + `repeat_loop_length` - 1 (the TNFS DOS mixer '
+                'jumps back to the loop start when it reaches start + length, 0xa6c1a). Should be multiplied by '
+                'sound_resolution to calculate the length in bytes'
             },
         )
         wave_data_offset = (
@@ -211,7 +214,7 @@ class EacsAudioFile(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         header = (EacsAudioHeader(), {'description': 'EACS header: sampling rate, resolution, channels, loop settings'})
-        offset = (Padding(to=lambda ctx: ctx.data('header/wave_data_offset'), is_global=True), {'is_unknown': True})
+        offset = (Padding(to='header/wave_data_offset', is_global=True), {'is_unknown': True})
         wave_data = (
             BytesBlock(
                 length=(
@@ -236,52 +239,25 @@ class AsfAudio(DeclarativeCompoundBlock):
     block_description = (
         'An audio file, which is supported by FFMPEG and can be converted using only it. '
         'Has some explanation [here](https://wiki.multimedia.cx/index.php/Electronic_'
-        'Arts_Formats_(2))'
+        'Arts_Formats_(2)). The TNFS DOS stream player (0x941f1) plays the data of each `1SNh` chunk without its loop '
+        '(it sets loop start -1, length 0) and loops the music at the `1SNl` chunk, which seeks the stream '
+        '(0x945fc, 0x91260); the converter writes the header loop to the meta as for EACS samples'
     )
     serializer = 'FfmpegSupportedAudioSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(value_validator=Eq('1SNh'), length=4), {'description': 'Resource ID'})
         unk0 = (BytesBlock(length=8), {'is_unknown': True})
-        sampling_rate = (IntegerBlock(length=4), {'description': 'Sampling rate of audio'})
-        sound_resolution = (IntegerBlock(length=1), {'description': 'How many bytes in one wave data entry'})
-        channels = (IntegerBlock(length=1), {'description': 'Channels amount. 1 is mono, 2 is stereo'})
-        compression = (
-            IntegerBlock(length=1),
-            {
-                'description': 'If equals to 2, wave data is compressed with [IMA ADPCM codec]('
-                'https://wiki.multimedia.cx/index.php/Electronic_Arts_Formats_(2)'
-                '#IMA_ADPCM_Decompression_Algorithm)'
-            },
-        )
-        unk1 = (IntegerBlock(length=1), {'is_unknown': True})
-        wave_data_length = (
-            IntegerBlock(length=4),
-            {
-                'description': 'Amount of wave data entries. Should be multiplied by '
-                'sound_resolution to calculated the size of data in bytes'
-            },
-        )
-        repeat_loop_beginning = (
-            IntegerBlock(length=4),
-            {
-                'description': 'When audio ends, it repeats in loop from here. Should be '
-                'multiplied by sound_resolution to calculate offset in bytes'
-            },
-        )
-        repeat_loop_length = (
-            IntegerBlock(length=4),
-            {
-                'description': 'If play audio in loop, at this point we should rewind to repeat_'
-                'loop_beginning. Should be multiplied by sound_resolution to '
-                'calculate offset in bytes'
-            },
-        )
-        wave_data_offset = (
-            IntegerBlock(length=4),
-            {'description': 'Offset of wave data start in current file, relative to start of the file itself'},
-        )
-        unk2 = (IntegerBlock(length=4), {'is_unknown': True})
+        sampling_rate = EacsAudioHeader.Fields.sampling_rate
+        sound_resolution = EacsAudioHeader.Fields.sound_resolution
+        channels = EacsAudioHeader.Fields.channels
+        compression = EacsAudioHeader.Fields.compression
+        unk1 = EacsAudioHeader.Fields.unk0
+        wave_data_length = EacsAudioHeader.Fields.wave_data_length
+        repeat_loop_beginning = EacsAudioHeader.Fields.repeat_loop_beginning
+        repeat_loop_length = EacsAudioHeader.Fields.repeat_loop_length
+        wave_data_offset = EacsAudioHeader.Fields.wave_data_offset
+        unk2 = EacsAudioHeader.Fields.unk1
         offset = (
             Padding(to=(lambda ctx: ctx.data('wave_data_offset') + 40, 'wave_data_offset + 40')),
             {'description': 'Padding between the header and wave data'},
@@ -341,28 +317,6 @@ EA_SOUND_PATCH_TAGS = [
 EA_SOUND_PATCH_MARKERS = ['padding', 'info_start', 'layer_end', 'end']
 
 
-def _ea_sound_patch_tag_count(ctx) -> int:
-    """Amount of tags of the patch at the current buffer position, up to and including the end tag 0xFF"""
-    start = ctx.buffer.tell()
-    count = 0
-    try:
-        while True:
-            tag = ctx.buffer.read(1)
-            if not tag:
-                return count
-            count += 1
-            if tag[0] == 0xFF:
-                return count
-            if tag[0] in (0xFC, 0xFD, 0xFE):
-                continue
-            length = ctx.buffer.read(1)
-            if not length:
-                return count
-            ctx.buffer.seek(length[0], SEEK_CUR)
-    finally:
-        ctx.buffer.seek(start)
-
-
 class EaSoundPatchTag(DeclarativeCompoundBlock):
     block_description = (
         'A tag of EA sound patch: tag id, then (except for tags 0xFC-0xFF) the length of the '
@@ -384,7 +338,7 @@ class EaSoundPatchTag(DeclarativeCompoundBlock):
         )
         value = (
             OptionalBlock(
-                BytesBlock(length=(lambda ctx: ctx.data('value_length'), 'value_length')),
+                BytesBlock(length='value_length'),
                 criteria=(
                     lambda ctx: ctx.data('tag') not in EA_SOUND_PATCH_MARKERS,
                     'tag is not padding, info_start, layer_end or end',
@@ -434,7 +388,10 @@ class EaSoundPatch(DeclarativeCompoundBlock):
         platform_magic = (UTF8Block(length=2, value_validator=Eq('PT')), {'description': 'Patch header magic'})
         platform = (IntegerBlock(length=2), {'description': 'Platform id, 0 is PC'})
         tags = (
-            ArrayBlock(child=EaSoundPatchTag(), length=(_ea_sound_patch_tag_count, 'up to and including tag "end"')),
+            ArrayBlock(
+                child=EaSoundPatchTag(),
+                stop_after=(lambda tag: tag['tag'] == 'end', 'up to and including tag "end"'),
+            ),
             {'description': 'Tags'},
         )
 
@@ -456,20 +413,6 @@ class EaSoundPatch(DeclarativeCompoundBlock):
 
 # chunk ids of an EA audio stream: header, chunk count, data, loop end, end
 EA_AUDIO_STREAM_CHUNK_IDS = (b'SCHl', b'SCCl', b'SCDl', b'SCLl', b'SCEl')
-
-
-def _read_end(ctx) -> int:
-    """Absolute buffer offset where the bytes the block may read end: the end of the closest context with a known
-    amount of bytes to read (the file, an archive item), else the end of the buffer"""
-    c = ctx
-    while c is not None:
-        if getattr(c, 'read_bytes_amount', None) is not None and getattr(c, 'read_start_offset', None) is not None:
-            return c.read_start_offset + c.read_bytes_amount
-        c = c.parent
-    pos = ctx.buffer.tell()
-    end = ctx.buffer.seek(0, 2)
-    ctx.buffer.seek(pos)
-    return end
 
 
 def scan_ea_audio_stream_chunks(buffer, end: int) -> int:
@@ -528,28 +471,6 @@ def is_ea_audio_stream(buffer, length: int = None) -> bool:
         buffer.seek(start)
 
 
-def _ea_audio_streams_count(ctx) -> int:
-    buffer = ctx.buffer
-    start = buffer.tell()
-    end = _read_end(ctx)
-    count = 0
-    pos = start
-    try:
-        while pos + 8 <= end:
-            buffer.seek(pos)
-            head = buffer.read(8)
-            if head[:4] != b'SCHl':
-                break
-            count += 1
-            buffer.seek(pos + int.from_bytes(head[4:], 'little'))
-            pos = buffer.tell() + scan_ea_audio_stream_chunks(buffer, end)
-            buffer.seek(pos)
-            pos += scan_ea_audio_stream_padding(buffer, end)
-        return count
-    finally:
-        buffer.seek(start)
-
-
 class EaAudioStream(DeclarativeCompoundBlock):
     block_description = (
         'EA audio stream (NFS2 - NFS6 music, NFS6 speech): header chunk "SCHl" '
@@ -562,14 +483,7 @@ class EaAudioStream(DeclarativeCompoundBlock):
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(value_validator=Eq('SCHl'), length=4), {'description': 'Header chunk id'})
         header_length = (
-            IntegerBlock(
-                length=4,
-                programmatic_value=lambda ctx: (
-                    8
-                    + ctx.block.field_blocks_map['header'].estimate_packed_size(ctx.data('header'))
-                    + len(ctx.data('header_padding'))
-                ),
-            ),
+            IntegerBlock(length=4, programmatic_value=SizeOf('header', 'header_padding') + 8),
             {'description': 'Length of the header chunk, including the chunk id and this field'},
         )
         header = (
@@ -595,7 +509,7 @@ class EaAudioStream(DeclarativeCompoundBlock):
         data = (
             BytesBlock(
                 length=(
-                    lambda ctx: scan_ea_audio_stream_chunks(ctx.buffer, _read_end(ctx)),
+                    lambda ctx: scan_ea_audio_stream_chunks(ctx.buffer, ctx.read_end),
                     'chunks up to and including the end chunk SCEl',
                 )
             ),
@@ -604,7 +518,7 @@ class EaAudioStream(DeclarativeCompoundBlock):
         padding = (
             BytesBlock(
                 length=(
-                    lambda ctx: scan_ea_audio_stream_padding(ctx.buffer, _read_end(ctx)),
+                    lambda ctx: scan_ea_audio_stream_padding(ctx.buffer, ctx.read_end),
                     'up to the next stream or the end of file',
                 )
             ),
@@ -626,7 +540,7 @@ class EaAudioStreams(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         streams = (
-            ArrayBlock(child=EaAudioStream(), length=(_ea_audio_streams_count, 'streams up to the end of file')),
+            ArrayBlock(child=EaAudioStream(), byte_length=(REMAINING, 'streams up to the end of file')),
             {'description': 'Audio streams'},
         )
 
@@ -682,25 +596,23 @@ class EaMusicMap(DeclarativeCompoundBlock):
         version = (IntegerBlock(length=1), {'description': 'Version, 0 or 1'})
         start_node = (IntegerBlock(length=1), {'description': 'Index of the node the music starts with'})
         num_nodes = (
-            IntegerBlock(length=1, programmatic_value=lambda ctx: len(ctx.data('nodes'))),
+            IntegerBlock(length=1, programmatic_value=CountOf('nodes')),
             {'description': 'Amount of nodes'},
         )
         num_events = (IntegerBlock(length=1), {'description': 'Amount of events per section, 16 in NFS2 SE'})
         unk0 = (BytesBlock(length=3), {'is_unknown': True, 'description': 'Zeros'})
         num_sections = (
-            IntegerBlock(length=1, programmatic_value=lambda ctx: len(ctx.data('events'))),
+            IntegerBlock(length=1, programmatic_value=CountOf('events')),
             {'description': 'Amount of sections (rows of `events`)'},
         )
         nodes = (
-            ArrayBlock(child=EaMusicMapNode(), length=(lambda ctx: ctx.data('num_nodes'), 'num_nodes')),
+            ArrayBlock(child=EaMusicMapNode(), length='num_nodes'),
             {'description': 'Nodes'},
         )
         events = (
             ArrayBlock(
-                child=ArrayBlock(
-                    child=IntegerBlock(length=1), length=(lambda ctx: ctx.data('../num_events'), 'num_events')
-                ),
-                length=(lambda ctx: ctx.data('num_sections'), 'num_sections'),
+                child=ArrayBlock(child=IntegerBlock(length=1), length=('../num_events', 'num_events')),
+                length='num_sections',
             ),
             {
                 'description': 'For each section, the node each game event jumps to (0 for an event without a '
@@ -708,9 +620,6 @@ class EaMusicMap(DeclarativeCompoundBlock):
             },
         )
         stream_offsets = (
-            ArrayBlock(
-                child=IntegerBlock(length=4, byte_order='big'),
-                length=(lambda ctx: ctx.data('num_nodes'), 'num_nodes'),
-            ),
+            ArrayBlock(child=IntegerBlock(length=4, byte_order='big'), length='num_nodes'),
             {'description': 'Offset of the audio stream of each node in the `.MUS` file'},
         )

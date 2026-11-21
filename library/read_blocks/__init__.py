@@ -6,7 +6,10 @@ from .array import (
 from .basic import (
     DataBlock,
     BytesBlock,
+    FittedBytesBlock,
+    LengthPrefixedBytesBlock,
     Padding,
+    REMAINING,
 )
 from .compound import (
     CompoundBlock,
@@ -26,5 +29,8 @@ from .delegates import (
     DelegateBlock,
     AutoDetectBlock,
     EnumLookupDelegateBlock,
+    MagicDispatchBlock,
 )
 from .strings import UTF8Block
+from .references import CountOf, OffsetOf, SizeOf, OwnSize, ItemOffsetsOf
+from .text import ParsedByParent, TextFileBlock, f32_text, source_text_field

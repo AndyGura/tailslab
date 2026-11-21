@@ -21,19 +21,27 @@ from resources.eac.tnfs_saturn import (
     TNFS_SATURN_FRONTEND_PCX_PALETTES,
     TNFS_SATURN_GTR_CAR_AI_OFFSET,
     TNFS_SATURN_GTR_CAR_AI_POINTERS_OFFSET,
+    TNFS_SATURN_GTR_COCKPIT_RECORDS_OFFSET,
+    TNFS_SATURN_GTR_EXECUTABLE_LENGTH,
     TNFS_SATURN_GTR_LOAD_ADDRESS,
+    TNFS_SATURN_GTR_SPEEDOMETER_TOPS_OFFSET,
     TNFS_SATURN_SCREEN_PALETTE,
     TnfsSaturnCarAiAndCrashBody,
     TnfsSaturnCarBundle,
     TnfsSaturnFrontendArt,
+    TnfsSaturnGtrExecutable,
     TnfsSaturnPcxList,
     TnfsSaturnRlePicture,
+    TnfsSaturnSizedRleImage,
+    TnfsSaturnSizedRleImageList,
     TnfsSaturnSpriteBanks,
     is_tnfs_saturn_gtr_executable,
     is_tnfs_saturn_rle_picture,
+    is_tnfs_saturn_sized_rle_image,
     saturn_color_to_rgba,
     tnfs_saturn_gtr_car_ai_records,
     tnfs_saturn_palette_colors,
+    tnfs_saturn_rle_end,
     tnfs_saturn_rle_picture_image,
     tnfs_saturn_rle_pixels,
     tnfs_saturn_sprite_image,
@@ -46,6 +54,8 @@ from serializers.geometries import TnfsSaturnOrixGeometrySerializer, tnfs_wheel_
 from serializers.tnfs_saturn import (
     TnfsSaturnFrontendArtSerializer,
     TnfsSaturnRlePictureSerializer,
+    TnfsSaturnSizedRleImageListSerializer,
+    TnfsSaturnSizedRleImageSerializer,
     TnfsSaturnSpriteBanksSerializer,
     export_tnfs_saturn_texture_bank,
     tnfs_saturn_bank_textures,
@@ -477,3 +487,103 @@ class TestTnfsSaturnRlePicture(unittest.TestCase):
                 data, os.path.join(tmp, 'out', '1.BIN'), id=name, block=block
             )
             self.assertEqual([os.path.basename(x) for x in files], ['1.BIN.png'])
+
+
+# palette of the synthetic 8-bit pictures: colour 0 green 0x03E0 (as in every `.IM` file), colour i = i * 3
+SIZED_PALETTE = [0x03E0] + [i * 3 for i in range(1, 256)]
+
+
+def _sized_rle_image(width, height, rows, padding=b''):
+    """A `TnfsSaturnSizedRleImage`: `rows` are the runs (bytes) of each row"""
+    body = struct.pack('>HH', width, height) + struct.pack('>256H', *SIZED_PALETTE) + b''.join(rows) + padding
+    return struct.pack('>I', 4 + len(body)) + body
+
+
+class TestTnfsSaturnSizedRleImage(unittest.TestCase):
+    # 4x2: row 0 a run of 5 (cut at the row end, as the game's loader does), row 1 two literal pixels and a run of 2
+    ROWS = [bytes([0xC5, 7]), bytes([0, 2, 0xC2, 3])]
+
+    def _write(self, folder, name, raw):
+        path = os.path.join(folder, name)
+        with open(path, 'wb') as f:
+            f.write(raw)
+        return path
+
+    def test_rows_decoded_one_by_one(self):
+        raw = _sized_rle_image(4, 2, self.ROWS)
+        data = TnfsSaturnSizedRleImage().unpack_from_bytes(raw)
+        self.assertEqual(tnfs_saturn_rle_pixels(data['image']), [7, 7, 7, 7, 0, 2, 3, 3])
+        self.assertEqual(tnfs_saturn_rle_end(b''.join(self.ROWS), 4, 2), 6)
+        self.assertIsNone(tnfs_saturn_rle_end(b''.join(self.ROWS)[:-1], 4, 2))
+
+    def test_detected_written_back_and_exported(self):
+        # an odd length: no zeros after the runs (HORIZON/AL1RISE.IM)
+        raw = _sized_rle_image(4, 2, self.ROWS)
+        self.assertTrue(is_tnfs_saturn_sized_rle_image(raw))
+        padded = _sized_rle_image(4, 2, self.ROWS, b'\0\0')
+        self.assertTrue(is_tnfs_saturn_sized_rle_image(padded))
+        # not a picture: other bytes after the runs, a size other than the length, runs short of the picture
+        self.assertFalse(is_tnfs_saturn_sized_rle_image(_sized_rle_image(4, 2, self.ROWS, b'\1')))
+        self.assertFalse(is_tnfs_saturn_sized_rle_image(_sized_rle_image(4, 2, self.ROWS, b'\0' * 4)))
+        self.assertFalse(is_tnfs_saturn_sized_rle_image(raw + b'\0'))
+        self.assertFalse(is_tnfs_saturn_sized_rle_image(_sized_rle_image(4, 3, self.ROWS)))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, 'AL1RISE.IM', padded)
+            self.assertIs(_probe(path), TnfsSaturnSizedRleImage)
+            name, block, data = require_file(path, lazy=False)
+            self.assertEqual(block.pack(data), padded)
+            self.assertEqual(data['size'], len(padded))
+            files = TnfsSaturnSizedRleImageSerializer().serialize(
+                data, os.path.join(tmp, 'out', 'AL1RISE.IM'), id=name, block=block
+            )
+            self.assertEqual([os.path.basename(x) for x in files], ['AL1RISE.IM.png'])
+            image = Image.open(files[0])
+            self.assertEqual(image.size, (4, 2))
+            # colour 0 transparent
+            self.assertEqual(image.getpixel((0, 1))[3], 0)
+            self.assertEqual(image.getpixel((3, 1)), _rgba(SIZED_PALETTE[3]))
+
+    def test_list(self):
+        # `DASH/EMEM3.DAT`: two pictures back to back
+        raw = _sized_rle_image(4, 2, self.ROWS, b'\0\0') + _sized_rle_image(2, 1, [bytes([5, 6])])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, 'EMEM3.DAT', raw)
+            self.assertIs(_probe(path), TnfsSaturnSizedRleImageList)
+            name, block, data = require_file(path, lazy=False)
+            self.assertEqual(block.pack(data), raw)
+            self.assertEqual([(x['image']['width'], x['image']['height']) for x in data['images']], [(4, 2), (2, 1)])
+            files = TnfsSaturnSizedRleImageListSerializer().serialize(
+                data, os.path.join(tmp, 'out', 'EMEM3.DAT'), id=name, block=block
+            )
+            self.assertEqual([os.path.basename(x) for x in files], ['0.png', '1.png'])
+            self.assertEqual(Image.open(files[1]).getpixel((1, 0)), _rgba(SIZED_PALETTE[6]))
+            # a picture cut short: no list
+            with self.assertRaises(NotImplementedError):
+                _probe(self._write(tmp, 'CUT.DAT', raw[:-1]))
+
+
+class TestTnfsSaturnGtrExecutableCockpit(unittest.TestCase):
+    def test_cockpit_records_and_speedometer_tops(self):
+        raw = bytearray(TNFS_SATURN_GTR_EXECUTABLE_LENGTH)
+        # model 1 (BCNR33): red needles, lengths 10 / 10, tachometer (184, 168) 620 -174, speedometer (142, 168)
+        # 675 128, wheel at 72, 128 turning about 89, 89
+        record = struct.pack(
+            '>HBBhhhhBBhhhhhhhhH', 0x16, 10, 10, 184, 168, 620, -174, 10, 10, 142, 168, 675, 128, 72, 128, 89, 89, 0
+        )
+        offset = TNFS_SATURN_GTR_COCKPIT_RECORDS_OFFSET + 0x20
+        raw[offset : offset + 0x20] = record
+        tops = struct.pack('>8i', 240, 180, 180, 240, 180, 180, 180, 180)
+        raw[TNFS_SATURN_GTR_SPEEDOMETER_TOPS_OFFSET : TNFS_SATURN_GTR_SPEEDOMETER_TOPS_OFFSET + 32] = tops
+        block = TnfsSaturnGtrExecutable()
+        data = block.unpack_from_bytes(bytes(raw))
+        self.assertEqual(len(data['cockpit_records']), 9)
+        cockpit = data['cockpit_records'][1]
+        self.assertEqual(cockpit['needle_color'], 0x16)
+        self.assertEqual((cockpit['tachometer_x_length'], cockpit['tachometer_y_length']), (10, 10))
+        self.assertEqual((cockpit['tachometer_x'], cockpit['tachometer_y']), (184, 168))
+        self.assertEqual((cockpit['tachometer_scale'], cockpit['tachometer_offset']), (620, -174))
+        self.assertEqual((cockpit['speedometer_scale'], cockpit['speedometer_offset']), (675, 128))
+        self.assertEqual((cockpit['steering_wheel_left'], cockpit['steering_wheel_top']), (72, 128))
+        self.assertEqual((cockpit['steering_wheel_pivot_x'], cockpit['steering_wheel_pivot_y']), (89, 89))
+        self.assertEqual(data['speedometer_tops'], [240, 180, 180, 240, 180, 180, 180, 180])
+        self.assertEqual(block.pack(data), bytes(raw))

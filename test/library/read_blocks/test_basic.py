@@ -1,5 +1,11 @@
 import unittest
+from io import BytesIO
+
+from library.context import ReadContext
+from library.exceptions import DataIntegrityException
+from library.read_blocks import DeclarativeCompoundBlock, FittedBytesBlock, LengthPrefixedBytesBlock
 from library.read_blocks.basic import BytesBlock
+from library.read_blocks.strings import NullTerminatedUTF8Block
 from library.read_blocks.numbers import IntegerBlock
 from serializers import JsonSerializer, PlainBinarySerializer
 
@@ -82,3 +88,36 @@ class TestSerializerAttribute(unittest.TestCase):
 
     def test_framework_serializer(self):
         self.assertIs(BytesBlock(length=1).serializer_class(), PlainBinarySerializer)
+
+
+class NameField(DeclarativeCompoundBlock):
+    class Fields(DeclarativeCompoundBlock.Fields):
+        name = NullTerminatedUTF8Block(length=8)
+        name_padding = FittedBytesBlock(length=(lambda ctx: 7 - len(ctx.data('name').encode('utf-8')), '7 - len(name)'))
+
+
+class TestFittedBytes(unittest.TestCase):
+    def test_leftovers_kept_and_refitted(self):
+        block = NameField()
+        raw = b'abc\x00xyz\xcc'
+        data = block.unpack(ReadContext(BytesIO(raw)))
+        self.assertEqual(data, {'name': 'abc', 'name_padding': b'xyz\xcc'})
+        self.assertEqual(block.pack(data), raw)
+        self.assertEqual(block.pack({**data, 'name': 'abcde'}), b'abcde\x00xy')
+        self.assertEqual(block.pack({**data, 'name': 'a'}), b'a\x00xyz\xcc\x00\x00')
+        self.assertEqual(block.estimate_packed_size({**data, 'name': 'a'}), 8)
+        with self.assertRaises(DataIntegrityException):
+            block.pack({**data, 'name': 'abcdefghi'})
+
+
+class TestLengthPrefixedBytes(unittest.TestCase):
+    def test_read_write(self):
+        field = LengthPrefixedBytesBlock(length_block=IntegerBlock(length=2))
+        buffer = BytesIO(bytes([3, 0, 7, 8, 9, 99]))
+        self.assertEqual(field.unpack(ReadContext(buffer)), bytes([7, 8, 9]))
+        self.assertEqual(buffer.tell(), 5)
+        self.assertEqual(field.pack(bytes([1, 2])), bytes([2, 0, 1, 2]))
+        self.assertEqual(field.estimate_packed_size(bytes([1, 2])), 4)
+        self.assertEqual(field.size_doc_str, '2..?')
+        self.assertEqual(field.new_data(), b'')
+        self.assertEqual(field.schema['block_description'], 'Bytes, prefixed with length field')

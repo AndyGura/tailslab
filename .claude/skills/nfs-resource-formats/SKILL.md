@@ -21,28 +21,50 @@ new parsing primitives. Skim the cheat-sheet below before reaching for `read-blo
 | `resources/eac/` | EA Canada formats shared across many NFS titles: `bitmaps.py` (EacImage/EacPalette), `psx_bitmaps.py` (PSX TNFS PsxImage/PsxClut; PSX TNFS models are `OrixGeometry` in `geometries/tnfs.py`, the ORIP blocks with PSX polygons / materials, CLAUDE.md "TNFS PlayStation"), `psx.py` (PSX `CRCF` footer, TNFS PSX `.INF` horizon settings, the Japanese disc's car Gouraud colours `.GRO`), `psx_audios.py` (PSX TNFS sound banks `.VH` / `.VB` and "VAGp" samples, decoded with `decode_spu_sample` of `library/utils/audio_ps_adpcm_codec.py`; CLAUDE.md "TNFS PlayStation"), `horizons.py` (sky settings as text + a `parse` function to a NamedTuple, exported as JSON by `EacHorizonSettingsSerializer`: NFS2 / NFS2 SE / NFS3 `.HRZ`, NFS4 `Tr.ini`; their `spherical.png`: CLAUDE.md "NFS2 SE sky".."NFS4 sky"), `archives/` (SHPI/SHPP (PSX)/WWWW/BIGF/C0FB (compact BIGF, a `BigfBlock` subclass: its header sizes are `HEADER_FIELDS_LENGTH` / `DESCRIPTION_FIELDS_LENGTH`)/SoundBank (TNFS)/EaSoundBank (NFS2-NFS6 `BNKl`)/compressed), `fonts.py`, `audios.py`, `videos.py`, `geometries/`, `maps/`, `car_specs.py` (TNFS PC PBS/PDN, TNFS 3DO `.BigSpecsFam`, NFS2 SE `p<car>.DAT`, `simtune.dat`, car AI `<car>.dat`, AI `TRAFCFG.DAT` / `PRSONAL.DAT`, NFS5 `.sim` / `.ais` / `nfs5.prt` / `nfs5.car` (NFS5's career files `nfs5.fac` / `nfs5.trn` / `nfs5.per` in `nfs5_career.py`), NFS3 / NFS4 `carp.txt`: a text format whose top-level block reads / writes the text itself, its fields typed by text value blocks for the GUI and docs, CLAUDE.md "NFS3 car physics" / "NFS4 car physics"), `field_descriptions.py` (EA's developers' field descriptions `.DES`, `EaFieldDescriptions`: records nested by `Chain` groups, built per depth as `CompoundBlock` instances; fixed-size text fields with garbage after the zero as `DesTextBlock` + `DesTextRestBlock`; `block_layout` lists the leaves of any fixed-size block with their offsets), `fedata.py` (NFS3 / NFS4 `fedata.<lang>` car showroom data, `FeDataTextTable` for an offset table of null-terminated texts, CLAUDE.md "NFS3 / NFS4 car showroom data"), `ini.py` (typed INI text files), `nfs6_car_specs.py` (NFS HP2 PC car `.ini` files, `cartable.viv` CRDl tables), `configs.py`, `replays.py` (TNFS SE `.RPL` race replay), `misc.py`, `compressions/` (RefPack, QFS2, QFS3, JDLZ, HUFF, COMP decompressors and compressors; porting new ones from disassembly → skill `asm-runner-porting`). |
 | `resources/eac/maps/{tnfs,nfs2,nfs3,nfs4,nfs5,nfs5_sky,nfs6,nfs_common}.py`, `resources/eac/geometries/{tnfs,nfs2,nfs3,nfs4,nfs5,nfs6}.py` | Per-game specializations of a shared concept. |
 | `resources/common/bitmaps/targa_image.py`, `pcx_image.py`, `resources/common/audios/saturn_tone_bank.py` | Vendor-neutral formats: TGA (an `AutoDetectBlock` fallback), PCX (`PcxImage`, a `TargaImage` subclass: bytes decoded by Pillow), Sega Saturn sound driver tone banks (`SaturnToneBank`). |
-| `resources/blackbox/` | Blackbox-studio (NFS Underground) chunk bundles: every file is a tree of u32 id + u32 length chunks (bit 0x80000000 = container), payloads padded with 0x11 bytes to 16-byte (vertices, textures: 128-byte) absolute file offsets. `chunks.py` has `chunk_delegate`/`nfsu_sub_chunks_field` to dispatch sub-chunks by id (unknown ids fall back to raw bytes; chunks are lazy parts seeded with their `chunk_id`/`header` id, so code picking chunks by id parses only the matches); `maps/nfsu.py` `walk_nfsu_chunk_ids` is what the loader uses to recognise a bundle. Geometry packs (`geometries/nfsu.py`), texture packs (`bitmaps/nfsu.py`), scenery and streaming sections (`maps/nfsu.py`); NFSU race bundles also the track paths 0x80034147 (`NfsuTrackPath`, sub-chunks of NFS HP2 PS2's layout) and roads 0x34121 (`NfsuRoads`). NFSU2 reuses the chunk ids with other layouts: the geometry blocks branch on the mesh header version (0x13 NFSU, 0x16 NFSU2) and chunk lengths; when one id has two layouts (scenery 0x80034100, section table 0x34107), `chunk_delegate` asks each candidate block's `matches_chunk(ctx)` (peek helpers in `chunks.py`). NFSU2 section table is chunk 0x34110 of `TRACKS/LxRA.BUN`; NFSU2 roads 0x34121 (`maps/nfsu2.py` `Nfsu2Roads`, in `TRACKS/ROUTESLxRy/Routes*.bin`); NFSU2 and NFSMW car `TEXTURES.BIN` packs compress every texture separately (0x33310003 entries, JDLZ or HUFF, texture info + format in the last 156 bytes). NFS Most Wanted (`Nfsmw*` blocks) keeps the ids again: mesh header with null-terminated name (also version 0x16, told from NFSU2 by its fixed 28-byte name at offset 164), 48-byte mesh info, 104-byte materials with an effect id, one vertex buffer chunk per run of materials with the same effect (`nfsmw_vertex_buffer_materials`; vertex size 36/44/60 by effect), material names (0x134C02), scenery with 24-byte-named definitions and 64-byte instances, 92-byte section table entries, the road network chunk 0x3b800 of `L2RA.BUN` (`maps/nfsmw.py` `NfsmwRoadNetwork`, a "CARP" pack; CLAUDE.md section). `determine_chunks_class` (geometry packs) also asks `matches_chunk`; the vertex/faces/materials chunks match when the container's first chunk is an NFSMW mesh info. NFSMW car meshes reference run time texture slots (`HEADLIGHT_LEFT`, `WINDOW_LEFT_FRONT`, ...): `nfsmw_car_runtime_texture` in `serializers/geometries.py` maps them to the car's textures; the body paint `<CAR>_SKIN1` stays untextured. Texture and mesh ids are `bin_hash` of the name. NFS Hot Pursuit 2 PS2 (`Nfs6Ps2*` in the `nfs6_ps2.py` modules, own bundle classes; CLAUDE.md section) is the same chunk tree for the PS2: meshes are VIF packets for the VU1, textures GS-swizzled (`library/utils/ps2.py`); its music `SOUND/JUKEBOXM.JBC` is no chunk bundle (`audios/nfs6_ps2.py`, an `ArchiveBlock` of PS-ADPCM songs, `library/utils/audio_ps_adpcm_codec.py`). |
+| `resources/blackbox/` | Blackbox-studio (NFS Underground) chunk bundles: every file is a tree of u32 id + u32 length chunks (bit 0x80000000 = container), payloads padded with 0x11 bytes to 16-byte (vertices, textures: 128-byte) absolute file offsets. `chunks.py` is the chunk kit (cheat-sheet below): `ChunkBlock`, `chunk_delegate`/`chunks_field` to dispatch chunks by id (unknown ids fall back to raw bytes; chunks are lazy parts seeded with their `chunk_id`/`header` id, so code picking chunks by id parses only the matches), chunk walks and peeks; its `walk_nfsu_chunk_ids` is what the loader uses to recognise a bundle. A car `GEOMETRY.BIN` (`NfsuBinGeometry`) is the geometry pack chunk (`chunks`, `data_length` = their size) and the chunks after it (`trailing_chunks`: padding, 0x80034020). Geometry packs (`geometries/nfsu.py`), texture packs (`bitmaps/nfsu.py`), scenery and streaming sections (`maps/nfsu.py`); NFSU race bundles also the track paths 0x80034147 (`NfsuTrackPath`, sub-chunks of NFS HP2 PS2's layout) and roads 0x34121 (`NfsuRoads`). NFSU2 reuses the chunk ids with other layouts: the geometry blocks branch on the mesh header version (0x13 NFSU, 0x16 NFSU2) and chunk lengths; when one id has two layouts (scenery 0x80034100, section table 0x34107), `chunk_delegate` asks each candidate block's `matches_chunk(ctx)` (peek helpers in `chunks.py`). NFSU2 section table is chunk 0x34110 of `TRACKS/LxRA.BUN`; NFSU2 roads 0x34121 (`maps/nfsu2.py` `Nfsu2Roads`, in `TRACKS/ROUTESLxRy/Routes*.bin`); NFSU2 and NFSMW car `TEXTURES.BIN` packs compress every texture separately (0x33310003 entries, JDLZ or HUFF, texture info + format in the last 156 bytes); NFSU keeps 20-byte texture data locations under that id (`NfsuTextureLocations`, told apart by `matches_chunk`). NFS Most Wanted (`Nfsmw*` blocks) keeps the ids again: mesh header with null-terminated name (also version 0x16, told from NFSU2 by its fixed 28-byte name at offset 164), 48-byte mesh info, 104-byte materials with an effect id, one vertex buffer chunk per run of materials with the same effect (`nfsmw_vertex_buffer_materials`; vertex size 36/44/60 by effect), material names (0x134C02), scenery with 24-byte-named definitions and 64-byte instances, 92-byte section table entries, the road network chunk 0x3b800 of `L2RA.BUN` (`maps/nfsmw.py` `NfsmwRoadNetwork`, a "CARP" pack; CLAUDE.md section). In geometry packs the vertex/faces/materials chunks match when the container's first chunk is an NFSMW mesh info. NFSMW car meshes reference run time texture slots (`HEADLIGHT_LEFT`, `WINDOW_LEFT_FRONT`, ...): `nfsmw_car_runtime_texture` in `serializers/geometries.py` maps them to the car's textures; the body paint `<CAR>_SKIN1` stays untextured. Texture and mesh ids are `bin_hash` of the name. NFS Hot Pursuit 2 PS2 (`Nfs6Ps2*` in the `nfs6_ps2.py` modules, own bundle classes; CLAUDE.md section) is the same chunk tree for the PS2: meshes are VIF packets for the VU1, textures GS-swizzled (`library/utils/ps2.py`); its music `SOUND/JUKEBOXM.JBC` is no chunk bundle (`audios/nfs6_ps2.py`, an `ArchiveBlock` of PS-ADPCM songs, `library/utils/audio_ps_adpcm_codec.py`). |
 | `resources/eac/fields/misc.py`, `resources/eac/fields/numbers.py` | Small reusable domain blocks: `Point2D`/`Point3D`/`RGBBlock`, `Nfs1Angle8`/`Nfs1Angle14`, `Nfs1TimeField`. Check here before writing a new one. |
 
 ## Cheat-sheet: existing blocks (import from `library.read_blocks` unless noted)
 
 **Leaves**
-- `IntegerBlock(length, is_signed=False, byte_order='little')` — fixed-width int.
+- `IntegerBlock(length, is_signed=False, byte_order='little')` — fixed-width int. A struct mapped from decompiled
+  code uses the C-type shorthands of `resources/eac/fields/numbers.py`: `u8()`, `u16()`, `s16()`, `u32()`, `s32()`,
+  `f32()`, `fixed16()` / `ufixed16()` (16.16), `fixed8()` (24.8), keyword arguments passed on (`byte_order='big'`).
 - `FixedPointBlock(length, fraction_bits, ...)` — int with N fractional bits, read/written as float.
 - `DecimalBlock(length ∈ {4,8}, byte_order)` — IEEE float/double.
 - `EnumByteBlock(enum_names=[(int, str), ...], raise_error_on_unknown=False)` — 1-byte enum, unknown
   values pass through as their stringified number unless `raise_error_on_unknown`.
-- `UTF8Block(length)` / `NullTerminatedUTF8Block(length)` / `LengthPrefixedUtf8Block(length_block)`
-  (`library.read_blocks.strings`) — fixed/null-terminated/length-prefixed text.
-- `BytesBlock(length, allow_negative_length=False)` — raw bytes; `length` may be an int, a
-  `lambda ctx: ...`, or `(lambda ctx: ..., "doc string")` to control what `size_doc_str` shows.
-  `Padding(to, is_global=False)` — `BytesBlock` subclass that pads up to an absolute/local offset.
+- `UTF8Block(length, encoding='utf-8')` / `NullTerminatedUTF8Block(length)` / `LengthPrefixedUtf8Block(length_block)`
+  (`library.read_blocks.strings`) — fixed/null-terminated/length-prefixed text; `encoding='latin-1'` for 8-bit
+  characters (`Coupé`). `FittedBytesBlock(length)`: the rest of a fixed-size name field after a
+  `NullTerminatedUTF8Block` name (`length=(lambda ctx: 31 - len(ctx.data('name').encode('utf-8')), '31 - len(name)')`):
+  leftovers kept for byte-exact writes, cut or zero-padded when the name changes length, no write override needed.
+- `BytesBlock(length, allow_negative_length=False)` — raw bytes; `length` may be an int, a field
+  path (`length='data_size'`), a `lambda ctx: ...`, `REMAINING` (the bytes the block is read with:
+  an archive item's slot, else the rest of the parent; also `UTF8Block`'s length, and an array's
+  `byte_length`), or any of these as `(length, "doc string")` to control what `size_doc_str` shows.
+  Never `lambda ctx: ctx.read_bytes_remaining` for "the rest": that is `REMAINING`.
+  `Padding(to, is_global=False)` — `BytesBlock` subclass that pads up to an absolute/local offset
+  (`to='vertices_ptr'`: up to the offset an earlier pointer field holds).
+- A new leaf storing a value as an integer (angle, scaled number, code) subclasses `IntegerBlock` and
+  overrides `from_raw(raw)` / `to_raw(value)` (see `resources/eac/fields/numbers.py`), not `read` /
+  `write`: records made only of integer / float leaves (nested records and int-length arrays of them
+  included, no value validator or programmatic value inside) are then read and written with one
+  `struct` call per record, several times faster (skill `read-block-framework`, struct records).
 
 **Containers**
 - `CompoundBlock(fields=[(name, block, extras), ...])` / `DeclarativeCompoundBlock` (fields declared
   as a nested `Fields` class — the pattern almost everything uses, see below).
-- `ArrayBlock(child, length)` — `length` int or `lambda ctx: ...`.
-  `LengthPrefixedArrayBlock(length_block, child)` — length read from a leading field.
+- `ArrayBlock(child, length)` — `length` int, field path (`length='num_items'`) or `lambda ctx: ...`.
+  Arrays whose count is not stored never count their items in a pre-scan of the bytes:
+  `byte_length=...` (a block parameter): the items take that many bytes, fixed-size ones as many as fit (the
+  rest goes to the next field), others read one by one, raising if they run past it;
+  `byte_length=(REMAINING, 'file size')` = records up to the end of the file / item (documented as
+  `file size / <item size>` items). `stop_after=(lambda item: ..., 'doc')`: a terminator that is the last item
+  (EA sound patch tags up to tag `end`); `stop_before=(lambda ctx: ctx.peek(2) == b'\xff\xff', 'doc')`: a
+  terminator read by the next field (the PSX `.GRO` records). Both also stop at `ctx.read_end`.
+  `LengthPrefixedArrayBlock(length_block, child)` — length read from a leading field (`LengthPrefixedUtf8Block` /
+  `LengthPrefixedBytesBlock(length_block)`: the byte length of a text / of raw bytes).
   `SubByteArrayBlock(length, bits_per_value, value_deserialize_func=None, value_serialize_func=None)`
   — packed sub-byte values (e.g. 4-bit-per-pixel bitmaps).
 - `SubByteCompoundBlock(schema=[(bits, alias, type, details, description), ...])` — bitfields packed
@@ -56,7 +78,7 @@ new parsing primitives. Skim the cheat-sheet below before reaching for `read-blo
   `TrailingOptionalBlock(child, criteria=None)` (`library.read_blocks.optional`) — same idea for
   presence only observable while reading: leftover space at the end of a structure/file (default
   criteria: `ctx.read_bytes_remaining > 0`), or a custom `criteria(ctx)` that peeks at upcoming
-  bytes (`ctx.buffer.read(n)` then `ctx.buffer.seek(-n, SEEK_CUR)` to undo the peek) and checks
+  bytes (`ctx.peek(n)`: up to n bytes ahead, the buffer position kept) and checks
   whether they look like the expected format - the way to parse a sequence of same-shaped,
   independently-optional trailing chunks in a known order (stack one `TrailingOptionalBlock` per
   chunk, each sniffing its own signature). When the chunks link to each other (an offset to the
@@ -74,6 +96,10 @@ new parsing primitives. Skim the cheat-sheet below before reaching for `read-blo
   known before parsing) `data` is a lazy part in lazy read context, seeded by `part_seed(ctx, block)`. `AutoDetectBlock(possible_blocks)` — auto-detect via
   `library.probe_block_class` (used e.g. inside `ShpiBlock` item slots).
   `EnumLookupDelegateBlock(enum_field, blocks)` — picks by looking up a sibling enum field's value.
+  `MagicDispatchBlock(possible_blocks, field='identifier', fallback=None)` — picks by a magic id: the first block in
+  order whose `field` (an `Eq` / `Or` validator on it, after fixed-size fields only) accepts the bytes at its offset;
+  `fallback` = index of an unknown-record block (it needs no such field), else an unknown id raises. NFS5 CRP parts
+  (`resources/eac/geometries/nfs5.py`, 2-char ids after a 16-bit index and 4-char ids in one list).
 - `ArchiveBlock` (`library.read_blocks.archives`) — base for name/offset-indexed archives; see the
   ShpiBlock walkthrough below.
 
@@ -84,12 +110,54 @@ range (`Lte(60)` for a count of a 60-item array; an unsigned int needs no `Gte(0
 validator raises `DataIntegrityException`. The GUI shows `Eq` fields read-only and hides them with the hidden fields,
 `Or` as a select, and limits number inputs to the comparison bounds (`frontend/.../editor/value-validators.ts`).
 
+**Field references** (`library.read_blocks`, module `references.py`) — the `programmatic_value` of a
+header field that a writer recomputes from other fields of the same compound block:
+- `CountOf('polygons')` — number of items (or bytes, or characters) of a field; any `ctx.data` path
+  (`'vertices/data'`).
+- `OffsetOf('vertices')` — offset of a field from the start of the compound block.
+- `SizeOf('sub_chunks')`, `SizeOf('header', 'header_padding')` — packed size of fields together.
+- `ItemOffsetsOf('blocks')` — the offset of each item of an array field (an offset table:
+  `ArrayBlock(child=IntegerBlock(length=4), length='num_blocks', programmatic_value=ItemOffsetsOf('blocks'))`).
+- `OwnSize()` — packed size of the whole compound block.
+- `+ n` / `- n` adds a constant: a chunk length counting what follows it is `OwnSize() - 8`, a size
+  counting itself `SizeOf('dashboard') + 4`.
+
+The writer fills offsets and sizes in after writing the other fields, without the estimate pass a
+lambda calling `estimate_packed_size` / `offset_to_child_when_packed` costs (several per nesting
+level). They refer to fields by their name in the same compound; a value from another block, a
+condition or arithmetic beyond a constant stays a lambda (`lambda ctx: len(ctx.data('items')) * 8`).
+
 **Domain helpers** (`resources.eac.fields`): `Point2D(child, normalized=False)`,
 `Point3D(child, normalized=False)`, `Quaternion(child)` (x, y, z, w; NFS2/NFS3 animation keyframes use 2.14 fixed
-point), `RGBBlock()`, `Nfs1Angle8()`/`Nfs1Angle14()` (8/14-bit angle → radians float), `IntegerAngleBlock(full_turn, length=...)` (angle
+point), all `VectorBlock(child, axes='xyz', normalized=False)` (another vector: a subclass with its
+`description_prefix`), `RGBBlock()`, `Nfs1Angle8()`/`Nfs1Angle14()` (8/14-bit angle → radians float), `IntegerAngleBlock(full_turn, length=...)` (angle
 kept as the stored integer, `full_turn` units per 360°; the GUI shows it in degrees / radians), `Nfs1TimeField()` (ticks →
 seconds float). `normalized=True` rescales the vector to unit length on write, which breaks a byte-exact round trip
 of stored vectors that are slightly off unit length or zero; leave it off for data read from game files.
+
+**Black Box chunks** (`resources/blackbox/chunks.py`; NFSU, NFSU2, NFSMW, NFS HP2 PS2): a chunk block is a
+`ChunkBlock`: `CHUNK_ID = 0x34103` gives the `chunk_id` field (`Eq` id: `chunk_delegate` picks the block by it; a
+block taking a range of ids lists them in `chunk_ids`) and the `chunk_length` field (`OwnSize() - 8`, filled in on
+write), `ALIGNMENT = 0x10` (`0x80` for vertices and textures) the `elevens` 0x11 filler when the data starts at an
+aligned offset (`CHECK_ELEVENS = True` refuses other bytes), then come the fields of its `Fields(ChunkBlock.Fields)`
+class (a header field declared there, e.g. a length with a validator, replaces the generated one).
+`records_to_chunk_end(child, size)` is an array of fixed-size records up to the end of the payload,
+`records_to_chunk_end(child)` of records of any size (read one by one up to there), `chunk_rest()` the raw bytes up
+to it. A container's `sub_chunks = chunks_field([...], description)` holds its sub-chunks (lazy parts, unknown ids as
+`UnknownChunk`); a bundle's top level is `chunks_field(blocks, 'Chunks', byte_length=(REMAINING, ...))`.
+Several layouts of one id: give the blocks `matches_chunk(ctx)`, checked before the others, peeking with
+`peek_chunk_payload`, `peek_sub_chunks` / `peek_sub_chunk_payload` (seek over sub-chunk headers, never copy a
+container payload) or `peek_bytes`; a chunk of variable-size records filling its payload is a `RecordsChunk`
+(`RECORD_HEADER_SIZE`, `record_size(payload, pos)`, `MIN_RECORDS`: its `matches_chunk` counts them with
+`count_records`), names are checked with `is_name_bytes`. A chunk parsed as a lazy part may read its siblings'
+values (`ctx.data('../0/data/faces_amount')`), never how many siblings were read before it: use its index
+(`int(ctx.name)`) for that. Serializers find chunk data in a parsed chunk list with `find_chunk(chunks, id)` /
+`find_chunks`.
+
+**PSX `CRCF` footer** (`resources/eac/psx.py`): a block of a file ending with one has `crc_footer =
+crc_footer_field()` as its last field and mixes in `PsxCrcFooterMixin` (written with the CRC of the bytes before it);
+a block whose footer follows it only in a file of its own or a BIGF item, not in a FAM, mixes in
+`PsxItemCrcFooterMixin` (`ShppBlock`, `OrixGeometry`; its length fields take `size_without_footer`).
 
 **Typed INI text files** (`resources/eac/ini.py`): `IniFile` + `ini_fields_class([...])` with `IniSection(section,
 fields)` / `IniSectionGroup(IniGroupSection(fields, ...), name_regex, new_name)` of `IniInt` / `IniFloat` /
@@ -128,14 +196,20 @@ class SomeThing(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         magic = (UTF8Block(length=4, value_validator=Eq('ABCD')), {'description': 'Magic header'})
+        size = (
+            IntegerBlock(length=4, programmatic_value=OwnSize()),
+            {'usage': 'io,doc', 'description': 'Size of the file in bytes'},
+        )
         count = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('items'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('items')),
             {'usage': 'io,doc', 'description': 'Number of items'},
         )
-        items = (
-            ArrayBlock(child=IntegerBlock(length=2), length=lambda ctx: ctx.data('count')),
-            {'description': 'The items'},
+        items_ptr = (
+            IntegerBlock(length=4, programmatic_value=OffsetOf('items')),
+            {'usage': 'io,doc', 'description': 'Offset of `items`'},
         )
+        unk_items = (Padding(to='items_ptr'), {'description': 'Bytes up to `items_ptr`, normally none'})
+        items = (ArrayBlock(child=IntegerBlock(length=2), length='count'), {'description': 'The items'})
 ```
 
 - `block_description` (class attribute) is the block's description in the docs and the GUI; a
@@ -150,20 +224,28 @@ class SomeThing(DeclarativeCompoundBlock):
   docs, flagged), `custom_offset` (docs only, for non-sequential layouts), `usage` — comma-separated
   subset of `ui`/`io`/`doc` (default = everywhere; e.g. `'io,doc'` hides a redundant length field
   from the editable GUI while keeping it in docs and round-trip I/O).
-- `programmatic_value=lambda ctx: ...` — field is still *read* normally, but on `write` its value is
+- `programmatic_value=...` — field is still *read* normally, but on `write` its value is
   recomputed from the rest of the tree instead of trusting stored data (use for lengths/counts that
-  must stay consistent after edits).
-- Length/condition lambdas can reach any already-parsed sibling/ancestor via `ctx.data('path')` /
-  `ctx.data('../parent_field')` — see `read-block-framework`'s context section; keep them
-  documentation-safe (pure arithmetic/comparisons).
+  must stay consistent after edits): a field reference (`CountOf`, `OffsetOf`, `SizeOf`, `OwnSize`,
+  cheat-sheet) where one fits, else `lambda ctx: ...`.
+- A length that is a sibling field is its path (`length='count'`, `length='../num_items'`), not
+  `lambda ctx: ctx.data('count')`. Length/condition lambdas can reach any already-parsed
+  sibling/ancestor via `ctx.data('path')` / `ctx.data('../parent_field')` — see
+  `read-block-framework`'s context section; keep them documentation-safe (pure
+  arithmetic/comparisons).
 
 ### Another platform's variant of an existing layout
 
 When a console version stores the same structure in another byte order, with a few fields missing or reused
 (TNFS 3DO `.BigSpecsFam` vs PC `.PBS`), subclass the existing block and build its `Fields` class from the
-existing one with `type('Fields', (DeclarativeCompoundBlock.Fields,), {...})` (field order = dict order): deep
-copies of the blocks with `byte_order` switched (`big_endian_copy`, `resources/eac/fields/byte_order.py`), the missing fields left out, renamed / retyped ones replaced, and
-the platform's own descriptions (see `_tnfs_3do_car_physics_fields` in `resources/eac/car_specs.py`; Sega Saturn: `TnfsSaturnCarPhysics`, `TnfsSaturnCarAiAndCrashBody` in `resources/eac/tnfs_saturn.py`, `TnfsSaturnOrixGeometry`). The subclass
+existing one with `derive_fields(Base.Fields, transform=big_endian_copy, replace={name: (block, extras)},
+drop={...})` (`resources/eac/fields/byte_order.py`: deep copies of the blocks with `byte_order` switched, in order,
+retyped ones replaced in place, missing ones left out; Sega Saturn: `TnfsSaturnCarPhysics`,
+`TnfsSaturnCarAiAndCrashBody` in `resources/eac/tnfs_saturn.py`, `TnfsSaturnOrixGeometry`). Renamed fields and the
+platform's own descriptions for every field: a `type('Fields', (DeclarativeCompoundBlock.Fields,), {...})` of its
+own (`_tnfs_3do_car_physics_fields` in `resources/eac/car_specs.py`). A format variant of the same byte order
+takes the fields it shares as they are: `num_parts = Fce3Geometry.Fields.num_parts` in the new `Fields` class body
+(not inherited: `CompoundBlockFields.fields` reads the class's own attributes). The subclass
 keeps the parent in `block_class_mro`, so the parent's bespoke GUI component renders it; let the component branch on
 `block_class_mro` for the differences. Give the variant its own `EXPORT_RESOURCES` game entry when the platform has
 its own doc.
@@ -175,7 +257,10 @@ When the on-disk representation is awkward (e.g. packed color bitness, indexed r
 (`_native_to_internal`), return it; in `write`, **`deepcopy(data)` first** (the same dict backs the
 GUI's live/unsaved-edits state — mutating it directly corrupts that), transform the copy
 (`_internal_to_native`), then `super().write(copied, ...)`. See `EacImage`/`EacPalette` in
-`resources/eac/bitmaps.py` for the full pattern, including per-color-format conversion tables.
+`resources/eac/bitmaps.py` for the full pattern; colours convert with `decode_colors` / `encode_colors`
+(`library/utils/colors.py`: whole numpy arrays of packed ARGB formats, BGR555, DOS 6-bit, never pixel by pixel).
+Such a block is read and written field by field: keep the overrides off small records repeated
+thousands of times (vertices, polygons), or they lose the struct path.
 
 If a field's native bytes are actually a *concatenation of several same-format chunks of differing
 size* (e.g. `EacImage.mipmaps`: w/2×h/2, w/4×h/4, ..., 1×1 bitmaps back to back), don't feed the
@@ -187,11 +272,14 @@ whose decoding depends on row width.
 
 ### JSON every field, reversible
 
-`JsonSerializer` leaves unknown and editor-hidden fields out and cannot import. `CompleteJsonSerializer`
-(`serializers/complete_json.py`) writes the same `<name>.json` with every field (bytes as `{"$bytes": [...]}`, NaN as
-"NaN") and imports it back (`complete_json_value`: missing compound fields from `new_data()`, the result packed once
-to refuse what cannot be written), so a record file round-trips byte-exact through JSON (NFS5 car data). Switching a
-block to it keeps its JSON keys (a superset).
+`JsonSerializer` (`serializers/json.py`) leaves unknown and editor-hidden fields out and cannot import.
+`ReversibleJsonSerializer` writes the same file and imports it back: its values over the data loaded under the id
+(`current_resource`) or over new data (`merge_json_values`); a subclass overrides `json_value(data, block)` (what the
+file holds) or `json_to_data(block, value, current)` (the import), `with_bin = True` also writes `<name>.bin`, the
+bytes. `CompleteJsonSerializer` (`serializers/complete_json.py`) writes every field (bytes as `{"$bytes": [...]}`, NaN
+as "NaN") and imports it back (`complete_json_value`: missing compound fields from `new_data()`, the result packed
+once to refuse what cannot be written), so a record file round-trips byte-exact through JSON (NFS5 car data). Switching
+a block to it keeps its JSON keys (a superset).
 
 ### Custom GUI actions
 
@@ -222,27 +310,39 @@ both do.
 
 ### Archives (name/offset-indexed containers)
 
-`ArchiveBlock` (base class) already handles the item/pre-offset-payload/post-offset-payload/alias
-plumbing. To build one (see `ShpiBlock` in `resources/eac/archives/shpi_block.py` as the reference):
-1. Pass `item_block=` (typically an `AutoDetectBlock` of the possible item types) to `super().__init__()`.
+`ArchiveBlock` (`library/read_blocks/archives.py`) reads, writes and sizes an archive: a header with a
+directory of items (`items_descr`), the items in `data_bytes`; the data has `children` (entries of `item`,
+`post_offset_payload`, `alias`) instead. To build one (references: `WwwwBlock`, `BigfBlock`, `ShpiBlock`,
+`Nfs6Ps2Jukebox`):
+1. Pass `item_block=` (typically an `AutoDetectBlock` of the possible item types, its last choice
+   `BytesBlock(length=(REMAINING, 'item_length'))`: an item no other block reads takes its slot) to
+   `super().__init__()`.
 2. Declare your own header fields normally (magic, length, item count, offset table, ...), marking
-   the raw offset-table/data-bytes fields `usage: 'io,doc'` (hidden from the edit UI).
+   `items_descr` and `data_bytes` (the last io field) `usage: 'io,doc'` (hidden from the edit UI).
 3. Add `children = (ArrayBlock(child=None, length=None), {'usage': 'ui'})` to `Fields` — this is the
    GUI-facing reconstructed item list.
 4. Declare `pre_items_payload` (a `BytesBlock` sized with `pre_items_payload_length(ctx, offsets)`) right
    before `data_bytes`: the bytes between the item descriptions and the first item (padding, or data no
-   offset points to). Override `read()` to build `children` from the offset table: `read_header()` reads
-   every io field before the items region (`data_bytes`, the last io field) without reading the region,
-   then one `read_entry(ctx, name, offset, length, item_length, alias)` per item, where `offset`/`length`
-   is the item's slot (up to the next item offset, see `slot_lengths`). Bytes after the item's own end
-   inside its slot become its `post_offset_payload`; an entry never has bytes before its item. In a lazy
-   read context `read_entry` returns an unloaded `LazyDict` (see "Lazy parts" in skill
-   `read-block-framework`), so item blocks must not depend on bytes outside their slot except via
-   header values (`ctx.data('items_descr')` etc. are kept for them).
-5. Override `write()` to flatten `children` back into the offset table + raw data bytes, taking each
-   entry's `(item, post)` bytes from `entry_bytes()` (an unloaded entry gives its original slot); item
-   offsets count `pre_items_payload`.
-6. Override `estimate_packed_size()` (header + `pre_items_payload` + `sum(self.entry_sizes(child))` per child).
+   offset points to).
+5. Implement `item_descriptions(header)`: one `ItemDescription(index, offset, alias, item_length, name)` per
+   entry, offsets relative to the archive start (None: an entry without data), in the order to read them,
+   and `make_items_descr(data, layouts, heap_offset)`: `items_descr` of the entries written at the
+   `EntryLayout`s (offset in `data_bytes`, item and slot length; add `heap_offset`). Each entry owns its
+   slot (up to the next item offset): bytes after the item's own end are its `post_offset_payload`; an
+   entry never has bytes before its item. Hooks for other layouts: `heap_order` (the order item data is
+   stored in, SHPI keeps the read one), `is_empty_entry` (WWWW offset 0), `slots_end` (BIGF: the length of
+   the header), `after_read` (more data from the header), `heap_offset` (a header whose estimate is not
+   its written size).
+In a lazy read context entries are unloaded `LazyDict`s (see "Lazy parts" in skill `read-block-framework`),
+written back as their original slot bytes, so item blocks must not depend on bytes outside their slot
+except via header values (`ctx.data('items_descr')` etc. are kept for them). Header fields sizing the
+archive (`OwnSize()`, a length) take the sizes of the entries `write` packed. `archive.items(data,
+EacImage)` iterates the entries of one item class (index, entry, block, item data); `parse_item_id(id)`
+(`library/utils/id.py`) gives the archive id and index of an item id.
+
+Items at the offsets of an offset table, kept as raw bytes plus a parsed "ui" array (TRK blocks, COL
+files: `extrablocks`), are read with `read_items_at_offsets` and written back from the parsed items with
+`pack_items_at_offsets` (an unchanged item keeps its bytes and the bytes after it).
 
 ## Registering a brand-new top-level file format
 
@@ -263,8 +363,8 @@ plumbing. To build one (see `ShpiBlock` in `resources/eac/archives/shpi_block.py
    `SomeBlock().schema['block_class_mro']` that it doesn't match an existing one before wiring up
    a bespoke viewer for it.
 3. **Serialize it**: add a serializer class (subclass `BaseFileSerializer` from
-   `serializers/base.py`) under `serializers/<area>.py`, implement `serialize()` (and
-   `deserialize()`/`ui_serialization()` if it should round-trip from the GUI convert panel), name it
+   `serializers/base.py`) under `serializers/<area>.py`, implement `serialize()` (and `deserialize()`, the GUI convert
+   panel entry is the class attribute `ui = UiSerialization(...)`, e.g. `REVERSIBLE_JSON_UI`), name it
    in the block's `serializer` class attribute (`serializer = 'SomeThingSerializer'`), and import the
    new serializer class in `serializers/__init__.py` (the attribute is looked up there).
    For 3D formats, give each `SubMesh` a `texture_id`, list those ids in `Scene.mtl_texture_names`
@@ -280,9 +380,12 @@ plumbing. To build one (see `ShpiBlock` in `resources/eac/archives/shpi_block.py
    (TNFS terrain, cars and props, drawn unlit by nfs-web). `ImageSerializer().to_image(data, block, id)` returns a
    PIL image of any `EacImage` (palette resolved from `id`), e.g. to compose texture atlases (see
    `compose_texture_page` in `serializers/geometries.py` for NFS5 CRP texture pages). A texture
-   file that sits next to the model (track `.fsh`, car `.tpg`) is loaded with
-   `require_resource(path_to_name(<sibling path>))`; unwrap `EacCompressedBlock` by re-requiring
-   `join_id(id, 'data')`. NFS5 car atlases overlap alternative image variants (roof, decals, ...):
+   file that sits next to the model (track `.fsh`, car `.tpg`) is found with `find_file_case_insensitive` and loaded
+   with `require_resource_as(path_to_name(<path>), ShpiBlock)` (through an `EacCompressedBlock`). Textures exported on
+   first use: `TextureExporter(path, image_of, name_of)` (`.name(key)`, `.alpha_modes`); WAVs:
+   `write_wav_with_meta` + `loop_meta` (`serializers/audios.py`); archive items: `export_child`, `write_skipped`,
+   `unique_name` (`serializers/base.py`); track scenes: `track_map_scene`, `terrain_chunk_scene`, `road_path_curve`,
+   `write_terrain_chunks_json`. NFS5 car atlases overlap alternative image variants (roof, decals, ...):
    `crp_car_is_image_used` keeps those of the car's default `.tpg` `[styleN]`. CRP alpha is not
    transparency except for `CarWheel`/`CarWindow` materials, so other pages are written opaque
    (`page_<n>.png` vs `page_<n>_alpha.png`). Meshes without a texture still need a material
@@ -375,6 +478,25 @@ plumbing. To build one (see `ShpiBlock` in `resources/eac/archives/shpi_block.py
 - Check for a standard container before reading hex: `file <sample>` and the first bytes. NFS6 `.o` is a
   plain ELF object, so a short `struct` parser of its symbol table and relocations named every
   structure and turned every pointer into a known target; guessing offsets would have taken far longer.
+- A structure from a decompiled executable (a Ghidra / IDA struct, a loader reading members one by
+  one) becomes one field per member, in order, and its header members map onto field references:
+  - `int num_x;` + `X *x;` / `int x_offset;` (relative to the struct start) → `CountOf('x')`,
+    `OffsetOf('x')`, then `Padding(to='x_offset')` before `x` (bytes the file may hold there) and
+    `ArrayBlock(child=..., length='num_x')`;
+  - a `size` / `length` member of the whole struct → `OwnSize()` (minus what it does not count:
+    `OwnSize() - 8` for a chunk length after an id and itself), of some members → `SizeOf(...)`;
+  - a byte count of a raw member → `BytesBlock(length='x_size')` with `CountOf('x')` on `x_size`.
+
+  Offsets relative to something else (the file start, another struct) or counts the loader derives
+  with more arithmetic are lambdas. A Black Box chunk's struct (the loader skips 8 bytes of chunk header, often
+  aligns to 16 bytes) is a `ChunkBlock` (cheat-sheet, "Black Box chunks").
+- A union picked by a type tag or magic id (`switch (chunk->id)`, a table of handlers by id) is a
+  `MagicDispatchBlock` of one block per case, each with the id field validated (`Eq('tv')`, `Or([...])` for a case
+  taking several ids), listed in the order the loader tests them; the validators then document the ids too.
+- Field groups many structs share (a chunk header, an index bit field): one module-level `(block, extras)` tuple per
+  field, assigned in each `Fields` class (`offset = _PART_OFFSET`); a run of fields, from a helper returning the
+  tuples, unpacked in the class body (`unk0, len, num_data, offset, data = crp_array_part_fields(...)`), so the field
+  names stay in the class.
 - Write throwaway probe scripts (in the scratchpad) that run over every file of that kind in
   `games/<game>/` or the samples, and print value ranges and counts per field rather than dumping
   one file. Field descriptions like "always 44.703" or "values from 35 to 60" come from that.

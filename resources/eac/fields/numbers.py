@@ -1,8 +1,7 @@
 import math
 from typing import Dict
 
-from library.context import ReadContext, WriteContext
-from library.read_blocks import IntegerBlock
+from library.read_blocks import DecimalBlock, FixedPointBlock, IntegerBlock
 
 
 class AngleBlock:
@@ -29,13 +28,11 @@ class Nfs1Angle8(AngleBlock, IntegerBlock):
     def __init__(self, **kwargs):
         super().__init__(length=1, is_signed=False, **kwargs)
 
-    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
-        return float((super().read(ctx, name, read_bytes_amount) / 256) * (math.pi * 2))
+    def from_raw(self, raw: int):
+        return float((raw / 256) * (math.pi * 2))
 
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        value = self.wrap_angle(data)
-        value = min(round(256 * value / (math.pi * 2)), 0xFF)
-        return super().write(value, ctx, name)
+    def to_raw(self, value) -> int:
+        return min(round(256 * self.wrap_angle(value) / (math.pi * 2)), 0xFF)
 
 
 class Nfs1Angle14(AngleBlock, IntegerBlock):
@@ -54,13 +51,11 @@ class Nfs1Angle14(AngleBlock, IntegerBlock):
     def __init__(self, **kwargs):
         super().__init__(length=2, byte_order='little', is_signed=False, **kwargs)
 
-    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
-        return float(((super().read(ctx, name, read_bytes_amount) & 0x3FFF) / 0x4000) * (math.pi * 2))
+    def from_raw(self, raw: int):
+        return float(((raw & 0x3FFF) / 0x4000) * (math.pi * 2))
 
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        value = self.wrap_angle(data)
-        value = min(round(0x4000 * value / (math.pi * 2)), 0x3FFF)
-        return super().write(value, ctx, name)
+    def to_raw(self, value) -> int:
+        return min(round(0x4000 * self.wrap_angle(value) / (math.pi * 2)), 0x3FFF)
 
 
 class IntegerAngleBlock(IntegerBlock):
@@ -94,8 +89,46 @@ class Nfs1TimeField(IntegerBlock):
             'equals to amount of ticks (amount of seconds * 60)',
         }
 
-    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
-        return float(super().read(ctx, name, read_bytes_amount)) / 60
+    def from_raw(self, raw: int):
+        return float(raw) / 60
 
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        return super().write(int(data * 60), ctx, name)
+    def to_raw(self, value) -> int:
+        return int(value * 60)
+
+
+# Number fields of a decompiled struct by their C type (`byte_order='big'` and the other block arguments pass through)
+def u8(**kwargs):
+    return IntegerBlock(length=1, **kwargs)
+
+
+def u16(**kwargs):
+    return IntegerBlock(length=2, **kwargs)
+
+
+def s16(**kwargs):
+    return IntegerBlock(length=2, is_signed=True, **kwargs)
+
+
+def u32(**kwargs):
+    return IntegerBlock(length=4, **kwargs)
+
+
+def s32(**kwargs):
+    return IntegerBlock(length=4, is_signed=True, **kwargs)
+
+
+def f32(**kwargs):
+    return DecimalBlock(length=4, **kwargs)
+
+
+# 4-byte fixed point numbers: 16.16 signed / unsigned, 24.8 signed
+def fixed16(**kwargs):
+    return FixedPointBlock(length=4, fraction_bits=16, is_signed=True, **kwargs)
+
+
+def ufixed16(**kwargs):
+    return FixedPointBlock(length=4, fraction_bits=16, is_signed=False, **kwargs)
+
+
+def fixed8(**kwargs):
+    return FixedPointBlock(length=4, fraction_bits=8, is_signed=True, **kwargs)

@@ -1,6 +1,5 @@
 from math import floor, ceil
 
-from library.context import WriteContext, ReadContext
 from library.read_blocks import (
     DeclarativeCompoundBlock,
     UTF8Block,
@@ -27,18 +26,18 @@ class TnfsTopSpeed(FixedPointBlock):
     def __init__(self, **kwargs):
         super().__init__(length=3, is_signed=False, byte_order='little', fraction_bits=8, **kwargs)
 
-    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
-        value = super().read(ctx, name, read_bytes_amount)
+    def from_raw(self, raw: int):
+        value = super().from_raw(raw)
         int_part = floor(value)
         frac_part = value - int_part
         int_part = ceil(int_part * 2.240000000001)
         return int_part + frac_part
 
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        int_part = floor(data)
-        frac_part = data - int_part
+    def to_raw(self, value) -> int:
+        int_part = floor(value)
+        frac_part = value - int_part
         int_part = floor(int_part / 2.24)
-        return super().write(int_part + frac_part, ctx, name)
+        return super().to_raw(int_part + frac_part)
 
 
 class BestRaceRecord(DeclarativeCompoundBlock):

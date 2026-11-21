@@ -7,7 +7,6 @@ from io import BytesIO
 from library.loader import probe_block_class
 from resources.eac.car_specs import Nfs3CarPhysics, Nfs4CarPhysics
 from resources.eac.fedata import Nfs3CarFeData, Nfs4CarFeData, NFS3_FEDATA_TEXTS, NFS4_FEDATA_TEXTS
-import serializers.json as json_serializers
 
 _NFS3 = 'test/samples/nfs3_fedata'
 _NFS4 = 'test/samples/nfs4_fedata'
@@ -131,22 +130,16 @@ class TestCarpPlacAndJson(unittest.TestCase):
             block = cls()
             data = block.unpack_from_bytes(raw)
             serializer = block.serializer_class()()
-            original = json_serializers._current_resource
-            try:
-                with tempfile.TemporaryDirectory() as folder:
-                    outputs = serializer.serialize(data, os.path.join(folder, 'carp.txt'), block=block)
-                    self.assertEqual(_read(outputs[1]), raw)
-                    # over the loaded file: the same bytes
-                    json_serializers._current_resource = lambda id: data
-                    self.assertEqual(block.pack(serializer.deserialize(outputs, id='x', block=block)), raw)
-                    # without one: a new text the game reads the same values from
-                    json_serializers._current_resource = lambda id: None
-                    fresh = serializer.deserialize(outputs, id=None, block=block)
-                    again = block.unpack_from_bytes(block.pack(fresh))
-                    for name, *_ in block.carp_fields:
-                        self.assertEqual(again[name], data[name], name)
-            finally:
-                json_serializers._current_resource = original
+            with tempfile.TemporaryDirectory() as folder:
+                outputs = serializer.serialize(data, os.path.join(folder, 'carp.txt'), block=block)
+                self.assertEqual(_read(outputs[1]), raw)
+                # over the loaded file: the same bytes
+                self.assertEqual(block.pack(serializer.deserialize(outputs, block=block, current=data)), raw)
+                # without one: a new text the game reads the same values from
+                fresh = serializer.deserialize(outputs, id=None, block=block)
+                again = block.unpack_from_bytes(block.pack(fresh))
+                for name, *_ in block.carp_fields:
+                    self.assertEqual(again[name], data[name], name)
 
 
 if __name__ == '__main__':

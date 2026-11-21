@@ -3,13 +3,67 @@ from io import BytesIO
 
 from library.context import ReadContext
 from library.exceptions import DataIntegrityException
-from library.read_blocks import UTF8Block
+from library.read_blocks import REMAINING, UTF8Block
 from library.read_blocks.array import ArrayBlock, LengthPrefixedArrayBlock, SubByteArrayBlock
 from library.read_blocks.misc.value_validators import Eq
 from library.read_blocks.numbers import IntegerBlock
 
 
 class TestArray(unittest.TestCase):
+    def test_byte_length(self):
+        item = LengthPrefixedArrayBlock(length_block=IntegerBlock(length=1), child=IntegerBlock(length=1))
+        field = ArrayBlock(child=item, byte_length=(lambda ctx: 5, 'five bytes'))
+        val = field.unpack(ReadContext(BytesIO(bytes([2, 7, 8, 1, 9, 99]))))
+        self.assertEqual(val, [[7, 8], [9]])
+        self.assertEqual(field.pack(val), bytes([2, 7, 8, 1, 9]))
+        self.assertEqual((field.length_doc_str, field.size_doc_str), ('five bytes', 'five bytes'))
+        self.assertNotIn('length', field.schema)
+        self.assertEqual(field.new_data(), [])
+
+    def test_byte_length_items_past_it(self):
+        item = LengthPrefixedArrayBlock(length_block=IntegerBlock(length=1), child=IntegerBlock(length=1))
+        field = ArrayBlock(child=item, byte_length=4)
+        with self.assertRaises(DataIntegrityException):
+            field.unpack(ReadContext(BytesIO(bytes([2, 7, 8, 1, 9]))))
+
+    def test_byte_length_fixed_size_items(self):
+        # as many as fit, the rest stays for the next field
+        field = ArrayBlock(child=IntegerBlock(length=2), byte_length=(REMAINING, 'rest'))
+        buffer = BytesIO(bytes([1, 0, 2, 0, 3, 99, 99]))
+        self.assertEqual(field.unpack(ReadContext(buffer), read_bytes_amount=5), [1, 2])
+        self.assertEqual(buffer.tell(), 4)
+        self.assertEqual((field.length_doc_str, field.size_doc_str), ('rest / 2', 'rest'))
+
+    def test_stop_after(self):
+        field = ArrayBlock(child=IntegerBlock(length=1), stop_after=(lambda item: item == 0xFF, 'up to 0xFF'))
+        self.assertEqual(field.unpack(ReadContext(BytesIO(bytes([4, 5, 0xFF, 6])))), [4, 5, 0xFF])
+        # no terminator: up to the end of the bytes it may read
+        self.assertEqual(field.unpack(ReadContext(BytesIO(bytes([4, 5, 6, 7]))), read_bytes_amount=3), [4, 5, 6])
+        self.assertEqual(field.pack([4, 5, 0xFF]), bytes([4, 5, 0xFF]))
+        self.assertEqual((field.length_doc_str, field.size_doc_str), ('up to 0xFF', 'up to 0xFF'))
+        self.assertNotIn('length', field.schema)
+
+    def test_stop_before(self):
+        field = ArrayBlock(
+            child=IntegerBlock(length=2),
+            stop_before=(lambda ctx: ctx.peek(2) == b'\xff\xff', 'up to 0xFFFF'),
+        )
+        buffer = BytesIO(bytes([1, 0, 2, 0, 0xFF, 0xFF, 3, 0]))
+        self.assertEqual(field.unpack(ReadContext(buffer)), [1, 2])
+        self.assertEqual(buffer.tell(), 4)
+        self.assertEqual((field.length_doc_str, field.size_doc_str), ('up to 0xFFFF', 'up to 0xFFFF*2'))
+
+    def test_read_end(self):
+        buffer = BytesIO(bytes(10))
+        ctx = ReadContext(buffer)
+        self.assertEqual(ctx.read_end, 10)
+        buffer.seek(2)
+        child = ctx.get_or_create_child('a', read_bytes_amount=5)
+        self.assertEqual(child.get_or_create_child('b').read_end, 7)
+        buffer.seek(6)
+        self.assertEqual(child.peek(4), bytes(1))
+        self.assertEqual(buffer.tell(), 6)
+
     def test_array_unpack(self):
         field = ArrayBlock(length=3, child=IntegerBlock(length=1))
         val = field.unpack(ReadContext(BytesIO(bytes([92, 129, 13]))))

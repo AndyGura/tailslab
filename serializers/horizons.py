@@ -1,29 +1,15 @@
-import json
-from typing import List
-
-from serializers import BaseFileSerializer
+from serializers.base import JSON_UI
+from serializers.json import JsonSerializer
 
 
-class EacHorizonSettingsSerializer(BaseFileSerializer):
-    """Sky settings of a track (NFS2 / NFS2 SE / NFS3 `.HRZ`, NFS4 `Tr.ini`, `resources/eac/horizons.py`) as JSON:
-    the values named as the block's `parse` names them"""
+class EacHorizonSettingsSerializer(JsonSerializer):
+    """Sky settings of a track (NFS2 / NFS2 SE / NFS3 `.HRZ`, NFS4 `Tr.ini`, `resources/eac/horizons.py`; PSX TNFS
+    `.INF`, `TnfsPsxHorizonInfo`) as JSON: the values named as the block's `parse` names them"""
 
-    def ui_serialization(self):
-        return {
-            'file_type': 'json',
-            'is_directory': False,
-            'output_file_name_suffix': '.json',
-            'reversible': False,
-            'reversible_settings_patch': {},
-        }
+    ui = JSON_UI
 
-    def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
-        if path.endswith('/') or path.endswith('\\'):
-            path += id[id.rindex('/') + 1 :]
-        super().serialize(data, path)
+    def json_value(self, data, block):
         settings = block.parse(data['text'])
         if settings is None:
             raise Exception('Fewer values than the game reads')
-        with open(f'{path}.json', 'w') as file:
-            json.dump(settings.as_dict(), file, indent=4)
-        return [f'{path}.json']
+        return settings.as_dict()

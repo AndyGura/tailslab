@@ -1,18 +1,26 @@
 from typing import Dict
 
-from library.context import ReadContext, WriteContext, DocumentationContext
+from library.context import ReadContext, WriteContext
 from library.exceptions import DataIntegrityException, EndOfBufferException
-from library.read_blocks.basic import DataBlock
+from library.read_blocks.basic import DataBlock, LengthPrefixed, read_length
+from library.read_blocks.references import is_static_param, param_doc, param_value
+
+
+_ENCODING_NAMES = {'utf-8': 'UTF-8', 'latin-1': 'Latin-1'}
 
 
 class UTF8Block(DataBlock):
-    def __init__(self, length, **kwargs):
+    # `length`: a block parameter (library/read_blocks/references.py). `encoding`: of the text, 'latin-1' for 8-bit
+    # characters (Windows-1252 / Latin-1: `Coupé`; bytes after the first zero are kept as characters, so a field with
+    # leftovers there writes back byte-exact)
+    def __init__(self, length, encoding: str = 'utf-8', **kwargs):
         super().__init__(**kwargs)
         self._length = length
+        self.encoding = encoding
 
     @property
     def schema(self) -> Dict:
-        descr = 'UTF-8 string'
+        descr = f'{_ENCODING_NAMES.get(self.encoding, self.encoding)} string'
         if self.value_validator:
             descr += f'. {self.value_validator}'
         return {**super().schema, 'block_description': descr, 'length': self.size_doc_str}
@@ -20,33 +28,15 @@ class UTF8Block(DataBlock):
     # For auto-generated documentation only
     @property
     def size_doc_str(self):
-        if isinstance(self._length, tuple):
-            (_, doc_str) = self._length
-            return doc_str
-        if callable(self._length):
-            try:
-                return str(self._length(DocumentationContext()))
-            except:
-                return 'custom_func'
-        return str(self._length)
+        return param_doc(self._length)
 
     def resolve_length(self, ctx):
-        self_len = self._length
-        if isinstance(self_len, tuple):
-            # cut off the documentation
-            (self_len, _) = self_len
-        if callable(self_len):
-            self_len = self_len(ctx)
-        return self_len
+        return param_value(self._length, ctx)
 
     def _get_static_length(self):
-        self_len = self._length
-        if isinstance(self_len, tuple):
-            # cut off the documentation
-            (self_len, _) = self_len
-        if callable(self_len):
+        if not is_static_param(self._length):
             return None
-        return self_len
+        return self._length[0] if isinstance(self._length, tuple) else self._length
 
     def new_data(self, patch=None):
         if self.value_validator:
@@ -55,24 +45,24 @@ class UTF8Block(DataBlock):
 
     # lengths are in bytes: a character outside ASCII takes 2..4 of them
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None, resolved_length=None):
-        self_len = self.resolve_length(ctx) if resolved_length is None else resolved_length
+        self_len = read_length(self._length, ctx, read_bytes_amount) if resolved_length is None else resolved_length
         raw = ctx.buffer.read(self_len)
         if len(raw) < self_len:
             raise EndOfBufferException(ctx=ctx)
-        res = raw.decode('utf-8')
+        res = raw.decode(self.encoding)
         if self._length == self_len:
             res = res.rstrip('\x00')
         return res
 
     def estimate_packed_size(self, data, ctx: WriteContext = None):
         static_length = self._get_static_length()
-        length = len(data.encode('utf-8'))
+        length = len(data.encode(self.encoding))
         if static_length is not None:
             return max(length, static_length)
         return length
 
     def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        raw = data.encode('utf-8')
+        raw = data.encode(self.encoding)
         static_length = self._get_static_length()
         if static_length is not None:
             if len(raw) > static_length:
@@ -83,41 +73,13 @@ class UTF8Block(DataBlock):
         return raw
 
 
-class LengthPrefixedUtf8Block(UTF8Block):
-    def __init__(self, length_block: DataBlock, **kwargs):
-        super().__init__(length=None, **kwargs)
-        self.length_block = length_block
-
+class LengthPrefixedUtf8Block(LengthPrefixed, UTF8Block):
     @property
     def schema(self) -> Dict:
-        return {
-            **super().schema,
-            'block_description': 'Utf-8 block, prefixed with length field',
-            'length_schema': self.length_block.schema,
-        }
+        return {**super().schema, 'block_description': 'Utf-8 block, prefixed with length field'}
 
-    # For auto-generated documentation only
-    @property
-    def size_doc_str(self):
-        return f'{self.length_block.size_doc_str}..?'
-
-    def new_data(self, patch=None):
-        return ''
-
-    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
-        self_ctx = ctx.get_or_create_child(name, self, read_bytes_amount)
-        resolved_length = self.length_block.unpack(ctx=self_ctx, name='length')
-        res = super().read(ctx, name, read_bytes_amount, resolved_length=resolved_length)
-        self_ctx._data = res
-        return res
-
-    def estimate_packed_size(self, data, ctx: WriteContext = None):
-        length = super().estimate_packed_size(data, ctx)
-        return length + self.length_block.estimate_packed_size(length, ctx=ctx)
-
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        data = super().write(data=data, ctx=ctx, name=name)
-        return self.length_block.write(len(data), ctx, 'length') + data
+    def prefix_value(self, data, packed_size: int) -> int:
+        return packed_size
 
 
 class NullTerminatedUTF8Block(DataBlock):
@@ -144,13 +106,20 @@ class NullTerminatedUTF8Block(DataBlock):
         return '1..?'
 
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
+        # up to the first zero, past `length` too; read in slots of `length` bytes
+        start = ctx.buffer.tell()
+        slot = self._length if type(self._length) is int and self._length > 0 else 64
         res = b''
         while True:
-            nxt = ctx.buffer.read(1)
-            if nxt == b'\00':
-                break
-            res += nxt
-        return res.decode('utf-8', errors=self.errors)
+            chunk = ctx.buffer.read(slot)
+            if not chunk:
+                raise EndOfBufferException(ctx=ctx)
+            end = chunk.find(b'\0')
+            if end >= 0:
+                res += chunk[:end]
+                ctx.buffer.seek(start + len(res) + 1)
+                return res.decode('utf-8', errors=self.errors)
+            res += chunk
 
     def encode(self, data: str) -> bytes:
         return data.encode('utf-8', errors='surrogateescape' if self.errors == 'surrogateescape' else 'strict')

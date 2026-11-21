@@ -1,11 +1,25 @@
 from abc import ABC, abstractmethod
+from functools import cached_property
 from io import SEEK_CUR, BytesIO
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 
 from library.context import ReadContext, WriteContext, DocumentationContext
 from library.exceptions import DataIntegrityException, BlockDefinitionException, EndOfBufferException
 from library.read_blocks.misc.value_validators import ValueValidator
+from library.read_blocks.references import is_static_param, param_doc, param_value
+from library.read_blocks.struct_record import StructRecord
 from library.utils import represent_value_as_str
+
+
+# cached properties computed from a block's settings
+CACHED_LAYOUT_PROPERTIES = (
+    'fixed_size',
+    'struct_format',
+    'struct_raw',
+    'struct_record',
+    'struct_fields',
+    'back_patched_fields',
+)
 
 
 class DataBlock(ABC):
@@ -25,7 +39,8 @@ class DataBlock(ABC):
 
         def schema(self) -> Dict:
             base = own_schema.fget(self) if own_schema is not None else super(cls, self).schema
-            return {**base, 'block_description': description}
+            # an archive's stub for a nested reference to itself stays as it is
+            return base if base.get('is_recursive_ref') else {**base, 'block_description': description}
 
         cls.schema = property(schema)
 
@@ -73,6 +88,48 @@ class DataBlock(ABC):
         import serializers
 
         return getattr(serializers, self.serializer)
+
+    # Packed size of every value of the block (what `estimate_packed_size` returns for any data), None when it depends
+    # on the data. Cached, like the struct properties below
+    @cached_property
+    def fixed_size(self) -> Optional[int]:
+        return None
+
+    # (byte order '<' / '>', or '' when it does not matter, and the `struct` format characters) of a block whose packed
+    # value `struct` reads and writes, with `from_struct` / `to_struct` converting it from / to the unpacked values;
+    # None for other blocks. A block with a value validator or a programmatic value has none
+    @cached_property
+    def struct_format(self) -> Optional[Tuple[str, str]]:
+        return None
+
+    # True when the value is the one unpacked `struct` value as it is (plain numbers)
+    @cached_property
+    def struct_raw(self) -> bool:
+        return False
+
+    # The precompiled `struct` reader / writer of the block's values, None when the block has no struct format
+    @cached_property
+    def struct_record(self) -> Optional[StructRecord]:
+        struct_format = self.struct_format
+        if struct_format is None or not struct_format[1]:
+            return None
+        return StructRecord(self)
+
+    def from_struct(self, values: tuple, index: int) -> Tuple[Any, int]:
+        """The value of the block from `struct`-unpacked `values` at `index`, and the index after its values"""
+        raise NotImplementedError
+
+    def to_struct(self, data, values: list):
+        """Appends the `struct` values of `data` to `values`"""
+        raise NotImplementedError
+
+    # copies (deepcopy, pickle) leave the cached layout out: a copy may get other settings (`big_endian_copy`), and a
+    # `struct.Struct` cannot be copied
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        for name in CACHED_LAYOUT_PROPERTIES:
+            state.pop(name, None)
+        return state
 
     @abstractmethod
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
@@ -127,9 +184,72 @@ class DataBlockWithChildren(ABC):
         return self.estimate_packed_size(data[:index], ctx)
 
 
+class Remaining:
+    """`BytesBlock(length=REMAINING)`: the block takes the bytes it is read with (`read_bytes_amount`: an archive
+    item takes its slot), else the rest of the block it is in"""
+
+    def __call__(self, ctx):
+        return ctx.read_bytes_remaining
+
+    def __repr__(self):
+        return 'REMAINING'
+
+
+REMAINING = Remaining()
+
+
+def read_length(param, ctx, read_bytes_amount=None):
+    """The value of a length parameter while reading a block: `REMAINING` is `read_bytes_amount` when the block is
+    read with one"""
+    if isinstance(param, tuple):
+        param = param[0]
+    if isinstance(param, Remaining) and read_bytes_amount is not None:
+        return read_bytes_amount
+    return param_value(param, ctx)
+
+
+class LengthPrefixed:
+    """Mixin of a block stored after a length field `length_block`, mixed into a block whose `read` takes
+    `resolved_length` (`LengthPrefixedArrayBlock`: the number of items, `LengthPrefixedUtf8Block` and
+    `LengthPrefixedBytesBlock`: the length in bytes). `prefix_value(data, packed_size)` is the value of the length
+    field"""
+
+    def __init__(self, length_block: DataBlock, **kwargs):
+        super().__init__(length=None, **kwargs)
+        self.length_block = length_block
+
+    @property
+    def schema(self) -> Dict:
+        return {**super().schema, 'length_schema': self.length_block.schema}
+
+    # For auto-generated documentation only
+    @property
+    def size_doc_str(self):
+        return f'{self.length_block.size_doc_str}..?'
+
+    def prefix_value(self, data, packed_size: int) -> int:
+        raise NotImplementedError
+
+    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
+        self_ctx = ctx.get_or_create_child(name, self, read_bytes_amount)
+        resolved_length = self.length_block.unpack(ctx=self_ctx, name='length')
+        res = super().read(ctx, name, read_bytes_amount, resolved_length=resolved_length)
+        self_ctx._data = res
+        return res
+
+    def estimate_packed_size(self, data, ctx: WriteContext = None):
+        size = super().estimate_packed_size(data, ctx)
+        return size + self.length_block.estimate_packed_size(self.prefix_value(data, size), ctx=ctx)
+
+    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
+        packed = super().write(data, ctx, name)
+        return self.length_block.write(self.prefix_value(data, len(packed)), ctx, 'length') + packed
+
+
 class BytesBlock(DataBlock):
     serializer = 'PlainBinarySerializer'
 
+    # `length`: a block parameter (library/read_blocks/references.py)
     def __init__(self, length, allow_negative_length=False, **kwargs):
         super().__init__(**kwargs)
         self._length = length
@@ -138,16 +258,7 @@ class BytesBlock(DataBlock):
     # For auto-generated documentation only
     @property
     def size_doc_str(self):
-        if isinstance(self._length, tuple):
-            (_, doc_str) = self._length
-            return doc_str
-        if callable(self._length):
-            try:
-                return str(self._length(DocumentationContext()))
-            except:
-                return 'custom_func'
-        else:
-            return str(self._length)
+        return param_doc(self._length)
 
     @property
     def schema(self) -> Dict:
@@ -160,13 +271,7 @@ class BytesBlock(DataBlock):
         }
 
     def resolve_length(self, ctx):
-        self_len = self._length
-        if isinstance(self_len, tuple):
-            # cut off the documentation
-            (self_len, _) = self_len
-        if callable(self_len):
-            self_len = self_len(ctx)
-        return self_len
+        return param_value(self._length, ctx)
 
     def new_data(self, patch=None):
         if self.value_validator:
@@ -175,12 +280,12 @@ class BytesBlock(DataBlock):
         if isinstance(self_len, tuple):
             # cut off the documentation
             (self_len, _) = self_len
-        if callable(self_len) or self_len is None:
+        if not is_static_param(self_len) or self_len is None:
             return b''
         return bytes([0] * self_len)
 
-    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
-        self_len = self.resolve_length(ctx)
+    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None, resolved_length=None):
+        self_len = read_length(self._length, ctx, read_bytes_amount) if resolved_length is None else resolved_length
         if self_len < 0:
             if self.allow_negative_length:
                 ctx.buffer.seek(self_len, SEEK_CUR)
@@ -198,10 +303,36 @@ class BytesBlock(DataBlock):
         return data
 
 
+class LengthPrefixedBytesBlock(LengthPrefixed, BytesBlock):
+    @property
+    def schema(self) -> Dict:
+        return {**super().schema, 'block_description': 'Bytes, prefixed with length field'}
+
+    def prefix_value(self, data, packed_size: int) -> int:
+        return packed_size
+
+
+class FittedBytesBlock(BytesBlock):
+    """Bytes of a length the data gives (`length`, a block parameter), written cut or zero-padded to the length the data
+    has then: the rest of a fixed-size name field after the name, leftovers kept for writing it back byte-exact and
+    refitted when the name changes length. A negative length (no room left) raises on write"""
+
+    def _fitted(self, data: bytes, ctx: WriteContext) -> bytes:
+        length = param_value(self._length, ctx)
+        if length < 0:
+            raise DataIntegrityException(ctx=ctx, message=f'No room for {param_doc(self._length)}: {length} bytes')
+        return (bytes(data or b'') + bytes(length))[:length]
+
+    def estimate_packed_size(self, data, ctx: WriteContext = None):
+        return len(data) if ctx is None else len(self._fitted(data, ctx))
+
+    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
+        return data if ctx is None else self._fitted(data, ctx)
+
+
 class Padding(BytesBlock):
     def __init__(self, to, is_global=False, **kwargs):
-        # handle case where 'to' is a tuple (lambda, description)
-        to_lambda = to[0] if isinstance(to, tuple) else to
+        # `to`: a block parameter (library/read_blocks/references.py)
         if isinstance(to, tuple):
             to_descr = to[1]
         elif callable(to):
@@ -210,13 +341,10 @@ class Padding(BytesBlock):
             except:
                 to_descr = '?'
         else:
-            to_descr = str(to)
+            to_descr = param_doc(to)
         super().__init__(
             length=(
-                lambda ctx: (
-                    (to_lambda(ctx) if callable(to_lambda) else to_lambda)
-                    - (ctx.buffer.tell() if is_global else ctx.local_buffer_pos)
-                ),
+                lambda ctx: param_value(to, ctx) - (ctx.buffer.tell() if is_global else ctx.local_buffer_pos),
                 f'up to offset {to_descr}',
             ),
             **kwargs,

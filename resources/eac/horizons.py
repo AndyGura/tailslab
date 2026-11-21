@@ -12,13 +12,9 @@ use.
 import re
 from typing import Dict, List, NamedTuple, Optional, Tuple
 
-from library.read_blocks import DeclarativeCompoundBlock, UTF8Block
+from library.read_blocks import REMAINING, DeclarativeCompoundBlock, UTF8Block
 
 Rgb = Tuple[int, int, int]
-
-
-def _whole_file(ctx):
-    return ctx.read_bytes_remaining
 
 
 def hrz_numbers(text: str) -> List[int]:
@@ -51,7 +47,7 @@ class _HrzText(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         text = (
-            UTF8Block(length=(_whole_file, 'the whole file')),
+            UTF8Block(length=(REMAINING, 'the whole file')),
             {'description': 'The settings text: C comments (`/* ... */`) and comma separated numbers'},
         )
 
@@ -451,7 +447,7 @@ class Nfs4TrackIni(DeclarativeCompoundBlock):
     serializer = 'EacHorizonSettingsSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
-        text = (UTF8Block(length=(_whole_file, 'the whole file')), {'description': 'The INI text'})
+        text = (UTF8Block(length=(REMAINING, 'the whole file')), {'description': 'The INI text'})
 
     def parse(self, text: str):
         return parse_nfs4_sky_settings(text)

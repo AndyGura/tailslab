@@ -13,13 +13,20 @@ from typing import Dict, List, Optional
 
 from library.context import ReadContext, WriteContext
 from library.exceptions import DataIntegrityException, EndOfBufferException
-from library.read_blocks import ArrayBlock, BytesBlock, CompoundBlock, DelegateBlock, IntegerBlock, UTF8Block
+from library.read_blocks import (
+    ArrayBlock,
+    BytesBlock,
+    CompoundBlock,
+    DelegateBlock,
+    IntegerBlock,
+    UTF8Block,
+    CountOf,
+    SizeOf,
+)
 
 DES_BODY_HEADER_LENGTH = 94
 DES_RECORD_TYPE_LENGTH = 10
 DES_RECORD_NAME_LENGTH = 80
-# type + name + data size + n
-DES_RECORD_HEADER_LENGTH = DES_RECORD_TYPE_LENGTH + DES_RECORD_NAME_LENGTH + 8
 # bodies nested in chains: the shipped files have up to 3 (TRAFCFG.DES: "Glue Factors" > "Single Race Glue Factors" >
 # "Laps"); chains deeper than this keep their body as raw bytes
 DES_MAX_DEPTH = 6
@@ -105,27 +112,6 @@ class DesTextRestBlock(BytesBlock):
         return data if length is None else _fit_text_rest(data, length)
 
 
-def _peek_record_count(ctx) -> int:
-    """Records of a body: walked over their n (at +94 of each record) until the body's records size is used up"""
-    end = ctx.buffer.tell() + ctx.data('records_size')
-    start = ctx.buffer.tell()
-    count = 0
-    try:
-        pos = start
-        while pos < end:
-            ctx.buffer.seek(pos + DES_RECORD_HEADER_LENGTH - 4)
-            n = int.from_bytes(ctx.buffer.read(4), 'little', signed=True)
-            if n < 0:
-                raise DataIntegrityException(ctx=ctx, message=f'Negative record length {n} at {pos}')
-            pos += DES_RECORD_HEADER_LENGTH + n
-            count += 1
-        if pos != end:
-            raise DataIntegrityException(ctx=ctx, message='Records do not end with the records size of the body')
-    finally:
-        ctx.buffer.seek(start)
-    return count
-
-
 def _record_extra_choice(ctx, **_) -> int:
     if ctx.data('type') == 'Chain':
         return 0
@@ -172,12 +158,12 @@ class EaFieldDescriptionRecord(CompoundBlock):
         if depth + 1 < DES_MAX_DEPTH:
             chain_body = EaFieldDescriptionBody(depth=depth + 1)
         else:
-            chain_body = BytesBlock(length=(lambda ctx: ctx.data('extra_length'), 'extra_length'))
+            chain_body = BytesBlock(length='extra_length')
         extra = DelegateBlock(
             possible_blocks=[
                 chain_body,
                 EaFieldDescriptionShape(),
-                BytesBlock(length=(lambda ctx: ctx.data('extra_length'), 'extra_length')),
+                BytesBlock(length='extra_length'),
             ],
             choice_index=(_record_extra_choice, '`Chain`: a body; `Array` / `CArray`: the shape; else bytes'),
         )
@@ -230,11 +216,7 @@ class EaFieldDescriptionRecord(CompoundBlock):
                 ),
                 (
                     'extra_length',
-                    IntegerBlock(
-                        length=4,
-                        is_signed=True,
-                        programmatic_value=lambda ctx: extra.estimate_packed_size(ctx.data('extra'), ctx),
-                    ),
+                    IntegerBlock(length=4, is_signed=True, programmatic_value=SizeOf('extra')),
                     {
                         'usage': 'io,doc',
                         'custom_offset': 94,
@@ -268,7 +250,7 @@ class EaFieldDescriptionBody(CompoundBlock):
         self.depth = depth
         records = ArrayBlock(
             child=EaFieldDescriptionRecord(depth=depth),
-            length=(_peek_record_count, 'until `records_size` bytes are read'),
+            byte_length=('records_size', 'until `records_size` bytes are read'),
         )
         super().__init__(
             fields=[
@@ -283,21 +265,17 @@ class EaFieldDescriptionBody(CompoundBlock):
                 ),
                 (
                     'data_size',
-                    IntegerBlock(length=4, is_signed=True, programmatic_value=lambda ctx: len(ctx.data('data'))),
+                    IntegerBlock(length=4, is_signed=True, programmatic_value=CountOf('data')),
                     {'usage': 'io,doc', 'description': 'Size of `data`: the size of the described data or group'},
                 ),
                 (
                     'records_size',
-                    IntegerBlock(
-                        length=4,
-                        is_signed=True,
-                        programmatic_value=lambda ctx: records.estimate_packed_size(ctx.data('records'), ctx),
-                    ),
+                    IntegerBlock(length=4, is_signed=True, programmatic_value=SizeOf('records')),
                     {'usage': 'io,doc', 'description': 'Size of `records` in bytes'},
                 ),
                 (
                     'data',
-                    BytesBlock(length=(lambda ctx: ctx.data('data_size'), 'data_size')),
+                    BytesBlock(length='data_size'),
                     {
                         'description': 'Copy of the described data (of the group, in a `Chain`) as the tool saved it: '
                         'the `.DAT` of the time, which can differ from the shipped one'
@@ -432,10 +410,7 @@ def block_layout(block, data=None, offset: int = 0, path: str = '') -> List[dict
         data = block.new_data()
     res = []
     if isinstance(block, CompoundBlock):
-        for name, field in block.field_blocks:
-            usage = block.field_extras_map.get(name, {}).get('usage', 'everywhere')
-            if usage != 'everywhere' and 'io' not in usage:
-                continue
+        for name, field in block.io_field_blocks:
             sub = block_layout(field, data.get(name), offset, f'{path}.{name}' if path else name)
             if len(sub) == 1 and not isinstance(field, CompoundBlock):
                 sub[0]['description'] = block.field_extras_map.get(name, {}).get('description', '')

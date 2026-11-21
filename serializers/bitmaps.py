@@ -5,21 +5,17 @@ from typing import List, Optional, Sequence, Tuple
 import numpy as np
 from PIL import Image
 
+from library.utils.colors import image_rgba, rgb_palette, rgba_image
+from resources.blackbox.chunks import find_chunk
 from resources.eac.bitmaps import EacPalette, ShpiText
 from resources.eac.utils import determine_palette_for_8_bit_bitmap
 from serializers import BaseFileSerializer
-from serializers.misc.path_utils import escape_chars
+from serializers.base import PNG_UI, REVERSIBLE_PNG_UI, UiSerialization, current_resource
+from serializers.misc.path_utils import escaped_file_path
 
 
 class ImageSerializer(BaseFileSerializer):
-    def ui_serialization(self):
-        return {
-            'file_type': 'png',
-            'is_directory': False,
-            'output_file_name_suffix': '.png',
-            'reversible': True,
-            'reversible_settings_patch': {},
-        }
+    ui = REVERSIBLE_PNG_UI
 
     def _transform_to_rgba(self, resource_id, data, palette_colors):
         if resource_id.startswith('8Bit'):
@@ -64,9 +60,7 @@ class ImageSerializer(BaseFileSerializer):
         if palette_colors is None:
             palette_colors = self._get_palette_colors(data, block, id)
         bitmap = self._transform_to_rgba(data['resource_id'], data['bitmap'], palette_colors)
-        return Image.frombytes(
-            'RGBA', (data['width'], data['height']), bytes().join([c.to_bytes(4, 'big') for c in bitmap])
-        )
+        return rgba_image(data['width'], data['height'], bitmap)
 
     def to_png_image(self, data: dict, block=None, id=None, palette_colors=None) -> Image.Image:
         """The image as it is saved to PNG: an 8Bit image is indexed (`indexed_image`), the others are `to_image`"""
@@ -95,7 +89,7 @@ class ImageSerializer(BaseFileSerializer):
         count = max(pixels, default=0) + 1
         colors = list(palette_colors[:count]) + [0] * max(0, count - len(palette_colors))
         image = Image.frombytes('P', (width, height), pixels)
-        image.putpalette(b''.join((c >> 8).to_bytes(3, 'big') for c in colors), 'RGB')
+        image.putpalette(rgb_palette(colors), 'RGB')
         alpha = bytes(c & 0xFF for c in colors).rstrip(b'\xff')
         if alpha:
             image.info['transparency'] = alpha
@@ -111,9 +105,7 @@ class ImageSerializer(BaseFileSerializer):
 
         palette_colors = self._get_palette_colors(data, block, id)
 
-        file_path = escape_chars(path)
-        if not file_path.endswith('.png'):
-            file_path += '.png'
+        file_path = escaped_file_path(path, '.png')
         saved_files = [file_path]
         self.save_png(self.to_png_image(data, palette_colors=palette_colors), file_path)
         if data.get('mipmaps') and self.settings.images__save_mipmaps:
@@ -133,7 +125,7 @@ class ImageSerializer(BaseFileSerializer):
                 image = self.indexed_image(level, width, height, palette_colors) if is_8bit else None
                 if image is None:
                     rgba = self._transform_to_rgba(data['resource_id'], level, palette_colors) if is_8bit else level
-                    image = Image.frombytes('RGBA', (width, height), bytes().join([c.to_bytes(4, 'big') for c in rgba]))
+                    image = rgba_image(width, height, rgba)
                 self.save_png(image, mipmap_path)
                 saved_files.append(mipmap_path)
                 offset += width * height
@@ -172,27 +164,18 @@ class ImageSerializer(BaseFileSerializer):
     def new_image_data(file_path: str, block) -> dict:
         """A new 32-bit image with the pixels of the image file"""
         image = Image.open(file_path)
-        image_rgba = image.convert('RGBA')
         data = block.new_data()
         data['resource_id'] = '32Bit color format bitmap'
         data['width'] = image.width
         data['height'] = image.height
-        bitmap = [(r << 24) | (g << 16) | (b << 8) | a for (r, g, b, a) in image_rgba.get_flattened_data()]
-        data['bitmap'] = bitmap
+        data['bitmap'] = image_rgba(image)
         return data
 
     @staticmethod
     def _current_image(id) -> Optional[dict]:
         # the image loaded under `id`, which the import replaces
-        if not id:
-            return None
-        from library import require_resource
-
-        try:
-            (_, _, current), _ = require_resource(id)
-        except Exception:
-            return None
-        return current if isinstance(current, dict) and 'bitmap' in current and 'resource_id' in current else None
+        current = current_resource(id)
+        return current if current is not None and 'bitmap' in current and 'resource_id' in current else None
 
     def _with_pixels_of(self, current: dict, file_path: str, block, id) -> dict:
         from library.utils.number_utils import is_power_of_two
@@ -282,20 +265,11 @@ class ImageSerializer(BaseFileSerializer):
 
 
 class TargaImageSerializer(BaseFileSerializer):
-    def ui_serialization(self):
-        return {
-            'file_type': 'png',
-            'is_directory': False,
-            'output_file_name_suffix': '.png',
-            'reversible': True,
-            'reversible_settings_patch': {},
-        }
+    ui = REVERSIBLE_PNG_UI
 
     def serialize(self, data: bytes, path: str, id=None, block=None, **kwargs) -> List[str]:
         super().serialize(data, path, id=id, block=block)
-        file_path = escape_chars(path)
-        if not file_path.endswith('.png'):
-            file_path += '.png'
+        file_path = escaped_file_path(path, '.png')
         tga_image = Image.open(BytesIO(data))
         tga_image_rgba = tga_image.convert('RGBA')
         tga_image_rgba.save(file_path)
@@ -336,23 +310,16 @@ class PsxImageSerializer(BaseFileSerializer):
     `J018` of the Japanese disc's BNR32 `KBNR.PSH`, its CLUT all 0x0000) is a transparent 1 x 1 PNG: its polygons show
     nothing"""
 
-    def ui_serialization(self):
-        return {
-            'file_type': 'png',
-            'is_directory': False,
-            'output_file_name_suffix': '.png',
-            'reversible': False,
-            'reversible_settings_patch': {},
-        }
+    ui = PNG_UI
 
     @staticmethod
     def palette_colors(data: dict) -> Optional[List[int]]:
         """The CLUT colors as RGBA, None for a 16-bit image"""
-        from resources.eac.psx_bitmaps import psx_color_to_rgba
+        from resources.eac.psx_bitmaps import psx_colors_to_rgba
 
         if data['resource_id'] == '16Bit PSX' or data.get('clut') is None:
             return None
-        return [psx_color_to_rgba(c) for c in data['clut']['colors']]
+        return psx_colors_to_rgba(data['clut']['colors']).tolist()
 
     @staticmethod
     def pixel_values(data: dict) -> np.ndarray:
@@ -389,7 +356,7 @@ class PsxImageSerializer(BaseFileSerializer):
         return self.to_png_image(data).convert('RGBA')
 
     def to_png_image(self, data: dict) -> Image.Image:
-        from resources.eac.psx_bitmaps import psx_color_to_rgba
+        from resources.eac.psx_bitmaps import psx_colors_to_rgba
 
         if data['width'] == 0 or data['height'] == 0:
             return Image.new('RGBA', (1, 1), (0, 0, 0, 0))
@@ -399,15 +366,12 @@ class PsxImageSerializer(BaseFileSerializer):
         if palette is not None:
             image = ImageSerializer.indexed_image(values.astype(np.uint8).reshape(-1).tolist(), width, height, palette)
         else:
-            rgba = [psx_color_to_rgba(int(c)) for c in values.reshape(-1)]
-            image = Image.frombytes('RGBA', (width, height), b''.join(c.to_bytes(4, 'big') for c in rgba))
+            image = rgba_image(width, height, psx_colors_to_rgba(values.reshape(-1)))
         return self._as_shown(image, data)
 
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
         super().serialize(data, path, id=id, block=block)
-        file_path = escape_chars(path)
-        if not file_path.endswith('.png'):
-            file_path += '.png'
+        file_path = escaped_file_path(path, '.png')
         ImageSerializer.save_png(self.to_png_image(data), file_path)
         saved_files = [file_path]
         palette = self.palette_colors(data)
@@ -424,14 +388,7 @@ class PsxImageSerializer(BaseFileSerializer):
 
 
 class PaletteSerializer(BaseFileSerializer):
-    def ui_serialization(self):
-        return {
-            'file_type': 'txt',
-            'is_directory': False,
-            'output_file_name_suffix': '.pal.txt',
-            'reversible': True,
-            'reversible_settings_patch': {},
-        }
+    ui = UiSerialization('txt', suffix='.pal.txt', reversible=True)
 
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
         if not path.endswith('.pal.txt'):
@@ -489,13 +446,6 @@ _NFSU_D3D_P8 = 0x29
 _NFSU_DXT_FOURCC = {int.from_bytes(x.encode(), 'little'): x for x in ['DXT1', 'DXT3', 'DXT5']}
 
 
-def _sub_chunk(container: dict, chunk_id: int):
-    for chunk in container['sub_chunks']:
-        if chunk['data'].get('chunk_id') == chunk_id:
-            return chunk['data']
-    return None
-
-
 def _nfsu_compressed_textures(compressed: dict, data: bytes) -> List[tuple]:
     from io import BytesIO
     from resources.blackbox.bitmaps.nfsu import NfsuTextureFormat, NfsuTextureInfo
@@ -532,14 +482,14 @@ def nfsu_texture_pack_textures(tpk_data: dict) -> List[tuple]:
     """Textures of NFS Underground texture pack (TPK chunk data): list of (texture info, Direct3D format, data
     bytes). Texture info offsets point into the data bytes: the data chunk of the pack, or the uncompressed texture
     of NFSU2 compressed pack"""
-    info_container = _sub_chunk(tpk_data, 0xB3310000)
-    data_container = _sub_chunk(tpk_data, 0xB3320000)
+    info_container = find_chunk(tpk_data['sub_chunks'], 0xB3310000)
+    data_container = find_chunk(tpk_data['sub_chunks'], 0xB3320000)
     if info_container is None or data_container is None:
         return []
-    infos = _sub_chunk(info_container, 0x33310004)
-    formats = _sub_chunk(info_container, 0x33310005)
-    compressed = _sub_chunk(info_container, 0x33310003)
-    data_chunk = _sub_chunk(data_container, 0x33320002)
+    infos = find_chunk(info_container['sub_chunks'], 0x33310004)
+    formats = find_chunk(info_container['sub_chunks'], 0x33310005)
+    compressed = find_chunk(info_container['sub_chunks'], 0x33310003)
+    data_chunk = find_chunk(data_container['sub_chunks'], 0x33320002)
     if data_chunk is None:
         return []
     if infos is None:
@@ -580,8 +530,8 @@ def nfsu_texture_to_image(info: dict, d3d_format: int, data: bytes, indexed: boo
 def nfs6_ps2_texture_pack_textures(tpk_data: dict) -> List[tuple]:
     """Textures of NFS Hot Pursuit 2 (PS2) texture pack (TPK chunk data): list of (texture info, data bytes of the
     pack). Texture info offsets point into the data bytes"""
-    infos = _sub_chunk(tpk_data, 0x30300003)
-    data_chunk = _sub_chunk(tpk_data, 0x30300004)
+    infos = find_chunk(tpk_data['sub_chunks'], 0x30300003)
+    data_chunk = find_chunk(tpk_data['sub_chunks'], 0x30300004)
     if infos is None or data_chunk is None:
         return []
     return [(info, data_chunk['data']) for info in infos['textures']]
@@ -629,35 +579,16 @@ def nfs6_ps2_texture_to_image(info: dict, data: bytes, indexed: bool = False) ->
     return Image.frombytes('RGBA', (width, height), rgba)
 
 
-class Nfs6Ps2TexturePackSerializer(BaseFileSerializer):
-    """NFS Hot Pursuit 2 (PS2) texture pack: every texture as "<name>.png" """
-
-    def __init__(self):
-        super().__init__(is_dir=True)
-
-    def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
-        import os
-        import re
-        import traceback
-
-        super().serialize(data, path, id=id, block=block)
-        os.makedirs(path, exist_ok=True)
-        files = []
-        for info, image_data in nfs6_ps2_texture_pack_textures(data):
-            name = re.sub(r'[^0-9A-Za-z_-]', '_', info['name']) or f'{info["name_hash"]:08x}'
-            try:
-                image = nfs6_ps2_texture_to_image(info, image_data, indexed=True)
-            except Exception:
-                traceback.print_exc()
-                continue
-            file_path = os.path.join(path, f'{name}.png')
-            ImageSerializer.save_png(image, file_path)
-            files.append(file_path)
-        return files
-
-
 class NfsuTexturePackSerializer(BaseFileSerializer):
-    """Texture pack: every texture as "<name>.png" """
+    """Texture pack: every texture as "<name>.png" (characters other than letters, digits, "_" and "-" as "_", the
+    name hash `<hash:08x>` for an empty name). `pack_textures(data)`: (info, ...) of every texture, `texture_image`
+    its indexed image"""
+
+    pack_textures = staticmethod(nfsu_texture_pack_textures)
+
+    @staticmethod
+    def texture_image(texture) -> Image.Image:
+        return nfsu_texture_to_image(*texture, indexed=True)
 
     def __init__(self):
         super().__init__(is_dir=True)
@@ -670,10 +601,11 @@ class NfsuTexturePackSerializer(BaseFileSerializer):
         super().serialize(data, path, id=id, block=block)
         os.makedirs(path, exist_ok=True)
         files = []
-        for info, d3d_format, image_data in nfsu_texture_pack_textures(data):
+        for texture in self.pack_textures(data):
+            info = texture[0]
             name = re.sub(r'[^0-9A-Za-z_-]', '_', info['name']) or f'{info["name_hash"]:08x}'
             try:
-                image = nfsu_texture_to_image(info, d3d_format, image_data, indexed=True)
+                image = self.texture_image(texture)
             except Exception:
                 traceback.print_exc()
                 continue
@@ -681,3 +613,13 @@ class NfsuTexturePackSerializer(BaseFileSerializer):
             ImageSerializer.save_png(image, file_path)
             files.append(file_path)
         return files
+
+
+class Nfs6Ps2TexturePackSerializer(NfsuTexturePackSerializer):
+    """NFS Hot Pursuit 2 (PS2) texture pack: every texture as "<name>.png", named as in NFSU's"""
+
+    pack_textures = staticmethod(nfs6_ps2_texture_pack_textures)
+
+    @staticmethod
+    def texture_image(texture) -> Image.Image:
+        return nfs6_ps2_texture_to_image(*texture, indexed=True)

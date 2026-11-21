@@ -19,41 +19,47 @@ from library.read_blocks import (
     TrailingOptionalBlock,
     LengthPrefixedArrayBlock,
     Padding,
+    CountOf,
 )
 from library.read_blocks.misc.value_validators import Eq
 from library.read_blocks.strings import LengthPrefixedUtf8Block
-from library.utils import transform_bitness, extract_number, is_power_of_two
+from library.utils import transform_bitness, is_power_of_two
+from library.utils.colors import decode_colors, encode_colors, rgba_image
 from library.utils.dxt import decode_dxt, dxt_byte_len, encode_dxt
 from library.utils.id import join_id
 from resources.eac.fields.misc import Point2D
 
 
-@lru_cache(maxsize=256)
-def transform_color_bitness(color, alpha_bitness, red_bitness, green_bitness, blue_bitness):
-    alpha = (
-        transform_bitness(
-            extract_number(color, alpha_bitness, red_bitness + green_bitness + blue_bitness), alpha_bitness
-        )
-        if alpha_bitness
-        else 0xFF
-    )
-    red = transform_bitness(extract_number(color, red_bitness, green_bitness + blue_bitness), red_bitness)
-    green = transform_bitness(extract_number(color, green_bitness, blue_bitness), green_bitness)
-    blue = transform_bitness(extract_number(color, blue_bitness), blue_bitness)
-    return int(red << 24 | green << 16 | blue << 8 | alpha)
+# colour format (`library/utils/colors.py`) of the palette and bitmap resource ids stored as colours
+PALETTE_COLOR_FORMATS = {
+    '24BitDos color format palette': 'dos666',
+    '24Bit color format palette': 'rgb888',
+    '16Bit_0565 color format palette': 'rgb565',
+    '32Bit color format palette': 'argb8888',
+    '16Bit_1555 color format palette': 'argb1555',
+}
+# (format, `numpy` type of a stored pixel)
+BITMAP_COLOR_FORMATS = {
+    '16Bit_4444 color format bitmap': ('argb4444', '<u2'),
+    '16Bit_0565 color format bitmap': ('rgb565', '<u2'),
+    '16Bit_1555 color format bitmap': ('argb1555', '<u2'),
+    '32Bit color format bitmap': ('argb8888', '<u4'),
+}
+# a 0565 pixel of this value is transparent
+TRANSPARENT_0565 = 0x7C0
 
 
-@lru_cache(maxsize=256)
-def revert_color_bitness(color, alpha_bitness, red_bitness, green_bitness, blue_bitness):
-    alpha = (color & 0xFF) >> (8 - alpha_bitness)
-    red = (color & 0xFF000000) >> (32 - red_bitness)
-    green = (color & 0xFF0000) >> (24 - green_bitness)
-    blue = (color & 0xFF00) >> (16 - blue_bitness)
-    return (
-        alpha << (red_bitness + green_bitness + blue_bitness)
-        | red << (green_bitness + blue_bitness)
-        | green << blue_bitness
-        | blue
+@lru_cache(maxsize=64)
+def _4bit_rows(width: int, height: int) -> ArrayBlock:
+    """4Bit pixels: rows of 4-bit values, white with that alpha"""
+    return ArrayBlock(
+        length=height,
+        child=SubByteArrayBlock(
+            bits_per_value=4,
+            length=width,
+            value_deserialize_func=(lambda x: 0xFFFFFF00 | transform_bitness(x, 4)),
+            value_serialize_func=lambda x: (x & 0xFF) >> 4,
+        ),
     )
 
 
@@ -309,12 +315,12 @@ class EacPalette(DeclarativeCompoundBlock):
             },
         )
         num_colors = (
-            IntegerBlock(length=2, programmatic_value=lambda ctx: len(ctx.data('colors/data'))),
+            IntegerBlock(length=2, programmatic_value=CountOf('colors/data')),
             {'usage': 'io,doc', 'description': 'Amount of colors'},
         )
         unk1 = (BytesBlock(length=2), {'is_unknown': True})
         num_colors1 = (
-            IntegerBlock(length=2, programmatic_value=lambda ctx: len(ctx.data('colors/data'))),
+            IntegerBlock(length=2, programmatic_value=CountOf('colors/data')),
             {'usage': 'io,doc', 'description': 'Equals to num_colors, except for some CRP structures in NFS5'},
         )
         unk2 = (BytesBlock(length=6), {'is_unknown': True})
@@ -322,15 +328,11 @@ class EacPalette(DeclarativeCompoundBlock):
             EnumLookupDelegateBlock(
                 enum_field='resource_id',
                 blocks=[
-                    ArrayBlock(
-                        length=lambda ctx: ctx.data('num_colors'), child=IntegerBlock(length=3, byte_order='big')
-                    ),
-                    ArrayBlock(
-                        length=lambda ctx: ctx.data('num_colors'), child=IntegerBlock(length=3, byte_order='big')
-                    ),
-                    ArrayBlock(length=lambda ctx: ctx.data('num_colors'), child=IntegerBlock(length=2)),
-                    ArrayBlock(length=lambda ctx: ctx.data('num_colors'), child=IntegerBlock(length=4)),
-                    ArrayBlock(length=lambda ctx: ctx.data('num_colors'), child=IntegerBlock(length=2)),
+                    ArrayBlock(length='num_colors', child=IntegerBlock(length=3, byte_order='big')),
+                    ArrayBlock(length='num_colors', child=IntegerBlock(length=3, byte_order='big')),
+                    ArrayBlock(length='num_colors', child=IntegerBlock(length=2)),
+                    ArrayBlock(length='num_colors', child=IntegerBlock(length=4)),
+                    ArrayBlock(length='num_colors', child=IntegerBlock(length=2)),
                 ],
             ),
             {
@@ -398,35 +400,17 @@ class EacPalette(DeclarativeCompoundBlock):
             return None
         return super().get_child_block(name)
 
-    def _colors_native_to_internal(self, resource_id, colors):
-        if resource_id == '24BitDos color format palette':
-            return [(x & 0x3F3F3F) << 10 | 255 for x in colors]
-        elif resource_id == '24Bit color format palette':
-            return [x << 8 | 0xFF for x in colors]
-        elif resource_id == '16Bit_0565 color format palette':
-            return [transform_color_bitness(x, 0, 5, 6, 5) for x in colors]
-        elif resource_id == '32Bit color format palette':
-            # ARGB => RGBA
-            return [(x & 0x00_FF_FF_FF) << 8 | (x & 0xFF_00_00_00) >> 24 for x in colors]
-        elif resource_id == '16Bit_1555 color format palette':
-            return [transform_color_bitness(x, 1, 5, 5, 5) for x in colors]
-        else:
+    @staticmethod
+    def _color_format(resource_id) -> str:
+        if resource_id not in PALETTE_COLOR_FORMATS:
             raise NotImplementedError(f'Palette resource ID {resource_id} is not supported')
+        return PALETTE_COLOR_FORMATS[resource_id]
+
+    def _colors_native_to_internal(self, resource_id, colors):
+        return decode_colors(self._color_format(resource_id), colors).tolist()
 
     def _colors_internal_to_native(self, resource_id, colors):
-        if resource_id == '24BitDos color format palette':
-            return [(x & 0xFCFCFC00) >> 10 for x in colors]
-        elif resource_id == '24Bit color format palette':
-            return [x >> 8 for x in colors]
-        elif resource_id == '16Bit_0565 color format palette':
-            return [revert_color_bitness(x, 0, 5, 6, 5) for x in colors]
-        elif resource_id == '32Bit color format palette':
-            # ARGB => RGBA
-            return [(x & 0xFF_FF_FF_00) >> 8 | (x & 0xFF) << 24 for x in colors]
-        elif resource_id == '16Bit_1555 color format palette':
-            return [revert_color_bitness(x, 1, 5, 5, 5) for x in colors]
-        else:
-            raise NotImplementedError(f'Palette resource ID {resource_id} is not supported')
+        return encode_colors(self._color_format(resource_id), colors).tolist()
 
     def get_child_block_with_data(self, unpacked_data: dict, name: str) -> Tuple['DataBlock', Any]:
         if name == 'last_color_transparent':
@@ -569,7 +553,7 @@ class EacImage(DeclarativeCompoundBlock):
         )
         pad = (
             TrailingOptionalBlock(
-                child=Padding(to=lambda ctx: ctx.data('next_offset'), is_global=False),
+                child=Padding(to='next_offset', is_global=False),
                 criteria=(image_padding_criteria, 'next_offset points past the pixels'),
             ),
             {
@@ -763,29 +747,15 @@ class EacImage(DeclarativeCompoundBlock):
         return length
 
     def _native_to_internal(self, resource_id, width, height, bd):
-        if resource_id == '16Bit_4444 color format bitmap':
-            bitmap = np.frombuffer(bd, dtype='<u2')
-            return [transform_color_bitness(x, 4, 4, 4, 4) for x in bitmap]
-        elif resource_id == '16Bit_0565 color format bitmap':
-            bitmap = np.frombuffer(bd, dtype='<u2')
-            ret = []
-            for pxl in bitmap:
-                if pxl == 0x7C0:
-                    ret.append(0)  # transparent
-                else:
-                    ret.append(transform_color_bitness(pxl, 0, 5, 6, 5))
-            return ret
+        if resource_id in BITMAP_COLOR_FORMATS:
+            color_format, dtype = BITMAP_COLOR_FORMATS[resource_id]
+            values = np.frombuffer(bd, dtype=dtype)
+            colors = decode_colors(color_format, values)
+            if color_format == 'rgb565':
+                colors[values == TRANSPARENT_0565] = 0
+            return colors.tolist()
         elif resource_id.startswith('4Bit'):
-            field = ArrayBlock(
-                length=height,
-                child=SubByteArrayBlock(
-                    bits_per_value=4,
-                    length=width,
-                    value_deserialize_func=(lambda x: 0xFFFFFF00 | transform_bitness(x, 4)),
-                    value_serialize_func=lambda x: (x & 0xFF) >> 4,
-                ),
-            )
-            ret = field.unpack(ReadContext(BytesIO(bd)))
+            ret = _4bit_rows(width, height).unpack(ReadContext(BytesIO(bd)))
             if resource_id == '4Bit (swapped)':
                 for row in ret:
                     for i in range(0, len(row), 2):
@@ -793,68 +763,34 @@ class EacImage(DeclarativeCompoundBlock):
             return ret
         elif resource_id == '8Bit':
             return list(bd)
-        elif resource_id == '16Bit_1555 color format bitmap':
-            bitmap = np.frombuffer(bd, dtype='<u2')
-            return [transform_color_bitness(x, 1, 5, 5, 5) for x in bitmap]
         elif resource_id == '24Bit color format bitmap':
-            b4 = bytes(bd)
-            b = []
-            for i in range(0, len(b4), 3):
-                b.extend(b4[i : i + 3])
-                b.append(0)
-            bitmap = np.frombuffer(bytes(b), dtype='<u4')
-            return [int((x << 8) | 0xFF) for x in bitmap]
-        elif resource_id == '32Bit color format bitmap':
-            bitmap = np.frombuffer(bd, dtype='<u4')
-            # ARGB => RGBA
-            return [int((x & 0x00_FF_FF_FF) << 8 | (x & 0xFF_00_00_00) >> 24) for x in bitmap]
+            b = np.frombuffer(bytes(bd), dtype=np.uint8).reshape(-1, 3).astype(np.uint32)
+            return decode_colors('rgb888', b[:, 0] | b[:, 1] << 8 | b[:, 2] << 16).tolist()
         elif resource_id.startswith('DXT'):
             return decode_dxt(resource_id[:4], width, height, bd)
         else:
             raise NotImplementedError(f'Bitmap resource ID {resource_id} is not supported')
 
     def _internal_to_native(self, resource_id, width, height, bd):
-        if resource_id == '16Bit_4444 color format bitmap':
-            arr = [revert_color_bitness(x, 4, 4, 4, 4) for x in bd]
-            return np.asarray(arr, dtype='<u2').tobytes()
-        elif resource_id == '16Bit_0565 color format bitmap':
-            arr = []
-            for pxl in bd:
-                if (pxl & 0xFF) < 128:
-                    # transparent
-                    arr.append(0x7C0)
-                else:
-                    arr.append(revert_color_bitness(pxl, 0, 5, 6, 5))
-            return np.asarray(arr, dtype='<u2').tobytes()
+        if resource_id in BITMAP_COLOR_FORMATS:
+            color_format, dtype = BITMAP_COLOR_FORMATS[resource_id]
+            values = encode_colors(color_format, bd)
+            if color_format == 'rgb565':
+                values[(np.asarray(bd, dtype=np.uint32) & 0xFF) < 128] = TRANSPARENT_0565
+            return values.astype(dtype).tobytes()
         elif resource_id.startswith('4Bit'):
-            field = ArrayBlock(
-                length=height,
-                child=SubByteArrayBlock(
-                    bits_per_value=4,
-                    length=width,
-                    value_deserialize_func=(lambda x: 0xFFFFFF00 | transform_bitness(x, 4)),
-                    value_serialize_func=lambda x: (x & 0xFF) >> 4,
-                ),
-            )
             if resource_id == '4Bit (swapped)':
                 # swapped copies of the rows: `bd` is the caller's data
                 bd = [list(row) for row in bd]
                 for row in bd:
                     for i in range(0, len(row), 2):
                         row[i], row[i + 1] = row[i + 1], row[i]
-            return field.pack(bd)
+            return _4bit_rows(width, height).pack(bd)
         elif resource_id == '8Bit':
             return bytes(bd)
-        elif resource_id == '16Bit_1555 color format bitmap':
-            arr = [revert_color_bitness(x, 1, 5, 5, 5) for x in bd]
-            return np.asarray(arr, dtype='<u2').tobytes()
         elif resource_id == '24Bit color format bitmap':
-            b4 = np.asarray([x >> 8 for x in bd], dtype='<u4').tobytes()
-            return bytes([b for i, b in enumerate(b4) if i % 4 != 3])
-        elif resource_id == '32Bit color format bitmap':
-            # RGBA => ARGB
-            arr = [(x & 0xFF_FF_FF_00) >> 8 | (x & 0xFF) << 24 for x in bd]
-            return np.asarray(arr, dtype='<u4').tobytes()
+            values = encode_colors('rgb888', bd).astype('<u4')
+            return values.view(np.uint8).reshape(-1, 4)[:, :3].tobytes()
         elif resource_id.startswith('DXT'):
             return encode_dxt(resource_id[:4], width, height, bd)
         else:
@@ -1056,13 +992,12 @@ class EacImage(DeclarativeCompoundBlock):
             if read_data['mipmaps']:
                 read_data['mipmaps'] = [to_index(pxl) for row in read_data['mipmaps'] for pxl in row]
         elif channel == 'generate embedded palette':
-            from PIL import Image
             from resources.eac.utils import quantize_images_to_8bit, build_8bit_palette
 
             width, height = read_data['width'], read_data['height']
 
             def to_image(pixels, w, h):
-                return Image.frombytes('RGBA', (w, h), b''.join(c.to_bytes(4, 'big') for c in pixels))
+                return rgba_image(w, h, pixels)
 
             # Mip levels are quantized together with the base bitmap against one shared palette.
             images = [to_image(read_data['bitmap'], width, height)]

@@ -1,5 +1,6 @@
 from abc import ABC
-from typing import Dict, List, Tuple, Any, TypedDict, Union
+from functools import cached_property
+from typing import Dict, List, Tuple, Any, TypedDict, Union, Optional
 
 from library.utils.class_property import class_property
 
@@ -7,6 +8,8 @@ from library.context import ReadContext, WriteContext
 from library.exceptions import BlockDefinitionException, DataIntegrityException
 from library.read_blocks.basic import DataBlock, DataBlockWithChildren
 from library.read_blocks.numbers import IntegerBlock
+from library.read_blocks.references import ItemOffsetsOf, LayoutReference, OffsetOf, OwnSize
+from library.read_blocks.struct_record import join_struct_formats
 from library.utils.docs import add_doc_numbers
 
 
@@ -30,6 +33,11 @@ class FieldExtras(TypedDict, total=False):
     usage: str
 
 
+def is_io_usage(usage: Union[str, None]) -> bool:
+    """A field of this usage (FieldExtras) is read and written"""
+    return usage is None or usage == 'everywhere' or 'io' in usage
+
+
 class CompoundBlock(DataBlockWithChildren, DataBlock, ABC):
     # a description rendering the block inline in the docs, like a leaf block; a subclass can set it as a class attribute
     inline_description: str = None
@@ -43,6 +51,10 @@ class CompoundBlock(DataBlockWithChildren, DataBlock, ABC):
         self.field_blocks = [(name, instance) for (name, instance, _) in self.fields]
         self.field_blocks_map = {name: res for (name, res, _) in self.fields}
         self.field_extras_map = {name: extra for (name, _, extra) in self.fields}
+        # the fields read and written (usage everywhere or with 'io')
+        self.io_field_blocks = [
+            (name, instance) for (name, instance, extra) in self.fields if is_io_usage(extra.get('usage', 'everywhere'))
+        ]
 
     @property
     def schema(self) -> Dict:
@@ -91,10 +103,7 @@ class CompoundBlock(DataBlockWithChildren, DataBlock, ABC):
         acc = 0
         if callable(self.fields):
             return '?'
-        for name, field in self.field_blocks:
-            usage = self.field_extras_map.get(name, {}).get('usage', 'everywhere')
-            if usage != 'everywhere' and 'io' not in usage:
-                continue
+        for name, field in self.io_field_blocks:
             field_size_doc = field.size_doc_str
             acc = add_doc_numbers(acc, field_size_doc, show_expressions=False, produce_ranges=True)
         return acc
@@ -107,33 +116,85 @@ class CompoundBlock(DataBlockWithChildren, DataBlock, ABC):
             res[name] = field.new_data(patch.get(name, {}))
         return res
 
+    # True when the class reads, writes and sizes the data field by field, as CompoundBlock does: its fixed size and
+    # struct format then come from the fields. A subclass overriding read / write / estimate_packed_size without
+    # changing that (Point3D without normalization) overrides this too
+    @property
+    def field_by_field_io(self) -> bool:
+        cls = type(self)
+        return (
+            cls.read is CompoundBlock.read
+            and cls.write is CompoundBlock.write
+            and cls.estimate_packed_size is CompoundBlock.estimate_packed_size
+        )
+
+    @cached_property
+    def fixed_size(self) -> Optional[int]:
+        if not self.field_by_field_io:
+            return None
+        res = 0
+        for _, field in self.io_field_blocks:
+            if field.fixed_size is None:
+                return None
+            res += field.fixed_size
+        return res
+
+    @cached_property
+    def struct_format(self) -> Optional[Tuple[str, str]]:
+        if not self.field_by_field_io or self.value_validator is not None or self.programmatic_value is not None:
+            return None
+        return join_struct_formats(field for _, field in self.io_field_blocks)
+
+    # (name, block, the value is the unpacked value as it is) of the io fields, for from_struct / to_struct
+    @cached_property
+    def struct_fields(self) -> List[Tuple[str, DataBlock, bool]]:
+        return [(name, field, field.struct_raw) for name, field in self.io_field_blocks]
+
+    def from_struct(self, values: tuple, index: int):
+        res = {}
+        for name, field, is_raw in self.struct_fields:
+            if is_raw:
+                res[name] = values[index]
+                index += 1
+            else:
+                res[name], index = field.from_struct(values, index)
+        return res, index
+
+    def to_struct(self, data, values: list):
+        for name, field, is_raw in self.struct_fields:
+            if is_raw:
+                values.append(data[name])
+            else:
+                field.to_struct(data[name], values)
+
     def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
+        record = self.struct_record
+        if record is not None:
+            start = ctx.buffer.tell()
+            try:
+                return record.read(ctx.buffer)
+            except Exception:
+                # end of buffer, a value the field cannot hold: the field by field read raises it with its context
+                ctx.buffer.seek(start)
         res = dict()
         self_ctx = ctx.get_or_create_child(name, self, read_bytes_amount, res)
-        for name, field in self.field_blocks:
-            usage = self.field_extras_map.get(name, {}).get('usage', 'everywhere')
-            if usage != 'everywhere' and 'io' not in usage:
-                continue
+        for name, field in self.io_field_blocks:
             res[name] = field.unpack(ctx=self_ctx, name=name, read_bytes_amount=self_ctx.read_bytes_remaining)
         return res
 
     def estimate_packed_size(self, data, ctx: WriteContext = None):
+        if self.fixed_size is not None:
+            return self.fixed_size
         self_ctx = WriteContext(data=data, block=self, parent=ctx)
         res = 0
-        for name, field in self.field_blocks:
-            usage = self.field_extras_map.get(name, {}).get('usage', 'everywhere')
-            if usage != 'everywhere' and 'io' not in usage:
-                continue
+        for name, field in self.io_field_blocks:
             res += field.estimate_packed_size(data=data.get(name), ctx=self_ctx)
         return res
 
     def offset_to_child_when_packed(self, data, child_name: str, ctx: WriteContext = None):
         self_ctx = WriteContext(data=data, block=self, parent=ctx)
         res = 0
-        for name, field in self.field_blocks:
-            usage = self.field_extras_map.get(name, {}).get('usage', 'everywhere')
-            if usage != 'everywhere' and 'io' not in usage:
-                continue
+        for name, field in self.io_field_blocks:
             if name == child_name:
                 return res
             res += field.estimate_packed_size(data=data.get(name), ctx=self_ctx)
@@ -141,14 +202,80 @@ class CompoundBlock(DataBlockWithChildren, DataBlock, ABC):
             ctx=ctx, message=f'Cannot calculate offset to child "{child_name}". Child with such name not found'
         )
 
+    # The io fields whose programmatic value is a `LayoutReference` that `write` takes from the written bytes: fields
+    # of a fixed size (an offset table of `ItemOffsetsOf`: as many integers as items), referring to io fields. Own size
+    # and offsets only where the class sizes the block as `write` writes it (else they are estimated, as any
+    # programmatic value)
+    @cached_property
+    def back_patched_fields(self) -> Dict[str, LayoutReference]:
+        cls = type(self)
+        io_names = {name for name, _ in self.io_field_blocks}
+        res = {}
+        for name, field in self.io_field_blocks:
+            reference = field.programmatic_value
+            if (
+                not isinstance(reference, LayoutReference)
+                or (field.fixed_size is None and not isinstance(reference, ItemOffsetsOf))
+                or not io_names.issuperset(reference.names)
+                or (
+                    isinstance(reference, ItemOffsetsOf)
+                    and not hasattr(self.field_blocks_map[reference.names[0]], 'write_items')
+                )
+                or (
+                    isinstance(reference, OwnSize)
+                    and cls.estimate_packed_size is not CompoundBlock.estimate_packed_size
+                )
+                or (
+                    isinstance(reference, OffsetOf)
+                    and cls.offset_to_child_when_packed is not CompoundBlock.offset_to_child_when_packed
+                )
+            ):
+                continue
+            res[name] = reference
+        return res
+
     def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
+        record = self.struct_record
+        if record is not None:
+            try:
+                return record.write(data)
+            except Exception:
+                # a missing value or one the field cannot hold: the field by field write raises it with its context
+                pass
         self_ctx = WriteContext(data=data, name=name, block=self, parent=ctx)
         self_ctx.result = bytes()
-        for name, field in self.field_blocks:
-            usage = self.field_extras_map.get(name, {}).get('usage', 'everywhere')
-            if usage != 'everywhere' and 'io' not in usage:
-                continue
-            self_ctx.result += field.pack(data=data.get(name), ctx=self_ctx, name=name)
+        back_patched = self.back_patched_fields
+        if not back_patched:
+            for name, field in self.io_field_blocks:
+                self_ctx.result += field.pack(data=data.get(name), ctx=self_ctx, name=name)
+            return self_ctx.result
+        # (start, end) of each field, and of the items of arrays an offset table refers to: back-patched fields are
+        # zeros until the others are written
+        spans, item_spans = {}, {}
+        item_arrays = {
+            reference.names[0] for reference in back_patched.values() if isinstance(reference, ItemOffsetsOf)
+        }
+        for name, field in self.io_field_blocks:
+            start = len(self_ctx.result)
+            if name in back_patched:
+                self_ctx.result += back_patched[name].placeholder(field, data)
+            elif name in item_arrays:
+                parts = field.write_items(data.get(name), self_ctx, name)
+                item_spans[name] = []
+                position = start
+                for part in parts:
+                    item_spans[name].append((position, position + len(part)))
+                    position += len(part)
+                self_ctx.result += b''.join(parts)
+            else:
+                self_ctx.result += field.pack(data=data.get(name), ctx=self_ctx, name=name)
+            spans[name] = (start, len(self_ctx.result))
+        res = bytearray(self_ctx.result)
+        for name, reference in back_patched.items():
+            start, end = spans[name]
+            value = reference.from_spans(spans, len(res), item_spans)
+            res[start:end] = self.field_blocks_map[name].write(value, self_ctx, name)
+        self_ctx.result = bytes(res)
         return self_ctx.result
 
 
@@ -160,6 +287,21 @@ class SubByteCompoundBlock(IntegerBlock):
     def __init__(self, schema: List[Tuple[int, str, str, List[str], str]], **kwargs):
         super().__init__(**kwargs)
         self._schema_def = schema
+        # (bit position, mask, alias, type, value by number, number by value) of each value
+        self._bit_fields = []
+        current_bit = self.length * 8
+        for size, alias, type_name, details, _ in schema:
+            current_bit -= size
+            self._bit_fields.append(
+                (
+                    current_bit,
+                    (1 << size) - 1,
+                    alias,
+                    type_name,
+                    {i: v for i, v in enumerate(details)},
+                    {v: i for i, v in enumerate(details)},
+                )
+            )
         total_bits = sum(size for size, _, _, _, _ in schema)
         if total_bits != self.length * 8:
             raise BlockDefinitionException(
@@ -203,43 +345,33 @@ class SubByteCompoundBlock(IntegerBlock):
                 res[alias] = 0
         return res
 
-    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
-        raw_value = super().read(ctx, name, read_bytes_amount)
+    def from_raw(self, raw: int):
         res = {}
-        current_bit = self.length * 8
-        for size, alias, type_name, details, _ in self._schema_def:
-            current_bit -= size
-            value = (raw_value >> current_bit) & ((1 << size) - 1)
+        for bit, mask, alias, type_name, value_by_number, _ in self._bit_fields:
+            value = (raw >> bit) & mask
             if type_name == 'boolean':
                 res[alias] = bool(value)
             elif type_name == 'enum':
-                mapping = {i: v for i, v in enumerate(details)}
-                res[alias] = mapping.get(value, str(value))
+                res[alias] = value_by_number.get(value, str(value))
             else:
                 res[alias] = value
         return res
 
-    def estimate_packed_size(self, data, ctx: WriteContext = None):
-        return self.length
-
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
+    def to_raw(self, value) -> int:
         res = 0
-        current_bit = self.length * 8
-        for size, alias, type_name, details, _ in self._schema_def:
-            current_bit -= size
-            value = data.get(alias)
+        for bit, mask, alias, type_name, _, number_by_value in self._bit_fields:
+            field_value = value.get(alias)
             if type_name == 'boolean':
-                int_val = 1 if value else 0
+                int_val = 1 if field_value else 0
             elif type_name == 'enum':
-                mapping = {v: i for i, v in enumerate(details)}
                 try:
-                    int_val = mapping[value]
+                    int_val = number_by_value[field_value]
                 except KeyError:
-                    int_val = int(value)
+                    int_val = int(field_value)
             else:
-                int_val = int(value)
-            res |= (int_val & ((1 << size) - 1)) << current_bit
-        return super().write(res, ctx, name)
+                int_val = int(field_value)
+            res |= (int_val & mask) << bit
+        return res
 
 
 class BitFlagsBlock(SubByteCompoundBlock):
@@ -268,18 +400,19 @@ class BitFlagsBlock(SubByteCompoundBlock):
 
 
 class CompoundBlockFields(ABC):
+    # the fields declared in the class body itself; cached per class (a subclass does not take its base's cache)
     @class_property
     def fields(cls) -> List[Tuple[str, DataBlock]]:
-        try:
-            return cls.__fields_cache
-        except AttributeError:
-            cls.__fields_cache = [
+        cache = cls.__dict__.get('_fields_cache')
+        if cache is None:
+            cache = [
                 (key, value)
                 for (key, value) in cls.__dict__.items()
                 if isinstance(value, DataBlock)
                 or (type(value) is tuple and len(value) > 0 and isinstance(value[0], DataBlock))
             ]
-            return cls.__fields_cache
+            cls._fields_cache = cache
+        return cache
 
 
 class DeclarativeCompoundBlock(CompoundBlock):
@@ -287,10 +420,13 @@ class DeclarativeCompoundBlock(CompoundBlock):
         pass
 
     def __init__(self, **kwargs):
-        super().__init__(
-            fields=[
-                (name, *declaration) if type(declaration) is tuple else (name, declaration, {})
-                for name, declaration in self.__class__.Fields.fields
-            ],
-            **kwargs,
-        )
+        super().__init__(fields=self.declared_fields(), **kwargs)
+
+    # the fields of the block, (name, block, extras): those of its `Fields` class; a base class adding fields to every
+    # subclass's (chunk headers) overrides it
+    @classmethod
+    def declared_fields(cls) -> List[Tuple[str, DataBlock, FieldExtras]]:
+        return [
+            (name, *declaration) if type(declaration) is tuple else (name, declaration, {})
+            for name, declaration in cls.Fields.fields
+        ]

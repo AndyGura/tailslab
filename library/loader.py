@@ -1,10 +1,10 @@
 from collections import OrderedDict
 from io import BufferedReader, BytesIO, SEEK_CUR
 from os.path import getsize
-from typing import Set, Tuple
+from typing import Optional, Set, Tuple
 
 from library.read_blocks import DataBlock, OptionalBlock
-from library.utils.id import id_to_path, path_to_name, split_id
+from library.utils.id import id_to_path, join_id, path_to_name, split_id
 
 
 def _file_or_archive_item_name(file_path: str) -> str:
@@ -113,12 +113,18 @@ def _is_ea_audio_stream(buffer, length) -> bool:
     return is_ea_audio_stream(buffer, length)
 
 
+def _is_tnfs_saturn_sized_rle_image_list(buffer, length) -> bool:
+    from resources.eac.tnfs_saturn import is_tnfs_saturn_sized_rle_image_list
+
+    return is_tnfs_saturn_sized_rle_image_list(buffer, length)
+
+
 # this looks like a mess, but it is intended to be like that: by using local imports we dramatically increase
 # performance, because we spawn process per file, and it doesn't need to load all those classes every time
 def _tnfs_saturn_block_class(buffer, file_path: str, length):
     """Block class of a file of the Sega Saturn TNFS port Over Drivin' GT-R, None for another file: the executable
-    `0`, car bundles `*.ALL`, run-length encoded pictures and tone banks `*.BIN`, car showcase pictures, menu art and
-    sprite banks `*.DAT`, and `*.PCX`"""
+    `0`, car bundles `*.ALL`, run-length encoded pictures and tone banks `*.BIN`, 8-bit pictures `*.IM`, car showcase
+    pictures, menu art, sprite banks and 8-bit pictures `*.DAT`, and `*.PCX`"""
     if length is None:
         return None
     name = _file_or_archive_item_name(file_path).upper()
@@ -146,11 +152,20 @@ def _tnfs_saturn_block_class(buffer, file_path: str, length):
 
         if is_saturn_tone_bank(_peek(buffer, 1024), length):
             return SaturnToneBank
+    elif name.endswith('.IM') and length >= 520 and int.from_bytes(_peek(buffer, 4), 'big') == length:
+        from resources.eac.tnfs_saturn import TnfsSaturnSizedRleImage, is_tnfs_saturn_sized_rle_image
+
+        if is_tnfs_saturn_sized_rle_image(_peek(buffer, length)):
+            return TnfsSaturnSizedRleImage
     elif name.endswith('.DAT') and length >= 8 and _peek(buffer, 7)[4:7] == b'\x0a\x05\x01':
         from resources.eac.tnfs_saturn import TnfsSaturnPcxList, is_tnfs_saturn_pcx_list
 
         if is_tnfs_saturn_pcx_list(buffer, length):
             return TnfsSaturnPcxList
+    elif name.endswith('.DAT') and length >= 520 and _is_tnfs_saturn_sized_rle_image_list(buffer, length):
+        from resources.eac.tnfs_saturn import TnfsSaturnSizedRleImageList
+
+        return TnfsSaturnSizedRleImageList
     elif name.endswith('.DAT') and length >= 20 and _peek(buffer, 2) == b'\0\0':
         from resources.eac.tnfs_saturn import tnfs_saturn_dat_block_class
 
@@ -600,7 +615,7 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
         and length >= 8
         and (file_path.upper().endswith(('.BUN', '.BIN')) or '.LZC' in file_path.upper())
     ):
-        from resources.blackbox.maps.nfsu import walk_nfsu_chunk_ids
+        from resources.blackbox.chunks import walk_nfsu_chunk_ids
 
         chunk_ids = walk_nfsu_chunk_ids(buffer, length)
         if chunk_ids:
@@ -667,6 +682,15 @@ def require_resource(id: str) -> Tuple[Tuple[str, 'DataBlock', dict], Tuple[str,
         (res_block, res) = res_block.get_child_block_with_data(res, key)
         res_block = _unwrap_present_optional(res_block, res)
     return (id, res_block, res), (file_id, block, data)
+
+
+def require_resource_as(id: str, block_class: type) -> Optional[Tuple[str, 'DataBlock', dict]]:
+    """(id, block, data) of the resource `id` as a `block_class` block: the resource itself, or the data its delegates
+    hold (a compressed file's), followed down to one; None when there is none"""
+    (id, block, data), _ = require_resource(id)
+    while not isinstance(block, block_class) and isinstance(data, dict) and 'choice_index' in data:
+        (id, block, data), _ = require_resource(join_id(id, 'data'))
+    return (id, block, data) if isinstance(block, block_class) else None
 
 
 def _unwrap_present_optional(res_block: 'DataBlock', res) -> 'DataBlock':

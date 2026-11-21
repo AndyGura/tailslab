@@ -1,4 +1,3 @@
-from io import SEEK_CUR
 from math import floor
 
 from library.context import ReadContext, WriteContext
@@ -15,13 +14,15 @@ from library.read_blocks import (
     Padding,
     SubByteCompoundBlock,
     TrailingOptionalBlock,
+    CountOf,
+    OffsetOf,
+    OwnSize,
 )
-from library.read_blocks.archives import ArchiveBlock
 from library.read_blocks.misc.value_validators import Eq
 from library.read_blocks.strings import NullTerminatedUTF8Block
-from resources.eac.fields.byte_order import big_endian_copy
+from resources.eac.fields.byte_order import big_endian_copy, derive_fields
 from resources.eac.fields.misc import Point3D
-from resources.eac.psx import CRCF_FOOTER_LENGTH, PsxCrcFooter, with_crc_footer
+from resources.eac.psx import PsxCrcFooter, PsxItemCrcFooterMixin
 
 # "Verified" in the descriptions below: read in the game code (TNFS DOS, PSX and Win95 SE executables, tnfs-1995
 # Ghidra projects; DOS `gfx_oriload` 0xa1148, `gfx_orilocatemorph` 0xa14d0, `gfx_oriapplymorph` 0xa16a4,
@@ -277,7 +278,7 @@ class OripGeometry(DeclarativeCompoundBlock):
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(value_validator=Eq('ORIP'), length=4), {'description': 'Resource ID'})
         block_size = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: ctx.block.estimate_packed_size(ctx.get_full_data())),
+            IntegerBlock(length=4, programmatic_value=OwnSize()),
             {'description': 'Total ORIP block size in bytes'},
         )
         version = (
@@ -295,7 +296,7 @@ class OripGeometry(DeclarativeCompoundBlock):
             },
         )
         num_vrtx = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('vertices/data'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('vertices/data')),
             {'description': 'Number of items in `vertices`: the shape vertices and the morph delta vectors'},
         )
         num_shape_vrtx = (
@@ -311,14 +312,11 @@ class OripGeometry(DeclarativeCompoundBlock):
             },
         )
         vrtx_ptr = (
-            IntegerBlock(
-                length=4,
-                programmatic_value=lambda ctx: ctx.block.offset_to_child_when_packed(ctx.get_full_data(), 'vertices'),
-            ),
+            IntegerBlock(length=4, programmatic_value=OffsetOf('vertices')),
             {'description': 'An offset to vertices'},
         )
         num_uvs = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('vertex_uvs'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('vertex_uvs')),
             {'description': 'Amount of vertex UV-s (texture coordinates). Not read by the game (verified)'},
         )
         uvs_ptr = (
@@ -326,7 +324,7 @@ class OripGeometry(DeclarativeCompoundBlock):
             {'description': 'An offset to vertex_uvs. Always equals to `112 + num_polygons*12`'},
         )
         num_polygons = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('polygons'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('polygons')),
             {'description': 'Amount of polygons'},
         )
         polygons_ptr = (
@@ -338,7 +336,7 @@ class OripGeometry(DeclarativeCompoundBlock):
             {'description': 'Model name, like "_SUPRA" or "_TRESTLE". Never read by the game (verified)'},
         )
         num_materials = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('materials'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('materials')),
             {'description': 'Amount of materials'},
         )
         materials_ptr = (
@@ -349,57 +347,42 @@ class OripGeometry(DeclarativeCompoundBlock):
             {'description': 'An offset to materials. Always equals to `112 + num_polygons*12 + num_uvs*8`'},
         )
         num_morphs = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('morphs'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('morphs')),
             {'description': 'Amount of morphs'},
         )
         morphs_ptr = (
-            IntegerBlock(
-                length=4,
-                programmatic_value=lambda ctx: ctx.block.offset_to_child_when_packed(ctx.get_full_data(), 'morphs'),
-            ),
+            IntegerBlock(length=4, programmatic_value=OffsetOf('morphs')),
             {
                 'description': 'An offset to morphs. Equals to `materials_ptr + num_materials*20`, except in the '
                 'far model of LDIABLO.CFM (see `unk_morphs`)'
             },
         )
         num_partitions = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('partitions'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('partitions')),
             {'description': 'Amount of partitions'},
         )
         partitions_ptr = (
-            IntegerBlock(
-                length=4,
-                programmatic_value=lambda ctx: ctx.block.offset_to_child_when_packed(ctx.get_full_data(), 'partitions'),
-            ),
+            IntegerBlock(length=4, programmatic_value=OffsetOf('partitions')),
             {'description': 'An offset to partitions. Always equals to `morphs_ptr + num_morphs*20`'},
         )
         vmap_ptr = (
-            IntegerBlock(
-                length=4,
-                programmatic_value=lambda ctx: ctx.block.offset_to_child_when_packed(ctx.get_full_data(), 'vmap'),
-            ),
+            IntegerBlock(length=4, programmatic_value=OffsetOf('vmap')),
             {'description': 'Offset of polygon_vertex_map block'},
         )
         num_fxp = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('fx_polys'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('fx_polys')),
             {'description': 'Amount of items in fx_polys block'},
         )
         fxp_ptr = (
-            IntegerBlock(
-                length=4,
-                programmatic_value=lambda ctx: ctx.block.offset_to_child_when_packed(ctx.get_full_data(), 'fx_polys'),
-            ),
+            IntegerBlock(length=4, programmatic_value=OffsetOf('fx_polys')),
             {'description': 'Offset of fx_polys block. Always equals to `partitions_ptr + num_partitions*28`'},
         )
         num_lbl = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('labels'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('labels')),
             {'description': 'Amount of items in labels block'},
         )
         lbl_ptr = (
-            IntegerBlock(
-                length=4,
-                programmatic_value=lambda ctx: ctx.block.offset_to_child_when_packed(ctx.get_full_data(), 'labels'),
-            ),
+            IntegerBlock(length=4, programmatic_value=OffsetOf('labels')),
             {'description': 'Offset of labels block. Always equals to `fxp_ptr + num_fxp*12`'},
         )
         num_jld = (
@@ -418,30 +401,30 @@ class OripGeometry(DeclarativeCompoundBlock):
             {'description': 'Run time pointer to the JLD inverse matrices (verified), 0 in the files'},
         )
         polygons = (
-            ArrayBlock(child=OripPolygon(), length=lambda ctx: ctx.data('num_polygons')),
+            ArrayBlock(child=OripPolygon(), length='num_polygons'),
             {
                 'description': 'A block with polygons of the geometry. Probably should be a start point when '
                 'building model from this file'
             },
         )
         unk_uvs = (
-            Padding(to=(lambda ctx: ctx.data('uvs_ptr'), 'uvs_ptr')),
+            Padding(to='uvs_ptr'),
             {'description': 'Padding up to `uvs_ptr`, normally empty'},
         )
         vertex_uvs = (
-            ArrayBlock(child=OripVertexUV(), length=lambda ctx: ctx.data('num_uvs')),
+            ArrayBlock(child=OripVertexUV(), length='num_uvs'),
             {'description': 'A table of texture coordinates. Items are retrieved by index, located in vmap'},
         )
         unk_materials = (
-            Padding(to=(lambda ctx: ctx.data('materials_ptr'), 'materials_ptr')),
+            Padding(to='materials_ptr'),
             {'description': 'Padding up to `materials_ptr`, normally empty'},
         )
         materials = (
-            ArrayBlock(child=OripMaterial(), length=lambda ctx: ctx.data('num_materials')),
+            ArrayBlock(child=OripMaterial(), length='num_materials'),
             {'description': 'A table of materials. Items are retrieved by index, located in polygon item'},
         )
         unk_morphs = (
-            Padding(to=(lambda ctx: ctx.data('morphs_ptr'), 'morphs_ptr'), allow_negative_length=True),
+            Padding(to='morphs_ptr', allow_negative_length=True),
             {
                 'description': 'Padding up to `morphs_ptr`, empty in every file but one: in the far model of '
                 'LDIABLO.CFM (no morphs) its length is -3, the morph and partition tables start 3 bytes before the '
@@ -450,7 +433,7 @@ class OripGeometry(DeclarativeCompoundBlock):
             },
         )
         morphs = (
-            ArrayBlock(child=OripMorph(), length=lambda ctx: ctx.data('num_morphs')),
+            ArrayBlock(child=OripMorph(), length='num_morphs'),
             {
                 'description': 'Morphs (verified). Only full car models have them: `left_turn` and `right_turn`, '
                 'each moving the 4 vertices of its front wheel quad (labels `lt_frnt` / `rt_frnt`) and the 4 of '
@@ -462,11 +445,11 @@ class OripGeometry(DeclarativeCompoundBlock):
             },
         )
         unk_partitions = (
-            Padding(to=(lambda ctx: ctx.data('partitions_ptr'), 'partitions_ptr')),
+            Padding(to='partitions_ptr'),
             {'description': 'Padding up to `partitions_ptr`, normally empty'},
         )
         partitions = (
-            ArrayBlock(child=OripPartition(), length=lambda ctx: ctx.data('num_partitions')),
+            ArrayBlock(child=OripPartition(), length='num_partitions'),
             {
                 'description': 'Partitions, the draw order of the polygons (verified). The gg-web-engine export '
                 'writes the partition of each mesh (`inside`, `surface` or `outside`) to its node extras '
@@ -474,11 +457,11 @@ class OripGeometry(DeclarativeCompoundBlock):
             },
         )
         unk_fxp = (
-            Padding(to=(lambda ctx: ctx.data('fxp_ptr'), 'fxp_ptr')),
+            Padding(to='fxp_ptr'),
             {'description': 'Padding up to `fxp_ptr`, normally empty'},
         )
         fx_polys = (
-            ArrayBlock(child=NamedIndex(), length=lambda ctx: ctx.data('num_fxp')),
+            ArrayBlock(child=NamedIndex(), length='num_fxp'),
             {
                 'description': 'Named points of the model for visual effects, in high-poly car models (CFM). Despite '
                 'the name, `index` is the index of an item of `vertices`, not of a polygon. The game looks up `smok` '
@@ -496,11 +479,11 @@ class OripGeometry(DeclarativeCompoundBlock):
             },
         )
         unk_lbl = (
-            Padding(to=(lambda ctx: ctx.data('lbl_ptr'), 'lbl_ptr')),
+            Padding(to='lbl_ptr'),
             {'description': 'Padding up to `lbl_ptr`, normally empty'},
         )
         labels = (
-            ArrayBlock(child=NamedIndex(), length=lambda ctx: ctx.data('num_lbl')),
+            ArrayBlock(child=NamedIndex(), length='num_lbl'),
             {
                 'description': 'Named polygons of high-poly car models (CFM), `index` is the index of an item of '
                 '`polygons`. The game looks up `lt_frnt`, `rt_frnt`, `lt_rear`, `rt_rear` only (verified): the '
@@ -523,7 +506,7 @@ class OripGeometry(DeclarativeCompoundBlock):
             },
         )
         unk_vrtx = (
-            Padding(to=(lambda ctx: ctx.data('vrtx_ptr'), 'vrtx_ptr')),
+            Padding(to='vrtx_ptr'),
             {'description': 'Padding up to `vrtx_ptr`, normally empty'},
         )
         vertices = (
@@ -532,11 +515,11 @@ class OripGeometry(DeclarativeCompoundBlock):
                 possible_blocks=[
                     ArrayBlock(
                         child=Point3D(child=FixedPointBlock(length=4, fraction_bits=7, is_signed=True)),
-                        length=lambda ctx: ctx.data('num_vrtx'),
+                        length='num_vrtx',
                     ),
                     ArrayBlock(
                         child=Point3D(child=FixedPointBlock(length=4, fraction_bits=4, is_signed=True)),
-                        length=lambda ctx: ctx.data('num_vrtx'),
+                        length='num_vrtx',
                     ),
                 ],
             ),
@@ -547,7 +530,7 @@ class OripGeometry(DeclarativeCompoundBlock):
             },
         )
         unk_vmap = (
-            Padding(to=(lambda ctx: ctx.data('vmap_ptr'), 'vmap_ptr')),
+            Padding(to='vmap_ptr'),
             {'description': 'Padding up to `vmap_ptr`, normally empty'},
         )
         vmap = (
@@ -717,17 +700,7 @@ class OrixMaterial(DeclarativeCompoundBlock):
         )
 
 
-def _in_wwww_archive(ctx) -> bool:
-    """Whether the closest archive the block is read in is a wwww one (FAM)"""
-    parent = ctx
-    while parent is not None:
-        if isinstance(parent.block, ArchiveBlock):
-            return parent.block.__class__.__name__ == 'WwwwBlock'
-        parent = parent.parent
-    return False
-
-
-class OrixGeometry(DeclarativeCompoundBlock):
+class OrixGeometry(PsxItemCrcFooterMixin, DeclarativeCompoundBlock):
     block_description = (
         'Geometry block of the PSX TNFS: car models (`<car>.por` / `<car>l.por` of the car '
         'archives `.VSM` / `.WSM`) and track props (`Z<track>_POR.FAM`). The PSX counterpart of ORIP: the same '
@@ -746,7 +719,7 @@ class OrixGeometry(DeclarativeCompoundBlock):
     class Fields(DeclarativeCompoundBlock.Fields):
         resource_id = (UTF8Block(value_validator=Eq('ORIX'), length=4), {'description': 'Resource ID'})
         block_size = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: ctx.block.orix_length(ctx.get_full_data())),
+            IntegerBlock(length=4, programmatic_value=lambda ctx: ctx.block.size_without_footer(ctx.get_full_data())),
             {'description': 'Total ORIX block size in bytes, without the CRC footer'},
         )
         version = (
@@ -770,22 +743,16 @@ class OrixGeometry(DeclarativeCompoundBlock):
         )
         vrtx_ptr = OripGeometry.Fields.vrtx_ptr
         num_uvs = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('vertex_uvs'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('vertex_uvs')),
             {'description': 'Amount of vertex UV-s (texture coordinates)'},
         )
         uvs_ptr = (
-            IntegerBlock(
-                length=4,
-                programmatic_value=lambda ctx: ctx.block.offset_to_child_when_packed(ctx.get_full_data(), 'vertex_uvs'),
-            ),
+            IntegerBlock(length=4, programmatic_value=OffsetOf('vertex_uvs')),
             {'description': 'An offset to vertex_uvs'},
         )
         num_polygons = OripGeometry.Fields.num_polygons
         polygons_ptr = (
-            IntegerBlock(
-                length=4,
-                programmatic_value=lambda ctx: ctx.block.offset_to_child_when_packed(ctx.get_full_data(), 'polygons'),
-            ),
+            IntegerBlock(length=4, programmatic_value=OffsetOf('polygons')),
             {'description': 'An offset to polygons block. Always equals to `120 + num_polygon_textures*8`'},
         )
         name = (
@@ -794,10 +761,7 @@ class OrixGeometry(DeclarativeCompoundBlock):
         )
         num_materials = OripGeometry.Fields.num_materials
         materials_ptr = (
-            IntegerBlock(
-                length=4,
-                programmatic_value=lambda ctx: ctx.block.offset_to_child_when_packed(ctx.get_full_data(), 'materials'),
-            ),
+            IntegerBlock(length=4, programmatic_value=OffsetOf('materials')),
             {'description': 'An offset to materials. Always equals to `uvs_ptr + num_uvs*8`'},
         )
         num_morphs = OripGeometry.Fields.num_morphs
@@ -820,14 +784,11 @@ class OrixGeometry(DeclarativeCompoundBlock):
             },
         )
         jld_ptr = (
-            IntegerBlock(
-                length=4,
-                programmatic_value=lambda ctx: ctx.block.offset_to_child_when_packed(ctx.get_full_data(), 'polygons'),
-            ),
+            IntegerBlock(length=4, programmatic_value=OffsetOf('polygons')),
             {'description': 'Offset of the JLD items. Equals to `polygons_ptr` in every file, where there are none'},
         )
         num_polygon_textures = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('polygon_textures'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('polygon_textures')),
             {'description': 'Amount of items in polygon_textures block'},
         )
         polygon_textures_ptr = (
@@ -839,7 +800,7 @@ class OrixGeometry(DeclarativeCompoundBlock):
             {'description': 'Run time pointer to the JLD inverse matrices (verified), 0 in the files'},
         )
         polygon_textures = (
-            ArrayBlock(child=OrixPolygonTexture(), length=lambda ctx: ctx.data('num_polygon_textures')),
+            ArrayBlock(child=OrixPolygonTexture(), length='num_polygon_textures'),
             {
                 'description': 'Images of single polygons, grouped by material: a material with '
                 '`per_polygon_textures` has `num_polygon_textures` items from `first_polygon_texture` on (verified). '
@@ -847,11 +808,11 @@ class OrixGeometry(DeclarativeCompoundBlock):
             },
         )
         polygons = (
-            ArrayBlock(child=OrixPolygon(), length=lambda ctx: ctx.data('num_polygons')),
+            ArrayBlock(child=OrixPolygon(), length='num_polygons'),
             {'description': 'A block with polygons of the geometry'},
         )
         vertex_uvs = (
-            ArrayBlock(child=OripVertexUV(), length=lambda ctx: ctx.data('num_uvs')),
+            ArrayBlock(child=OripVertexUV(), length='num_uvs'),
             {
                 'description': 'A table of texture coordinates, in texels of the image as shown (the game turns '
                 'them for an image stored rotated, and clamps them to the image; verified). Items are retrieved by '
@@ -860,32 +821,32 @@ class OrixGeometry(DeclarativeCompoundBlock):
             },
         )
         materials = (
-            ArrayBlock(child=OrixMaterial(), length=lambda ctx: ctx.data('num_materials')),
+            ArrayBlock(child=OrixMaterial(), length='num_materials'),
             {'description': 'A table of materials. Items are retrieved by index, located in polygon item'},
         )
         morphs = (
-            ArrayBlock(child=OripMorph(), length=lambda ctx: ctx.data('num_morphs')),
+            ArrayBlock(child=OripMorph(), length='num_morphs'),
             {
                 'description': 'Morphs, as in ORIP: `left_turn` and `right_turn` of the racer models, the front '
                 "wheel steering. The game applies them to the player's car only (verified)"
             },
         )
         partitions = (
-            ArrayBlock(child=OripPartition(), length=lambda ctx: ctx.data('num_partitions')),
+            ArrayBlock(child=OripPartition(), length='num_partitions'),
             {
                 'description': 'Partitions, as in ORIP: the game draws `inside`, then `surface`, then `outside` '
                 '(then `convex`, never present), each depth-sorted on its own (verified)'
             },
         )
         fx_polys = (
-            ArrayBlock(child=NamedIndex(), length=lambda ctx: ctx.data('num_fxp')),
+            ArrayBlock(child=NamedIndex(), length='num_fxp'),
             {
                 'description': 'Named vertices, as in ORIP: the game looks up `smok` and the wheel ground points '
                 "`FL0`..`RR1` of the player's car (verified)"
             },
         )
         labels = (
-            ArrayBlock(child=NamedIndex(), length=lambda ctx: ctx.data('num_lbl')),
+            ArrayBlock(child=NamedIndex(), length='num_lbl'),
             {
                 'description': 'Named polygons, as in ORIP: the game looks up the wheel quads `lt_frnt`, `rt_frnt`, '
                 "`lt_rear`, `rt_rear` of the player's car (verified)"
@@ -899,11 +860,11 @@ class OrixGeometry(DeclarativeCompoundBlock):
                 possible_blocks=[
                     ArrayBlock(
                         child=Point3D(child=FixedPointBlock(length=4, fraction_bits=7, is_signed=True)),
-                        length=lambda ctx: ctx.data('num_vrtx'),
+                        length='num_vrtx',
                     ),
                     ArrayBlock(
                         child=Point3D(child=FixedPointBlock(length=4, fraction_bits=4, is_signed=True)),
-                        length=lambda ctx: ctx.data('num_vrtx'),
+                        length='num_vrtx',
                     ),
                 ],
             ),
@@ -935,34 +896,6 @@ class OrixGeometry(DeclarativeCompoundBlock):
                 'inside a FAM archive it follows the last item of the FAM',
             },
         )
-
-    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None):
-        start = ctx.buffer.tell()
-        res = super().read(ctx, name, read_bytes_amount)
-        res['crc_footer'] = None
-        # the footer of the BIGF item: a FAM has the footer of the whole FAM after its last item
-        if (
-            not _in_wwww_archive(ctx)
-            and read_bytes_amount is not None
-            and read_bytes_amount - (ctx.buffer.tell() - start) == CRCF_FOOTER_LENGTH
-        ):
-            footer = ctx.buffer.read(CRCF_FOOTER_LENGTH)
-            if footer[:4] == b'CRCF':
-                res['crc_footer'] = self.field_blocks_map['crc_footer'].child.unpack_from_bytes(footer)
-            else:
-                ctx.buffer.seek(-len(footer), SEEK_CUR)
-        return res
-
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        return with_crc_footer(super().write(data, ctx, name), data.get('crc_footer'))
-
-    def orix_length(self, data) -> int:
-        """Value of the `block_size` field: the ORIX without the CRC footer"""
-        return super().estimate_packed_size(data)
-
-    def estimate_packed_size(self, data, ctx: WriteContext = None):
-        footer_length = CRCF_FOOTER_LENGTH if data.get('crc_footer') is not None else 0
-        return super().estimate_packed_size(data, ctx) + footer_length
 
 
 # "Checked" in the Saturn descriptions below: against every ORIX of Over Drivin' GT-R (the 8 cars' high and low-poly
@@ -1075,9 +1008,7 @@ def _tnfs_saturn_orix_fields():
             },
         ),
         'polygon_textures': (
-            ArrayBlock(
-                child=big_endian_copy(OrixPolygonTexture()), length=lambda ctx: ctx.data('num_polygon_textures')
-            ),
+            ArrayBlock(child=big_endian_copy(OrixPolygonTexture()), length='num_polygon_textures'),
             {
                 'description': 'Textures of single polygons, grouped by material, as in the PSX ORIX: a material with '
                 '`per_polygon_textures` has `num_polygon_textures` items from `first_polygon_texture` on. The names '
@@ -1087,7 +1018,7 @@ def _tnfs_saturn_orix_fields():
             },
         ),
         'polygons': (
-            ArrayBlock(child=TnfsSaturnOrixPolygon(), length=lambda ctx: ctx.data('num_polygons')),
+            ArrayBlock(child=TnfsSaturnOrixPolygon(), length='num_polygons'),
             {'description': 'A block with polygons of the geometry'},
         ),
         'vertex_uvs': (
@@ -1095,7 +1026,7 @@ def _tnfs_saturn_orix_fields():
             {'description': 'A table of texture coordinates, as in the PSX ORIX. Empty in every file (checked)'},
         ),
         'materials': (
-            ArrayBlock(child=TnfsSaturnOrixMaterial(), length=lambda ctx: ctx.data('num_materials')),
+            ArrayBlock(child=TnfsSaturnOrixMaterial(), length='num_materials'),
             {'description': 'A table of materials. Items are retrieved by index, located in polygon item'},
         ),
         'morphs': (
@@ -1143,7 +1074,7 @@ def _tnfs_saturn_orix_fields():
                         child=Point3D(
                             child=FixedPointBlock(length=4, fraction_bits=7, is_signed=True, byte_order='big')
                         ),
-                        length=lambda ctx: ctx.data('num_vrtx'),
+                        length='num_vrtx',
                     ),
                 ],
             ),
@@ -1155,15 +1086,7 @@ def _tnfs_saturn_orix_fields():
             },
         ),
     }
-    fields = {}
-    for name, (block, extras) in OrixGeometry.Fields.fields:
-        if name == 'crc_footer':
-            continue
-        if name in replaced:
-            fields[name] = replaced[name]
-        else:
-            fields[name] = (big_endian_copy(block), extras)
-    return type('Fields', (DeclarativeCompoundBlock.Fields,), fields)
+    return derive_fields(OrixGeometry.Fields, replace=replaced, drop={'crc_footer'})
 
 
 class TnfsSaturnOrixGeometry(OrixGeometry):

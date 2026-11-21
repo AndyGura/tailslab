@@ -1,6 +1,7 @@
 from typing import Dict
 
 from library.read_blocks import (
+    REMAINING,
     ArrayBlock,
     BitFlagsBlock,
     BytesBlock,
@@ -9,41 +10,27 @@ from library.read_blocks import (
     EnumByteBlock,
     FixedPointBlock,
     IntegerBlock,
+    CountOf,
 )
-from library.read_blocks.misc.value_validators import Eq
 from library.read_blocks.strings import UTF8Block
 from resources.blackbox.bitmaps.nfs6_ps2 import Nfs6Ps2TexturePack
-from resources.blackbox.chunks import chunk_delegate, container_chunk_length, nfsu_sub_chunks_field
 from resources.blackbox.geometries.nfs6_ps2 import Nfs6Ps2CollisionVolumes, Nfs6Ps2LightingMaterials, Nfs6Ps2SolidPack
-from resources.blackbox.geometries.nfsu import (
-    _CHUNK_ID_DESCR,
-    _CHUNK_LENGTH_DESCR,
-    _ELEVENS_DESCR,
-    ZeroChunk,
-    determine_chunks_amount,
-    elevens_length,
-)
 from resources.eac.fields.misc import Point2D, Point3D
 from resources.eac.fields.numbers import IntegerAngleBlock
+from resources.blackbox.chunks import ChunkBlock, ZeroChunk, chunks_field, records_to_chunk_end
 
 # NFS Hot Pursuit 2 (PS2) sceneries: loader SLUS_203.62 0x14ecdc. The world of a track is the scenery instances of
 # TRACKS/TRACKB<track>.LZC (track = location * 10 + variant), meshes of its mesh packs, textures of
 # TRACKS/TEX<track>LOCATION.BIN and TEX<track>TRACK.BIN
 
 
-class Nfs6Ps2SceneryHeader(DeclarativeCompoundBlock):
+class Nfs6Ps2SceneryHeader(ChunkBlock):
     block_description = 'Scenery header: number of the section it belongs to'
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034101)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('elevens')) + 56),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
-        )
-        elevens = (
-            BytesBlock(length=(lambda ctx: elevens_length(ctx), 'up to 16-bytes alignment')),
-            {'usage': 'io,doc', 'description': _ELEVENS_DESCR},
-        )
+    CHUNK_ID = 0x00034101
+    ALIGNMENT = 0x10
+
+    class Fields(ChunkBlock.Fields):
         runtime_pointers = (BytesBlock(length=8), {'description': 'Written by the game', 'is_unknown': True})
         section_number = (
             IntegerBlock(length=4),
@@ -73,17 +60,14 @@ class Nfs6Ps2SceneryInfo(DeclarativeCompoundBlock):
         radius = (DecimalBlock(length=4), {'is_unknown': True})
 
 
-class Nfs6Ps2SceneryInfos(DeclarativeCompoundBlock):
+class Nfs6Ps2SceneryInfos(ChunkBlock):
     block_description = 'Scenery object definitions'
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034102)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('infos')) * 40),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
-        )
+    CHUNK_ID = 0x00034102
+
+    class Fields(ChunkBlock.Fields):
         infos = (
-            ArrayBlock(child=Nfs6Ps2SceneryInfo(), length=lambda ctx: ctx.data('chunk_length') // 40),
+            records_to_chunk_end(Nfs6Ps2SceneryInfo(), 40),
             {'description': 'Definitions'},
         )
 
@@ -113,37 +97,26 @@ class Nfs6Ps2SceneryInstance(DeclarativeCompoundBlock):
         pad = (IntegerBlock(length=2), {'is_unknown': True})
 
 
-class Nfs6Ps2SceneryInstances(DeclarativeCompoundBlock):
+class Nfs6Ps2SceneryInstances(ChunkBlock):
     block_description = 'Placed scenery objects'
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034103)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = (
-            IntegerBlock(
-                length=4, programmatic_value=lambda ctx: len(ctx.data('elevens')) + len(ctx.data('instances')) * 48
-            ),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
-        )
-        elevens = (
-            BytesBlock(length=(lambda ctx: elevens_length(ctx), 'up to 16-bytes alignment')),
-            {'usage': 'io,doc', 'description': _ELEVENS_DESCR},
-        )
+    CHUNK_ID = 0x00034103
+    ALIGNMENT = 0x10
+
+    class Fields(ChunkBlock.Fields):
         instances = (
-            ArrayBlock(
-                child=Nfs6Ps2SceneryInstance(),
-                length=lambda ctx: (ctx.data('chunk_length') - len(ctx.data('elevens'))) // 48,
-            ),
+            records_to_chunk_end(Nfs6Ps2SceneryInstance(), 48),
             {'description': 'Instances'},
         )
 
 
-class Nfs6Ps2Scenery(DeclarativeCompoundBlock):
+class Nfs6Ps2Scenery(ChunkBlock):
     block_description = 'Scenery of a section: object definitions referencing meshes by id, and their instances'
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x80034100)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = container_chunk_length()
-        sub_chunks = nfsu_sub_chunks_field(
+    CHUNK_ID = 0x80034100
+
+    class Fields(ChunkBlock.Fields):
+        sub_chunks = chunks_field(
             [Nfs6Ps2SceneryHeader(), Nfs6Ps2SceneryInfos(), Nfs6Ps2SceneryInstances()],
             'Header, definitions, instances and chunk 0x34104 (24-byte records, unknown)',
         )
@@ -205,17 +178,14 @@ class Nfs6Ps2TrackPathRecord(DeclarativeCompoundBlock):
         )
 
 
-class Nfs6Ps2TrackPathHeader(DeclarativeCompoundBlock):
+class Nfs6Ps2TrackPathHeader(ChunkBlock):
     block_description = 'Track paths: one record per path'
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034148)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: 40 * len(ctx.data('paths'))),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
-        )
+    CHUNK_ID = 0x00034148
+
+    class Fields(ChunkBlock.Fields):
         paths = (
-            ArrayBlock(child=Nfs6Ps2TrackPathRecord(), length=lambda ctx: ctx.data('chunk_length') // 40),
+            records_to_chunk_end(Nfs6Ps2TrackPathRecord(), 40),
             {'description': 'Paths'},
         )
 
@@ -250,31 +220,28 @@ class Nfs6Ps2TrackPathPoint(DeclarativeCompoundBlock):
         )
 
 
-class Nfs6Ps2TrackPathPoints(DeclarativeCompoundBlock):
+class Nfs6Ps2TrackPathPoints(ChunkBlock):
     block_description = 'Points of the track path'
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034149)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: 20 * len(ctx.data('points'))),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
-        )
+    CHUNK_ID = 0x00034149
+
+    class Fields(ChunkBlock.Fields):
         points = (
-            ArrayBlock(child=Nfs6Ps2TrackPathPoint(), length=lambda ctx: ctx.data('chunk_length') // 20),
+            records_to_chunk_end(Nfs6Ps2TrackPathPoint(), 20),
             {'description': 'Points'},
         )
 
 
-class Nfs6Ps2TrackPath(DeclarativeCompoundBlock):
+class Nfs6Ps2TrackPath(ChunkBlock):
     block_description = (
         'Track paths: the race route (path 0) and its branches on the ground plane, a point '
         'every 20..150 m (loader SLUS_203.62 0x207b28)'
     )
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x80034147)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = container_chunk_length()
-        sub_chunks = nfsu_sub_chunks_field([Nfs6Ps2TrackPathHeader(), Nfs6Ps2TrackPathPoints()], 'Header and points')
+    CHUNK_ID = 0x80034147
+
+    class Fields(ChunkBlock.Fields):
+        sub_chunks = chunks_field([Nfs6Ps2TrackPathHeader(), Nfs6Ps2TrackPathPoints()], 'Header and points')
 
 
 # The track's ground for the physics: a quad tree over the track (chunks 0x34130..0x34133, TopologyTree::Loader
@@ -317,47 +284,6 @@ NFS6_PS2_TERRAIN_TYPES = [
 ]
 
 
-def _aligned_chunk_fields(chunk_id: int, items_field: str, item_block, item_size: int, items_description: str):
-    """Fields of a chunk whose records start at the first 16-byte aligned offset of the payload (0x11 filler before
-    them: the loader takes `(chunk + 0x17) & ~15`)"""
-    return {
-        'chunk_id': (IntegerBlock(length=4, value_validator=Eq(chunk_id)), {'description': _CHUNK_ID_DESCR}),
-        'chunk_length': (
-            IntegerBlock(
-                length=4,
-                programmatic_value=lambda ctx: len(ctx.data('elevens')) + item_size * len(ctx.data(items_field)),
-            ),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
-        ),
-        'elevens': (
-            BytesBlock(length=(lambda ctx: elevens_length(ctx), 'up to 16-bytes alignment')),
-            {'usage': 'io,doc', 'description': _ELEVENS_DESCR},
-        ),
-        items_field: (
-            ArrayBlock(
-                child=item_block,
-                length=lambda ctx: (ctx.data('chunk_length') - len(ctx.data('elevens'))) // item_size,
-            ),
-            {'description': items_description},
-        ),
-    }
-
-
-def _plain_chunk_fields(chunk_id: int, items_field: str, item_block, item_size: int, items_description: str):
-    """Fields of a chunk of records right after its header"""
-    return {
-        'chunk_id': (IntegerBlock(length=4, value_validator=Eq(chunk_id)), {'description': _CHUNK_ID_DESCR}),
-        'chunk_length': (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: item_size * len(ctx.data(items_field))),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
-        ),
-        items_field: (
-            ArrayBlock(child=item_block, length=lambda ctx: ctx.data('chunk_length') // item_size),
-            {'description': items_description},
-        ),
-    }
-
-
 class Nfs6Ps2TopologyTreeNode(DeclarativeCompoundBlock):
     block_description = 'Node of the quad tree of the track (TopologyTreeNode)'
 
@@ -371,17 +297,17 @@ class Nfs6Ps2TopologyTreeNode(DeclarativeCompoundBlock):
         )
 
 
-class Nfs6Ps2TopologyTreeNodes(DeclarativeCompoundBlock):
+class Nfs6Ps2TopologyTreeNodes(ChunkBlock):
     block_description = (
         'Nodes of the quad tree over the track, node 0 the root over -16384..16384 m in x '
         'and y, every node reached from it once (TopologyTree::Loader SLUS_203.62 0x152c10)'
     )
 
-    Fields = type(
-        'Fields',
-        (DeclarativeCompoundBlock.Fields,),
-        _aligned_chunk_fields(0x00034130, 'nodes', Nfs6Ps2TopologyTreeNode(), 8, 'Nodes'),
-    )
+    CHUNK_ID = 0x00034130
+    ALIGNMENT = 0x10
+
+    class Fields(ChunkBlock.Fields):
+        nodes = (records_to_chunk_end(Nfs6Ps2TopologyTreeNode(), 8), {'description': 'Nodes'})
 
 
 class Nfs6Ps2TopologyTreeSquare(DeclarativeCompoundBlock):
@@ -405,14 +331,14 @@ class Nfs6Ps2TopologyTreeSquare(DeclarativeCompoundBlock):
         )
 
 
-class Nfs6Ps2TopologyTreeSquares(DeclarativeCompoundBlock):
+class Nfs6Ps2TopologyTreeSquares(ChunkBlock):
     block_description = 'Squares of the quad tree over the track (TopologyTree::Loader SLUS_203.62 0x152c10)'
 
-    Fields = type(
-        'Fields',
-        (DeclarativeCompoundBlock.Fields,),
-        _aligned_chunk_fields(0x00034131, 'squares', Nfs6Ps2TopologyTreeSquare(), 12, 'Squares'),
-    )
+    CHUNK_ID = 0x00034131
+    ALIGNMENT = 0x10
+
+    class Fields(ChunkBlock.Fields):
+        squares = (records_to_chunk_end(Nfs6Ps2TopologyTreeSquare(), 12), {'description': 'Squares'})
 
 
 class Nfs6Ps2TopologyTreePolygon(DeclarativeCompoundBlock):
@@ -480,30 +406,31 @@ class Nfs6Ps2TopologyTreePolygon(DeclarativeCompoundBlock):
         )
 
 
-class Nfs6Ps2TopologyTreePolygons(DeclarativeCompoundBlock):
+class Nfs6Ps2TopologyTreePolygons(ChunkBlock):
     block_description = (
         'Polygons of the ground and the walls for the physics (TopologyTree::Loader SLUS_203.62 0x152c10)'
     )
 
-    Fields = type(
-        'Fields',
-        (DeclarativeCompoundBlock.Fields,),
-        _plain_chunk_fields(0x00034132, 'polygons', Nfs6Ps2TopologyTreePolygon(), 32, 'Polygons'),
-    )
+    CHUNK_ID = 0x00034132
+
+    class Fields(ChunkBlock.Fields):
+        polygons = (records_to_chunk_end(Nfs6Ps2TopologyTreePolygon(), 32), {'description': 'Polygons'})
 
 
-class Nfs6Ps2TopologyTreeIndexes(DeclarativeCompoundBlock):
+class Nfs6Ps2TopologyTreeIndexes(ChunkBlock):
     block_description = (
         "Polygon indexes of the quad tree's squares, the squares' ranges back to back; their "
         'sum is the amount of indexes or one less (an unused last index: 4-bytes padding) (TopologyTree::Loader '
         'SLUS_203.62 0x152c10)'
     )
 
-    Fields = type(
-        'Fields',
-        (DeclarativeCompoundBlock.Fields,),
-        _plain_chunk_fields(0x00034133, 'indexes', IntegerBlock(length=2), 2, 'Indexes of polygons of chunk 0x34132'),
-    )
+    CHUNK_ID = 0x00034133
+
+    class Fields(ChunkBlock.Fields):
+        indexes = (
+            records_to_chunk_end(IntegerBlock(length=2), 2),
+            {'description': 'Indexes of polygons of chunk 0x34132'},
+        )
 
 
 class Nfs6Ps2TrackPositionMarker(DeclarativeCompoundBlock):
@@ -538,14 +465,13 @@ class Nfs6Ps2TrackPositionMarker(DeclarativeCompoundBlock):
         )
 
 
-class Nfs6Ps2TrackPositionMarkers(DeclarativeCompoundBlock):
+class Nfs6Ps2TrackPositionMarkers(ChunkBlock):
     block_description = 'Named positions on the track: the start grids (LoaderTrackGeometry SLUS_203.62 0x153608)'
 
-    Fields = type(
-        'Fields',
-        (DeclarativeCompoundBlock.Fields,),
-        _plain_chunk_fields(0x00034146, 'markers', Nfs6Ps2TrackPositionMarker(), 24, 'Markers'),
-    )
+    CHUNK_ID = 0x00034146
+
+    class Fields(ChunkBlock.Fields):
+        markers = (records_to_chunk_end(Nfs6Ps2TrackPositionMarker(), 24), {'description': 'Markers'})
 
 
 class Nfs6Ps2TrackRoutePoint(DeclarativeCompoundBlock):
@@ -588,20 +514,6 @@ class Nfs6Ps2TrackRoutePoint(DeclarativeCompoundBlock):
         )
 
 
-def _track_routes_amount(ctx) -> int:
-    """Routes are back to back, each 0x428 bytes and its points: amount of them up to the end of the chunk"""
-    start = ctx.buffer.tell()
-    pos, end, amount = start, start + ctx.data('chunk_length'), 0
-    try:
-        while pos < end:
-            ctx.buffer.seek(pos + 0x10)
-            pos += 0x428 + int.from_bytes(ctx.buffer.read(4), 'little') * 0x70
-            amount += 1
-    finally:
-        ctx.buffer.seek(start)
-    return amount
-
-
 class Nfs6Ps2TrackRoute(DeclarativeCompoundBlock):
     block_description = (
         'A route: a lane of the roads (numbers 1..49) or a racing line (50..; forward under '
@@ -621,7 +533,7 @@ class Nfs6Ps2TrackRoute(DeclarativeCompoundBlock):
         )
         route_type = (IntegerBlock(length=4), {'description': '0 a lane, 1 a racing line'})
         num_points = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('points'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('points')),
             {'usage': 'io,doc', 'description': 'Amount of points'},
         )
         capacity = (
@@ -652,33 +564,22 @@ class Nfs6Ps2TrackRoute(DeclarativeCompoundBlock):
         )
         bbox_max = (Point2D(child=DecimalBlock(length=4)), {'description': 'Bounding box of the points'})
         points = (
-            ArrayBlock(child=Nfs6Ps2TrackRoutePoint(), length=lambda ctx: ctx.data('num_points')),
+            ArrayBlock(child=Nfs6Ps2TrackRoutePoint(), length='num_points'),
             {'description': 'Points'},
         )
 
 
-class Nfs6Ps2TrackRoutes(DeclarativeCompoundBlock):
+class Nfs6Ps2TrackRoutes(ChunkBlock):
     block_description = (
         'Routes of the track: lanes and racing lines, used by the AI and to put a car back '
         'on the road (LoaderTrackRoutes SLUS_203.62 0x1c2f18)'
     )
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034121)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = (
-            IntegerBlock(
-                length=4,
-                programmatic_value=lambda ctx: ctx.block.field_blocks_map['routes'].estimate_packed_size(
-                    ctx.data('routes')
-                ),
-            ),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
-        )
+    CHUNK_ID = 0x00034121
+
+    class Fields(ChunkBlock.Fields):
         routes = (
-            ArrayBlock(
-                child=Nfs6Ps2TrackRoute(),
-                length=(lambda ctx: _track_routes_amount(ctx), 'until the end of chunk'),
-            ),
+            records_to_chunk_end(Nfs6Ps2TrackRoute()),
             {'description': 'Routes, back to back'},
         )
 
@@ -712,14 +613,13 @@ class Nfs6Ps2Signpost(DeclarativeCompoundBlock):
         unk = (IntegerBlock(length=4), {'description': '0, 1 or 2', 'is_unknown': True})
 
 
-class Nfs6Ps2Signposts(DeclarativeCompoundBlock):
+class Nfs6Ps2Signposts(ChunkBlock):
     block_description = "Signposts of the track's routes (LoaderTrackRoutes SLUS_203.62 0x1c2f18)"
 
-    Fields = type(
-        'Fields',
-        (DeclarativeCompoundBlock.Fields,),
-        _plain_chunk_fields(0x00034122, 'signposts', Nfs6Ps2Signpost(), 12, 'Signposts'),
-    )
+    CHUNK_ID = 0x00034122
+
+    class Fields(ChunkBlock.Fields):
+        signposts = (records_to_chunk_end(Nfs6Ps2Signpost(), 12), {'description': 'Signposts'})
 
 
 def _floats(n: int) -> ArrayBlock:
@@ -1569,29 +1469,18 @@ class Nfs6Ps2CarTypeInfo(DeclarativeCompoundBlock):
         unused_55c = (IntegerBlock(length=4), {'description': f'0 in every car type, {_NOT_READ}'})
 
 
-class Nfs6Ps2CarTypeInfos(DeclarativeCompoundBlock):
+class Nfs6Ps2CarTypeInfos(ChunkBlock):
     block_description = (
         'Car types table (GLOBAL/GLOBALB.LZC chunk 0x34600, 64 car types; LoaderCarInfo '
         'SLUS_203.62 0x187f98 keeps a pointer to it at 0x330868, the game uses it in place)'
     )
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034600)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = (
-            IntegerBlock(
-                length=4, programmatic_value=lambda ctx: len(ctx.data('elevens')) + 0x560 * len(ctx.data('car_types'))
-            ),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
-        )
-        elevens = (
-            BytesBlock(length=(lambda ctx: elevens_length(ctx), 'up to 16-bytes alignment')),
-            {'usage': 'io,doc', 'description': _ELEVENS_DESCR},
-        )
+    CHUNK_ID = 0x00034600
+    ALIGNMENT = 0x10
+
+    class Fields(ChunkBlock.Fields):
         car_types = (
-            ArrayBlock(
-                child=Nfs6Ps2CarTypeInfo(),
-                length=lambda ctx: (ctx.data('chunk_length') - len(ctx.data('elevens'))) // 0x560,
-            ),
+            records_to_chunk_end(Nfs6Ps2CarTypeInfo(), 0x560),
             {'description': 'Car types'},
         )
 
@@ -1635,20 +1524,17 @@ class Nfs6Ps2CarSkin(DeclarativeCompoundBlock):
         )
 
 
-class Nfs6Ps2CarSkins(DeclarativeCompoundBlock):
+class Nfs6Ps2CarSkins(ChunkBlock):
     block_description = (
         'Paints of the car types (GLOBAL/GLOBALB.LZC chunk 0x34601; LoaderCarInfo '
         'SLUS_203.62 0x187f98: pointer 0x33086c, count 0x330870)'
     )
 
-    class Fields(DeclarativeCompoundBlock.Fields):
-        chunk_id = (IntegerBlock(length=4, value_validator=Eq(0x00034601)), {'description': _CHUNK_ID_DESCR})
-        chunk_length = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: 0x40 * len(ctx.data('skins'))),
-            {'usage': 'io,doc', 'description': _CHUNK_LENGTH_DESCR},
-        )
+    CHUNK_ID = 0x00034601
+
+    class Fields(ChunkBlock.Fields):
         skins = (
-            ArrayBlock(child=Nfs6Ps2CarSkin(), length=lambda ctx: ctx.data('chunk_length') // 0x40),
+            records_to_chunk_end(Nfs6Ps2CarSkin(), 0x40),
             {'description': 'Paints'},
         )
 
@@ -1684,13 +1570,7 @@ class Nfs6Ps2ChunkBundle(DeclarativeCompoundBlock):
     serializer = 'Nfs6Ps2ChunkBundleSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
-        chunks = (
-            ArrayBlock(
-                length=(lambda ctx: determine_chunks_amount(ctx), 'until the end of file'),
-                child=chunk_delegate(NFS6_PS2_BUNDLE_CHUNK_BLOCKS),
-            ),
-            {'description': 'Chunks'},
-        )
+        chunks = chunks_field(NFS6_PS2_BUNDLE_CHUNK_BLOCKS, 'Chunks', byte_length=(REMAINING, 'until the end of file'))
 
 
 class Nfs6Ps2TrackBundle(Nfs6Ps2ChunkBundle):

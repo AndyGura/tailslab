@@ -4,8 +4,10 @@ import os
 from typing import List, Optional
 
 from library.utils import path_join
-from serializers.base import BaseFileSerializer
-from serializers.misc.json_utils import convert_bytes, revert_bytes
+from resources.blackbox.chunks import find_chunk
+from serializers.base import BaseFileSerializer, UiSerialization, current_resource
+from serializers.json import merge_json_values, read_json_file
+from serializers.misc.json_utils import convert_bytes
 
 # NFS Hot Pursuit 2 (PS2) car spec data of a chunk bundle (GLOBAL/GLOBALB): the car types table (chunk 0x34600) and the
 # paints (chunk 0x34601), every parsed value of every entry, bytes as {"$bytes": [...]}
@@ -22,11 +24,7 @@ def _bundle_chunks(data: dict) -> list:
 
 def nfs6_ps2_car_spec_chunk(data: dict, chunk_id: int) -> Optional[dict]:
     """The data of the chunk `chunk_id` of an NFS Hot Pursuit 2 (PS2) bundle (also of a COMP-compressed one), or None"""
-    for chunk in _bundle_chunks(data):
-        chunk_data = chunk.get('data') if isinstance(chunk, dict) else None
-        if isinstance(chunk_data, dict) and chunk_data.get('chunk_id') == chunk_id:
-            return chunk_data
-    return None
+    return find_chunk(_bundle_chunks(data), chunk_id)
 
 
 def nfs6_ps2_car_spec_json(entries: list) -> list:
@@ -34,16 +32,11 @@ def nfs6_ps2_car_spec_json(entries: list) -> list:
     return convert_bytes(entries)
 
 
-def _merged(old, new):
-    """`new` (from JSON) over `old`: keys the JSON lacks keep their values"""
-    if isinstance(old, dict) and isinstance(new, dict):
-        res = dict(old)
-        for key, value in new.items():
-            res[key] = _merged(old.get(key), value) if key in old else value
-        return res
-    if isinstance(old, list) and isinstance(new, list):
-        return [_merged(old[i], x) if i < len(old) else x for i, x in enumerate(new)]
-    return new
+def _chunk_field_block(chunk_id: int, key: str):
+    from resources.blackbox.maps.nfs6_ps2 import Nfs6Ps2CarSkins, Nfs6Ps2CarTypeInfos
+
+    block_class = Nfs6Ps2CarTypeInfos if chunk_id == _CHUNKS[CAR_TYPES_JSON][0] else Nfs6Ps2CarSkins
+    return block_class().field_blocks_map[key]
 
 
 class Nfs6Ps2ChunkBundleSerializer(BaseFileSerializer):
@@ -53,21 +46,13 @@ class Nfs6Ps2ChunkBundleSerializer(BaseFileSerializer):
     writes nothing. The import puts these files' values back (keys a file lacks keep theirs): unchanged files write
     the bundle back byte-exact"""
 
+    ui = UiSerialization('directory', is_directory=True, suffix='', reversible=True)
+
     def __init__(self):
         super().__init__(is_dir=True)
 
-    def ui_serialization(self):
-        return {
-            'file_type': 'directory',
-            'is_directory': True,
-            'output_file_name_suffix': '',
-            'reversible': True,
-            'reversible_settings_patch': {},
-        }
-
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
-        if path.endswith('/') or path.endswith('\\'):
-            path += id[id.rindex('/') + 1 :]
+        path = self.output_path(path, id)
         written = []
         for file_name, (chunk_id, key) in _CHUNKS.items():
             chunk = nfs6_ps2_car_spec_chunk(data, chunk_id)
@@ -81,9 +66,9 @@ class Nfs6Ps2ChunkBundleSerializer(BaseFileSerializer):
         return written
 
     def deserialize(self, file_paths: List[str], id=None, block=None, **kwargs):
-        from library import require_resource
-
-        (_, _, current), _ = require_resource(id)
+        current = current_resource(id)
+        if current is None:
+            raise Exception(f'No bundle loaded under {id}')
         return self.apply_json(current, file_paths)
 
     @staticmethod
@@ -106,9 +91,8 @@ class Nfs6Ps2ChunkBundleSerializer(BaseFileSerializer):
             chunk = nfs6_ps2_car_spec_chunk(updated, chunk_id)
             if chunk is None:
                 raise Exception(f'The bundle has no chunk {hex(chunk_id)} for {name}')
-            with open(p) as f:
-                values = revert_bytes(json.load(f)[key])
-            chunk[key] = _merged(chunk[key], values)
+            values = read_json_file([p])[key]
+            chunk[key] = merge_json_values(_chunk_field_block(chunk_id, key), chunk[key], values)
             applied += 1
         if not applied:
             raise Exception(f'No {" or ".join(_CHUNKS)} among the files')

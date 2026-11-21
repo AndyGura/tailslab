@@ -1,4 +1,6 @@
 from library.read_blocks import (
+    FittedBytesBlock,
+    REMAINING,
     DeclarativeCompoundBlock,
     IntegerBlock,
     BytesBlock,
@@ -10,13 +12,11 @@ from library.read_blocks import (
     FixedPointBlock,
     OptionalBlock,
     SubByteCompoundBlock,
+    CountOf,
+    OwnSize,
 )
 from library.read_blocks.misc.value_validators import Eq
 from resources.eac.fields.misc import Point3D, Quaternion
-
-
-def _resize_bytes(value: bytes, length: int) -> bytes:
-    return (value + bytes(max(length - len(value), 0)))[:length]
 
 
 class FrdPositionBlock(DeclarativeCompoundBlock):
@@ -175,11 +175,7 @@ class FrdPolyObjRef(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         size = (
-            IntegerBlock(
-                length=2,
-                is_signed=False,
-                programmatic_value=lambda ctx: ctx.block.estimate_packed_size(ctx.get_full_data()),
-            ),
+            IntegerBlock(length=2, is_signed=False, programmatic_value=OwnSize()),
             {'description': 'Record size in bytes'},
         )
         type = (
@@ -248,7 +244,7 @@ class FrdBlock(DeclarativeCompoundBlock):
             {'description': 'Block bounding rectangle'},
         )
         num_vertices = (
-            IntegerBlock(length=4, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('vertices'))),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=CountOf('vertices')),
             {'description': 'Total amount of vertices'},
         )
         num_vertices_high = (
@@ -269,7 +265,7 @@ class FrdBlock(DeclarativeCompoundBlock):
             {'description': 'End of the vertices used by medium-res terrain polygons'},
         )
         num_vertices_dup = (
-            IntegerBlock(length=4, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('vertices'))),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=CountOf('vertices')),
             {'description': 'Equals to `num_vertices`'},
         )
         num_vertices_obj = (
@@ -277,11 +273,11 @@ class FrdBlock(DeclarativeCompoundBlock):
             {'description': 'Amount of vertices used by POLYOBJ objects of the block, they go first in `vertices`'},
         )
         vertices = (
-            ArrayBlock(child=Point3D(child=DecimalBlock(length=4)), length=lambda ctx: ctx.data('num_vertices')),
+            ArrayBlock(child=Point3D(child=DecimalBlock(length=4)), length='num_vertices'),
             {'description': 'Vertices. Coordinates are global (not relative to block position)'},
         )
         vertex_shading = (
-            ArrayBlock(child=IntegerBlock(length=4, is_signed=False), length=lambda ctx: ctx.data('num_vertices')),
+            ArrayBlock(child=IntegerBlock(length=4, is_signed=False), length='num_vertices'),
             {'description': 'Per-vertex shading color, 32-bit ARGB (0xFFRRGGBB), one item per vertex'},
         )
         neighbour_data = (
@@ -300,64 +296,61 @@ class FrdBlock(DeclarativeCompoundBlock):
             },
         )
         num_positions = (
-            IntegerBlock(length=4, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('positions'))),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=CountOf('positions')),
             {'description': 'Amount of items in `positions`'},
         )
         num_polygons = (
-            IntegerBlock(length=4, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('polygons'))),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=CountOf('polygons')),
             {
                 'description': 'Amount of items in `polygons`. Equals to the amount of high-res track '
                 'polygons (`polygons[4]` chunk of the [FrdPolyBlock](#frdpolyblock))'
             },
         )
         num_vroad = (
-            IntegerBlock(length=4, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('vroad'))),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=CountOf('vroad')),
             {'description': 'Amount of items in `vroad`'},
         )
         num_xobj = (
-            IntegerBlock(length=4, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('xobj'))),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=CountOf('xobj')),
             {'description': 'Amount of items in `xobj`'},
         )
         num_polyobj = (
-            IntegerBlock(length=4, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('polyobj'))),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=CountOf('polyobj')),
             {'description': 'Amount of items in `polyobj`'},
         )
         num_soundsrc = (
-            IntegerBlock(length=4, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('soundsrc'))),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=CountOf('soundsrc')),
             {'description': 'Amount of items in `soundsrc`'},
         )
         num_lightsrc = (
-            IntegerBlock(length=4, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('lightsrc'))),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=CountOf('lightsrc')),
             {'description': 'Amount of items in `lightsrc`'},
         )
         positions = (
-            ArrayBlock(child=FrdPositionBlock(), length=lambda ctx: ctx.data('num_positions')),
+            ArrayBlock(child=FrdPositionBlock(), length='num_positions'),
             {'description': 'Groups of high-res track polygons ("rows" across the road)'},
         )
         polygons = (
-            ArrayBlock(child=FrdBlockPolygonData(), length=lambda ctx: ctx.data('num_polygons')),
+            ArrayBlock(child=FrdBlockPolygonData(), length='num_polygons'),
             {'description': 'Per-polygon data (road orientation reference + flags) for the high-res track polygons'},
         )
         vroad = (
-            ArrayBlock(child=FrdBlockVroadData(), length=lambda ctx: ctx.data('num_vroad')),
+            ArrayBlock(child=FrdBlockVroadData(), length='num_vroad'),
             {'description': 'Virtual road: orientation vectors of the road surface, referenced from `polygons`'},
         )
         xobj = (
-            ArrayBlock(child=FrdXobjRef(), length=lambda ctx: ctx.data('num_xobj')),
+            ArrayBlock(child=FrdXobjRef(), length='num_xobj'),
             {'description': 'References to extra objects (XOBJ) placed in this block'},
         )
         polyobj = (
-            ArrayBlock(child=FrdPolyObjRef(), length=lambda ctx: ctx.data('num_polyobj')),
+            ArrayBlock(child=FrdPolyObjRef(), length='num_polyobj'),
             {'description': 'References to the objects of the first POLYOBJ chunk of the block'},
         )
         polyobj_unused = (
-            BytesBlock(
+            FittedBytesBlock(
                 length=(
                     lambda ctx: sum(4 for x in ctx.data('polyobj') if x['type'] != 4),
                     '4 * (amount of `polyobj` items with type != 4)',
-                ),
-                programmatic_value=lambda ctx: _resize_bytes(
-                    ctx.data('polyobj_unused'), sum(4 for x in ctx.data('polyobj') if x['type'] != 4)
                 ),
             ),
             {
@@ -367,11 +360,11 @@ class FrdBlock(DeclarativeCompoundBlock):
             },
         )
         soundsrc = (
-            ArrayBlock(child=FrdSoundSource(), length=lambda ctx: ctx.data('num_soundsrc')),
+            ArrayBlock(child=FrdSoundSource(), length='num_soundsrc'),
             {'description': 'Sound sources'},
         )
         lightsrc = (
-            ArrayBlock(child=FrdLightSource(), length=lambda ctx: ctx.data('num_lightsrc')),
+            ArrayBlock(child=FrdLightSource(), length='num_lightsrc'),
             {'description': 'Light sources'},
         )
 
@@ -516,14 +509,14 @@ class ExtraObjectDataCrossType4(DeclarativeCompoundBlock):
             {'description': 'Reference point: position of the object in the world. Object vertices are relative to it'},
         )
         animation_size = (
-            IntegerBlock(length=4, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('animation'))),
+            IntegerBlock(length=4, is_signed=False, programmatic_value=CountOf('animation')),
             {
                 'description': 'Size of `animation` in bytes. nfs3.exe reads every extra object as `pt_ref`, this '
                 'size and that many bytes. 0 in every static object of the NFS3 tracks'
             },
         )
         animation = (
-            BytesBlock(length=(lambda ctx: ctx.data('animation_size'), '`animation_size`')),
+            BytesBlock(length=('animation_size', '`animation_size`')),
             {'description': 'Animation data, empty in every static object of the NFS3 tracks'},
         )
 
@@ -575,7 +568,7 @@ class ExtraObjectDataCrossType3(DeclarativeCompoundBlock):
         type = (IntegerBlock(length=1, value_validator=Eq(3)), {'description': 'Animation type, always 3'})
         objno = (IntegerBlock(length=1), {'description': 'Object number', 'is_unknown': True})
         num_animdata = (
-            IntegerBlock(length=2, programmatic_value=lambda ctx: len(ctx.data('animdata'))),
+            IntegerBlock(length=2, programmatic_value=CountOf('animdata')),
             {'description': 'Amount of keyframes'},
         )
         anim_delay = (
@@ -586,7 +579,7 @@ class ExtraObjectDataCrossType3(DeclarativeCompoundBlock):
             },
         )
         animdata = (
-            ArrayBlock(child=AnimData(), length=lambda ctx: ctx.data('num_animdata')),
+            ArrayBlock(child=AnimData(), length='num_animdata'),
             {
                 'description': 'Animation keyframes, played in a loop. Object vertices are relative to the position '
                 'and orientation of the current keyframe'
@@ -611,18 +604,18 @@ class ExtraObjectBlock(DeclarativeCompoundBlock):
             {'description': 'Type-specific data (position or animation), block class picked according to `cross_type`'},
         )
         num_vertices = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('vertices'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('vertices')),
             {'description': 'Amount of vertices'},
         )
         vertices = (
-            ArrayBlock(child=Point3D(child=DecimalBlock(length=4)), length=lambda ctx: ctx.data('num_vertices')),
+            ArrayBlock(child=Point3D(child=DecimalBlock(length=4)), length='num_vertices'),
             {
                 'description': 'Vertices, relative to the object position (reference point for static objects, '
                 'current keyframe for animated ones)'
             },
         )
         vertex_shading = (
-            ArrayBlock(child=IntegerBlock(length=4), length=lambda ctx: ctx.data('num_vertices')),
+            ArrayBlock(child=IntegerBlock(length=4), length='num_vertices'),
             {'description': 'Per-vertex shading color, 32-bit ARGB (0xFFRRGGBB), one item per vertex'},
         )
         polygons = (
@@ -725,7 +718,7 @@ class Nfs3SimHeights(DeclarativeCompoundBlock):
         heights = (
             ArrayBlock(
                 child=DecimalBlock(length=4),
-                length=(lambda ctx: ctx.read_bytes_remaining // 4, 'file size / 4'),
+                byte_length=(REMAINING, 'file size'),
             ),
             {
                 'description': 'Ceiling height of each slice in meters, used where the slice is covered (wall '
@@ -781,7 +774,7 @@ class Nfs3SpeedsFile(DeclarativeCompoundBlock):
                         (4, 'unk', 'number', [], '0 in every NFS3 file; never read (0x40e0c0 shifts it out)'),
                     ],
                 ),
-                length=(lambda ctx: ctx.read_bytes_remaining, 'n'),
+                byte_length=(REMAINING, 'n'),
             ),
             {
                 'description': 'A byte per slice: the high 4 bits are the recommended lane of the slice for the AI '
@@ -842,7 +835,7 @@ class Nfs3CanAnimation(DeclarativeCompoundBlock):
             },
         )
         num_keyframes = (
-            IntegerBlock(length=2, is_signed=False, programmatic_value=lambda ctx: len(ctx.data('keyframes'))),
+            IntegerBlock(length=2, is_signed=False, programmatic_value=CountOf('keyframes')),
             {'description': 'Number of keyframes'},
         )
         ticks_per_frame = (
@@ -850,6 +843,6 @@ class Nfs3CanAnimation(DeclarativeCompoundBlock):
             {'description': 'Game ticks per keyframe; the game uses 6 when it is 0 or above 400. 6 in every file'},
         )
         keyframes = (
-            ArrayBlock(child=Nfs3CanKeyframe(), length=lambda ctx: ctx.data('num_keyframes')),
+            ArrayBlock(child=Nfs3CanKeyframe(), length='num_keyframes'),
             {'description': 'Keyframes'},
         )

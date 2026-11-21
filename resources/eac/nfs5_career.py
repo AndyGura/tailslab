@@ -1,12 +1,13 @@
 from library.read_blocks import (
+    REMAINING,
     ArrayBlock,
     BytesBlock,
     DecimalBlock,
     DeclarativeCompoundBlock,
     IntegerBlock,
+    UTF8Block,
 )
 from library.read_blocks.misc.value_validators import Lte
-from resources.eac.car_specs import Latin1Block
 
 # NFS5 (Porsche Unleashed) front end data holding cars of the career modes: FEData/Data/nfs5.fac (Factory Driver
 # missions), nfs5.trn (Evolution tournaments, era finals, club events), nfs5.per (AI personalities). Field meanings
@@ -126,7 +127,7 @@ class Nfs5FactoryMission(DeclarativeCompoundBlock):
         passenger = _u8('1: a passenger rides along (`_PASSENGER`, human car only, 0x4eef4f)')
         unused_2b = _pad(0x14, 'Zeros, read by no code')
         map_picture = (
-            Latin1Block(length=0x15),
+            UTF8Block(length=0x15, encoding='latin-1'),
             {'description': 'Mission map picture `FEData/Factory/<name>.fsh` ("1m01"; 0x51a324)'},
         )
         traffic = _s16('Traffic: 0, 1, 2 = 0, 2, 4 cars (table 0x5db448; 0x4fc5a4)')
@@ -194,9 +195,7 @@ class Nfs5FactoryMissions(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         missions = (
-            ArrayBlock(
-                child=Nfs5FactoryMission(), length=(lambda ctx: ctx.read_bytes_remaining // 0xF0, 'file size / 240')
-            ),
+            ArrayBlock(child=Nfs5FactoryMission(), byte_length=(REMAINING, 'file size')),
             {'description': 'The missions'},
         )
 
@@ -372,9 +371,7 @@ class Nfs5Tournaments(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         tournaments = (
-            ArrayBlock(
-                child=Nfs5Tournament(), length=(lambda ctx: ctx.read_bytes_remaining // 0xD40, 'file size / 3392')
-            ),
+            ArrayBlock(child=Nfs5Tournament(), byte_length=(REMAINING, 'file size')),
             {'description': 'The tournaments'},
         )
 
@@ -420,8 +417,6 @@ class Nfs5Personalities(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         personalities = (
-            ArrayBlock(
-                child=Nfs5Personality(), length=(lambda ctx: ctx.read_bytes_remaining // 0x2C, 'file size / 44')
-            ),
+            ArrayBlock(child=Nfs5Personality(), byte_length=(REMAINING, 'file size')),
             {'description': 'The personalities'},
         )

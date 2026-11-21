@@ -14,7 +14,7 @@ taking the value of the key read before it.
 
 from typing import Dict
 
-from library.read_blocks import ArrayBlock, DeclarativeCompoundBlock, IntegerBlock, UTF8Block
+from library.read_blocks import REMAINING, ArrayBlock, DeclarativeCompoundBlock, IntegerBlock, UTF8Block
 from library.read_blocks.misc.value_validators import Eq
 from resources.eac.ini import (
     IniArray,
@@ -1217,7 +1217,7 @@ class Nfs6EngineAudioTable(DeclarativeCompoundBlock):
         '(0x435430, 0..127) and its pitch table bends the sample (64 = its own pitch). engine.rpm (one slot, '
         'identity table) is loaded but only checked for presence: the FakeRPM debug line shows the same index'
     )
-    serializer = 'BlockJsonSerializer'
+    serializer = 'CompleteJsonSerializer'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         magic = (UTF8Block(length=4, value_validator=Eq('CRDl')), {'description': 'Magic "CRDl"'})
@@ -1261,7 +1261,7 @@ class Nfs6EngineAudioTable(DeclarativeCompoundBlock):
         tables = (
             ArrayBlock(
                 child=ArrayBlock(child=IntegerBlock(length=1, is_signed=True), length=CRDL_TABLE_SIZE),
-                length=(lambda ctx: ctx.read_bytes_remaining // CRDL_TABLE_SIZE, '(file size - 0x168) / 512'),
+                byte_length=(REMAINING, 'file size - 0x168'),
             ),
             {
                 'description': 'The tables, 512 signed bytes each: volume 0..127 per sound index, pitch (64 = the '
@@ -1269,16 +1269,9 @@ class Nfs6EngineAudioTable(DeclarativeCompoundBlock):
             },
         )
         trailing = (
-            ArrayBlock(child=IntegerBlock(length=1), length=(lambda ctx: ctx.read_bytes_remaining, 'rest')),
+            ArrayBlock(child=IntegerBlock(length=1), byte_length=(REMAINING, 'rest')),
             {'description': 'Bytes after the last whole table (none in the files)'},
         )
-
-    def from_json(self, json_data: dict, current: dict = None) -> dict:
-        res = dict(current) if current is not None else self.new_data()
-        for name, _ in self.field_blocks:
-            if name in json_data:
-                res[name] = json_data[name]
-        return res
 
     @staticmethod
     def table_index(offsets_field: str, slot: int, offset: int):

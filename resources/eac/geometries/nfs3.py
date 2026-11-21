@@ -6,6 +6,7 @@ from library.read_blocks import (
     BitFlagsBlock,
     BytesBlock,
     DecimalBlock,
+    CountOf,
 )
 from resources.eac.fields.misc import Point3D
 
@@ -123,11 +124,11 @@ class Fce3Geometry(DeclarativeCompoundBlock):
     class Fields(DeclarativeCompoundBlock.Fields):
         unk0 = (IntegerBlock(length=4), {'is_unknown': True})
         num_triangles = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('triangles'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('triangles')),
             {'usage': 'io,doc', 'description': 'Number of triangles in the model'},
         )
         num_vertices = (
-            IntegerBlock(length=4, programmatic_value=lambda ctx: len(ctx.data('vertices'))),
+            IntegerBlock(length=4, programmatic_value=CountOf('vertices')),
             {'usage': 'io,doc', 'description': 'Number of vertices in the model'},
         )
         num_arts = (
@@ -227,15 +228,15 @@ class Fce3Geometry(DeclarativeCompoundBlock):
         )
         unk1 = (BytesBlock(length=256), {'is_unknown': True})
         vertices = (
-            ArrayBlock(child=Point3D(child=DecimalBlock(length=4)), length=lambda ctx: ctx.data('num_vertices')),
+            ArrayBlock(child=Point3D(child=DecimalBlock(length=4)), length='num_vertices'),
             {'description': 'Vertex positions, relative to position of their part'},
         )
         normals = (
-            ArrayBlock(child=Point3D(child=DecimalBlock(length=4)), length=lambda ctx: ctx.data('num_vertices')),
+            ArrayBlock(child=Point3D(child=DecimalBlock(length=4)), length='num_vertices'),
             {'description': 'Vertex normals'},
         )
         triangles = (
-            ArrayBlock(child=Fce3Triangle(), length=lambda ctx: ctx.data('num_triangles')),
+            ArrayBlock(child=Fce3Triangle(), length='num_triangles'),
             {'description': 'Triangles'},
         )
         reserve1 = (

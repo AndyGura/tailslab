@@ -5,74 +5,65 @@ from library.context import WriteContext
 from library.read_blocks import IntegerBlock, CompoundBlock
 
 
-class Point2D(CompoundBlock):
+class VectorBlock(CompoundBlock):
+    """Components `axes` (one letter each) of type `child`; `normalized`: written as a unit vector (a zero vector as
+    the last axis). The description is `description_prefix` + the description of `child`"""
+
+    description_prefix = 'Vector, where each component is: '
+
+    def __init__(self, child, axes: str = 'xyz', normalized=False, **kwargs):
+        self.normalized = normalized
+        super().__init__(fields=[(axis, child, {}) for axis in axes], **kwargs)
+
     @property
     def schema(self) -> Dict:
         schema = super().schema
         return {
             **schema,
-            'block_description': 'Point in 2D space (x,y), where each coordinate is: '
+            'block_description': self.description_prefix
             + schema['fields'][0]['schema']['block_description']
             + (', normalized' if self.normalized else ''),
             'inline_description': True,
         }
 
-    def __init__(self, child, normalized=False, **kwargs):
-        self.normalized = normalized
-        super().__init__(fields=[('x', child, {}), ('y', child, {})], **kwargs)
+    # the write override only normalizes
+    @property
+    def field_by_field_io(self) -> bool:
+        return not self.normalized
 
     def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
         if self.normalized:
-            length = math.sqrt(data['x'] ** 2 + data['y'] ** 2)
+            axes = [axis for axis, _ in self.field_blocks]
+            length = math.sqrt(sum(data[axis] ** 2 for axis in axes))
             if length == 0:
-                data['y'] = 1.0
+                data[axes[-1]] = 1.0
             elif length != 1:
-                data['x'] /= length
-                data['y'] /= length
+                for axis in axes:
+                    data[axis] /= length
         return super().write(data, ctx, name)
 
 
-class Point3D(CompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        schema = super().schema
-        return {
-            **schema,
-            'block_description': 'Point in 3D space (x,y,z), where each coordinate is: '
-            + schema['fields'][0]['schema']['block_description']
-            + (', normalized' if self.normalized else ''),
-            'inline_description': True,
-        }
+class Point2D(VectorBlock):
+    description_prefix = 'Point in 2D space (x,y), where each coordinate is: '
 
     def __init__(self, child, normalized=False, **kwargs):
-        self.normalized = normalized
-        super().__init__(fields=[('x', child, {}), ('y', child, {}), ('z', child, {})], **kwargs)
-
-    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
-        if self.normalized:
-            length = math.sqrt(data['x'] ** 2 + data['y'] ** 2 + data['z'] ** 2)
-            if length == 0:
-                data['z'] = 1.0
-            elif length != 1:
-                data['x'] /= length
-                data['y'] /= length
-                data['z'] /= length
-        return super().write(data, ctx, name)
+        super().__init__(child, axes='xy', normalized=normalized, **kwargs)
 
 
-class Quaternion(CompoundBlock):
-    @property
-    def schema(self) -> Dict:
-        schema = super().schema
-        return {
-            **schema,
-            'block_description': 'Rotation quaternion (x,y,z,w), in the same axes as the positions next to it, '
-            'where each component is: ' + schema['fields'][0]['schema']['block_description'],
-            'inline_description': True,
-        }
+class Point3D(VectorBlock):
+    description_prefix = 'Point in 3D space (x,y,z), where each coordinate is: '
+
+    def __init__(self, child, normalized=False, **kwargs):
+        super().__init__(child, axes='xyz', normalized=normalized, **kwargs)
+
+
+class Quaternion(VectorBlock):
+    description_prefix = (
+        'Rotation quaternion (x,y,z,w), in the same axes as the positions next to it, where each component is: '
+    )
 
     def __init__(self, child, **kwargs):
-        super().__init__(fields=[('x', child, {}), ('y', child, {}), ('z', child, {}), ('w', child, {})], **kwargs)
+        super().__init__(child, axes='xyzw', **kwargs)
 
 
 class RGBBlock(CompoundBlock):

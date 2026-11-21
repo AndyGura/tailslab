@@ -1,4 +1,5 @@
-from typing import Tuple
+import re
+from typing import Optional, Tuple
 
 # A resource id is the id of a file (`path_to_name` of its path: `__` escaped as `_%5F`, `:` as `---DRIVE`), and for a
 # resource in the file `__` and its path in the file's data (`children/3/item/data`). That path never contains `__`
@@ -36,6 +37,13 @@ def join_id(base_id: str, *suffix_ids):
         else:
             res += ID_SEPARATOR + suff
     return res
+
+
+def parse_item_id(id: Optional[str]) -> Optional[Tuple[str, int]]:
+    """(archive id, index in its `children`) of the id of an archive item's data (`<archive>__children/<i>/item/data`,
+    `.../children/<i>/item/data` in a nested archive), None for another id"""
+    match = re.fullmatch(r'(.*)(?:__|/)children/(\d+)/item/data', id or '')
+    return (match.group(1), int(match.group(2))) if match else None
 
 
 def split_last_id_part(id: str) -> Tuple[str, str]:

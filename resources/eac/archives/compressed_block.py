@@ -5,6 +5,7 @@ from typing import Dict, Optional
 from library.context import ReadContext, WriteContext
 from library.read_blocks import AutoDetectBlock, BytesBlock
 from resources.eac.car_specs import CarAiAndCrashBody, Nfs2CarAi, Nfs2CarPhysics, Nfs2SimTune, PlayerCarPhysics
+from resources.eac.compressions.base import BaseCompressionAlgorithm
 from resources.eac.psx import CRCF_FOOTER_LENGTH, PsxCrcFooter, with_crc_footer
 from .shpi_block import ShpiBlock
 
@@ -18,11 +19,14 @@ class CompressedData(dict):
 
 
 class EacCompressedBlock(AutoDetectBlock):
-    def __init__(self, **kwargs):
-        from resources.eac.geometries import CrpGeometry
+    """Compressed data: the algorithm of the header (RefPack, QFS2, QFS3), or always `compression` (an algorithm
+    instance: JDLZ, COMP), the uncompressed data read as the first of `possible_blocks` the loader picks"""
 
-        super().__init__(
-            possible_blocks=[
+    def __init__(self, possible_blocks=None, compression: BaseCompressionAlgorithm = None, **kwargs):
+        if possible_blocks is None:
+            from resources.eac.geometries import CrpGeometry
+
+            possible_blocks = [
                 ShpiBlock(),
                 CarAiAndCrashBody(),
                 PlayerCarPhysics(),
@@ -32,9 +36,9 @@ class EacCompressedBlock(AutoDetectBlock):
                 Nfs2SimTune(),
                 Nfs2CarAi(),
                 BytesBlock(length=(lambda ctx: ctx.read_bytes_amount)),
-            ],
-            **kwargs,
-        )
+            ]
+        super().__init__(possible_blocks=possible_blocks, **kwargs)
+        self.compression = compression
 
     @property
     def schema(self) -> Dict:
@@ -59,7 +63,7 @@ class EacCompressedBlock(AutoDetectBlock):
         }
 
     @staticmethod
-    def _compression_for_header(flags: int, magic: int = 0xFB) -> 'BaseCompressionAlgorithm':
+    def _compression_for_header(flags: int, magic: int = 0xFB) -> BaseCompressionAlgorithm:
         if magic == 0xFB and (flags & 0b1111_1110) == 0x10:
             from resources.eac.compressions.ref_pack import RefPackCompression
 
@@ -75,7 +79,9 @@ class EacCompressedBlock(AutoDetectBlock):
         else:
             raise ValueError(f'Unknown compression algorithm: {flags:02x} {magic:02x}')
 
-    def _detect_compression(self, buffer) -> 'BaseCompressionAlgorithm':
+    def _detect_compression(self, buffer) -> BaseCompressionAlgorithm:
+        if self.compression is not None:
+            return self.compression
         header_bytes = buffer.read(2)
         buffer.seek(-2, SEEK_CUR)
         return self._compression_for_header(header_bytes[0], header_bytes[1])
@@ -121,6 +127,8 @@ class EacCompressedBlock(AutoDetectBlock):
         return res
 
     def compress(self, uncompressed_bytes: bytes, data) -> bytes:
+        if self.compression is not None:
+            return self.compression.compress(BytesIO(uncompressed_bytes), len(uncompressed_bytes))
         # new data: RefPack, which every EA game reads
         flags = data.get('compression_flags', 0x10)
         compression = self._compression_for_header(flags)

@@ -42,17 +42,17 @@ docs and a working GUI editor for free.
 
 | Path | What lives there |
 |---|---|
-| `library/read_blocks/` | Generic, reusable binary-parsing primitives — the framework. |
+| `library/read_blocks/` | Generic, reusable binary-parsing primitives — the framework. `archives.py`: `ArchiveBlock`, the read / write / size template of offset-table archives (WWWW, BIGF, SHPI, the NFS HP2 PS2 jukebox), skill `nfs-resource-formats`. `text.py`: `TextFileBlock` (a text file parsed and rendered whole, `source_text_field`) and `ParsedByParent` (its value blocks, typing fields for the GUI and docs only). |
 | `library/context.py` | `ReadContext`/`WriteContext`/`DocumentationContext` passed through the block tree while reading/writing/documenting. |
 | `library/lazy.py` | Lazy parts: `LazyDict` archive entries / bundle chunks parsed on first access, untouched ones written back as original bytes; file and memory sources. `require_file` is lazy by default (`lazy_loading` setting). The GUI receives unloaded parts as `__lazy__` markers and fetches them with `load_lazy_part` when shown. |
 | `library/loader.py` | File-type auto-detection (`probe_block_class`) by extension/magic bytes; top-level `require_file`/`require_resource` with an in-process file cache bounded by the `file_cache_size` setting (least recently required files dropped, `pin_file` keeps the GUI's open file). |
 | `library/changes_service.py` | Tracks unsaved GUI edits against the loaded data tree. |
 | `library/spatial_edit.py` | Spatial edits: blocks declaring `spatial_edit` kinds in their schema (`SpatialEditable`) take "moved handle X to position / rotation" events from a 3D viewer, return the native values to change, and the handle is read back as stored (one undoable change). Skill `read-block-framework`. |
 | `library/utils/asm_runner.py` | 32-bit x86 snippet interpreter (IDA syntax) used to execute and progressively port disassembled game routines; production code never uses it, the ASM-driven decompressor twins in `test/resources/eac/archives/test_compressed_block.py` do. |
-| `resources/eac/` | EA Canada format definitions built from `read_blocks` primitives (bitmaps, archives, fonts, audio, geometries, maps, car specs, TNFS replays). Shared across many NFS titles. `compressions/` holds the pure-Python decompressors and compressors (RefPack, QFS2, QFS3, NFSU's JDLZ, NFSU2's HUFF = QFS3 behind a 16-byte header, NFS HP2 PS2's COMP) behind `EacCompressedBlock`, which writes a resource back with the algorithm it was read with (`compression_flags` in its data, new data gets RefPack). Formats, game addresses and compressor notes: `resources/eac_compressions.md`. Compressor output is checked with the games' ASM decoders in `test_compressed_block.py`. |
+| `resources/eac/` | EA Canada format definitions built from `read_blocks` primitives (bitmaps, archives, fonts, audio, geometries, maps, car specs, TNFS replays). Shared across many NFS titles. `compressions/` holds the pure-Python decompressors and compressors (RefPack, QFS2, QFS3, NFSU's JDLZ, NFSU2's HUFF = QFS3 behind a 16-byte header, NFS HP2 PS2's COMP) behind `EacCompressedBlock`, which writes a resource back with the algorithm it was read with (`compression_flags` in its data, new data gets RefPack); a format of one algorithm passes it as `compression` with its own `possible_blocks` (`NfsuJdlzCompressedBlock`, `Nfs6Ps2CompressedBlock`). Formats, game addresses and compressor notes: `resources/eac_compressions.md`. Compressor output is checked with the games' ASM decoders in `test_compressed_block.py`. |
 | `resources/eac/maps/`, `resources/eac/geometries/` | Per-game specializations (`tnfs.py`, `nfs2.py`, `nfs3.py`, `nfs5.py`, ...). |
 | `resources/common/` | Vendor-neutral formats: Targa image (also a fallback), PCX image, Sega Saturn sound driver tone banks. |
-| `resources/blackbox/` | Blackbox-studio (later NFS titles) formats, NFS Underground 1, 2 and Most Wanted, NFS Hot Pursuit 2 PS2 (`nfs6_ps2.py` modules, see its section below): `chunks.py` (generic id+length chunk dispatch helpers), `geometries/` (car and world geometry packs), `bitmaps/` (texture packs, TPK), `maps/` (chunk bundles, scenery, streaming sections; `NfsuTrackBundle` is a race's `TRACKBnnnn.lzc` or an NFSU2/NFSMW location bundle `LxRA.BUN`), `audios/` (NFS HP2 PS2 music `JUKEBOXM.JBC`), `archives.py` (JDLZ-compressed files). |
+| `resources/blackbox/` | Blackbox-studio (later NFS titles) formats, NFS Underground 1, 2 and Most Wanted, NFS Hot Pursuit 2 PS2 (`nfs6_ps2.py` modules, see its section below): `chunks.py` (the chunk kit: `ChunkBlock`, chunk walks and peeks, dispatch by chunk id; skill `nfs-resource-formats`), `geometries/` (car and world geometry packs), `bitmaps/` (texture packs, TPK), `maps/` (chunk bundles, scenery, streaming sections; `NfsuTrackBundle` is a race's `TRACKBnnnn.lzc` or an NFSU2/NFSMW location bundle `LxRA.BUN`), `audios/` (NFS HP2 PS2 music `JUKEBOXM.JBC`), `archives.py` (JDLZ-compressed files). |
 | `resources/eac/fields/` | Small reusable domain blocks: `Point2D`/`Point3D`/`RGBBlock`, angle/time fields. |
 | `resources/*.md` | **Auto-generated** per-game docs (`generate_resource_doc.py`). Never hand-edit — edit the block definitions/descriptions and regenerate. |
 | `serializers/` | Turn parsed block data into common output formats and back. One serializer class per resource kind, named by a block's `serializer` class attribute and exported by `serializers/__init__.py`. |
@@ -138,11 +138,39 @@ When you do:
   time). Follow that pattern there rather than importing at module top level.
 - Field extras dict (third tuple element in `Fields`) keys: `description`, `is_unknown`,
   `custom_offset`, `usage` (comma-separated subset of `ui`/`io`/`doc`, default = everywhere).
+- Count, offset and size fields (header members of a structure, from a file or a decompiled struct) use the field
+  references `CountOf('x')`, `OffsetOf('x')`, `SizeOf('x', ...)`, `OwnSize()` (`+ n` / `- n`), `ItemOffsetsOf('x')`
+  (an offset table of the items of array `x`) as programmatic values,
+  and a length that is a sibling field is its path (`ArrayBlock(length='num_x')`, `Padding(to='x_ptr')`), not
+  lambdas: offsets and sizes are then filled in after the write instead of estimated (skill `nfs-resource-formats`).
+  An array without a stored count takes `byte_length=` (`REMAINING`: up to the end of the file or archive item),
+  `stop_before=` / `stop_after=` (a terminator), never a function counting its items in the bytes first; the rest
+  of a file is `BytesBlock(length=REMAINING)`.
+  A Black Box chunk is a `ChunkBlock` of `resources/blackbox/chunks.py` (`CHUNK_ID`, `ALIGNMENT`: the id, length and
+  0x11 filler fields), its records `records_to_chunk_end(child[, size])`, its sub-chunks `chunks_field(...)`.
+- A record whose type is a magic id or type tag at a fixed offset (a `switch (id)` over a union in decompiled code) is
+  a `MagicDispatchBlock(possible_blocks, field='identifier', fallback=None)` (`library/read_blocks/delegates.py`): each
+  block's id field has an `Eq` / `Or` validator, the first block in order accepting the bytes is read (`fallback`: the
+  index of an unknown-record block, else an unknown id raises). No hand-written choice function.
+- Serializers (`serializers/base.py`): the GUI convert panel entry is a class attribute `ui = UiSerialization(...)`
+  (`JSON_UI`, `REVERSIBLE_JSON_UI`, `PNG_UI`, `REVERSIBLE_PNG_UI`, `DIRECTORY_UI`; `ui_serialization()` sends it), a
+  file output's path `self.output_path(path, id)`, the data an import replaces `current_resource(id, block)`. JSON:
+  `JsonSerializer` (the fields the GUI shows), `ReversibleJsonSerializer` (imports back, `merge_json_values`; hooks
+  `json_value` / `json_to_data`, `with_bin` also writes `<name>.bin`), `CompleteJsonSerializer` (every field). Shared
+  pieces: archive items `export_child` / `write_skipped` / `unique_name`; WAVs `write_wav_with_meta` + `loop_meta`
+  (`serializers/audios.py`); textures written on first use `TextureExporter` (`serializers/geometries.py`); track
+  exports `track_map_scene`, `terrain_chunk_scene`, `road_path_curve`, `write_terrain_chunks_json`
+  (`serializers/common/three_d/scenes.py`); `Mesh.sub_meshes()`, `change_axes(..., pivot=True)`. Lookups:
+  `require_resource_as(id, ShpiBlock)` (through compressed wrappers), `find_chunk(s)` (data of chunks by id,
+  `resources/blackbox/chunks.py`), `find_file_case_insensitive` / `find_folder_case_insensitive`
+  (`library/utils/file_utils.py`). Colours: `library/utils/colors.py` (`decode_colors` / `encode_colors` of whole
+  arrays: packed ARGB formats, BGR555, DOS 6-bit; `rgba_image`, `image_rgba`, `rgb_palette`), never per pixel.
 - Resource ids (`library/utils/id.py`, `frontend/src/app/utils/join-id.ts`, the same rules): a file's id is
   `path_to_name` of its path (`__` escaped as `_%5F`, `:` as `---DRIVE`), a resource in it adds `__` and its path in
   the file's data (`children/3/item/data`), which never contains `__` nor starts with `_`; ids split at their last
   `__` (a file name ending in `_` gives `TRACK___children/0`). Build ids with `path_to_name` + `join_id`, read them
-  with `split_id` / `is_file_id` / `id_to_path` / `split_last_id_part`, never by splitting `__` by hand.
+  with `split_id` / `is_file_id` / `id_to_path` / `split_last_id_part` / `parse_item_id` (archive id and index of
+  an archive item), never by splitting `__` by hand.
 - `frontend/src/nfs-three-lib/` (README there) is copied into the nfs-web game as it is: its files import only each
   other and `three`, `@gg-web-engine/core`, `rxjs`, nothing else of the frontend (a part they need is brought into it),
   and hold no specs (they are tested next to the GUI components using them). It has `TnfsCarMeshController` (and
@@ -435,7 +463,7 @@ When you do:
 
 - Typed INI files (`resources/eac/ini.py`): an `IniFile` subclass declares `IniSection`s and `IniSectionGroup`s
   (numbered sections: `[skin00]`.., by a name regex) of typed keys (`IniInt`, `IniFloat`, `IniString`, `IniArray` of
-  numbered keys `torqueCurve_%d`); the block reads and writes the whole text itself (`source_text`, `usage: io`): a
+  numbered keys `torqueCurve_%d`); the block (a `TextFileBlock`) reads and writes the whole text itself (`source_text`, `usage: io`): a
   changed number keeps the old one's style, a new key goes after the definition's previous key, a missing key is
   None (an empty GUI input removes the line). Keys the definition lacks go to the section's `other_keys`, sections to
   `other_sections` (repeated sections after the first too). Which line the game reads follows NFSHP2.exe's CINI
@@ -451,8 +479,8 @@ When you do:
   keys. `Nfs6EngineAudioTable` ("CRDl", the items of `cartable.viv`, also a `BigfBlock` item block): engine sound
   slots, self-relative table offsets, 512-byte volume / pitch tables.
 - Conversion: `IniFileSerializer` writes `<file>.json` (the values, sections as objects, groups as lists; no layout)
-  and imports it back over the loaded file (layout kept) or as a new file; `BlockJsonSerializer` does the same for a
-  binary block with every field (`Nfs6EngineAudioTable`, `from_json`).
+  and imports it back over the loaded file (layout kept) or as a new file; `Nfs6EngineAudioTable` goes through
+  `CompleteJsonSerializer` (every field, imported back byte-exact).
 - GUI: `Nfs6CarIniBlockUiComponent` (`frontend/.../editor/eac/nfs6-car-ini.block-ui/`; the exe's formulas in
   `nfs6-car-specs.ts`: torque curve fill and lookup, gearing, drive force, shift speeds, aero, steering limit),
   `IniFileBlockUiComponent` (`editor/common/ini-file.block-ui/`, every `IniFile`: sections, keys with units, defaults
@@ -471,7 +499,7 @@ When you do:
   nfs6_ps2.py`): the loader picks `Nfs6Ps2ChunkBundle` for a bundle with a mesh pack 0x80034000 or a texture pack
   0xB0300001 (`is_nfs6_ps2_bundle`; NFSU's are 0x80134000 / 0xB3300000), `Nfs6Ps2TrackBundle` with sceneries too. Every
   track and global bundle writes back byte-exact. The bundle blocks subclass `Nfs6Ps2ChunkBundle`: `Nfs6Ps2CompressedBlock`
-  takes the loader's class itself (`detect`), so a plain `.LZC` bundle (GLOBALB, INGAMEB, FRONTB) is no track.
+  takes the loader's class itself (`AutoDetectBlock(exact_class=True)`), so a plain `.LZC` bundle (GLOBALB, INGAMEB, FRONTB) is no track.
 - Meshes (`nfs6_ps2_mesh`): VIF packets for the game's VU1 microprogram (layout in its docstring, strips:
   `nfs6_ps2_strip_skips`, the R register LFSR of the VU). Vertices are local: a scenery instance places them
   (`v @ rotation + position`, rotation 2.14 fixed point); the mesh header's matrix is the modelling one, not used.
@@ -567,7 +595,7 @@ When you do:
   by size under `/Simulation/CarData/`; torque in lb·ft), `.ais` `Nfs5CarAi` (304 bytes: corner look-ahead in 6 m
   track slices and target speeds, read only by the AI target speed 0x40b650), `nfs5.prt` `Nfs5CarParts` (360-byte
   records; `sort_key` is the price), `nfs5.car` `Nfs5Cars` (0x670-byte records starting with the car id, no header;
-  colours stored A, R, G, B, read as big-endian 0xAARRGGBB; texts are Latin-1: `Latin1Block`), and in
+  colours stored A, R, G, B, read as big-endian 0xAARRGGBB; texts are Latin-1: `UTF8Block(length, encoding='latin-1')`), and in
   `nfs5_career.py` `nfs5.fac` `Nfs5FactoryMissions` (0xf0), `nfs5.trn` `Nfs5Tournaments` (0xd40), `nfs5.per`
   `Nfs5Personalities` (0x2c), picked by name and record size; `<track>.jnc` `Nfs5Junctions`, `<track>.edg`
   `Nfs5WallEdges`. Every byte is a named field (`padding_*` / `unused_*`: read by no code); the few values with no
@@ -589,6 +617,12 @@ When you do:
   with unsaved changes). Their derived values follow the field descriptions: keep the two in sync.
 - In the CRP, the track parts `DmiS` / `TmiS` (road spline slices and sections), `esaB` (`CrpBasePart`: flags, bounds,
   object tag, levels of detail) and `fd` (vertex colours) are parsed.
+- CRP layout (`CrpGeometry`): 16-byte chunks (header, articles, common parts, parts; parts picked by identifier,
+  `MagicDispatchBlock`), then the part data at each part's `offset` / `len`: 16-byte aligned, in no fixed order, some at
+  4 KB boundaries, zeros between, the file padded to 4 KB. `write` lays the data out again in the order of the offsets
+  read (data read at a 4 KB boundary starts at one again; a part writes `len` bytes, the materials and effects read
+  past a shorter one): all 63 game CRPs and `test/samples/356b.crp` write back byte-exact. The array parts share their
+  fields through `crp_array_part_fields`.
 - CRP `pr` parts (`TrianglePartData`): the info row blocks are picked by `row_type` (`vt`, `nm`, `uv`, `fd`, `n$`),
   not by position; one index table per index row (`index_table`, `uv_index_table`), and a row's `index_stream` picks
   the table its indices come from, 0xffff = consecutive (`crp_stream_indices` in `serializers/geometries.py`, as
@@ -621,9 +655,11 @@ When you do:
   `PsxClutBlockUiComponent` (swatches, a click changes a color keeping its STP bit; black is written 0x8000).
   `frontend/src/app/utils/psx-color.ts` converts like `psx_color_to_rgba`: keep the two the same.
 - Most PSX files end with a 12-byte `CRCF` footer (`PsxCrcFooter`, `resources/eac/psx.py`): CRC-16 (reflected 0x8005,
-  init 0xFBEA) of the bytes before it, recomputed on save (`with_crc_footer`). `ShppBlock` reads it as a file of its
-  own and as a BIGF / C0FB item, not in a FAM (`_in_wwww_archive`): there it stays in the last entry's
-  `post_offset_payload`.
+  init 0xFBEA) of the bytes before it, recomputed on save: a block of such a file ends with `crc_footer =
+  crc_footer_field()` and mixes in `PsxCrcFooterMixin` (the footer written after the other fields, with their CRC).
+  `ShppBlock` and `OrixGeometry` (`PsxItemCrcFooterMixin`) read it after themselves in a file of their own and in a
+  BIGF / C0FB item, not in a FAM (`in_wwww_archive`): there it stays in the last entry's `post_offset_payload`.
+  `with_crc_footer` appends one to packed bytes (`EacCompressedBlock`).
 - `Z<car>.VSM` (every car) / `Z<car>.WSM` (the 8 racers and `TRAFFC`: the car in another color, loaded for racers in
   odd car slots, `tnfs_carobj` 0x80039604; `TRAFFC`'s is identical) = `BigfBlock` of `<car>.pbs`, `<car>.pdn` (QFS3-compressed PC PBS / PDN layouts; traffic and cop cars
   have a 16-byte `HI\r\n` placeholder `.pbs`), `<car>.por` / `<car>l.por` (high / low-poly model, `OrixGeometry`),
@@ -741,21 +777,23 @@ When you do:
 
 - The Japanese Saturn TNFS port with 8 Nissans; files keep the PC cars' names (SUPRA = PGC10, DIABLO = BCNR33, PORSCHE =
   240ZG, VETTE = KPGC110, TESTA = 300ZX, VIPER = BNR32, NSX = 180SX, RX7 = Silvia). Big-endian (SH-2) everywhere. Blocks:
-  `resources/eac/tnfs_saturn.py` (bundles, executable, picture lists, menu art), `TnfsSaturnOrix*` in
+  `resources/eac/tnfs_saturn.py` (bundles, executable, picture lists, menu art, 8-bit pictures), `TnfsSaturnOrix*` in
   `geometries/tnfs.py`, the Sega sound driver tone bank in `resources/common/audios/saturn_tone_bank.py`, `PcxImage` in
   `resources/common/bitmaps`.
   The loader picks them in `_tnfs_saturn_block_class` (by name and content; ORIX by version 800 stored big-endian).
-  Big-endian copies of PC layouts are made with `big_endian_copy` (`resources/eac/fields/byte_order.py`). The car
+  Big-endian copies of PC layouts are made with `derive_fields` / `big_endian_copy` (`resources/eac/fields/byte_order.py`). The car
   formats are not traced in the Saturn executable: descriptions say what the files show ("checked") and keep the PC /
-  PSX meanings. The menu art and pictures are traced in it (nfs-web's Ghidra project `decomp/tnfs_saturn_gtr`, auto
-  analysis, addresses in the descriptions).
+  PSX meanings. The menu art, the pictures and the in-car view are traced in it (nfs-web's Ghidra project
+  `decomp/tnfs_saturn_gtr`, addresses in the descriptions).
 - `CARS/<car>.ALL` / `CAR2/<car>.ALL` (`TnfsSaturnCarBundle`, second paint in CAR2): PBS (`TnfsSaturnCarPhysics`, PC
   layout big-endian), two texture banks (high / low-poly: 12-byte entries made of VDP1 command fields, 4-bit pixels high
   nibble first, 16 RGB555 colours per texture; draw mode bit 0x40 (SPD) clear = colour index 0 transparent), then in
-  CARS the cockpit (`u32 size` (counting itself) + RLE picture, twice: dashboard 352x240, steering wheel 176x176; PCX-style
-  RLE, zero padding to 4 bytes). `TnfsSaturnCarBundleSerializer` writes `physics.PBS.json`, `textures/` and
-  `low_poly_textures/` (PNGs named as the GLB images, `Tir1`/`Tyr1`.. exported `tyr1`.., `car_colors.json`),
-  `dashboard.png`, `steering_wheel.png`.
+  CARS the cockpit (`u32 size` (counting itself) + `TnfsSaturnRleImage`, twice: dashboard 352x240, steering wheel
+  176x176; PCX-style RLE, each row encoded on its own, zero padding to 4 bytes). `TnfsSaturnCarBundleSerializer` writes
+  `physics.PBS.json`, `textures/` and `low_poly_textures/` (PNGs named as the GLB images, `Tir1`/`Tyr1`.. exported
+  `tyr1`.., `car_colors.json`), `dashboard.png`, `steering_wheel.png` (nfs-web reads them: keep them byte-identical).
+  How the game draws the cockpit (320x224 race screen; dashboard = VDP2 NBG0 scrolled by the sway, wheel = RBG0
+  rotation parameter B, mirror = a VDP1 clipping window) is in the `TnfsSaturnCockpit` descriptions.
 - `MODELS/<car>/high.orix` / `low.orix` (sliced from the executable, pointer table 0x84f14): `TnfsSaturnOrixGeometry`, the
   PSX ORIX big-endian without CRC footer; the polygon's first 8 bytes are reversed (draw type word first) and the
   material colour slot holds an RGB value. `TnfsSaturnOrixGeometrySerializer` exports them as the PC / PSX models
@@ -764,9 +802,13 @@ When you do:
   (`tnfs_wheel_labels_by_position`: the PGC10 labels its left front wheel `rt_frnt`). `car_colors.json`
   (`serializers/misc/tnfs_saturn_car_colors.py`): pure green (green >= 29) colours drawn = brake light marker (5 cars,
   colour 0 of the rear light texture; colour 0 of a cut-out texture is not drawn and not counted), off / on colours of the PSX game; not verified in the Saturn code.
-- `0` (`TnfsSaturnGtrExecutable`): model pointers, 9 car AI records (`TnfsSaturnCarAiAndCrashBody`: PDN big-endian, top
-  speeds in whole mph 16.16, `gear_count` 16.16) and their pointer table (entry 13 + model id, 21 = Warrior). Exported
-  as PC PDN JSON per car slot (`pc_data`: PC raw top speed = mph x 29124); the Warrior's equals PC TRAFFC.PDN.json.
+- `0` (`TnfsSaturnGtrExecutable`): the in-car view's 9 cockpit records by car model id (`TnfsSaturnCockpitRecord`,
+  0x715b0: needle colour, lengths, centres, angle scale / offset, the steering wheel's place and pivot) and the 8
+  speedometer tops (0x71864), model pointers, 9 car AI records (`TnfsSaturnCarAiAndCrashBody`: PDN big-endian, top
+  speeds in whole mph 16.16, `gear_count` 16.16) and their pointer table (entry 13 + model id, 21 = Warrior); the bytes
+  between them stay raw (`code`, `code_after_*`, `rest`). Exported as PC PDN JSON per car slot (`pc_data`: PC raw top
+  speed = mph x 29124); the Warrior's equals PC TRAFFC.PDN.json. The cockpit records are not exported (nfs-web keeps
+  its own constants).
 - `SOUNDS/*.BIN` (`SaturnToneBank`): one voice; player banks notes 50 (stereo engine on, two layers panned L/R), 51
   (engine off), 52 (horn loop), 53 (gear one-shot); opponent banks 40 (horn, half rate) and 41 (engine). Roles from the
   data only. `SaturnToneBankSerializer` writes the PC car bank names, 16-bit WAVs at 44100 x 2^((note - base note) / 12)
@@ -788,9 +830,15 @@ When you do:
 - `UIDATA/ELOAD/<car>/<n>.BIN`, `ELOAD/LOAD.BIN`, `ECREDITS/0<n>.BIN` (`TnfsSaturnRlePicture`): 0x0408, 0, u32 decoded
   size, word RLE (i16 n < 0: -n literal RGB555 words; else the next word n + 2 times) of a 320-wide picture, to
   `<name>.png` (RGB).
-- Not parsed: `DASH/*`, `HORIZON/*.IM`, `TRACKS/*.ALL`, the traffic cars `CARS/<car>` (no extension), `REPLAY/*`, the
-  raw PCM and driver files of `SOUNDS/`, `IP.BIN`, `PARAMETERS/*`; `TGQ/*.TGQ` (movies) go through `AsfAudio` (their
-  `1SNh` sound only).
+- `HORIZON/*.IM`, `DASH/*.IM` (`TnfsSaturnSizedRleImage`: u32 size = the file length + `TnfsSaturnRleImage`; picked by
+  the loader by name, size and a complete decode) and `DASH/EMEM3.DAT` (`TnfsSaturnSizedRleImageList`: two of them):
+  horizons (512 wide, by time of day), the chase view HUD layouts, the speeding ticket, the backup memory messages.
+  `TnfsSaturnSizedRleImageSerializer` writes `<name>.png`, `TnfsSaturnSizedRleImageListSerializer` `<index>.png` (RGBA,
+  colour 0 transparent). The game's loader `Vdp2_LoadRleBitmap` 0x0605e83c decodes row by row (a row ends at its width),
+  so `tnfs_saturn_rle_pixels` does too; no file has a run across a row end.
+- Not parsed: `DASH/EMISC.DAT`, `TRACKS/*.ALL`, the traffic cars `CARS/<car>` (no extension), `REPLAY/*`, the raw PCM
+  and driver files of `SOUNDS/`, `IP.BIN`, `PARAMETERS/*`; `TGQ/*.TGQ` (movies) go through `AsfAudio` (their `1SNh`
+  sound only).
 
 ## SHPI images (`EacImage`, `resources/eac/bitmaps.py`, all games up to NFS6)
 
@@ -908,8 +956,8 @@ When you do:
   of the 131 ORIPs of TNFS SE's CFMs and FAMs, directly or through Blender's OBJ import / export, all come back as
   the game draws them, but the line polygon of TR6's mine (not exported); textured polygons without a bitmap of the
   FSH (WARIOR, LDIABLO low-poly) come back one-colour, drawn the same.
-- The GUI's import (upload) button shows the OBJ import guide before the folder is picked (`import_guide: 'orip_obj'`
-  in `ui_serialization()`, `ImportGuideDialogComponent` in `frontend/.../editor/common/import-guide.dialog/`): Blender
+- The GUI's import (upload) button shows the OBJ import guide before the folder is picked (`import_guide='orip_obj'`
+  of the serializer's `UiSerialization`, `ImportGuideDialogComponent` in `frontend/.../editor/common/import-guide.dialog/`): Blender
   steps, material, object and partition naming, the two models of a CFM. "Don't show this again" clears the general
   setting `show_orip_import_guide`, System Configuration sets it again. Keep its rules in sync with the import.
 
@@ -994,9 +1042,9 @@ When you do:
   nfs2sen.exe 0x451bd0: `Nfs2PersonalityGrid` (4 rows of 12 letters) and the personalities `car_a` .. `car_m`
   (`Nfs2Personality`, 0xe4 bytes; field descriptions carry the `.DES` chain names). Names from `PRSONAL.DES`. Picked
   by name (any case) and size 3012. Both are `BigfBlock` item blocks; the exe also has compiled-in copies of both.
-- Conversion: all five export to `<name>.json` with every field (`Nfs2DataJsonSerializer`,
-  `serializers/misc/nfs2_data_json.py`: JsonSerializer's output, plus import: the JSON's values over the resource,
-  `merge_json_values`); a `.QDA` converts through its compressed wrapper to `<name>.QDA.json`.
+- Conversion: all five export to `<name>.json` with every field (`ReversibleJsonSerializer`, `serializers/json.py`:
+  JsonSerializer's output, plus import: the JSON's values over the resource, `merge_json_values`); a `.QDA` converts
+  through its compressed wrapper to `<name>.QDA.json`.
 - The developers' `.DES` files (`P*.DES`, `SIMTUNE.DES`, `MCF1.DES`, `TRAFCFG.DES`, `PRSONAL.DES`, the smackables'
   `TRACKS/DATA/PC/SM*.DES`; NFS5 `TRAFCFG.DES` too) = `EaFieldDescriptions` (`resources/eac/field_descriptions.py`,
   module docstring has the layout): a body (94 bytes of garbage, int data size, int records size, a copy of the data,
@@ -1034,8 +1082,8 @@ When you do:
   contains; the next value line fills the field once; the 2000-byte line buffer's leftovers are read for missing
   array items, as in the exe), 80 fields named after nfs-web's port (`src/nfs3/nfs3-physics`, `nfs3_carp` in
   `nfs3.h`); missing fields take the exe's default carp. The value blocks (`CarpTextInt`, `CarpTextByte`,
-  `CarpTextFloat`, `CarpTextFixed`, `CarpTextArray`) only type the fields for the GUI and docs: the top-level block
-  reads and writes the text. The hidden `source_text` field keeps the file as read; `write` puts the values over it,
+  `CarpTextFloat`, `CarpTextFixed`, `CarpTextArray`, `ParsedByParent`) only type the fields for the GUI and docs: the
+  top-level block (a `TextFileBlock`) reads and writes the text. The hidden `source_text` field keeps the file as read; `write` puts the values over it,
   each changed number in the style of the one it replaces (decimals, `128.000000` for an integer field), fields the
   text lacks appended when they differ from the default, so all 16 files write back byte-exact
   (`test/samples/nfs3_carp/`, `test/resources/eac/test_nfs3_car_physics.py`, which also checks the values against
@@ -1209,7 +1257,9 @@ When you do:
 ## Music (TNFS `1SNh`, NFS2-NFS6 `SCHl` streams, `PFDx` maps)
 
 - TNFS SE `FRONTEND/MUSIC/*.ASF` / `*.AS4` (`1SNh`) = `AsfAudio`: FFmpeg converts the file by its path
-  (`FfmpegSupportedAudioSerializer`). `CREDITS.ASF` has 1.75 MB of junk after its end block.
+  (`FfmpegSupportedAudioSerializer`), the meta loop from the header as for EACS samples (`eacs_loop_meta`:
+  `repeat_loop_length` samples from `repeat_loop_beginning`, the end their last one, as the TNFS DOS mixer plays them,
+  0xa6c1a; the game's stream player ignores these fields and loops at the `1SNl` chunk). `CREDITS.ASF` has 1.75 MB of junk after its end block.
 - `SCHl` files hold EA audio streams: `EaAudioStreams` (`resources/eac/audios.py`), an array of `EaAudioStream`
   (header chunk with an `EaSoundPatch`, then the SCCl / SCDl / SCLl / SCEl chunks as raw bytes, then padding up to the
   next `SCHl`). The loader picks it for a `SCHl` file whose first chunks are all audio ones

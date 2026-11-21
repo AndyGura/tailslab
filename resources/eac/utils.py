@@ -96,6 +96,7 @@ def _quantize_images_with_alpha(images, num_colors):
     """`quantize_images_to_8bit` keeping partial alpha (glow textures), for palettes which hold it (32-bit)"""
     from PIL import Image
 
+    from library.utils.colors import image_rgba
     from serializers.bitmaps import ImageSerializer
 
     master = Image.new('RGBA', (max(img.width for img in images), sum(img.height for img in images)), (0, 0, 0, 0))
@@ -105,9 +106,7 @@ def _quantize_images_with_alpha(images, num_colors):
         current_y += img.height
     rgba = master.quantize(colors=num_colors, method=Image.Quantize.FASTOCTREE).getpalette('RGBA')[: num_colors * 4]
     palette = [rgba[i] << 24 | rgba[i + 1] << 16 | rgba[i + 2] << 8 | rgba[i + 3] for i in range(0, len(rgba), 4)]
-    pixels_per_image = [
-        [r << 24 | g << 16 | b << 8 | a for r, g, b, a in img.convert('RGBA').get_flattened_data()] for img in images
-    ]
+    pixels_per_image = [image_rgba(img) for img in images]
     if any(p & 0xFF == 0 for pixels in pixels_per_image for p in pixels) and not any(c & 0xFF == 0 for c in palette):
         # a fully transparent entry for the transparent pixels
         palette = (palette + [0])[:num_colors] if len(palette) < num_colors else palette[:-1] + [0]

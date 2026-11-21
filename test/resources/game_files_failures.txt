@@ -58,7 +58,7 @@ tnfsse/SIMDATA/MISC/TR6INFO		NotImplementedError:
 tnfsse/SIMDATA/MISC/TR7INFO		NotImplementedError: 
 tnfsse/SIMDATA/MISC/TRXINFO		NotImplementedError: 
 
---- Read-again failures (Test 3): 132 ---
+--- Read-again failures (Test 3): 57 ---
 nfs2se/GAMEDATA/DASHHUD/PC/HUDDATA.VIV		Read-again data differs from original data
 nfs2se/SETUP/ENGLISH/_INST32I.EX_		Read-again data differs from original data
 nfs2se/SETUP/SPANISH/_INST32I.EX_		Read-again data differs from original data
@@ -67,69 +67,6 @@ nfs3/FeData/text/TEXT.FRE		Read-again data differs from original data
 nfs3/FeData/text/TEXT.ITA		Read-again data differs from original data
 nfs3/FeData/text/TEXT.SPA		Read-again data differs from original data
 nfs3/FeData/text/TEXT.SWE		Read-again data differs from original data
-nfs5/FEData/Models/dealer2a.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/FEData/Models/dealer2a.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/FEData/Models/dealer2b.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/FEData/Models/dealer2b.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/FEData/Models/dealer2c.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/FEData/Models/dealer2c.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/FEData/Models/factory.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/FEData/Models/factory.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/FEData/Models/garage.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/FEData/Models/garage.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/FEData/Models/track.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/FEData/Models/track.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/FEData/Models/trackwall.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/FEData/Models/trackwall.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/FEData/Models/victory.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/FEData/Models/victory.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/356_1.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/356_1.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/356a.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/356a.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/356b.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/356b.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/550.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/550.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/901.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/901.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/914.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/914.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/930.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/930.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/935.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/935.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/944.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/944.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/964.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/964.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/993.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/993.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/996.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/996.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/boxster.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/boxster.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/cop356.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/cop356.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/cop356_german.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/cop356_german.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/cop930.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/cop930.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/cop930_german.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/cop930_german.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/cop993.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/cop993.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/cop993_german.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/cop993_german.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/eas1.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/eas1.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/eas10.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/eas10.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/eas11.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/eas11.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/eas2.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/eas2.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/eas3.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/eas3.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/eas4.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/eas4.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/eas5.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/eas5.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/eas6.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/eas6.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/eas7.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/eas7.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/eas8.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/eas8.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/eas9.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/eas9.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/eden1.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/eden1.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/eden2.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/eden2.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/eden3.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/eden3.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/eden4.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/eden4.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/eden5.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/eden5.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/f901.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/f901.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/f996.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/f996.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/fboxster.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/fboxster.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/gt1.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/gt1.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/CarModel/postship.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/CarModel/postship.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/Track/alps.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/Track/alps.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/Track/autobahn.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/Track/autobahn.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/Track/canyon.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/Track/canyon.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/Track/castle.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/Track/castle.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/Track/coastal.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/Track/coastal.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/Track/farmland.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/Track/farmland.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/Track/foothills.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/Track/foothills.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/Track/forest.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/Track/forest.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/Track/industrial.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/Track/industrial.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/Track/monaco1.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/Track/monaco1.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/Track/monaco2.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/Track/monaco2.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/Track/monaco3.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/Track/monaco3.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/Track/monaco4.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/Track/monaco4.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/Track/monaco5.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/Track/monaco5.crp/uncompressed/common_parts/0/data] Block read went out of available size
-nfs5/GameData/Track/skidpad.crp		Failed to read written data: EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs5/GameData/Track/skidpad.crp/uncompressed/common_parts/0/data] Block read went out of available size
 nfs6/audio/sfx/careng.viv		Read-again data differs from original data
 nfs6/audio/sfx/hornz.viv		Read-again data differs from original data
 nfs6/audio/sfx/oppbnk.viv		Read-again data differs from original data
@@ -142,18 +79,6 @@ nfs6/audio/speech/english/frontend.viv		Read-again data differs from original da
 nfs6/audio/speech/english/radio.viv		Read-again data differs from original data
 nfs6/audio/speech/english/rtrloc.viv		Read-again data differs from original data
 nfs6/audio/speech/english/speechdr.viv		Read-again data differs from original data
-nfsu/Cars/350Z/TEXTURES.BIN		Read-again data differs from original data
-nfsu/Cars/350Z/VINYLS.BIN		Read-again data differs from original data
-nfsu/Cars/CELICA/TEXTURES.BIN		Read-again data differs from original data
-nfsu/Cars/INTEGRA/TEXTURES.BIN		Read-again data differs from original data
-nfsu/Cars/INTEGRA/VINYLS.BIN		Read-again data differs from original data
-nfsu/Cars/LANCER/TEXTURES.BIN		Read-again data differs from original data
-nfsu/Cars/NEON/TEXTURES.BIN		Read-again data differs from original data
-nfsu/Cars/RX7/TEXTURES.BIN		Read-again data differs from original data
-nfsu/Cars/RX7/VINYLS.BIN		Read-again data differs from original data
-nfsu/Cars/S2000/TEXTURES.BIN		Read-again data differs from original data
-nfsu/Cars/S2000/VINYLS.BIN		Read-again data differs from original data
-nfsu/Global/HUDTEX.BIN		Read-again data differs from original data
 tnfs_psx/ZAL2.TRI		Read-again data differs from original data
 tnfs_psx/ZCL1.TRI		Read-again data differs from original data
 tnfs_psx/ZCL2.TRI		Read-again data differs from original data
@@ -290,7 +215,7 @@ tnfsse/SIMDATA/SOUNDBNK/COLLSBMT.BNK		Output length (438796) differs from input 
 tnfsse/SIMDATA/SOUNDBNK/COLLSBWT.BNK		Output length (434092) differs from input length (279340)
 tnfsse/SIMDATA/SOUNDBNK/OSUPMB3D.BNK		Output length (26638) differs from input length (17744)
 
---- Read failures (Test 1): 108 ---
+--- Read failures (Test 1): 62 ---
 nfs2/FEDATA/PC/STATS/MED.SSF		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs2/FEDATA/PC/STATS/MED.SSF/colors] Block read went out of available size
 nfs2/FEDATA/PC/STATS/MONO.SSF		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs2/FEDATA/PC/STATS/MONO.SSF/colors] Block read went out of available size
 nfs2/FEDATA/PC/STATS/MYST.SSF		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs2/FEDATA/PC/STATS/MYST.SSF/colors] Block read went out of available size
@@ -339,58 +264,12 @@ nfs5/GameData/Sounds/356coupeS13.spl		EndOfBufferException: [//Users/andy/Develo
 nfs6_ps2/ZZDATA/MARKERS/MARKERS21.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs6_ps2/ZZDATA/MARKERS/MARKERS21.BIN/colors] Block read went out of available size
 nfs6_ps2/ZZDATA/MARKERS/MARKERS22.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs6_ps2/ZZDATA/MARKERS/MARKERS22.BIN/bitmap] Block read went out of available size
 nfs6_ps2/ZZDATA/UNKNOWN/48671A56.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfs6_ps2/ZZDATA/UNKNOWN/48671A56.BIN/bitmap] Block read went out of available size
-nfsmw/FRONTEND/PLATFORMS/CAREER_SAFEHOUSE.BIN		Exception: Unknown chunk: ChunkB3300000
-nfsmw/FRONTEND/PLATFORMS/CAR_LOT.BIN		Exception: Unknown chunk: ChunkB3300000
-nfsmw/FRONTEND/PLATFORMS/CUSTOMIZATION_SHOP.BIN		Exception: Unknown chunk: ChunkB3300000
-nfsmw/FRONTEND/PLATFORMS/CUSTOMIZATION_SHOP_BACKROOM.BIN		Exception: Unknown chunk: ChunkB3300000
-nfsmw/FRONTEND/PLATFORMS/PlatformCrib.BIN		Exception: Unknown chunk: ChunkB3300000
 nfsmw/SOUND/NISREVDATA/IntroNisBL13.bin		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsmw/SOUND/NISREVDATA/IntroNisBL13.bin/bitmap] Block read went out of available size
 nfsmw/SOUND/PFDATA/MW_Music.mpf		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsmw/SOUND/PFDATA/MW_Music.mpf/bitmap] Block read went out of available size
-nfsu/Cars/240SX/TEXTURES.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Cars/240SX/TEXTURES.BIN/chunks/0/sub_chunks/1/sub_chunks/3/payload] Block read went out of available size
-nfsu/Cars/240SX/VINYLS.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Cars/240SX/VINYLS.BIN/chunks/0/sub_chunks/1/sub_chunks/4/payload] Block read went out of available size
-nfsu/Cars/AMBULANCE/TEXTURES.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Cars/AMBULANCE/TEXTURES.BIN/chunks/0/sub_chunks/1/sub_chunks/4/payload] Block read went out of available size
-nfsu/Cars/CELICA/VINYLS.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Cars/CELICA/VINYLS.BIN/chunks/0/sub_chunks/1/sub_chunks/4/payload] Block read went out of available size
-nfsu/Cars/CIVIC/TEXTURES.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Cars/CIVIC/TEXTURES.BIN/chunks/0/sub_chunks/1/sub_chunks/4/payload] Block read went out of available size
-nfsu/Cars/ECLIPSE/VINYLS.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Cars/ECLIPSE/VINYLS.BIN/chunks/0/sub_chunks/2/payload] Block read went out of available size
-nfsu/Cars/FOCUS/TEXTURES.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Cars/FOCUS/TEXTURES.BIN/chunks/0/sub_chunks/1/sub_chunks/3/payload] Block read went out of available size
-nfsu/Cars/GOLF/TEXTURES.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Cars/GOLF/TEXTURES.BIN/chunks/0/sub_chunks/1/sub_chunks/3/payload] Block read went out of available size
-nfsu/Cars/GOLF/VINYLS.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Cars/GOLF/VINYLS.BIN/chunks/0/sub_chunks/1/sub_chunks/4/payload] Block read went out of available size
-nfsu/Cars/IMPREZA/TEXTURES.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Cars/IMPREZA/TEXTURES.BIN/chunks/0/sub_chunks/1/sub_chunks/3/payload] Block read went out of available size
-nfsu/Cars/IMPREZA/VINYLS.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Cars/IMPREZA/VINYLS.BIN/chunks/0/sub_chunks/2/payload] Block read went out of available size
-nfsu/Cars/LANCER/VINYLS.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Cars/LANCER/VINYLS.BIN/chunks/0/sub_chunks/2/payload] Block read went out of available size
-nfsu/Cars/MIATA/TEXTURES.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Cars/MIATA/TEXTURES.BIN/chunks/0/sub_chunks/1/sub_chunks/3/payload] Block read went out of available size
-nfsu/Cars/MIATA/VINYLS.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Cars/MIATA/VINYLS.BIN/chunks/0/sub_chunks/1/sub_chunks/4/payload] Block read went out of available size
-nfsu/Cars/NEON/VINYLS.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Cars/NEON/VINYLS.BIN/chunks/0/sub_chunks/1/sub_chunks/4/payload] Block read went out of available size
-nfsu/Cars/PEUGOT/TEXTURES.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Cars/PEUGOT/TEXTURES.BIN/chunks/0/sub_chunks/3/payload] Block read went out of available size
-nfsu/Cars/PEUGOT/VINYLS.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Cars/PEUGOT/VINYLS.BIN/chunks/0/sub_chunks/3/payload] Block read went out of available size
-nfsu/Cars/RSX/TEXTURES.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Cars/RSX/TEXTURES.BIN/chunks/0/sub_chunks/3/payload] Block read went out of available size
-nfsu/Cars/RSX/VINYLS.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Cars/RSX/VINYLS.BIN/chunks/0/sub_chunks/2/payload] Block read went out of available size
-nfsu/Cars/SENTRA/VINYLS.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Cars/SENTRA/VINYLS.BIN/chunks/0/sub_chunks/3/payload] Block read went out of available size
-nfsu/Cars/SKYLINE/VINYLS.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Cars/SKYLINE/VINYLS.BIN/chunks/1/payload] Block read went out of available size
-nfsu/Cars/SUPRA/TEXTURES.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Cars/SUPRA/TEXTURES.BIN/chunks/0/sub_chunks/3/payload] Block read went out of available size
-nfsu/Cars/SUPRA/VINYLS.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Cars/SUPRA/VINYLS.BIN/chunks/1/payload] Block read went out of available size
-nfsu/Cars/TEXTURES.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Cars/TEXTURES.BIN/chunks/0/sub_chunks/1/sub_chunks/3/payload] Block read went out of available size
-nfsu/Cars/TIBURON/TEXTURES.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Cars/TIBURON/TEXTURES.BIN/chunks/0/sub_chunks/1/sub_chunks/3/payload] Block read went out of available size
-nfsu/Cars/TIBURON/VINYLS.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Cars/TIBURON/VINYLS.BIN/chunks/0/sub_chunks/1/sub_chunks/4/payload] Block read went out of available size
-nfsu/FrontEnd/MAGAZINE_TEXTURES.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/FrontEnd/MAGAZINE_TEXTURES.BIN/chunks/0/sub_chunks/3/payload] Block read went out of available size
-nfsu/FrontEnd/TSELECT.BIN		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/FrontEnd/TSELECT.BIN/chunks/0/sub_chunks/3/payload] Block read went out of available size
-nfsu/Global/INGAMEB.BUN		Exception: Unknown chunk: Chunk00034026
 nfsu/Global/Street.bin		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Global/Street.bin/bitmap] Block read went out of available size
-nfsu/Languages/LanguageTextures.bin		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Languages/LanguageTextures.bin/chunks/0/sub_chunks/1/sub_chunks/4/payload] Block read went out of available size
 nfsu/Tracks/Racer.bin		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/Tracks/Racer.bin/bitmap] Block read went out of available size
 nfsu/files/custom.mp3		ValueError: Unknown compression algorithm: ff fb
 nfsu/fx/blank.tag		EndOfBufferException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/nfsu/fx/blank.tag/pivot] Block read went out of available size
-nfsu2/FRONTEND/PLATFORMS/AudioShop01.BIN		Exception: Unknown chunk: ChunkB3300000
-nfsu2/FRONTEND/PLATFORMS/CarLot01.BIN		Exception: Unknown chunk: ChunkB3300000
-nfsu2/FRONTEND/PLATFORMS/Crib01.BIN		Exception: Unknown chunk: ChunkB3300000
-nfsu2/FRONTEND/PLATFORMS/MegaloShop01.BIN		Exception: Unknown chunk: ChunkB3300000
-nfsu2/FRONTEND/PLATFORMS/PaintShop01.BIN		Exception: Unknown chunk: ChunkB3300000
-nfsu2/FRONTEND/PLATFORMS/PartsShop01.BIN		Exception: Unknown chunk: ChunkB3300000
-nfsu2/FRONTEND/PLATFORMS/PerfShop01.BIN		Exception: Unknown chunk: ChunkB3300000
-nfsu2/FRONTEND/PLATFORMS/Showroom.BIN		Exception: Unknown chunk: ChunkB3300000
-nfsu2/GLOBAL/InGameCommon.bun		Exception: Unknown chunk: ChunkB3300000
-nfsu2/TRACKS/STREAML4RH.BUN		Exception: Unknown chunk: Chunk80134000
-nfsu2/TRACKS/STREAML4RR.BUN		Exception: Unknown chunk: Chunk80034100
 tnfs_psx/ZAL3.TRI		DataIntegrityException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/tnfs_psx/ZAL3.TRI] Expected Always == "SJBO", found OBJS at objs_hdr
 tnfs_psx/ZTR5.TRI		DataIntegrityException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/tnfs_psx/ZTR5.TRI] Expected Always == "SJBO", found OBJS at objs_hdr
 tnfs_psx/ZTR6.TRI		DataIntegrityException: [//Users/andy/Development/nfs-resources-converter/test/resources/../../games/tnfs_psx/ZTR6.TRI] Expected Always == "SJBO", found OBJS at objs_hdr

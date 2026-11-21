@@ -14,7 +14,7 @@ from library.read_blocks import (
     IntegerBlock,
     UTF8Block,
 )
-from resources.eac.car_specs import Latin1Block
+from resources.eac.fields.numbers import s16, s32, u16, u8
 
 # The spec sheet texts by index, as the front end draws them (nfs3.exe 0x453940 spec sheet, 0x453f60 history, 0x4397c0
 # colours, 0x454780 / 0x455660 / 0x4556c0 names; nfs4.exe 0x4a1c94..0x4a1eac spec sheet, 0x4731e5 colours, getter
@@ -162,22 +162,6 @@ class FeDataTextTable(ArrayBlock):
         return fedata_text_offsets(texts, start)[index] - self.table_offset
 
 
-def _u8(**kwargs):
-    return IntegerBlock(length=1, **kwargs)
-
-
-def _s16(**kwargs):
-    return IntegerBlock(length=2, is_signed=True, **kwargs)
-
-
-def _u16(**kwargs):
-    return IntegerBlock(length=2, **kwargs)
-
-
-def _s32(**kwargs):
-    return IntegerBlock(length=4, is_signed=True, **kwargs)
-
-
 _CLASS_TEXT = (
     'Car class: 0 A, 1 B, 2 C, 255 none (Knockout). Kept at car list +0x388 (0x439730); the car lists of the menus '
     'filter by it (0x43a6e0, mask bits 0x10 / 0x20 / 0x40 drop classes 0 / 1 / 2; 0x438dc0 lists the class 255 cars), '
@@ -200,21 +184,21 @@ class Nfs3CarFeData(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         car_id = (
-            Latin1Block(length=4),
+            UTF8Block(length=4, encoding='latin-1'),
             {
                 'description': 'Car id, 4 characters (`Diab`, `AMD7`; the case varies), copied to car list +0x315 '
                 '(0x439290). The car is found by its folder name, not by this'
             },
         )
         format_version = (
-            _s16(),
+            s16(),
             {
                 'description': 'Format version, 9 in every file: 0x439d90 drops a car whose file holds another value. Its '
                 'low byte is kept at car list +0x38e (not read)'
             },
         )
         bonus = (
-            _s16(),
+            s16(),
             {
                 'description': 'Bonus car (1: Elni, Jxjr, Lcop, Merc, Peln): car list flag 1 (+0x380, 0x439680). Such a '
                 'car is locked until its unlock bit is set (0x439c10: the unlock mask 0x6fd2a8 bits by serial number, 0x11 '
@@ -223,23 +207,23 @@ class Nfs3CarFeData(DeclarativeCompoundBlock):
             },
         )
         filter_flag = (
-            _s16(),
+            s16(),
             {
                 'description': 'Car list flag 2 (+0x380, 0x4395e0): 1 in every car with a spec sheet, 0 in Elni, Knoc, '
                 'Peln, Plac. Read only by car list filters: 0x43a6e0 under mask bit 0x20000 (no caller passes it) and '
                 '0x4390f0 (bits 33 / 34 of its 64-bit filter; its only caller 0x4391d0 has no caller): no effect'
             },
         )
-        car_class = (_s16(), {'description': _CLASS_TEXT})
+        car_class = (s16(), {'description': _CLASS_TEXT})
         game = (
-            _s16(),
+            s16(),
             {
                 'description': "3 in every NFS3 file (NFS4's files hold 4 in their first field): its low 4 bits are kept "
                 'at car list +0x384; their getter 0x439740 has no caller: not read'
             },
         )
         own_art = (
-            _s16(),
+            s16(),
             {
                 'description': 'Car list flag 4 (+0x380, 0x4395c0), 0 in every file: the showcase art (`SH<car>.qfs`, '
                 '`IN_<car>.fsh` interior, `SL<car>01.qfs` slides, `H<car>.qfs`; 0x4530c0..0x4535e0, 0x454000, 0x464eb0) is '
@@ -248,23 +232,23 @@ class Nfs3CarFeData(DeclarativeCompoundBlock):
             },
         )
         police = (
-            _s16(),
+            s16(),
             {
                 'description': 'Police car (1: Lcop, Peln, Vcop): car list flag 0x10 (+0x380, 0x4396b0): the pursuit car '
                 'lists (0x438d60; 0x43a6e0 masks 0x4000 / 0x8000), cops in Hot Pursuit, speech names (0x426e20)'
             },
         )
         driver_seat = (
-            _u8(),
+            u8(),
             {
                 'description': 'Driver seat (1: Amd7, Jxjr, Jxk8, the British cars): kept at car list +0x3a0 (0x439710) and '
                 'by Car_LoadSpecs at car+0x9a8; the in-car camera (0x4240c0) puts the eye 0.4 m left of the centre for '
                 '0, right for 1, in the middle for any other value'
             },
         )
-        unused_0x13 = (_u8(), {'description': '0 in every file. Not read: the loader copies byte 0x12 alone'})
+        unused_0x13 = (u8(), {'description': '0 in every file. Not read: the loader copies byte 0x12 alone'})
         shared_car = (
-            _s16(),
+            s16(),
             {
                 'description': 'Car list flag 0x40 (+0x380, 0x439570), 1 in Amd7, Corv, Cout, Diab, Fm50, Jxk8, Scig, '
                 'Sl60, Vcop, f355: a network race sends the carp.txt of a car without it and without `bonus` to the other '
@@ -272,7 +256,7 @@ class Nfs3CarFeData(DeclarativeCompoundBlock):
             },
         )
         interior_view_heading = (
-            _u16(),
+            u16(),
             {
                 'description': "Where the showroom's interior view (`IN_<car>.fsh`, a 1280 texel wide panorama) starts, "
                 'in texels (360 degrees = 1280): kept at car list +0x38c (0x43bcc0, 128 for a missing car) and set as the '
@@ -289,24 +273,24 @@ class Nfs3CarFeData(DeclarativeCompoundBlock):
                 "the demo's cars (15, 16) and the network's car lists with it"
             },
         )
-        guid_data2 = (_u16(), {'description': 'Bytes 4..5 of the car id GUID, 0 for the built-in cars (0x439620)'})
-        guid_data3 = (_u16(), {'description': 'Bytes 6..7 of the car id GUID, 0 for the built-in cars (0x439620)'})
+        guid_data2 = (u16(), {'description': 'Bytes 4..5 of the car id GUID, 0 for the built-in cars (0x439620)'})
+        guid_data3 = (u16(), {'description': 'Bytes 6..7 of the car id GUID, 0 for the built-in cars (0x439620)'})
         guid_data4 = (
-            ArrayBlock(child=_u8(), length=8),
+            ArrayBlock(child=u8(), length=8),
             {'description': 'Bytes 8..15 of the car id GUID, 0 for the built-in cars (0x439620)'},
         )
         acceleration = (
-            _u8(),
+            u8(),
             {
                 'description': "Acceleration rating, the showroom's and car select's bar (0..20; getter 0x438f60 index "
                 '0, car list +0x38f)'
             },
         )
-        top_speed = (_u8(), {'description': 'Top speed rating (0..20; 0x438f60 index 1, +0x390)'})
-        handling = (_u8(), {'description': 'Handling rating (0..20; 0x438f60 index 2, +0x391)'})
-        braking = (_u8(), {'description': 'Braking rating (0..20; 0x438f60 index 3, +0x392)'})
+        top_speed = (u8(), {'description': 'Top speed rating (0..20; 0x438f60 index 1, +0x390)'})
+        handling = (u8(), {'description': 'Handling rating (0..20; 0x438f60 index 2, +0x391)'})
+        braking = (u8(), {'description': 'Braking rating (0..20; 0x438f60 index 3, +0x392)'})
         overall_rating = (
-            _u8(),
+            u8(),
             {
                 'description': '5 in every file, kept at car list +0x393; not read (the rating getter 0x438f60 takes '
                 'indexes 0..3 only; NFS4 uses its fifth rating to pick opponents)'
@@ -375,7 +359,7 @@ class Nfs4CarFeData(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         game = (
-            _s16(),
+            s16(),
             {
                 'description': "4 in every NFS4 file (NFS3's files hold 3): its low 4 bits replace those of record "
                 "+0x37c (the file's `runtime_0x37c`); their getter 0x473060 has no caller: not read"
@@ -389,21 +373,21 @@ class Nfs4CarFeData(DeclarativeCompoundBlock):
             },
         )
         name = (
-            Latin1Block(length=256),
+            UTF8Block(length=256, encoding='latin-1'),
             {
                 'description': "Record +0x10, the car's name in the lists; empty in the files: the loader writes text 2 "
                 '(`full_name`) over it'
             },
         )
         car_id = (
-            Latin1Block(length=256),
+            UTF8Block(length=256, encoding='latin-1'),
             {
                 'description': "Car id (`Mcf1`, record +0x110): the loader copies it to +0x315, then puts the car's "
                 'folder name in its place'
             },
         )
         folder = (
-            Latin1Block(length=256),
+            UTF8Block(length=256, encoding='latin-1'),
             {'description': "Record +0x210, empty in the files: the loader writes the car's folder name there"},
         )
         runtime_0x310 = (
@@ -411,7 +395,7 @@ class Nfs4CarFeData(DeclarativeCompoundBlock):
             {'description': 'Record +0x310..+0x31b, zeros in the files; +0x315 receives the `car_id` (0x4725f0)'},
         )
         serial_number = (
-            _s32(),
+            s32(),
             {
                 'description': "The car's number in the game (record +0x31c; carp.txt's `serial_number`, 0..49): the "
                 'car list index of each number (0x68a15c, 0x473410 / 0x473450) through which the race, the physics and '
@@ -431,7 +415,7 @@ class Nfs4CarFeData(DeclarativeCompoundBlock):
             {'description': 'Record +0x37c, 0 in the files; its low 4 bits get `game`'},
         )
         car_class = (
-            _s32(),
+            s32(),
             {
                 'description': 'Car class: 0 the race cars (Elni, MClk, Mcf1, Peln, Plac), 1 A, 2 B, 3 C, 255 none '
                 '(Knoc). Record +0x380 (0x473030): the lists and race setup filter by it (0x4747e0, 0x4722d0), the network '
@@ -440,44 +424,44 @@ class Nfs4CarFeData(DeclarativeCompoundBlock):
             },
         )
         interior_view_heading = (
-            _u16(),
+            u16(),
             {
                 'description': "Where the showroom's interior view (`IN_<car>.fsh`, 1280 texels per turn) starts, in "
                 'texels: record +0x384 (0x475bd0, 128 for a missing car), as NFS3. 128 for the cars without an interior'
             },
         )
         format_version = (
-            _u8(),
+            u8(),
             {
                 'description': 'Format version, 10 in every file (record +0x386): 0x473d20 drops a car whose file holds '
                 'another value'
             },
         )
         acceleration = (
-            ArrayBlock(child=_u8(), length=4),
+            ArrayBlock(child=u8(), length=4),
             {
                 'description': 'Acceleration rating (0..20) at upgrade levels 0..3 (record +0x387; 0x4724c0 returns '
                 "rating x 0.05): the showroom's and car select's bars. Unless `no_upgrades`, the loader raises each "
                 'level to at least the one before'
             },
         )
-        top_speed = (ArrayBlock(child=_u8(), length=4), {'description': 'Top speed rating at levels 0..3 (+0x38b)'})
-        handling = (ArrayBlock(child=_u8(), length=4), {'description': 'Handling rating at levels 0..3 (+0x38f)'})
-        braking = (ArrayBlock(child=_u8(), length=4), {'description': 'Braking rating at levels 0..3 (+0x393)'})
+        top_speed = (ArrayBlock(child=u8(), length=4), {'description': 'Top speed rating at levels 0..3 (+0x38b)'})
+        handling = (ArrayBlock(child=u8(), length=4), {'description': 'Handling rating at levels 0..3 (+0x38f)'})
+        braking = (ArrayBlock(child=u8(), length=4), {'description': 'Braking rating at levels 0..3 (+0x393)'})
         overall_rating = (
-            ArrayBlock(child=_u8(), length=4),
+            ArrayBlock(child=u8(), length=4),
             {
                 'description': 'Overall rating at levels 0..3 (+0x397; 0x472530): the AI opponents are picked among cars '
                 'of a rating like the player\'s (0x476ef0, 0x4c4f40 "Human Car\'s Rating"); not made rising by the loader'
             },
         )
-        unused_0x39d = (_u8(), {'description': 'Record +0x39b, 0 in every file; no reader found'})
+        unused_0x39d = (u8(), {'description': 'Record +0x39b, 0 in every file; no reader found'})
         price = (
-            _s32(),
+            s32(),
             {'description': "Price in dollars (record +0x39c; 0x475df0 index 0): the career mode's car dealer"},
         )
         upgrade_prices = (
-            ArrayBlock(child=_s32(), length=3),
+            ArrayBlock(child=s32(), length=3),
             {'description': 'Prices of upgrade levels 1..3 (record +0x3a0; 0x475df0 indexes 1..3), career mode'},
         )
         runtime_0x3ac = (
@@ -485,14 +469,14 @@ class Nfs4CarFeData(DeclarativeCompoundBlock):
             {'description': 'Record +0x3ac..+0x3b7, zeros in the files; no reader found'},
         )
         driver_seat = (
-            _u8(),
+            u8(),
             {
                 'description': "Driver seat as NFS3's fedata +0x12 (1 right: Jxkr only), record +0x3b8; its getter "
                 '0x473000 has no caller: not read'
             },
         )
         engine_position = (
-            _u8(),
+            u8(),
             {
                 'description': 'Engine position: 0 front, 1 middle (Ff50, Ldia, MClk, Mcf1, PDia), 2 rear (B911, P911, '
                 'PP91). Record +0x3b9 (0x472fd0; the network sends it, 0x4eb5d0): the engine point is 0.85, -0.25 or '

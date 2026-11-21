@@ -273,7 +273,7 @@ EXPORT_RESOURCES = {
         'title': "Over Drivin' GT-R (Sega Saturn TNFS) file specs",
         'file_list': f"""The Japanese Sega Saturn port of TNFS with 8 Nissans in place of the 8 cars, which keep the PC cars' file names (SUPRA = Skyline GT-R PGC10, DIABLO = Skyline GT-R BCNR33, PORSCHE = Fairlady Z 240ZG, VETTE = Skyline GT-R KPGC110, TESTA = Fairlady Z 300ZX, VIPER = Skyline GT-R BNR32, NSX = 180SX Type X, RX7 = Silvia K's). Everything is big-endian (SH-2). The folder `games/tnfs_saturn_gtr` holds the files of the disc (`CDDA/` its CD audio tracks) and the car models sliced from the executable
 
-**0** the executable (loaded at 0x06010000), with the car models and the car AI records. {render_type(eac_tnfs_saturn.TnfsSaturnGtrExecutable())}. The converter writes the car AI records as PC PDN JSON, `<car>.PDN.json` (and `WARRIOR.PDN.json`)
+**0** the executable (loaded at 0x06010000), with the car models, the in-car view records and the car AI records. {render_type(eac_tnfs_saturn.TnfsSaturnGtrExecutable())}. The converter writes the car AI records as PC PDN JSON, `<car>.PDN.json` (and `WARRIOR.PDN.json`)
 
 **CARS/\\<car\\>.ALL**, **CAR2/\\<car\\>.ALL** car bundle: physics, the textures of the two models, the cockpit pictures (`CARS` only). `CAR2` is the car's second paint. {render_type(eac_tnfs_saturn.TnfsSaturnCarBundle())}
 
@@ -291,7 +291,11 @@ EXPORT_RESOURCES = {
 
 **UIDATA/ELOAD/\\<car\\>/\\<n\\>.BIN**, **UIDATA/ELOAD/LOAD.BIN**, **UIDATA/ECREDITS/0\\<n\\>.BIN** race loading pictures and credits pages. {render_type(eac_tnfs_saturn.TnfsSaturnRlePicture())}. Exported as `<name>.png`
 
-**DASH/\\***, **HORIZON/\\*.IM**, **TRACKS/\\*.ALL**, the traffic cars **CARS/\\<car\\>** (no extension), **REPLAY/\\***, the other **SOUNDS/\\*** and **IP.BIN** are not parsed. **TGQ/\\*.TGQ** (movies) are read as EA audio streams (`1SNh`): their sound is exported. **PARAMETERS/\\*** copies of the physics at the start of the car bundles (not converted)""",
+**HORIZON/\\<prefix\\>RISE.IM**, **HORZ.IM**, **SET.IM** horizons by time of day, **DASH/HUD\\<n\\>E.IM** HUD layouts, **DASH/ETICKET.IM** the speeding ticket, **DASH/EMEM2A.IM**, **EMEM2B.IM**, **EMEM2C.IM** backup memory messages: 8-bit pictures after their size. {render_type(eac_tnfs_saturn.TnfsSaturnSizedRleImage())}. Exported as `<name>.png`
+
+**DASH/EMEM3.DAT** two backup memory messages. {render_type(eac_tnfs_saturn.TnfsSaturnSizedRleImageList())}. Exported as `<index>.png`
+
+**DASH/EMISC.DAT**, **TRACKS/\\*.ALL**, the traffic cars **CARS/\\<car\\>** (no extension), **REPLAY/\\***, the other **SOUNDS/\\*** and **IP.BIN** are not parsed. **TGQ/\\*.TGQ** (movies) are read as EA audio streams (`1SNh`): their sound is exported. **PARAMETERS/\\*** copies of the physics at the start of the car bundles (not converted)""",
         'blocks': {
             'Physics': [
                 eac_tnfs_saturn.TnfsSaturnCarPhysics(),
@@ -325,6 +329,8 @@ EXPORT_RESOURCES = {
                 eac_tnfs_saturn.TnfsSaturnFontBank(),
                 eac_tnfs_saturn.TnfsSaturnFontGlyph(),
                 eac_tnfs_saturn.TnfsSaturnRlePicture(),
+                eac_tnfs_saturn.TnfsSaturnSizedRleImage(),
+                eac_tnfs_saturn.TnfsSaturnSizedRleImageList(),
             ],
             'Audio': [
                 common_audios.SaturnToneBank(),
@@ -333,6 +339,7 @@ EXPORT_RESOURCES = {
             ],
             'Misc': [
                 eac_tnfs_saturn.TnfsSaturnGtrExecutable(),
+                eac_tnfs_saturn.TnfsSaturnCockpitRecord(),
             ],
         },
     },
@@ -1117,6 +1124,8 @@ EXPORT_RESOURCES = {
                 blackbox_bitmaps_nfsu.NfsuTexturePack(),
                 blackbox_bitmaps_nfsu.NfsuTexturePackHeader(),
                 blackbox_bitmaps_nfsu.NfsuTextureHashes(),
+                blackbox_bitmaps_nfsu.NfsuTextureLocations(),
+                blackbox_bitmaps_nfsu.NfsuTextureLocation(),
                 blackbox_bitmaps_nfsu.NfsuTextureInfos(),
                 blackbox_bitmaps_nfsu.NfsuTextureInfo(),
                 blackbox_bitmaps_nfsu.NfsuTextureFormats(),
