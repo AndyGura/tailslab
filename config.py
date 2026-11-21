@@ -70,6 +70,8 @@ class ConfigManager:
                 'file_cache_size': 16,
                 # the guide the GUI shows before an OBJ import into a TNFS 3D model (ORIP)
                 'show_orip_import_guide': True,
+                # the game the New file dialog opened at last
+                'new_file_game': '',
             },
             SECTION_CONVERSION: {
                 'multiprocess_processes_count': 0,
@@ -305,6 +307,7 @@ def general_config(patch: Dict = None) -> ClassDict:
         'lazy_loading': get_config(SECTION_GENERAL, 'lazy_loading'),
         'file_cache_size': get_config(SECTION_GENERAL, 'file_cache_size'),
         'show_orip_import_guide': get_config(SECTION_GENERAL, 'show_orip_import_guide'),
+        'new_file_game': get_config(SECTION_GENERAL, 'new_file_game'),
     }
     if patch:
         config = {**config, **patch}

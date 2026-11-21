@@ -179,15 +179,20 @@ shows a result message; Test runs the currently-typed path and shows success/fai
 default field values were the bare command names `blender` / `ffmpeg` (PATH-relative, no absolute
 path) in an environment where neither is installed.
 
-## New File dialog (`app-new-file.dialog`, File → New...) — Confirmed (code)
+## New File dialog (`app-new-file.dialog`, File → New...) — Confirmed (live, 2026-11-21)
 
-Lets the user pick a template format to start a blank file from: **FFN font**, **FSH image
-archive**, **QFS image archive**, **PBS car physics (TNFS PC)**, **PDN car AI and crash body (TNFS
-PC)**, **BigSpecsFam car physics (TNFS 3DO)** (radio-style list with format icons, one preselected:
-`ffn`). The car specs files start zero-filled (derived inverses written as 0).
-Confirming opens a save-file dialog seeded with `Untitled.<ext>`, then calls `createNewFile`.
-Cancelling returns nothing. Not exercised live this pass (would need to drive both this dialog and
-a subsequent native save dialog back-to-back).
+Lets the user pick a format to start a blank file from (the 52 formats of `library/new_files.py`, `newFileFormats`: files
+the games have on disk, no archive items; TNFS PC "Car model (CFM)" and "Track textures and props (FAM)" are wwww
+archives with their items, ready for an OBJ import into each model / textures).
+Left pane: a "Search all games" field and the games with their format counts (TNFS PC, 3DO, PlayStation, Over Drivin'
+GT-R, NFS 2 / 2 SE, NFS 3, NFS 4, NFS 5, NFS 6 PC, NFSU / U2 / Most Wanted); it opens at the game picked last (general
+setting `new_file_game`). Right pane: the picked game's formats in sections (Cars, Tracks, Images and fonts, Audio,
+Archives, Game data) with icon, name and default file name; a format of several games (FSH, FFN, VIV...) is listed in
+each. Typing in the search lists matching formats of every game, with their games; picking a game clears it. Under the
+list: the selected format's description, the folder it must be saved in (if any) and the games using it. Double click
+or Enter creates. **Create…** opens a save-file dialog seeded with the format's file name, then calls `createNewFile`,
+which opens the new file. A path the loader would not recognise the file at (e.g. `car.ini` outside a `Cars/<car>/`
+folder) gets an error dialog and nothing is written. Cancelling returns nothing.
 
 ## Run Custom Action dialog (`app-run-custom-action.dialog`) — Confirmed (code), not exercised live
 

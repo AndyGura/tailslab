@@ -54,6 +54,7 @@ class API:
         bridge.expose(self.file_api.open_url)
         bridge.expose(self.file_api.find_files)
         bridge.expose(self.file_api.save_file)
+        bridge.expose(self.file_api.new_file_formats)
         bridge.expose(self.file_api.create_new_file)
         bridge.expose(self.file_api.close_file)
 

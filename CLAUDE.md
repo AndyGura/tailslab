@@ -234,6 +234,17 @@ When you do:
   `selected_preset`, see `CONVERSION_NON_PRESET_KEYS`); a setting missing in a preset takes the built-in default.
   `run.py convert --preset "<name>"` (input and `--out` default to the preset's paths) and the GUI converter's preset
   select use them; a new conversion setting goes into `ConfigManager._get_defaults()` and the converter's form.
+- The GUI's New file dialog (File → New..., `NewFileDialogComponent`) lists `library/new_files.py` `NEW_FILE_FORMATS`
+  (`new_file_formats` endpoint): games on the left (`NEW_FILE_GAMES`, the last one picked kept in the general setting
+  `new_file_game`), the picked game's formats on the right in sections (`NEW_FILE_KINDS`), a search over every game, and
+  the selected format's description and folder under them. A format is a file the game has on disk (an archive item,
+  such as an ORIP of a CFM or a carp.txt of a car.viv, is added in its archive's editor), listed in every game of its
+  `games`: the block's `new_data`, or its `template` (the archive with its items, `archive_data`: the CFM's
+  ORIP / SHPI `WRAP` / ORIP / SHPI `WRAP`, the FAM's background / foreground / skybox / props), written under a default
+  file name; `compressed` = the class name of the data of a compressed block, `folder` = the folder the loader
+  recognises the file in only. `create_new_file` refuses a path the loader would not
+  read the new file at as the format, before writing. `test/library/test_new_files.py` creates every format and reads
+  it back (same block, same bytes): a format whose empty file the loader does not recognise or read back stays out.
 - GUI preferences that must survive a restart go in the general settings (`config.py` `_get_defaults()` +
   `general_config()`, `GeneralConfig` in `api-types.ts`, `patchGeneralConfig`), not `localStorage`: macOS / Windows
   run pywebview with its default `private_mode=True`, which forgets web storage when the app closes.

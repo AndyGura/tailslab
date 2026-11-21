@@ -136,6 +136,11 @@ that session). Two things to know before reaching for this:
   once you're done — it's a tracked file and the port swap has no reason to survive your session.
   Check for the conflict first with `lsof -nP -iTCP:8000 -sTCP:LISTEN`.
 
+The dev server can run on any port (`npx ng serve --port 4300`, then `dev_server_url='http://localhost:4300'`): the
+proxy only fixes the backend's 8000, and 4200 may already belong to another project's `ng serve`. Start the backend with
+`HOME=<scratch dir>` to keep the test's recent files and settings out of the user's `~/nfs-resources-converter-settings.ini`
+(confirmed 2026-11-21).
+
 To switch files, kill the backend and start it again with the new path, then reload the tab (confirmed live
 2026-10-15). With `ng serve`, `window.ng` works, so an import (Deserialize) can skip the file dialog:
 `const c = ng.getComponent(document.querySelector('app-font-block-ui')); await c.mainService.deserializeResource(c.resourceId, [paths...])`

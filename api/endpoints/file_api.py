@@ -13,6 +13,7 @@ from config import general_config, set_config, SECTION_GENERAL
 from library import require_file
 from library.changes_service import ChangesService
 from library.lazy import close_file_source
+from library.new_files import new_file_bytes, new_file_formats
 from library.loader import clear_file_cache, id_to_path, path_to_name, pin_file
 from library.utils import path_join
 from library.utils.file_utils import start_file, find_files_case_insensitive
@@ -193,46 +194,26 @@ class FileAPI:
         self.current_file_block = block
         return {'data': self.render_data(self.current_file_data), 'size': len(bts)}
 
-    def create_new_file(self, path: str, format_name: str):
+    def new_file_formats(self) -> list:
+        """
+        Formats the New file dialog offers.
+
+        Returns:
+            Formats of `library.new_files`, in dialog order
+        """
+        return new_file_formats()
+
+    def create_new_file(self, path: str, format_id: str):
         """
         Create a new empty file of given format.
 
         Args:
             path: Path where to save the file
-            format_name: Name of the format (e.g. 'ffn')
-
-        Returns:
-            Result of open_file
+            format_id: Id of a `library.new_files` format (e.g. 'ffn')
         """
-        if format_name.lower() == 'ffn':
-            from resources.eac.fonts import FfnFont
-
-            block = FfnFont()
-            data = block.new_data()
-        elif format_name.lower() == 'fsh':
-            from resources.eac.archives import ShpiBlock
-
-            block = ShpiBlock()
-            data = block.new_data()
-        elif format_name.lower() == 'qfs':
-            from resources.eac.archives import EacCompressedBlock
-
-            block = EacCompressedBlock()
-            data = block.new_data({'choice_index': block.get_choice_index_by_class_name('ShpiBlock')})
-        elif format_name.lower() in ('pbs', 'pdn'):
-            from resources.eac.archives import EacCompressedBlock
-
-            block = EacCompressedBlock()
-            inner_class = 'PlayerCarPhysics' if format_name.lower() == 'pbs' else 'CarAiAndCrashBody'
-            data = block.new_data({'choice_index': block.get_choice_index_by_class_name(inner_class)})
-        elif format_name.lower() == 'bigspecsfam':
-            from resources.eac.car_specs import Tnfs3doCarPhysics
-
-            block = Tnfs3doCarPhysics()
-            data = block.new_data()
-        else:
-            raise Exception(f'Unsupported format: {format_name}')
-
-        bts = block.pack(data)
+        # checked before writing: a file the loader would not read at this path is not written over an existing one
+        _, bts = new_file_bytes(format_id, path)
+        # unloaded parts of an open tree must not read the file being overwritten
+        close_file_source(path)
         with open(path, 'wb') as file:
             file.write(bts)
