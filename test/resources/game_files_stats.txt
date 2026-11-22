@@ -1,10 +1,10 @@
 --- Test Statistics ---
-Total files tested: 13050
-Files without parser: 3966
-Files read successfully: 9022
-Files written successfully: 8964
-Files read again successfully: 8907
-Files passed comparison test: 8811
+Total files tested: 13051
+Files without parser: 3931
+Files read successfully: 9058
+Files written successfully: 9000
+Files read again successfully: 8943
+Files passed comparison test: 8847
 Files with compressed blocks written: 1983
 Files with compressor round-trip failures: 0
 
@@ -18,7 +18,7 @@ Files with compressor round-trip failures: 0
 .BIG: 100.00% (2/2)
 .BIGSPECSFAM: 100.00% (8/8)
 .CAN: 100.00% (324/324)
-.CFM: 100.00% (39/39)
+.CFM: 100.00% (40/40)
 .CNK: 100.00% (28/28)
 .COL: 100.00% (24/24)
 .CRP: 100.00% (63/63)
@@ -44,6 +44,7 @@ Files with compressor round-trip failures: 0
 .JBC: 100.00% (1/1)
 .JNC: 100.00% (15/15)
 .LIN: 100.00% (10/10)
+.LSP: 100.00% (30/30)
 .LTB: 100.00% (2/2)
 .LZC: 100.00% (119/119)
 .MMB: 100.00% (2/2)
@@ -78,12 +79,12 @@ Files with compressor round-trip failures: 0
 .MUS: 96.30% (52/54)
 .TRK: 88.89% (16/18)
 .TRI: 87.23% (41/47)
-.BIN: 85.56% (1796/2099)
+.BIN: 85.76% (1800/2099)
 .BUN: 79.05% (200/253)
 .MAP: 77.94% (53/68)
 .XA: 75.00% (30/40)
 .INI: 66.55% (372/559)
-.DAT: 64.16% (111/173)
+.DAT: 64.74% (112/173)
 .BACC: 50.00% (1/2)
 .ALL: 39.53% (17/43)
 (no extension): 14.52% (18/124)
@@ -106,7 +107,7 @@ Files with compressor round-trip failures: 0
 .BIG: 100.00% (2/2)
 .BIGSPECSFAM: 100.00% (8/8)
 .CAN: 100.00% (324/324)
-.CFM: 100.00% (39/39)
+.CFM: 100.00% (40/40)
 .CNK: 100.00% (28/28)
 .COL: 100.00% (24/24)
 .CRP: 100.00% (63/63)
@@ -131,6 +132,7 @@ Files with compressor round-trip failures: 0
 .JBC: 100.00% (1/1)
 .JNC: 100.00% (15/15)
 .LIN: 100.00% (10/10)
+.LSP: 100.00% (30/30)
 .LTB: 100.00% (2/2)
 .LZC: 100.00% (119/119)
 .MMB: 100.00% (2/2)
@@ -164,12 +166,12 @@ Files with compressor round-trip failures: 0
 .MUS: 96.30% (52/54)
 .TRK: 88.89% (16/18)
 .TRI: 87.23% (41/47)
-.BIN: 85.56% (1796/2099)
+.BIN: 85.76% (1800/2099)
 .BUN: 79.05% (200/253)
 .MAP: 77.94% (53/68)
 .XA: 75.00% (30/40)
 .INI: 66.55% (372/559)
-.DAT: 64.16% (111/173)
+.DAT: 64.74% (112/173)
 .BACC: 50.00% (1/2)
 .ALL: 39.53% (17/43)
 .ART: 12.50% (2/16)
@@ -217,6 +219,7 @@ Files with compressor round-trip failures: 0
 .JBC: 100.00% (1/1)
 .JNC: 100.00% (15/15)
 .LIN: 100.00% (10/10)
+.LSP: 100.00% (30/30)
 .LTB: 100.00% (2/2)
 .LZC: 100.00% (119/119)
 .MMB: 100.00% (2/2)
@@ -247,14 +250,14 @@ Files with compressor round-trip failures: 0
 .QFS: 99.19% (1588/1601)
 .VIV: 96.74% (416/430)
 .MUS: 96.30% (52/54)
-.CFM: 94.87% (37/39)
+.CFM: 95.00% (38/40)
 .TRK: 88.89% (16/18)
-.BIN: 85.56% (1796/2099)
+.BIN: 85.76% (1800/2099)
 .BUN: 79.05% (200/253)
 .MAP: 77.94% (53/68)
 .XA: 75.00% (30/40)
 .INI: 66.55% (372/559)
-.DAT: 63.58% (110/173)
+.DAT: 64.16% (111/173)
 .TRI: 51.06% (24/47)
 .BACC: 50.00% (1/2)
 .ALL: 39.53% (17/43)
@@ -302,6 +305,7 @@ Files with compressor round-trip failures: 0
 .JBC: 100.00% (1/1)
 .JNC: 100.00% (15/15)
 .LIN: 100.00% (10/10)
+.LSP: 100.00% (30/30)
 .LTB: 100.00% (2/2)
 .LZC: 100.00% (119/119)
 .MMB: 100.00% (2/2)
@@ -334,13 +338,13 @@ Files with compressor round-trip failures: 0
 .MUS: 96.30% (52/54)
 .ASF: 96.20% (76/79)
 .EAS: 95.85% (185/193)
-.CFM: 94.87% (37/39)
-.BIN: 85.56% (1796/2099)
+.CFM: 95.00% (38/40)
+.BIN: 85.76% (1800/2099)
 .TRK: 83.33% (15/18)
 .BUN: 79.05% (200/253)
 .MAP: 77.94% (53/68)
 .INI: 66.55% (372/559)
-.DAT: 63.58% (110/173)
+.DAT: 64.16% (111/173)
 .BACC: 50.00% (1/2)
 .ALL: 39.53% (17/43)
 .TRI: 21.28% (10/47)
@@ -378,4 +382,4 @@ Files with compressor round-trip failures: 0
 .WSM: 100.00% (18/18)
 
 --- Time Spent ---
-Total time: 00:04:28.87
+Total time: 00:04:17.66
