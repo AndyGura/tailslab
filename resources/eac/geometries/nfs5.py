@@ -799,26 +799,70 @@ class CrpSplineSlice(DeclarativeCompoundBlock):
                 '. this) (Porsche.exe 0x49af70), copied to car+0x3b8'
             },
         )
-        lanes = (
+        lane_bits = (
             IntegerBlock(length=4),
             {
-                'is_unknown': True,
-                'description': 'Not read by the ported code. Looks like a mask of one bit per lane: bits 16 and up '
-                'for the `lanes_a` lanes, bits 15 and down for the `lanes_b` lanes (0x18000 for 1 + 1, 0x38000 for '
-                '2 + 1, 0x1c000 for 1 + 2)',
+                'description': "The AI's lanes of the slice, one bit per lane: lane k (2..11) is bit 22 - k "
+                '(Porsche.exe 0x40ea00 / 0x40ea50 build the bit, 0x40ea90 tests it). The AI numbers lanes by the '
+                'lateral offset along `right`: lane 6 the first one left of the spline (offset < 0: 6 + '
+                'round(offset / `left_lane_width`)), lane 7 the first one right of it (7 + round(offset / '
+                '`right_lane_width`), clamped to 2..11; 0x40eb20 / 0x40ebb0). On all 23863 slices of the 15 '
+                'tracks exactly the bits of lanes 7 - `left_lanes` .. 6 + `right_lanes` are set (0x18000 for 1 + 1 '
+                "lanes). The traffic's lane choice scores down a lane whose bit is clear at its slice or ahead "
+                "(0x401760), the traffic's target point goes past the road on a side only where the bits of the "
+                'lanes 4 m and 8 m to that side are set (0x4090c0)'
             },
         )
-        lanes_a = (
-            IntegerBlock(length=4),
-            {'is_unknown': True, 'description': '0..3 (1 on most slices): lanes on one side?'},
+        left_lanes = (
+            IntegerBlock(length=4, is_signed=True),
+            {
+                'description': 'Number of lanes left of the spline (negative lateral offset; 0..3, 1 on most '
+                'slices): the AI lanes 7 - n .. 6, the left road edge at -(n x `left_lane_width`) (Porsche.exe '
+                '0x409570, 0x4090c0, the AI racers 0x40c6cf), lane 6 - n the left shoulder (0x401b70, 0x401c60, '
+                '0x402a40); a traffic car is on the road while its lane is at least 7 - n (0x40a5a0)'
+            },
         )
-        lanes_b = (
-            IntegerBlock(length=4),
-            {'is_unknown': True, 'description': '0..3 (1 on most slices): lanes on the other side?'},
+        right_lanes = (
+            IntegerBlock(length=4, is_signed=True),
+            {
+                'description': 'Number of lanes right of the spline (positive lateral offset; 0..3): the AI lanes '
+                '7 .. 6 + n, the right road edge at n x `right_lane_width` (0x409570, 0x40c729), lane 7 + n the right '
+                'shoulder, as `left_lanes`. The traffic looks less far ahead on slices where both edges are less than '
+                '18 m apart (0x4090c0)'
+            },
         )
-        widths = (
-            ArrayBlock(child=DecimalBlock(length=4), length=4),
-            {'is_unknown': True, 'description': 'Four floats, 5.0 on Alps, 6.0 on Autobahn: lane widths?'},
+        left_half_width = (
+            DecimalBlock(length=4),
+            {
+                'description': 'Width of the road left of the spline in meters (3 .. 18; at least `left_lanes` x '
+                "`left_lane_width` on every slice): the traffic's target lateral offset stays at least its half "
+                'width inside it (0x402a40), the left shoulder is this - `left_lanes` x `left_lane_width` '
+                '(0x401c60); an AI-driven car more than 35 m beyond it is put back on the road (0x408750). The AI '
+                "racers' road width factor is (this + `right_half_width`) / 12 m (10 m castle, 9 m forest), at most "
+                '1: it scales their target speed and steering look-ahead (0x40b650, 0x40bfe0)'
+            },
+        )
+        right_half_width = (
+            DecimalBlock(length=4),
+            {
+                'description': 'Width of the road right of the spline in meters (3 .. 20), as `left_half_width` (0x402a40: '
+                'the target offset at most this - the half width; 0x401c60; the road width factor)'
+            },
+        )
+        left_lane_width = (
+            DecimalBlock(length=4),
+            {
+                'description': 'Width of a lane left of the spline in meters (0 where `left_lanes` is 0): left lane '
+                'k (k <= 6) spans (k - 6) x this - this .. (k - 6) x this (0x402920, 0x402a40); the lane of an '
+                'offset divides it by this rounded to whole meters (0x40eb20). 2.5 .. 10.5 (6 on most slices)'
+            },
+        )
+        right_lane_width = (
+            DecimalBlock(length=4),
+            {
+                'description': 'Width of a lane right of the spline in meters (0 where `right_lanes` is 0; 1.8 .. '
+                '11.25): right lane k (k >= 7) spans (k - 7) x this .. (k - 6) x this (0x402920, 0x402a40, 0x40eb20)'
+            },
         )
 
 

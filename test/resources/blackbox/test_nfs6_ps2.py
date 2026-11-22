@@ -42,6 +42,9 @@ CAR = 'test/samples/nfs6_ps2_cars/CARS/COUPE/GEOMETRY.LZC'
 GLOBALB = 'test/samples/nfs6_ps2_cars/GLOBAL/GLOBALB.BUN'
 # GLOBAL/GLOBALB.BUN's car type 0 (CORVETTE, chunk 0x34600) and its five paints (chunk 0x34601)
 CAR_TYPE = 'test/samples/NFS6PS2_CARTYPE_CORVETTE.BUN'
+# GLOBAL/GLOBALB.BUN's body types, driver characters, track settings and difficulty settings (chunks 0x34301, 0x34300,
+# 0x34201, 0x34b00)
+GLOBALB_AI = 'test/samples/NFS6PS2_GLOBALB_AI.BUN'
 
 
 def _chunk(data, chunk_id):
@@ -268,7 +271,7 @@ class TestNfs6Ps2TrackPhysicsChunks(unittest.TestCase):
             + bytes(8)
             + struct.pack('<fI', 100, 0x4000FF)
         )
-        route += point + bytes(63) + bytes([50])
+        route += point + struct.pack('<21h', -512, *range(1, 21)) + bytes(range(60, 80)) + bytes([0, 50])
         raw = _bundle(
             [
                 (0x00034130, nodes, True),
@@ -306,7 +309,48 @@ class TestNfs6Ps2TrackPhysicsChunks(unittest.TestCase):
         self.assertEqual(route['bbox_max'], {'x': 2, 'y': 3})
         self.assertEqual(route['points'][0]['position'], {'x': 1, 'y': 2, 'z': 3})
         self.assertEqual((route['points'][0]['distance'], route['points'][0]['route_number']), (100, 50))
-        self.assertEqual(chunks[0x00034122]['signposts'][0]['point'], 7)
+        self.assertEqual(route['points'][0]['next_distance'], 0.5)
+        # driving line offsets in 1/256 m, speeds in m/s
+        self.assertEqual(route['points'][0]['line_offsets'][:2], [-2.0, 1 / 256])
+        self.assertEqual(route['points'][0]['line_speeds'][0], 60)
+        self.assertEqual(len(route['driving_lines']), 21)
+        signpost = chunks[0x00034122]['signposts'][0]
+        self.assertEqual((signpost['point'], signpost['speed_after_turn']), (7, 1))
+
+    def test_global_ai_chunks_should_be_read_and_remain_the_same(self):
+        # GLOBALB's chunks without its texture pack: read as a bundle of GLOBALB
+        with open(GLOBALB_AI, 'rb') as f:
+            raw = f.read()
+        block = Nfs6Ps2ChunkBundle()
+        data = block.unpack_from_bytes(raw)
+        self.assertEqual(block.pack(data), raw)
+        body_types = _chunk(data, 0x00034301)['body_types']
+        self.assertEqual([x['name'] for x in body_types], ['Male', 'Female', 'Cop', 'Cop3'])
+        characters = _chunk(data, 0x00034300)['characters']
+        self.assertEqual(
+            (characters[9]['number'], characters[9]['name'], characters[9]['body_type']), (9, 'FatCop', 'Cop3')
+        )
+        tracks = _chunk(data, 0x00034201)['tracks']
+        # record track - 1
+        self.assertEqual(len(tracks), 66)
+        self.assertEqual(tracks[0]['name'], '')
+        self.assertEqual(
+            (tracks[13]['name'], tracks[13]['track_number'], tracks[13]['high_scores_track']),
+            ('Coastal Overcast T14', 14, 11),
+        )
+        self.assertEqual((tracks[12]['point_to_point'], tracks[12]['location']), (1, 'Parkland'))
+        self.assertEqual(tracks[10]['cop_character_hash'], bin_hash('FatCop'))
+        self.assertEqual(tracks[20]['cop_character_hash'], bin_hash('Cop'))
+        difficulty = _chunk(data, 0x00034B00)
+        self.assertEqual(
+            difficulty['distance_boost_low'][0], {'x': -1000, 'y': difficulty['distance_boost_low'][0]['y']}
+        )
+        self.assertEqual(len(difficulty['skills']), 10)
+        self.assertEqual(
+            (difficulty['skills'][0]['avoid_chance'], difficulty['skills'][0]['route_offset_range']), (1, 10)
+        )
+        self.assertEqual(len(difficulty['skill_chances']), 60)
+        self.assertEqual((difficulty['route_offset_interval'], difficulty['catchup_max_distance']), (5, 100000))
 
     def test_track_path_records_should_have_route_distances(self):
         (_, _, data) = require_file(BUNDLE)

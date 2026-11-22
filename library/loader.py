@@ -88,6 +88,19 @@ def _is_nfs4_speed_file_size(length: int) -> bool:
     return is_nfs4_speed_file_size(length)
 
 
+def _nfs5_ai_file_class(file_path: str, length: int):
+    """The block of an NFS5 AI data file of `GameData/Simulation/AI/`, picked by name and size, or None"""
+    from resources.eac.nfs5_ai import Nfs5AiGlue, Nfs5AiPersonalityTraits, Nfs5AiScripts, Nfs5TrafficConfig
+
+    return {
+        ('prsonal.bin', 508): Nfs5AiPersonalityTraits,
+        ('scripts.bin', 2020): Nfs5AiScripts,
+        ('glue.bin', 88): Nfs5AiGlue,
+        ('hhglue.bin', 88): Nfs5AiGlue,
+        ('trafcfg.dat', 108): Nfs5TrafficConfig,
+    }.get((_file_or_archive_item_name(file_path).lower(), length))
+
+
 def _nfs6_car_ini_class(file_path: str):
     from resources.eac.nfs6_car_specs import nfs6_car_ini_class
 
@@ -310,6 +323,19 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.car_specs import Nfs5CarAi
 
             return Nfs5CarAi
+        elif length in (88, 108, 508, 2020) and _nfs5_ai_file_class(file_path, length):
+            # NFS5 AI data GameData/Simulation/AI/prsonal.bin, SCRIPTS.BIN, GLUE.BIN, hhglue.bin, TRAFCFG.DAT
+            return _nfs5_ai_file_class(file_path, length)
+        elif (
+            length is not None
+            and length >= 4
+            and (length - 4) % 8 == 0
+            and _file_or_archive_item_name(file_path).lower().endswith('.lsp')
+        ):
+            # NFS5 AI racing line GameData/Track/racer/work/<track><reverse>.lsp
+            from resources.eac.nfs5_ai import Nfs5AiRacingLine
+
+            return Nfs5AiRacingLine
         elif length and length % 0x168 == 0 and _file_or_archive_item_name(file_path).lower() == 'nfs5.prt':
             # NFS5 car parts FEData/Data/nfs5.prt
             from resources.eac.car_specs import Nfs5CarParts

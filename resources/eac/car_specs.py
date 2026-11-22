@@ -2891,7 +2891,8 @@ _NFS4_CARP_FIELDS = (
      'Gear shift time in physics steps (32 per second; 2 to 24): every shift starts the shift timer at it, counted '
      'down once a step (0x4feb60). While it runs the engine gives no drive force, only the drag, and the rpm moves '
      'alone (0x4ffa20): shifting down it gets `shift_blip` / `brake_blip`, shifting up it rises by 75 per step, 50 '
-     'when this is above 4, 25 with `spoiler_type` 8 (doubled above the redline; the exe subtracts a negative step)'),
+     'when this is above 4, 25 with `spoiler_type` 8 (doubled above the redline; the exe subtracts a negative step). '
+     "The AI-driven cars' engine (0x40d2e0, AI racers and traffic) starts its shift timer at it too"),
     ('shift_blip', 5, 0x018, CarpTextNfs4Array(CarpTextNfs4Int(), 8), [300, 0, 275, 250, 200, 175, 150, 0],
      'Rpm blip of a down-shift by target gear (0 reverse, 1 neutral, 2.. forward): added to the rpm every physics '
      'step of the shift while the gas is on and the brake at most 64 of 255, clamped to minimum rpm .. redline '
@@ -2938,8 +2939,9 @@ _NFS4_CARP_FIELDS = (
     ('min_rpm', 12, 0x174, CarpTextNfs4Int(), 750,
      'Engine minimum (idle) rpm (0 to 1335): the rpm never falls below it; the rpm target is redline x throttle but '
      'at least this; below it the drive is the torque at this rpm (0x4ffa20). Also read by the automatic reverse '
-     '(0x4fe800), the rpm of a car not upright (0x502370: down 500 a step to this) and the engine tuning slider\'s '
-     'torque tilt'),
+     '(0x4fe800), the rpm of a car not upright (0x502370: down 500 a step to this), the engine tuning slider\'s '
+     "torque tilt and the AI-driven cars' engine (0x40d2e0: the rpm target at least this; 0x40ff70: the rpm of a car "
+     'not upright)'),
     ('redline', 13, 0x178, CarpTextNfs4Int(), 8000,
      'Engine redline in rpm (4800 to 8900). The engine (0x4ffa20): rpm capped at it (above it by a third the wheels '
      'lock), rpm target = redline x throttle, engine cut while the rpm is above the wheels\' rpm by more than '
@@ -3309,7 +3311,14 @@ class Nfs5CarPhysics(DeclarativeCompoundBlock):
                 'and the simple AI physics (0x4084ad) read those too'
             },
         )
-        final_drive = (f32(), {'description': 'Final drive ratio [2.2, 4.429]; plus the setup offset'})
+        final_drive = (
+            f32(),
+            {
+                'description': 'Final drive ratio [2.2, 4.429]; plus the setup offset. The simple AI physics read the '
+                'engine speed per m/s of gear slot g at `gear_ratios` + 4 x g (Porsche.exe 0x408360): their gear '
+                '(0x408130) can be one past the top gear, slot 8 for a 6-speed car, which reads this ratio'
+            },
+        )
         tyre_width = (
             f32(),
             {
@@ -3897,7 +3906,11 @@ class Nfs5CarRecord(DeclarativeCompoundBlock):
         )
         era_string_id = (
             IntegerBlock(length=4, is_signed=True),
-            {'description': 'Era, an FEStrings id: 521 CLASSIC, 522 GOLDEN, 523 MODERN ERA (CLASSLISTING, 0x4f0a50)'},
+            {
+                'description': 'Era, an FEStrings id: 521 CLASSIC, 522 GOLDEN, 523 MODERN ERA (CLASSLISTING, 0x4f0a50; 0 '
+                'traffic). The opponent car modes "same class" / "same era" pick by `class_string_id` / this; the lists '
+                'sort by era, then class, then `first_year` (`FE_CarRecordLess` 0x4f1d40)'
+            },
         )
         body_text = (
             UTF8Block(length=0xB, encoding='latin-1'),
@@ -3923,7 +3936,12 @@ class Nfs5CarRecord(DeclarativeCompoundBlock):
         )
         kind = (
             IntegerBlock(length=2, is_signed=True),
-            {'description': 'Kind: 0 car, 1 traffic, 2 cop (the lists of 0x4f3e40)'},
+            {
+                'description': 'Kind: 0 car, 1 traffic, 2 cop (the lists of 0x4f3e40). The 16 traffic records (ids '
+                '186..202) have no `spec` / `ai_spec`: the race loads `default.sim` / `default.ais` for them. A track '
+                "record of nfs5.trk names its 7 traffic cars by `id`, the race's traffic car i is the track's car i % "
+                '7 (`FE_SendCars` 0x4ecf00)'
+            },
         )
         logo_index = (
             IntegerBlock(length=2, is_signed=True),
