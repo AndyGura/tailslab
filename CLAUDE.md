@@ -1073,7 +1073,14 @@ When you do:
   by name (any case) and size 3012. Both are `BigfBlock` item blocks; the exe also has compiled-in copies of both.
 - Conversion: all five export to `<name>.json` with every field (`ReversibleJsonSerializer`, `serializers/json.py`:
   JsonSerializer's output, plus import: the JSON's values over the resource, `merge_json_values`); a `.QDA` converts
-  through its compressed wrapper to `<name>.QDA.json`.
+  through its compressed wrapper to `<name>.QDA__data.json`.
+- AI speeds and lanes of the track slices, `GAMEDATA/TRACKS/SPEEDS/TR<nn>[B].*` (`resources/eac/maps/nfs2.py`):
+  `Nfs2AiSpeeds` (ASP arcade, PSP sim; `speeds`: one `{speed, unk}` record per two slices, (n / 2) * 2 + 2 bytes for
+  n COL slices, nfs2sen.exe reads only `speed`) and `Nfs2AiLanes` (ALN, PLN; `lanes`: a byte per slice). The game
+  loads the packed copies (AiSpeeds_Load 0x42f120): QAS / QPS (RefPack or QFS3), QAL / QPL (QFS3), the same blocks
+  inside `EacCompressedBlock`, converted to `<name>.QAS__data.json`. Picked by name (`nfs2_ai_track_file_kind`: the
+  raw extensions, or a packed one's `__uncompressed` data). The raw files are the packed ones' bytes but TR04's and
+  TR04B's (other data; most backward ones have no raw copy). JsonSerializer.
 - The developers' `.DES` files (`P*.DES`, `SIMTUNE.DES`, `MCF1.DES`, `TRAFCFG.DES`, `PRSONAL.DES`, the smackables'
   `TRACKS/DATA/PC/SM*.DES`; NFS5 `TRAFCFG.DES` too) = `EaFieldDescriptions` (`resources/eac/field_descriptions.py`,
   module docstring has the layout): a body (94 bytes of garbage, int data size, int records size, a copy of the data,

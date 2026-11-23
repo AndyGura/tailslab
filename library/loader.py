@@ -82,6 +82,12 @@ def _is_nfs3_speeds_file_size(length: int) -> bool:
     return is_nfs3_speeds_file_size(length)
 
 
+def _nfs2_ai_track_file_kind(file_path: str):
+    from resources.eac.maps.nfs2 import nfs2_ai_track_file_kind
+
+    return nfs2_ai_track_file_kind(file_path.replace('\\', '/').rsplit('/', 1)[-1])
+
+
 def _is_nfs4_speed_file_size(length: int) -> bool:
     from resources.eac.maps.nfs4 import is_nfs4_speed_file_size
 
@@ -257,6 +263,15 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.car_specs import Nfs2Personalities
 
             return Nfs2Personalities
+        elif length and (nfs2_ai_kind := _nfs2_ai_track_file_kind(file_path)):
+            # NFS2 / NFS2 SE GAMEDATA/TRACKS/SPEEDS/TR<nn>[B].ASP / PSP (speeds), ALN / PLN (lanes), the data of their
+            # packed copies QAS / QPS, QAL / QPL
+            from resources.eac.maps.nfs2 import Nfs2AiLanes, Nfs2AiSpeeds
+
+            if nfs2_ai_kind == 'lanes':
+                return Nfs2AiLanes
+            if length % 2 == 0:
+                return Nfs2AiSpeeds
         elif file_path.upper().endswith('.DES') and _is_ea_field_descriptions(buffer, length):
             from resources.eac.field_descriptions import EaFieldDescriptions
 

@@ -365,6 +365,10 @@ EXPORT_RESOURCES = {
 
 **\\*.QFS** image archive. {render_type(eac.archives.ShpiBlock())}, [compressed](eac_compressions.md)
 
+**GAMEDATA/TRACKS/SPEEDS/TR\\<nn\\>.QAS**, **.QPS** (packed), **.ASP**, **.PSP** AI target speeds of the track slices, arcade / simulation, `TR\\<nn\\>B.*` backward. {render_type(eac.maps.Nfs2AiSpeeds())}
+
+**GAMEDATA/TRACKS/SPEEDS/TR\\<nn\\>.QAL**, **.QPL** (packed), **.ALN**, **.PLN** AI lanes of the track slices, arcade / simulation, `TR\\<nn\\>B.*` backward. {render_type(eac.maps.Nfs2AiLanes())}
+
 **\\*.TRK** main track file. {render_type(eac.maps.TrkMap())}
 
 **GAMEDATA/TRACKS/PC/TR\\<nn\\>.HRZ** sky of a track for the software renderer, plain text. {render_type(eac_horizons.Nfs2HorizonInfo())}
@@ -405,6 +409,10 @@ EXPORT_RESOURCES = {
                 eac.maps.RoadVectorsExtraDataRecord(),
                 eac.maps.CollisionExtraDataRecord(),
                 eac.maps.ColPolygon(),
+                # TRACKS/SPEEDS
+                eac.maps.Nfs2AiSpeeds(),
+                eac.maps.Nfs2AiSpeedRecord(),
+                eac.maps.Nfs2AiLanes(),
             ],
             # 'Physics': [
             # ],
@@ -464,6 +472,10 @@ EXPORT_RESOURCES = {
 
 **\\*.QFS** image archive. {render_type(eac.archives.ShpiBlock())}, [compressed](eac_compressions.md)
 
+**GAMEDATA/TRACKS/SPEEDS/TR\\<nn\\>.QAS**, **.QPS** (packed), **.ASP**, **.PSP** AI target speeds of the track slices, arcade / simulation, `TR\\<nn\\>B.*` backward. {render_type(eac.maps.Nfs2AiSpeeds())}
+
+**GAMEDATA/TRACKS/SPEEDS/TR\\<nn\\>.QAL**, **.QPL** (packed), **.ALN**, **.PLN** AI lanes of the track slices, arcade / simulation, `TR\\<nn\\>B.*` backward. {render_type(eac.maps.Nfs2AiLanes())}
+
 **\\*.TRK** main track file. {render_type(eac.maps.TrkMap())}
 
 **GAMEDATA/TRACKS/SE/3TR\\<nn\\>.HRZ** sky of a track for the 3D accelerated renderer (nfs2sea.exe), plain text. {render_type(eac_horizons.Nfs2SeHorizonInfo())}. The converter writes the sky sphere texture `spherical.png` next to the PNGs of `GAMEDATA/TRACKS/SE/TR\\<nn\\>0.QFS` (and `TR\\<nn\\>0M.QFS`, and the `textures` of the `.TRK` export) from its horizon strips (its first 8 images, `0000`..`0007`), this file and the clouds `CLD<track>` of `SKY.FSH`
@@ -506,6 +518,10 @@ EXPORT_RESOURCES = {
                 eac.maps.RoadVectorsExtraDataRecord(),
                 eac.maps.CollisionExtraDataRecord(),
                 eac.maps.ColPolygon(),
+                # TRACKS/SPEEDS
+                eac.maps.Nfs2AiSpeeds(),
+                eac.maps.Nfs2AiSpeedRecord(),
+                eac.maps.Nfs2AiLanes(),
             ],
             'Physics': [
                 eac.car_specs.Nfs2CarPhysics(),

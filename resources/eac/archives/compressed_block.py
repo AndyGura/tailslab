@@ -25,6 +25,7 @@ class EacCompressedBlock(AutoDetectBlock):
     def __init__(self, possible_blocks=None, compression: BaseCompressionAlgorithm = None, **kwargs):
         if possible_blocks is None:
             from resources.eac.geometries import CrpGeometry
+            from resources.eac.maps.nfs2 import Nfs2AiLanes, Nfs2AiSpeeds
 
             possible_blocks = [
                 ShpiBlock(),
@@ -35,6 +36,9 @@ class EacCompressedBlock(AutoDetectBlock):
                 Nfs2CarPhysics(),
                 Nfs2SimTune(),
                 Nfs2CarAi(),
+                # NFS2 / NFS2 SE GAMEDATA/TRACKS/SPEEDS: AI speeds TR<nn>.QAS / QPS, lanes TR<nn>.QAL / QPL
+                Nfs2AiSpeeds(),
+                Nfs2AiLanes(),
                 BytesBlock(length=(lambda ctx: ctx.read_bytes_amount)),
             ]
         super().__init__(possible_blocks=possible_blocks, **kwargs)
