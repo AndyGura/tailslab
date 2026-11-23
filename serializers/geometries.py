@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 import re
 import traceback
@@ -848,6 +849,7 @@ class GeoGeometrySerializer(BaseFileSerializer):
         super().serialize(data, path)
         meshes = []
         object_properties = {}
+        vertex_normals = geo_vertex_normals(data['parts'])
         for part_index, part in enumerate(data['parts']):
             if part_index < 20:
                 key = f'part_hp_{part_index}'
@@ -867,6 +869,8 @@ class GeoGeometrySerializer(BaseFileSerializer):
             ]
             mesh.texture_ids = [p['texture_name'] for p in part['polygons']]
             mesh.pivot_offset = (-part['pos']['x'], -part['pos']['y'], -part['pos']['z'])
+            # the game's normals (OBJ `vn`, GLB `_GAME_NORMAL`) on the parts nfs2sea.exe gives them, none on the others
+            mesh.vertex_normals = vertex_normals[part_index]
 
             sub_meshes = mesh.split_by_texture_ids()
             for submesh, _, polygon_idx_map in sub_meshes:
@@ -936,6 +940,129 @@ def geo_sub_mesh_properties(part_index: int, polygons: List[dict], name: str = '
         elif values:
             logging.warning(f'GEO sub-mesh {name}: polygons with different "{key}" ({sorted(values)}), left out')
     return properties
+
+
+# GEO vertex normals as nfs2sea.exe (NFS2 SE, 3Dfx build) computes them at load for its car reflections (nfs-web
+# `decomp/nfs2/nfs2sea.exe.gzf`): `R3DCar_ComputeVoodooNormals` 0x46ed80, `R3DCar_AddNeighbourPartNormals` 0x46f160,
+# `Math_TriangleNormal` 0x46f490, `Math_QuadNormal` 0x46f430, `R3DCar_VerticesTouch` 0x46f3d0. A part gets them with
+# polygons, fewer than `GEO_NORMALS_MAX_VERTICES` vertices and fewer than `GEO_NORMALS_MAX_POLYGONS` polygons
+GEO_NORMALS_MAX_VERTICES = 0x7E
+GEO_NORMALS_MAX_POLYGONS = 0x42
+# polygons are listed for the vertices of lower indices only, at most `GEO_NORMALS_MAX_VERTEX_POLYGONS` per vertex
+GEO_NORMALS_LISTED_VERTICES = 0x7D
+GEO_NORMALS_MAX_VERTEX_POLYGONS = 8
+# a polygon of another high poly part (0..19) adds its normal to the vertices of a part it touches: within this
+# distance on every axis, raw 8.8 units (12 / 256 m), positions in the parts' own coordinates (`pos` not applied)
+GEO_NORMALS_TOUCH_DISTANCE = 12
+GEO_NORMALS_NEIGHBOUR_PARTS = 20
+# parts whose vertices take no neighbour normals, and parts never taken as neighbours
+GEO_NORMALS_PARTS_WITHOUT_NEIGHBOURS = (2, 9, 10)
+GEO_NORMALS_PARTS_NOT_NEIGHBOURS = (0, 2, 9, 10, 11)
+
+
+def _geo_raw_vertices(part: dict) -> List[Tuple[int, int, int]]:
+    """The part's vertices as stored: signed 8.8 fixed point (meters x 256)"""
+    return [(round(v['x'] * 256), round(v['y'] * 256), round(v['z'] * 256)) for v in part['vertices']]
+
+
+def _geo_normal_corners(polygon: dict) -> List[int]:
+    """The vertices the normals code takes of a polygon: 4 when flag bit 1 (`uv_flip`) is set, 3 when clear (the
+    renderer goes by bit 0, `is_triangle`; the same in every NFS2 / NFS2 SE GEO)"""
+    return polygon['vertex_indices'][: 4 if polygon['mapping']['uv_flip'] else 3]
+
+
+def _normalized(v) -> List[float]:
+    length = math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
+    return [v[0] / length, v[1] / length, v[2] / length] if length else [0.0, 0.0, 0.0]
+
+
+def _cross(a, b) -> List[float]:
+    return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+
+
+def geo_polygon_normal(vertices: List[Tuple[int, int, int]], polygon: dict) -> List[float]:
+    """Unit normal of a GEO polygon in the game's axes (x right, y up, z forward), `vertices` raw (`_geo_raw_vertices`):
+    corners A, B, C (and D, `_geo_normal_corners`) = `vertex_indices` 0..3; normalize((B - A) x (C - A)), for 4
+    corners normalize(that + normalize((C - A) x (D - A))); negated with `flip_normal`. A zero cross product (or a
+    corner past the part's vertices) gives (0, 0, 0)"""
+    corners = _geo_normal_corners(polygon)
+    if any(i >= len(vertices) for i in corners):
+        return [0.0, 0.0, 0.0]
+    a, b, c = (vertices[i] for i in corners[:3])
+    ab = [b[k] - a[k] for k in range(3)]
+    ac = [c[k] - a[k] for k in range(3)]
+    normal = _normalized(_cross(ab, ac))
+    if len(corners) == 4:
+        d = vertices[corners[3]]
+        ad = [d[k] - a[k] for k in range(3)]
+        second = _normalized(_cross(ac, ad))
+        normal = _normalized([normal[k] + second[k] for k in range(3)])
+    if polygon['mapping']['flip_normal']:
+        normal = [-x for x in normal]
+    return [x + 0.0 for x in normal]
+
+
+def _geo_vertices_touch(a: Tuple[int, int, int], b: Tuple[int, int, int]) -> bool:
+    return all(abs(a[k] - b[k]) <= GEO_NORMALS_TOUCH_DISTANCE for k in range(3))
+
+
+def geo_vertex_normals(parts: List[dict]) -> List[List[List[float]]]:
+    """Unit normal per vertex of each GEO part (game axes, parallel to its `vertices`), as nfs2sea.exe computes them
+    (see `GEO_NORMALS_MAX_VERTICES`); an empty list for a part it gives none. The normal of a vertex is the sum of
+    the normals (`geo_polygon_normal`) of the first 8 polygons of its part using it (in file order, a polygon once
+    per corner; vertex indices >= 0x7D get none), plus, for parts 0..19 but 2, 9 and 10, the normals of the polygons
+    of the other parts 0..19 with polygons (but 0, 2, 9, 10, 11; no limit there) with a corner touching it
+    (`GEO_NORMALS_TOUCH_DISTANCE`), normalized, each axis clamped to -1..1, x set to 0 for a vertex at x = 0 (not
+    normalized again). A vertex of no polygon keeps (0, 0, 0): the game draws it without the reflection's shading"""
+    raw = [_geo_raw_vertices(part) for part in parts]
+    polygon_normals = [[geo_polygon_normal(raw[i], p) for p in part['polygons']] for i, part in enumerate(parts)]
+    candidates = [
+        q
+        for q in range(min(GEO_NORMALS_NEIGHBOUR_PARTS, len(parts)))
+        if parts[q]['polygons'] and q not in GEO_NORMALS_PARTS_NOT_NEIGHBOURS
+    ]
+    res = []
+    for p, part in enumerate(parts):
+        polygons = part['polygons']
+        if not polygons or part['num_vrtx'] >= GEO_NORMALS_MAX_VERTICES or part['num_plgn'] >= GEO_NORMALS_MAX_POLYGONS:
+            res.append([])
+            continue
+        vertices = raw[p]
+        listed = [[] for _ in vertices]
+        for i, polygon in enumerate(polygons):
+            for v in _geo_normal_corners(polygon):
+                if (
+                    v < min(GEO_NORMALS_LISTED_VERTICES, len(listed))
+                    and len(listed[v]) < GEO_NORMALS_MAX_VERTEX_POLYGONS
+                ):
+                    listed[v].append(i)
+        neighbours = (
+            [q for q in candidates if q != p]
+            if p < GEO_NORMALS_NEIGHBOUR_PARTS and p not in GEO_NORMALS_PARTS_WITHOUT_NEIGHBOURS
+            else []
+        )
+        normals = []
+        for v, polygon_indices in enumerate(listed):
+            if not polygon_indices:
+                normals.append([0.0, 0.0, 0.0])
+                continue
+            total = [0.0, 0.0, 0.0]
+            for i in polygon_indices:
+                total = [total[k] + polygon_normals[p][i][k] for k in range(3)]
+            for q in neighbours:
+                for j, polygon in enumerate(parts[q]['polygons']):
+                    if any(
+                        _geo_vertices_touch(vertices[v], raw[q][k])
+                        for k in _geo_normal_corners(polygon)
+                        if k < len(raw[q])
+                    ):
+                        total = [total[k] + polygon_normals[q][j][k] for k in range(3)]
+            normal = [max(-1.0, min(1.0, x)) + 0.0 for x in _normalized(total)]
+            if vertices[v][0] == 0:
+                normal[0] = 0.0
+            normals.append(normal)
+        res.append(normals)
+    return res
 
 
 def _read_12_bit_signed(value: int) -> int:

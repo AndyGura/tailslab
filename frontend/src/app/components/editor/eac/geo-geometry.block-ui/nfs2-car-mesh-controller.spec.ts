@@ -1,4 +1,4 @@
-import { BoxGeometry, Group, Mesh, MeshBasicMaterial, Texture } from 'three';
+import { BoxGeometry, Group, Mesh, MeshBasicMaterial, PerspectiveCamera, Scene, Texture, WebGLRenderer } from 'three';
 import {
   NFS2_CAR_HSVT,
   Nfs2CarMeshController,
@@ -82,5 +82,88 @@ describe('Nfs2CarMeshController', () => {
     controller.update(nfs2DrawStateOf(0, 0, false), 2);
     expect(lightMap().name).not.toBe('l100');
     controller.dispose();
+  });
+
+  // TailsLab's GLB attribute `_GAME_NORMAL` (three.js `_game_normal`) on the given parts' meshes
+  const withGameNormals = (car: Group, parts: number[]): Group => {
+    car.traverse(o => {
+      if (o instanceof Mesh && parts.includes(o.userData['geo_part'])) {
+        o.geometry.setAttribute('_game_normal', o.geometry.getAttribute('normal').clone());
+      }
+    });
+    return car;
+  };
+
+  it('draws the 3Dfx reflections of the parts with a reflection and the game normals', () => {
+    const car = withGameNormals(carMesh(), [1, 11, 12]);
+    const body = car.getObjectByName('part_hp_1__b000') as Mesh;
+    const plain = body.material;
+    const controller = new Nfs2CarMeshController(car, 'assets', {
+      model: 'CALA',
+      voodooReflections: true,
+      voodooEnvMap: 'chr0.png',
+    });
+    expect(controller.hasVoodooReflections).toBeTrue();
+    expect(controller.voodooReflections).toBeTrue();
+    expect(body.material).not.toBe(plain);
+    const env = body.getObjectByName('part_hp_1__b000__reflection') as Mesh;
+    expect(env.visible).toBeTrue();
+    expect(env.renderOrder).toBe(body.renderOrder + 0.5);
+    // the paint's HSV value sets the alpha (R3DCar_ReflectionAlpha): (0xff >> 2) + 0x40
+    controller.color = 0xff0000;
+    expect((env.material as MeshBasicMaterial).opacity).toBeCloseTo(0x7f / 255);
+    // CALA's wheels have no reflection (layout 0)
+    expect(car.getObjectByName('part_hp_12__m000__reflection')).toBeUndefined();
+    // the shaded brake lights follow the frames
+    const lights = car.getObjectByName('part_hp_11__l000') as Mesh;
+    controller.update(nfs2DrawStateOf(0, 0, true), 1);
+    expect((lights.material as MeshBasicMaterial).map!.name).toBe('l100');
+    controller.voodooReflections = false;
+    expect(body.material).toBe(plain);
+    expect(env.visible).toBeFalse();
+    expect((lights.material as MeshBasicMaterial).map!.name).toBe('l100');
+    controller.dispose();
+  });
+
+  it('compiles the 3Dfx reflection shaders', () => {
+    let renderer: WebGLRenderer;
+    try {
+      renderer = new WebGLRenderer({ canvas: document.createElement('canvas') });
+    } catch {
+      pending('no WebGL');
+      return;
+    }
+    const errors: string[] = [];
+    renderer.debug.onShaderError = (gl, program) => errors.push(gl.getProgramInfoLog(program) ?? 'shader error');
+    const car = withGameNormals(carMesh(), [1, 11]);
+    const controller = new Nfs2CarMeshController(car, 'assets', {
+      model: 'CHEV',
+      voodooReflections: true,
+      voodooEnvMap: 'chr0.png',
+    });
+    controller.color = 0x2040ff;
+    const scene = new Scene();
+    scene.add(car);
+    const camera = new PerspectiveCamera();
+    camera.up.set(0, 0, 1);
+    camera.position.set(0, -5, 1);
+    camera.lookAt(0, 0, 0);
+    renderer.render(scene, camera);
+    expect(errors).toEqual([]);
+    // CHEV's reflection 2: the shaded copies and the chr0 pass
+    expect(renderer.info.programs!.length).toBeGreaterThan(2);
+    controller.dispose();
+    renderer.dispose();
+  });
+
+  it('has no 3Dfx reflections without the game normals, on traffic cars or without the texture', () => {
+    expect(new Nfs2CarMeshController(carMesh(), 'assets', { model: 'CALA' }).hasVoodooReflections).toBeFalse();
+    const traffic = new Nfs2CarMeshController(withGameNormals(carMesh(), [1]), 'assets', { model: 'TRAF' });
+    expect(traffic.hasVoodooReflections).toBeFalse();
+    const noTexture = new Nfs2CarMeshController(withGameNormals(carMesh(), [1]), 'assets', {
+      model: 'CALA',
+      voodooReflections: true,
+    });
+    expect(noTexture.voodooReflections).toBeFalse();
   });
 });

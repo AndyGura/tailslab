@@ -1023,6 +1023,12 @@ When you do:
   animation frames, >= 1: tyres 4, brake lights 2) and `color_keyed` (polygon flag bit 3). A key whose value differs
   between the polygons of a sub-mesh is left out with a warning (none in the game files). nfs-web reads these keys:
   keep them stable. Flags and part meanings: `resources/eac/geometries/nfs2.py` (verified in nfs2sen.exe).
+- Vertex normals (GEO files have none): `geo_vertex_normals` computes them as nfs2sea.exe (the 3Dfx build) does at
+  load for its car reflections (`R3DCar_ComputeVoodooNormals` 0x46ed80, nfs-web `decomp/nfs2/nfs2sea.exe.gzf`; the
+  rules in its docstring and in `GeoGeometry`'s description), for every GEO, in the game's axes from the raw 8.8
+  vertices; written as OBJ `vn` and GLB `_GAME_NORMAL` (`add_glb_vertex_attributes`) on the parts the exe gives them
+  (polygons, < 126 vertices, < 66 polygons), none on the others. A vertex of no polygon keeps (0, 0, 0). nfs-web's
+  `Nfs2CarMeshController` draws the 3Dfx reflections from them.
 
 ## NFS2 SE car physics and AI (GAMEDATA/SIM/CARDATA/P*.DAT, GAMEDATA/SIM/AI/*.DAT, their copies in CARDATA.VIV)
 

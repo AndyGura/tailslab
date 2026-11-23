@@ -18,7 +18,9 @@ from serializers.geometries import (
     crp_image_atlas_position,
     crp_primitive_triangles,
     crp_stream_indices,
+    geo_polygon_normal,
     geo_sub_mesh_properties,
+    geo_vertex_normals,
     orip_fx_dummies,
     orip_morph_deltas,
     orip_polygon_partitions,
@@ -88,6 +90,238 @@ class TestGeoSubMeshProperties(unittest.TestCase):
         with self.assertLogs(level='WARNING'):
             res = geo_sub_mesh_properties(11, [self._polygon(2, False), self._polygon(0, False)])
         self.assertEqual(res, {'geo_part': 11, 'color_keyed': False})
+
+
+def _geo_polygon(indices, four=True, flip=False, is_triangle=None):
+    """A GEO polygon: `four` = flag bit 1 (`uv_flip`), the corners the normals code takes; `is_triangle` (bit 0)
+    the opposite unless given"""
+    return {
+        'mapping': {
+            'is_triangle': (not four) if is_triangle is None else is_triangle,
+            'uv_flip': four,
+            'flip_normal': flip,
+        },
+        'vertex_indices': list(indices) + [indices[-1]] * (4 - len(indices)),
+    }
+
+
+def _geo_part(vertices=(), polygons=(), num_vrtx=None, num_plgn=None):
+    """A GEO part of raw 8.8 vertices"""
+    return {
+        'num_vrtx': len(vertices) if num_vrtx is None else num_vrtx,
+        'num_plgn': len(polygons) if num_plgn is None else num_plgn,
+        'pos': {'x': 0.0, 'y': 0.0, 'z': 0.0},
+        'vertices': [{'x': x / 256, 'y': y / 256, 'z': z / 256} for x, y, z in vertices],
+        'polygons': list(polygons),
+    }
+
+
+def _geo_parts(**parts):
+    """32 GEO parts, `part_<n>` given, the others empty"""
+    return [parts.get(f'part_{i}', _geo_part()) for i in range(32)]
+
+
+class TestGeoVertexNormals(unittest.TestCase):
+    def assertVector(self, actual, expected):
+        self.assertEqual(len(actual), 3)
+        for a, e in zip(actual, expected):
+            self.assertAlmostEqual(a, e, places=6)
+
+    def test_triangle_normal_and_flip(self):
+        vertices = [(256, 0, 0), (256, 0, 256), (512, 0, 0)]
+        # (B - A) x (C - A) = (0, 0, 256) x (256, 0, 0) = up
+        self.assertVector(geo_polygon_normal(vertices, _geo_polygon([0, 1, 2], four=False)), [0, 1, 0])
+        self.assertVector(geo_polygon_normal(vertices, _geo_polygon([0, 1, 2], four=False, flip=True)), [0, -1, 0])
+        normals = geo_vertex_normals(_geo_parts(part_1=_geo_part(vertices, [_geo_polygon([0, 1, 2], four=False)])))
+        for normal in normals[1]:
+            self.assertVector(normal, [0, 1, 0])
+
+    def test_flag_bit_1_decides_the_corners(self):
+        vertices = [(256, 0, 0), (256, 0, 256), (512, 0, 256), (512, 256, 0)]
+        # a triangle (bit 0) with bit 1 set: 4 corners, the normals of ABC and ACD added
+        polygon = _geo_polygon([0, 1, 2, 3], four=True, is_triangle=True)
+        third = 1 / math.sqrt(3)
+        expected = [-third, 1 + third, third]
+        length = math.sqrt(sum(x * x for x in expected))
+        expected = [x / length for x in expected]
+        self.assertVector(geo_polygon_normal(vertices, polygon), expected)
+        normals = geo_vertex_normals(_geo_parts(part_1=_geo_part(vertices, [polygon])))
+        self.assertVector(normals[1][3], expected)
+        # a quad (bit 0 clear) without bit 1: 3 corners, D in no polygon's list
+        polygon = _geo_polygon([0, 1, 2, 3], four=False, is_triangle=False)
+        self.assertVector(geo_polygon_normal(vertices, polygon), [0, 1, 0])
+        normals = geo_vertex_normals(_geo_parts(part_1=_geo_part(vertices, [polygon])))
+        self.assertVector(normals[1][0], [0, 1, 0])
+        self.assertEqual(normals[1][3], [0.0, 0.0, 0.0])
+
+    def test_zero_normals_stay_zero(self):
+        # collinear corners; vertex 3 in no polygon
+        vertices = [(256, 0, 0), (512, 0, 0), (768, 0, 0), (256, 256, 256)]
+        polygon = _geo_polygon([0, 1, 2], four=False, flip=True)
+        self.assertEqual(geo_polygon_normal(vertices, polygon), [0.0, 0.0, 0.0])
+        normals = geo_vertex_normals(_geo_parts(part_1=_geo_part(vertices, [polygon])))
+        self.assertEqual(normals[1], [[0.0, 0.0, 0.0]] * 4)
+
+    def test_first_8_polygons_of_a_vertex(self):
+        vertices = [(256, 0, 0), (256, 0, 256), (512, 0, 0), (512, 0, 0), (256, 256, 0)]
+        up = _geo_polygon([0, 1, 2], four=False)
+        # its 9th polygon, facing +z, is not counted for vertex 0, but for its other two vertices
+        forward = _geo_polygon([0, 3, 4], four=False)
+        normals = geo_vertex_normals(_geo_parts(part_1=_geo_part(vertices, [up] * 8 + [forward])))
+        self.assertVector(normals[1][0], [0, 1, 0])
+        self.assertVector(normals[1][3], [0, 0, 1])
+        self.assertVector(normals[1][4], [0, 0, 1])
+        normals = geo_vertex_normals(_geo_parts(part_1=_geo_part(vertices, [up] * 7 + [forward])))
+        self.assertVector(normals[1][0], [0, 7 / math.sqrt(50), 1 / math.sqrt(50)])
+
+    def test_x_zeroed_at_x_0_without_normalizing(self):
+        vertices = [(0, 0, 0), (0, 0, 256), (256, 256, 0)]
+        # normal (-1, 1, 0) / sqrt(2)
+        normals = geo_vertex_normals(_geo_parts(part_1=_geo_part(vertices, [_geo_polygon([0, 1, 2], four=False)])))
+        self.assertVector(normals[1][0], [0, 1 / math.sqrt(2), 0])
+        self.assertVector(normals[1][2], [-1 / math.sqrt(2), 1 / math.sqrt(2), 0])
+
+    def test_neighbour_parts(self):
+        # part 1: an upward triangle with vertex 0 at (1024, 0, 0)
+        own = [(1024, 0, 0), (1024, 0, 256), (1280, 0, 0)]
+        up = _geo_polygon([0, 1, 2], four=False)
+
+        def facing_forward(corner):
+            x, y, z = corner
+            return _geo_part([corner, (x + 256, y, z), (x, y + 256, z)], [_geo_polygon([0, 1, 2], four=False)])
+
+        def facing_right(corner):
+            x, y, z = corner
+            return _geo_part([corner, (x, y + 256, z), (x, y, z + 256)], [_geo_polygon([0, 1, 2], four=False)])
+
+        forward = [0, 1 / math.sqrt(2), 1 / math.sqrt(2)]
+        # 12 raw units away on every axis touches, in the parts' own coordinates (the part pos is not applied)
+        touching = facing_forward((1036, 12, -12))
+        touching['pos'] = {'x': 5.0, 'y': 5.0, 'z': 5.0}
+        normals = geo_vertex_normals(_geo_parts(part_1=_geo_part(own, [up]), part_3=touching))
+        self.assertVector(normals[1][0], forward)
+        self.assertVector(normals[1][1], [0, 1, 0])
+        # and part 3 takes part 1's
+        self.assertVector(normals[3][0], forward)
+        # 13 units away does not
+        normals = geo_vertex_normals(_geo_parts(part_1=_geo_part(own, [up]), part_3=facing_forward((1037, 0, 0))))
+        self.assertVector(normals[1][0], [0, 1, 0])
+        # parts 0, 2, 9, 10, 11 are no neighbours, nor are parts >= 20
+        for q in (0, 2, 9, 10, 11, 20):
+            normals = geo_vertex_normals(
+                _geo_parts(part_1=_geo_part(own, [up]), **{f'part_{q}': facing_right((1024, 0, 0))})
+            )
+            self.assertVector(normals[1][0], [0, 1, 0])
+        # the neighbour's limits don't matter
+        many = facing_forward((1024, 0, 0))
+        many['num_plgn'] = 66
+        normals = geo_vertex_normals(_geo_parts(part_1=_geo_part(own, [up]), part_5=many))
+        self.assertEqual(normals[5], [])
+        self.assertVector(normals[1][0], forward)
+        # parts 2, 9, 10 and parts >= 20 take no neighbour normals
+        for p in (2, 9, 10, 20):
+            normals = geo_vertex_normals(
+                _geo_parts(**{f'part_{p}': _geo_part(own, [up])}, part_3=facing_forward((1024, 0, 0)))
+            )
+            self.assertVector(normals[p][0], [0, 1, 0])
+
+    def test_part_limits(self):
+        vertices = [(256, 0, 0), (256, 0, 256), (512, 0, 0)]
+        polygon = _geo_polygon([0, 1, 2], four=False)
+
+        def normals_of(num_vrtx, num_plgn):
+            return geo_vertex_normals(_geo_parts(part_1=_geo_part(vertices, [polygon], num_vrtx, num_plgn)))[1]
+
+        self.assertEqual(len(normals_of(125, 65)), 3)
+        self.assertEqual(normals_of(126, 1), [])
+        self.assertEqual(normals_of(3, 66), [])
+        self.assertEqual(geo_vertex_normals(_geo_parts())[1], [])
+
+    @staticmethod
+    def _cardata_geo(alias):
+        from library import require_file
+
+        (_, _, viv) = require_file('test/samples/CARDATA.VIV', lazy=False)
+        return next(c['item']['data'] for c in viv['children'] if c['alias'].lower() == alias)
+
+    def test_race_cars_point_outwards(self):
+        for alias in ('cala.geo', 'f355.geo'):
+            parts = self._cardata_geo(alias)['parts']
+            normals = geo_vertex_normals(parts)
+            self.assertEqual(normals[10], [])
+            body = [(v['x'], v['y'], v['z']) for v in parts[1]['vertices']]
+            listed = [i for i, n in enumerate(normals[1]) if n != [0.0, 0.0, 0.0]]
+            centre = [sum(v[k] for v in body) / len(body) for k in range(3)]
+            for i in listed:
+                self.assertGreater(sum((body[i][k] - centre[k]) * normals[1][i][k] for k in range(3)), 0, alias)
+            # the roof up (game y), the sides outwards
+            roof = max(listed, key=lambda i: body[i][1])
+            self.assertGreater(normals[1][roof][1], 0.95, alias)
+            side = max(listed, key=lambda i: abs(body[i][0]))
+            self.assertGreater(normals[1][side][0] * math.copysign(1, body[side][0]), 0.95, alias)
+        # CALA's roof vertex (0, 167, -159) / 256
+        normals = geo_vertex_normals(self._cardata_geo('cala.geo')['parts'])
+        self.assertVector([round(x, 3) for x in normals[1][7]], [0.0, 0.993, -0.093])
+
+    def test_parts_over_the_limits(self):
+        self.assertEqual(geo_vertex_normals(self._cardata_geo('futr.geo')['parts'])[21], [])
+        normals = geo_vertex_normals(self._cardata_geo('tank.geo')['parts'])
+        self.assertEqual((normals[21], normals[24]), ([], []))
+        self.assertEqual(len(normals[20]), self._cardata_geo('tank.geo')['parts'][20]['num_vrtx'])
+
+
+class TestGeoGeometrySerializer(unittest.TestCase):
+    def setUp(self):
+        self.tmp_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp_dir, ignore_errors=True)
+
+    def test_exports_game_normals(self):
+        """An NFS2 GEO next to its QFS (TANK of NFS2 SE's CARDATA.VIV, any QFS): the parts with normals get `vn`,
+        the others (TANK's parts 21 and 24: too many polygons) none"""
+        from library import require_file, require_resource
+        from library.loader import clear_file_cache, path_to_name
+        from serializers import get_serializer
+
+        (_, viv_block, viv) = require_file('test/samples/CARDATA.VIV', lazy=False)
+        child = next(c for c in viv['children'] if c['alias'] == 'TANK.geo')
+        geo_block = viv_block.item_block.possible_blocks[child['item']['choice_index']]
+        geo_path = os.path.join(self.tmp_dir, 'TANK.GEO')
+        with open(geo_path, 'wb') as f:
+            f.write(geo_block.pack(child['item']['data']))
+        shutil.copy('test/samples/VERTBST.QFS', os.path.join(self.tmp_dir, 'TANK.QFS'))
+        clear_file_cache(geo_path)
+        (geo_id, block, data), _ = require_resource(path_to_name(geo_path))
+        serializer = get_serializer(block, data)
+        serializer.patch_settings(
+            {'geometry__save_obj': True, 'geometry__save_blend': False, 'geometry__export_to_gg_web_engine': False}
+        )
+        out_path = os.path.join(self.tmp_dir, 'out/')
+        serializer.serialize(data, out_path, id=geo_id, block=block)
+        with open(os.path.join(out_path, 'geometry.obj')) as f:
+            objects = f.read().split('\n\no ')[1:]
+        normals = geo_vertex_normals(data['parts'])
+        parts = {'part_mp_0': 20, 'part_mp_1': 21, 'part_lp_0': 23, 'part_lp_1': 24}
+        vn_count = 0
+        for text in objects:
+            name = text.split('\n', 1)[0]
+            part = parts[name.split('__')[0]]
+            vertices = re.findall(r'^v (.*)$', text, re.MULTILINE)
+            vns = re.findall(r'^vn (.*)$', text, re.MULTILINE)
+            corners = [c for face in re.findall(r'^f (.*)$', text, re.MULTILINE) for c in face.split(' ')]
+            if part in (21, 24):
+                self.assertEqual(vns, [], name)
+                self.assertTrue(all(c.count('/') == 1 for c in corners), name)
+                continue
+            self.assertEqual(len(vns), len(vertices), name)
+            # normal indices count the normals of the objects before only
+            self.assertTrue(all(vn_count < int(c.split('/')[2]) <= vn_count + len(vns) for c in corners), name)
+            vn_count += len(vns)
+            # axes (x, z, y) as the vertices
+            game = {tuple(round(x, 6) for x in (n[0], n[2], n[1])) for n in normals[part]}
+            self.assertTrue({tuple(round(float(x), 6) for x in vn.split(' ')) for vn in vns} <= game, name)
+        self.assertGreater(vn_count, 0)
 
 
 class TestOripFxDummies(unittest.TestCase):

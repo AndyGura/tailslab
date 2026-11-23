@@ -1,13 +1,19 @@
 import {
+  AddEquation,
   Box3,
   Camera,
   ClampToEdgeWrapping,
+  CustomBlending,
   FrontSide,
+  LinearFilter,
   Material,
   Mesh,
   MeshBasicMaterial,
   NearestFilter,
   Object3D,
+  OneFactor,
+  RepeatWrapping,
+  SrcAlphaFactor,
   Texture,
   TextureLoader,
   Vector3,
@@ -18,8 +24,9 @@ import { setupNfs1Texture } from './nfs1-model-utils';
 
 /*
  * How NFS2 SE draws a car (nfs2sen.exe, names and comments in the Ghidra DB `decomp/nfs2/nfs2sen.exe.gzf` of
- * nfs-web): R3DCar_SetupBody 0x45a9b0 builds a body object (parts 0..11, spoiler 9 as a child) and four wheel objects
- * (wheel part + its inner part: 12+13, 14+15, 16+17, 18+19); Render_Car 0x45a510 draws them with Transfmr_DrawObject
+ * nfs-web): R3DCar_SetupBody 0x45a9b0 builds a group (R3DCar_BodyCallback) of the spoiler object (part 9, turned by
+ * its model's callback) and the body object (parts 0..8, 10, 11), and four wheel objects (wheel part + its inner part:
+ * 12+13, 14+15, 16+17, 18+19); Render_Car 0x45a510 draws them with Transfmr_DrawObject
  * 0x461e50. There is no depth sorting inside a car: every part goes into one of 32 layers (a per-model layout table,
  * g_car_part_layouts 0x4c7a70), the layers are drawn in increasing order, the polygons of a part in file order, back
  * faces culled. Some parts are skipped from some view angles (the camera's yaw and pitch in the car's frame). The car
@@ -28,6 +35,21 @@ import { setupNfs1Texture } from './nfs1-model-utils';
  * (`renderOrder`), depth tested against what is drawn but without writing depth, so later layers paint over earlier
  * ones as in the game; then every mesh again, depth only, so later objects and other cars hide behind it. Within a
  * part the order is the GLB's (one mesh per texture), not the polygons' file order.
+ *
+ * The 3Dfx build (nfs2sea.exe, Ghidra DB `decomp/nfs2/nfs2sea.exe.gzf`) adds reflections to race cars (car types below
+ * 0xf; `voodooReflections`): R3DCar_ComputeVoodooNormals 0x46ed80 gives the parts vertex normals at load (TailsLab
+ * exports them as the GLB attribute `_GAME_NORMAL`), and Transfmr_AddMeshPolys 0x47fcd0 turns the polygons of parts
+ * with a reflection flag (NFS2_CAR_PART_LAYOUTS) into reflection polygons (types 0x1f / 0x20,
+ * R3dfx_PolyReflectTri 0x42af00 / R3dfx_PolyReflectQuad 0x42b320), each drawn twice: its own texture shaded per vertex
+ * by the normal's height, then FXTEXT.FSH's chr0 (a sky band over a tree line) added on top at the paint's reflection
+ * alpha, at texture coordinates from the normal and the view (Transfmr_ReflectionVertices 0x4800b0). Only for cars
+ * less than 40 m along the view (Render_CarsLodPass 0x46cc50). Here: the shading in the part's material, the chr0
+ * pass as a mesh of its own right after it (`renderOrder`), added with the game's blend (source alpha, one).
+ * Not done: the in-car view without reflections (Render_Car 0x46cdd0, camera type 1) and 80 m in camera mode 5, the
+ * car type 0xe with colour 0x58 (only its reflective parts drawn), the track's light (cars here are drawn at full
+ * light, the shades relative to it), chr1 (a rainbow) for game flag 0x512219 bit 1 (an app may pass it as
+ * `voodooEnvMap`), the 3Dfx build's other drawing changes (the body drawn 1/8 m higher, chroma key switches between the
+ * layers, no view limits on IDGO's wheel parts and CHEV's spoiler).
  */
 
 /** nfs2sen g_model_names 0x4c5fe0: index = the game's car type */
@@ -65,181 +87,184 @@ const layoutOfModel = (model: number): number => {
 
 /**
  * Per part: draw layer, then the view limits r0, r1 (yaw) and r2, r3 (pitch): the part is skipped when r0 < yaw < r1
- * and r2 < pitch < r3 (empty ranges: always drawn); r0 SPOILER_VIEW_RULE: see partVisible
+ * and r2 < pitch < r3 (empty ranges: always drawn); r0 SPOILER_VIEW_RULE: see partVisible; last the 3Dfx reflection
+ * (0 none; 1, 2: the two v rules of the reflection, see VOODOO_GLSL)
  */
-type Nfs2PartRenderInfo = [number, number, number, number, number];
+type Nfs2PartRenderInfo = [number, number, number, number, number, number];
 const SPOILER_VIEW_RULE = 0x20000;
 
-// g_car_part_layouts 0x4c7a70 (6 layouts x 26 parts, 0x18 bytes each: +4 layer, +8..+0x14 view limits)
+// g_car_part_layouts 0x4c7a70 (6 layouts x 26 parts, 0x18 bytes each: +0 reflection, +4 layer, +8..+0x14 view
+// limits; nfs2sea's g_car_part_layouts 0x4d8650: 0x14 byte entries, the same values but for no view limits on
+// IDGO's wheel parts 12..19 and CHEV's spoiler)
 // prettier-ignore
 const NFS2_CAR_PART_LAYOUTS: Nfs2PartRenderInfo[][] = [
   [
-    [5, 0x1, 0x0, 0x1, 0x0],
-    [14, -0x7e00, 0x7e00, 0x4600, 0x3c00],
-    [6, -0x7e00, 0x7e00, -0x100, -0x7d00],
-    [11, -0x3600, 0x3600, -0x7e00, 0x7e00],
-    [12, 0x4000, 0x7e00, -0x7e00, 0x7e00],
-    [7, -0x400, 0x6e00, -0x7e00, 0x7e00],
-    [8, -0x6e00, 0x400, -0x7e00, 0x7e00],
-    [9, 0x1, 0x0, 0x1, 0x0],
-    [10, 0x1, 0x0, 0x1, 0x0],
-    [16, 0x20000, 0x7e00, 0x100, 0x7e00],
-    [15, 0x1, 0x0, 0x1, 0x0],
-    [13, 0x1, 0x0, 0x1, 0x0],
-    [17, -0x800, 0x7e00, -0x7e00, 0x7e00],
-    [1, -0x800, 0x6400, -0x7e00, -0xa00],
-    [18, -0x7e00, 0x800, -0x7e00, 0x7e00],
-    [2, -0x6400, 0x800, -0x7e00, -0xa00],
-    [19, -0x800, 0x7e00, -0x7e00, 0x7e00],
-    [3, -0x800, 0x7e00, -0x7e00, -0xa00],
-    [20, -0x7e00, 0x800, -0x7e00, 0x7e00],
-    [4, -0x7e00, 0x800, -0x7e00, -0xa00],
-    [2, 0x1, 0x0, 0x1, 0x0],
-    [4, 0x1, 0x0, 0x1, 0x0],
-    [3, -0x7e00, 0x7e00, -0x100, -0x7d00],
-    [1, 0x1, 0x0, 0x1, 0x0],
-    [2, 0x1, 0x0, 0x1, 0x0],
-    [1, 0x1, 0x0, 0x1, 0x0],
+    [5, 0x1, 0x0, 0x1, 0x0, 1],
+    [14, -0x7e00, 0x7e00, 0x4600, 0x3c00, 1],
+    [6, -0x7e00, 0x7e00, -0x100, -0x7d00, 0],
+    [11, -0x3600, 0x3600, -0x7e00, 0x7e00, 1],
+    [12, 0x4000, 0x7e00, -0x7e00, 0x7e00, 1],
+    [7, -0x400, 0x6e00, -0x7e00, 0x7e00, 1],
+    [8, -0x6e00, 0x400, -0x7e00, 0x7e00, 1],
+    [9, 0x1, 0x0, 0x1, 0x0, 1],
+    [10, 0x1, 0x0, 0x1, 0x0, 1],
+    [16, 0x20000, 0x7e00, 0x100, 0x7e00, 1],
+    [15, 0x1, 0x0, 0x1, 0x0, 1],
+    [13, 0x1, 0x0, 0x1, 0x0, 1],
+    [17, -0x800, 0x7e00, -0x7e00, 0x7e00, 0],
+    [1, -0x800, 0x6400, -0x7e00, -0xa00, 0],
+    [18, -0x7e00, 0x800, -0x7e00, 0x7e00, 0],
+    [2, -0x6400, 0x800, -0x7e00, -0xa00, 0],
+    [19, -0x800, 0x7e00, -0x7e00, 0x7e00, 0],
+    [3, -0x800, 0x7e00, -0x7e00, -0xa00, 0],
+    [20, -0x7e00, 0x800, -0x7e00, 0x7e00, 0],
+    [4, -0x7e00, 0x800, -0x7e00, -0xa00, 0],
+    [2, 0x1, 0x0, 0x1, 0x0, 1],
+    [4, 0x1, 0x0, 0x1, 0x0, 1],
+    [3, -0x7e00, 0x7e00, -0x100, -0x7d00, 1],
+    [1, 0x1, 0x0, 0x1, 0x0, 0],
+    [2, 0x1, 0x0, 0x1, 0x0, 0],
+    [1, 0x1, 0x0, 0x1, 0x0, 0],
   ],
   [
-    [5, 0x1, 0x0, 0x1, 0x0],
-    [14, -0x7e00, 0x7e00, 0x4600, 0x3c00],
-    [26, -0x7e00, 0x7e00, -0x100, -0x7d00],
-    [11, -0x3600, 0x3600, -0x7e00, 0x7e00],
-    [12, 0x4000, 0x7e00, -0x7e00, 0x7e00],
-    [7, -0x500, 0x6400, -0x7e00, 0x7e00],
-    [8, -0x6400, 0x500, -0x7e00, 0x7e00],
-    [9, 0x1, 0x0, 0x1, 0x0],
-    [10, 0x1, 0x0, 0x1, 0x0],
-    [25, -0x7e00, 0x7e00, 0x100, 0x7d00],
-    [6, -0x7e00, 0x7e00, 0xa00, 0x7e00],
-    [13, 0x1, 0x0, 0x1, 0x0],
-    [21, -0x300, 0x7e00, -0x7e00, 0x7e00],
-    [1, 0x1, 0x0, -0x7e00, -0xa00],
-    [22, -0x7e00, 0x300, -0x7e00, 0x7e00],
-    [2, 0x2, 0x0, -0x7e00, -0xa00],
-    [23, -0x800, 0x7e00, -0x7e00, 0x7e00],
-    [3, 0x3, 0x0, -0x7e00, -0xa00],
-    [24, -0x7e00, 0x800, -0x7e00, 0x7e00],
-    [4, 0x4, 0x0, -0x7e00, -0xa00],
-    [2, 0x1, 0x0, 0x1, 0x0],
-    [3, 0x1, 0x0, 0x1, 0x0],
-    [4, -0x7e00, 0x7e00, -0x100, -0x7d00],
-    [1, 0x1, 0x0, 0x1, 0x0],
-    [2, 0x1, 0x0, 0x1, 0x0],
-    [1, 0x1, 0x0, 0x1, 0x0],
+    [5, 0x1, 0x0, 0x1, 0x0, 0],
+    [14, -0x7e00, 0x7e00, 0x4600, 0x3c00, 1],
+    [26, -0x7e00, 0x7e00, -0x100, -0x7d00, 0],
+    [11, -0x3600, 0x3600, -0x7e00, 0x7e00, 1],
+    [12, 0x4000, 0x7e00, -0x7e00, 0x7e00, 1],
+    [7, -0x500, 0x6400, -0x7e00, 0x7e00, 1],
+    [8, -0x6400, 0x500, -0x7e00, 0x7e00, 1],
+    [9, 0x1, 0x0, 0x1, 0x0, 1],
+    [10, 0x1, 0x0, 0x1, 0x0, 1],
+    [25, -0x7e00, 0x7e00, 0x100, 0x7d00, 1],
+    [6, -0x7e00, 0x7e00, 0xa00, 0x7e00, 1],
+    [13, 0x1, 0x0, 0x1, 0x0, 1],
+    [21, -0x300, 0x7e00, -0x7e00, 0x7e00, 0],
+    [1, 0x1, 0x0, -0x7e00, -0xa00, 0],
+    [22, -0x7e00, 0x300, -0x7e00, 0x7e00, 0],
+    [2, 0x2, 0x0, -0x7e00, -0xa00, 0],
+    [23, -0x800, 0x7e00, -0x7e00, 0x7e00, 0],
+    [3, 0x3, 0x0, -0x7e00, -0xa00, 0],
+    [24, -0x7e00, 0x800, -0x7e00, 0x7e00, 0],
+    [4, 0x4, 0x0, -0x7e00, -0xa00, 0],
+    [2, 0x1, 0x0, 0x1, 0x0, 0],
+    [3, 0x1, 0x0, 0x1, 0x0, 1],
+    [4, -0x7e00, 0x7e00, -0x100, -0x7d00, 1],
+    [1, 0x1, 0x0, 0x1, 0x0, 0],
+    [2, 0x1, 0x0, 0x1, 0x0, 0],
+    [1, 0x1, 0x0, 0x1, 0x0, 0],
   ],
   [
-    [5, 0x1, 0x0, 0x1, 0x0],
-    [9, -0x7e00, 0x7e00, 0x4600, 0x3c00],
-    [26, -0x7e00, 0x7e00, -0x100, -0x7d00],
-    [6, 0x1, 0x0, 0x1, 0x0],
-    [10, 0x1, 0x0, 0x1, 0x0],
-    [11, 0x1, 0x0, 0x1, 0x0],
-    [12, 0x1, 0x0, 0x1, 0x0],
-    [13, 0x1, 0x0, 0x1, 0x0],
-    [14, 0x1, 0x0, 0x1, 0x0],
-    [7, -0x7e00, 0x7e00, 0x100, 0x7e00],
-    [8, -0x7e00, 0x7e00, 0xa00, 0x7e00],
-    [25, 0x1, 0x0, 0x1, 0x0],
-    [21, -0x300, 0x7e00, -0x7e00, 0x7e00],
-    [1, 0x1, 0x0, -0x7e00, -0xa00],
-    [22, -0x7e00, 0x300, -0x7e00, 0x7e00],
-    [2, 0x2, 0x0, -0x7e00, -0xa00],
-    [23, -0x800, 0x7e00, -0x7e00, 0x7e00],
-    [3, 0x3, 0x0, -0x7e00, -0xa00],
-    [24, -0x7e00, 0x800, -0x7e00, 0x7e00],
-    [4, 0x4, 0x0, -0x7e00, -0xa00],
-    [2, 0x1, 0x0, 0x1, 0x0],
-    [3, 0x1, 0x0, 0x1, 0x0],
-    [4, -0x7e00, 0x7e00, -0x100, -0x7d00],
-    [1, 0x1, 0x0, 0x1, 0x0],
-    [2, 0x1, 0x0, 0x1, 0x0],
-    [1, 0x1, 0x0, 0x1, 0x0],
+    [5, 0x1, 0x0, 0x1, 0x0, 0],
+    [9, -0x7e00, 0x7e00, 0x4600, 0x3c00, 1],
+    [26, -0x7e00, 0x7e00, -0x100, -0x7d00, 0],
+    [6, 0x1, 0x0, 0x1, 0x0, 1],
+    [10, 0x1, 0x0, 0x1, 0x0, 1],
+    [11, 0x1, 0x0, 0x1, 0x0, 1],
+    [12, 0x1, 0x0, 0x1, 0x0, 1],
+    [13, 0x1, 0x0, 0x1, 0x0, 1],
+    [14, 0x1, 0x0, 0x1, 0x0, 1],
+    [7, -0x7e00, 0x7e00, 0x100, 0x7e00, 1],
+    [8, -0x7e00, 0x7e00, 0xa00, 0x7e00, 1],
+    [25, 0x1, 0x0, 0x1, 0x0, 1],
+    [21, -0x300, 0x7e00, -0x7e00, 0x7e00, 0],
+    [1, 0x1, 0x0, -0x7e00, -0xa00, 0],
+    [22, -0x7e00, 0x300, -0x7e00, 0x7e00, 0],
+    [2, 0x2, 0x0, -0x7e00, -0xa00, 0],
+    [23, -0x800, 0x7e00, -0x7e00, 0x7e00, 0],
+    [3, 0x3, 0x0, -0x7e00, -0xa00, 0],
+    [24, -0x7e00, 0x800, -0x7e00, 0x7e00, 0],
+    [4, 0x4, 0x0, -0x7e00, -0xa00, 0],
+    [2, 0x1, 0x0, 0x1, 0x0, 0],
+    [3, 0x1, 0x0, 0x1, 0x0, 1],
+    [4, -0x7e00, 0x7e00, -0x100, -0x7d00, 1],
+    [1, 0x1, 0x0, 0x1, 0x0, 0],
+    [2, 0x1, 0x0, 0x1, 0x0, 0],
+    [1, 0x1, 0x0, 0x1, 0x0, 0],
   ],
   [
-    [5, 0x1, 0x0, 0x1, 0x0],
-    [14, -0x7e00, 0x7e00, 0x4600, 0x3c00],
-    [26, -0x7e00, 0x7e00, -0x100, -0x7d00],
-    [11, -0x3600, 0x3600, -0x7e00, 0x7e00],
-    [12, 0x4000, 0x7e00, -0x7e00, 0x7e00],
-    [7, -0x500, 0x6400, -0x7e00, 0x7e00],
-    [8, -0x6400, 0x500, -0x7e00, 0x7e00],
-    [9, 0x1, 0x0, 0x1, 0x0],
-    [10, 0x1, 0x0, 0x1, 0x0],
-    [25, -0x2000, 0x2000, -0x4000, 0x4000],
-    [6, -0x7e00, 0x7e00, 0xa00, 0x7e00],
-    [13, 0x1, 0x0, 0x1, 0x0],
-    [21, -0x300, 0x7e00, -0x7e00, 0x7e00],
-    [1, 0x1, 0x0, -0x7e00, -0xa00],
-    [22, -0x7e00, 0x300, -0x7e00, 0x7e00],
-    [2, 0x2, 0x0, -0x7e00, -0xa00],
-    [23, -0x800, 0x7e00, -0x7e00, 0x7e00],
-    [3, 0x3, 0x0, -0x7e00, -0xa00],
-    [24, -0x7e00, 0x800, -0x7e00, 0x7e00],
-    [4, 0x4, 0x0, -0x7e00, -0xa00],
-    [2, 0x1, 0x0, 0x1, 0x0],
-    [3, 0x1, 0x0, 0x1, 0x0],
-    [4, -0x7e00, 0x7e00, -0x100, -0x7d00],
-    [1, 0x1, 0x0, 0x1, 0x0],
-    [2, 0x1, 0x0, 0x1, 0x0],
-    [1, 0x1, 0x0, 0x1, 0x0],
+    [5, 0x1, 0x0, 0x1, 0x0, 0],
+    [14, -0x7e00, 0x7e00, 0x4600, 0x3c00, 2],
+    [26, -0x7e00, 0x7e00, -0x100, -0x7d00, 0],
+    [11, -0x3600, 0x3600, -0x7e00, 0x7e00, 2],
+    [12, 0x4000, 0x7e00, -0x7e00, 0x7e00, 2],
+    [7, -0x500, 0x6400, -0x7e00, 0x7e00, 2],
+    [8, -0x6400, 0x500, -0x7e00, 0x7e00, 2],
+    [9, 0x1, 0x0, 0x1, 0x0, 2],
+    [10, 0x1, 0x0, 0x1, 0x0, 2],
+    [25, -0x2000, 0x2000, -0x4000, 0x4000, 1],
+    [6, -0x7e00, 0x7e00, 0xa00, 0x7e00, 2],
+    [13, 0x1, 0x0, 0x1, 0x0, 2],
+    [21, -0x300, 0x7e00, -0x7e00, 0x7e00, 0],
+    [1, 0x1, 0x0, -0x7e00, -0xa00, 0],
+    [22, -0x7e00, 0x300, -0x7e00, 0x7e00, 0],
+    [2, 0x2, 0x0, -0x7e00, -0xa00, 0],
+    [23, -0x800, 0x7e00, -0x7e00, 0x7e00, 0],
+    [3, 0x3, 0x0, -0x7e00, -0xa00, 0],
+    [24, -0x7e00, 0x800, -0x7e00, 0x7e00, 0],
+    [4, 0x4, 0x0, -0x7e00, -0xa00, 0],
+    [2, 0x1, 0x0, 0x1, 0x0, 0],
+    [3, 0x1, 0x0, 0x1, 0x0, 2],
+    [4, -0x7e00, 0x7e00, -0x100, -0x7d00, 2],
+    [1, 0x1, 0x0, 0x1, 0x0, 0],
+    [2, 0x1, 0x0, 0x1, 0x0, 0],
+    [1, 0x1, 0x0, 0x1, 0x0, 0],
   ],
   [
-    [5, 0x1, 0x0, 0x1, 0x0],
-    [14, -0x7e00, 0x7e00, 0x4600, 0x3c00],
-    [6, -0x7e00, 0x7e00, -0x100, -0x7d00],
-    [11, -0x3600, 0x3600, -0x7e00, 0x7e00],
-    [12, 0x4000, 0x7e00, -0x7e00, 0x7e00],
-    [7, -0x400, 0x6e00, -0x7e00, 0x7e00],
-    [8, -0x6e00, 0x400, -0x7e00, 0x7e00],
-    [9, 0x1, 0x0, 0x1, 0x0],
-    [10, 0x1, 0x0, 0x1, 0x0],
-    [16, 0x20000, 0x7e00, 0x100, 0x7e00],
-    [15, 0x1, 0x0, 0x1, 0x0],
-    [13, 0x1, 0x0, 0x1, 0x0],
-    [17, -0x800, 0x7e00, -0x7e00, 0x7e00],
-    [1, -0x800, 0x6400, -0x7e00, -0xa00],
-    [18, -0x7e00, 0x800, -0x7e00, 0x7e00],
-    [2, -0x6400, 0x800, -0x7e00, -0xa00],
-    [19, -0x800, 0x7e00, -0x7e00, 0x7e00],
-    [3, -0x800, 0x7e00, -0x7e00, -0xa00],
-    [20, -0x7e00, 0x800, -0x7e00, 0x7e00],
-    [4, -0x7e00, 0x800, -0x7e00, -0xa00],
-    [2, 0x1, 0x0, 0x1, 0x0],
-    [4, 0x1, 0x0, 0x1, 0x0],
-    [3, -0x7e00, 0x7e00, -0x100, -0x7d00],
-    [1, 0x1, 0x0, 0x1, 0x0],
-    [2, 0x1, 0x0, 0x1, 0x0],
-    [1, 0x1, 0x0, 0x1, 0x0],
+    [5, 0x1, 0x0, 0x1, 0x0, 2],
+    [14, -0x7e00, 0x7e00, 0x4600, 0x3c00, 2],
+    [6, -0x7e00, 0x7e00, -0x100, -0x7d00, 0],
+    [11, -0x3600, 0x3600, -0x7e00, 0x7e00, 2],
+    [12, 0x4000, 0x7e00, -0x7e00, 0x7e00, 2],
+    [7, -0x400, 0x6e00, -0x7e00, 0x7e00, 2],
+    [8, -0x6e00, 0x400, -0x7e00, 0x7e00, 2],
+    [9, 0x1, 0x0, 0x1, 0x0, 2],
+    [10, 0x1, 0x0, 0x1, 0x0, 2],
+    [16, 0x20000, 0x7e00, 0x100, 0x7e00, 2],
+    [15, 0x1, 0x0, 0x1, 0x0, 2],
+    [13, 0x1, 0x0, 0x1, 0x0, 2],
+    [17, -0x800, 0x7e00, -0x7e00, 0x7e00, 0],
+    [1, -0x800, 0x6400, -0x7e00, -0xa00, 0],
+    [18, -0x7e00, 0x800, -0x7e00, 0x7e00, 0],
+    [2, -0x6400, 0x800, -0x7e00, -0xa00, 0],
+    [19, -0x800, 0x7e00, -0x7e00, 0x7e00, 0],
+    [3, -0x800, 0x7e00, -0x7e00, -0xa00, 0],
+    [20, -0x7e00, 0x800, -0x7e00, 0x7e00, 0],
+    [4, -0x7e00, 0x800, -0x7e00, -0xa00, 0],
+    [2, 0x1, 0x0, 0x1, 0x0, 2],
+    [4, 0x1, 0x0, 0x1, 0x0, 2],
+    [3, -0x7e00, 0x7e00, -0x100, -0x7d00, 2],
+    [1, 0x1, 0x0, 0x1, 0x0, 0],
+    [2, 0x1, 0x0, 0x1, 0x0, 0],
+    [1, 0x1, 0x0, 0x1, 0x0, 0],
   ],
   [
-    [5, 0x1, 0x0, 0x1, 0x0],
-    [14, -0x7e00, 0x7e00, 0x4600, 0x3c00],
-    [6, -0x7e00, 0x7e00, -0x100, -0x7d00],
-    [11, -0x3600, 0x3600, -0x7e00, 0x7e00],
-    [12, 0x4000, 0x7e00, -0x7e00, 0x7e00],
-    [7, -0x400, 0x6e00, -0x7e00, 0x7e00],
-    [8, -0x6e00, 0x400, -0x7e00, 0x7e00],
-    [9, 0x1, 0x0, 0x1, 0x0],
-    [10, 0x1, 0x0, 0x1, 0x0],
-    [16, 0x20000, 0x7e00, 0x100, 0x7e00],
-    [15, 0x1, 0x0, 0x1, 0x0],
-    [13, 0x1, 0x0, 0x1, 0x0],
-    [17, -0x800, 0x7e00, -0x7e00, 0x7e00],
-    [1, -0x800, 0x6400, -0x7e00, -0xa00],
-    [18, -0x7e00, 0x800, -0x7e00, 0x7e00],
-    [2, -0x6400, 0x800, -0x7e00, -0xa00],
-    [19, -0x800, 0x7e00, -0x7e00, 0x7e00],
-    [3, -0x800, 0x7e00, -0x7e00, -0xa00],
-    [20, -0x7e00, 0x800, -0x7e00, 0x7e00],
-    [4, -0x7e00, 0x800, -0x7e00, -0xa00],
-    [2, 0x1, 0x0, 0x1, 0x0],
-    [4, 0x1, 0x0, 0x1, 0x0],
-    [3, -0x7e00, 0x7e00, -0x100, -0x7d00],
-    [1, 0x1, 0x0, 0x1, 0x0],
-    [2, 0x1, 0x0, 0x1, 0x0],
-    [1, 0x1, 0x0, 0x1, 0x0],
+    [5, 0x1, 0x0, 0x1, 0x0, 2],
+    [14, -0x7e00, 0x7e00, 0x4600, 0x3c00, 2],
+    [6, -0x7e00, 0x7e00, -0x100, -0x7d00, 2],
+    [11, -0x3600, 0x3600, -0x7e00, 0x7e00, 2],
+    [12, 0x4000, 0x7e00, -0x7e00, 0x7e00, 2],
+    [7, -0x400, 0x6e00, -0x7e00, 0x7e00, 2],
+    [8, -0x6e00, 0x400, -0x7e00, 0x7e00, 2],
+    [9, 0x1, 0x0, 0x1, 0x0, 2],
+    [10, 0x1, 0x0, 0x1, 0x0, 2],
+    [16, 0x20000, 0x7e00, 0x100, 0x7e00, 2],
+    [15, 0x1, 0x0, 0x1, 0x0, 2],
+    [13, 0x1, 0x0, 0x1, 0x0, 2],
+    [17, -0x800, 0x7e00, -0x7e00, 0x7e00, 0],
+    [1, -0x800, 0x6400, -0x7e00, -0xa00, 0],
+    [18, -0x7e00, 0x800, -0x7e00, 0x7e00, 0],
+    [2, -0x6400, 0x800, -0x7e00, -0xa00, 0],
+    [19, -0x800, 0x7e00, -0x7e00, 0x7e00, 0],
+    [3, -0x800, 0x7e00, -0x7e00, -0xa00, 0],
+    [20, -0x7e00, 0x800, -0x7e00, 0x7e00, 0],
+    [4, -0x7e00, 0x800, -0x7e00, -0xa00, 0],
+    [2, 0x1, 0x0, 0x1, 0x0, 2],
+    [4, 0x1, 0x0, 0x1, 0x0, 2],
+    [3, -0x7e00, 0x7e00, -0x100, -0x7d00, 2],
+    [1, 0x1, 0x0, 0x1, 0x0, 0],
+    [2, 0x1, 0x0, 0x1, 0x0, 0],
+    [1, 0x1, 0x0, 0x1, 0x0, 0],
   ],
 ];
 
@@ -310,22 +335,24 @@ export function nfs2HsvToRgb(h: number, s: number, v: number): [number, number, 
 export interface Nfs2CarPaint {
   color: readonly [number, number, number];
   mid: number;
+  /** the color's HSV value 0..255: the strength of the 3Dfx reflection (R3DCar_ReflectionAlpha) */
+  value: number;
 }
 
 /** The game's car color `index` (NFS2_CAR_HSVT; race cars 0..23) */
 export const nfs2PaintOfHsvt = (index: number): Nfs2CarPaint => {
   const [h, s, v, mid] = NFS2_CAR_HSVT[index];
-  return { color: nfs2HsvToRgb(h, s, v), mid };
+  return { color: nfs2HsvToRgb(h, s, v), mid, value: v };
 };
 
 /** nfs-web: the shade knee for colors not from the game's table, the median of the race car colors' */
 export const NFS2_RGB_PAINT_MID = 100;
 
 /** nfs-web: a 0xRRGGBB color painted the game's way (NFS2_RGB_PAINT_MID) */
-export const nfs2PaintOfRgb = (rgb: number, mid = NFS2_RGB_PAINT_MID): Nfs2CarPaint => ({
-  color: [rgb >> 16, (rgb >> 8) & 0xff, rgb & 0xff],
-  mid,
-});
+export const nfs2PaintOfRgb = (rgb: number, mid = NFS2_RGB_PAINT_MID): Nfs2CarPaint => {
+  const color: [number, number, number] = [rgb >> 16, (rgb >> 8) & 0xff, rgb & 0xff];
+  return { color, mid, value: Math.max(...color) };
+};
 
 /**
  * nfs2sen Color_RecolorPalette 0x446a90 + Color_RecolorEntry 0x446b40: the new value of a palette color (0..255 per
@@ -450,6 +477,90 @@ function paintInShader(material: Material, uniforms: PaintUniforms) {
 }
 
 /**
+ * nfs2sea Transfmr_ReflectionVertices 0x4800b0, per vertex of a reflective part: R = the game normal (`_game_normal`)
+ * in the world, the game's axes here: x is x, the height (game y) is z (gg-web-engine worlds are z up). The shade is
+ * (R.y + 1) / 2 of the light, the light alone for a vertex without a normal; the light is full here (the game's track
+ * light, at most 0xda, scales the car's flat parts too). Render_CarsLodPass 0x46cc50: reflections only for cars less
+ * than 40 m (0x280000) along the view, measured at the model's origin (the body parts have no transform of their own)
+ */
+const VOODOO_GLSL = `
+  attribute vec3 _game_normal;
+  varying float vNfs2Shade;
+  vec3 nfs2VoodooNormal() {
+    vec3 n = mat3( modelMatrix ) * _game_normal;
+    float l = length( n );
+    return l > 0.0 ? n / l : vec3( 0.0 );
+  }
+  float nfs2VoodooOn() {
+    return -( viewMatrix * vec4( modelMatrix[ 3 ].xyz, 1.0 ) ).z < 40.0 ? 1.0 : 0.0;
+  }
+  float nfs2VoodooShade( vec3 n ) {
+    return n == vec3( 0.0 ) ? 1.0 : ( n.z + 1.0 ) * 0.5;
+  }`;
+
+// a color multiplied by the shade in the output color space (the game's 8-bit vertex color x texel)
+const VOODOO_SHADE_GLSL =
+  'diffuseColor.rgb = sRGBTransferEOTF( vec4( sRGBTransferOETF( vec4( diffuseColor.rgb, 1.0 ) ).rgb * vNfs2Shade, 1.0 ) ).rgb;';
+
+/** Draw 1 of a reflection polygon (R3dfx_PolyReflectTri / Quad): its texture x the vertex shade (Gouraud) */
+function voodooShadeInShader(material: Material) {
+  const previous = material.onBeforeCompile;
+  const previousKey = material.customProgramCacheKey;
+  material.onBeforeCompile = (shader, renderer) => {
+    previous.call(material, shader, renderer);
+    shader.vertexShader = shader.vertexShader.replace('#include <common>', `#include <common>\n${VOODOO_GLSL}`).replace(
+      '#include <begin_vertex>',
+      `#include <begin_vertex>
+        vNfs2Shade = mix( 1.0, nfs2VoodooShade( nfs2VoodooNormal() ), nfs2VoodooOn() );`,
+    );
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vNfs2Shade;')
+      .replace('#include <alphatest_fragment>', `${VOODOO_SHADE_GLSL}\n#include <alphatest_fragment>`);
+  };
+  material.customProgramCacheKey = () => `${previousKey.call(material)}|nfs2-voodoo-shade`;
+  material.needsUpdate = true;
+}
+
+/**
+ * Draw 2 of a reflection polygon: chr0 at the vertices' texture coordinates (wrapped, in textures): u = (acos(V.x) +
+ * acos(-R.x)) x 4 / pi (Math_Acos256: 0x100 a quarter turn, << 9, / 0x10000), V the direction from the camera to the
+ * vertex as the game adds them: the part's vertex unrotated + model origin - camera; v by the part's reflection 1:
+ * 2 R.y - 1 above 0.5, else 0; 2: R.y above 0, else 0; a vertex without a normal 0, 0. Its color: the texel x the
+ * shade, alpha the texel's x the car's reflection alpha (`opacity`); added by the material's blending
+ */
+function voodooEnvInShader(material: MeshBasicMaterial, reflection: number) {
+  material.onBeforeCompile = shader => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>\n${VOODOO_GLSL}\nvarying float vNfs2On;`)
+      .replace(
+        '#include <uv_vertex>',
+        `#include <uv_vertex>
+        vec3 nfs2N = nfs2VoodooNormal();
+        vNfs2Shade = nfs2VoodooShade( nfs2N );
+        vNfs2On = nfs2VoodooOn();
+        if ( nfs2N == vec3( 0.0 ) ) {
+          vMapUv = vec2( 0.0 );
+        } else {
+          vec3 nfs2V = position + modelMatrix[ 3 ].xyz - cameraPosition;
+          float nfs2Vx = nfs2V == vec3( 0.0 ) ? 0.0 : normalize( nfs2V ).x;
+          vMapUv = vec2(
+            ( acos( clamp( nfs2Vx, -1.0, 1.0 ) ) + acos( clamp( -nfs2N.x, -1.0, 1.0 ) ) ) * 4.0 / PI,
+            ${reflection === 2 ? 'max( nfs2N.z, 0.0 )' : 'nfs2N.z > 0.5 ? 2.0 * nfs2N.z - 1.0 : 0.0'}
+          );
+        }`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vNfs2Shade;\nvarying float vNfs2On;')
+      .replace(
+        '#include <alphatest_fragment>',
+        `${VOODOO_SHADE_GLSL}\ndiffuseColor.a *= vNfs2On;\n#include <alphatest_fragment>`,
+      );
+  };
+  material.customProgramCacheKey = () => `nfs2-voodoo-env-${reflection}`;
+  material.needsUpdate = true;
+}
+
+/**
  * The exe's car fields the drawing reads (nfs2-physics.c `get_car_render`), raw values. Cars of other physics fill
  * them with nfs2DrawStateOf.
  */
@@ -514,6 +625,8 @@ interface PartMesh {
   index: number;
   depthMesh: Mesh;
   wheel: WheelObject | null;
+  // 3Dfx reflections (setUpVoodoo): the material without and with the shade, the chr0 pass
+  voodoo: { plain: Material; shaded: Material; env: Mesh } | null;
 }
 
 /**
@@ -531,6 +644,8 @@ interface WheelObject {
 interface AnimatedMaterial {
   material: MeshBasicMaterial;
   depthMaterial: MeshBasicMaterial;
+  // the copy with the 3Dfx shade, once made
+  shadedMaterial: MeshBasicMaterial | null;
   // texture of every frame, frame 0 the GLB's own
   frames: Texture[];
 }
@@ -561,9 +676,13 @@ const frameTextureName = (name: string, frame: number): string =>
  * `frames`, `color_keyed`, `geo_part_pos` since 2026-10-28) the way nfs2sen.exe does (see above): paint (palette
  * recolor), draw layers and view-angle part culling, tyre and brake light texture frames, front wheels steered by the
  * view angle, wheel bounce, the game's wheel fix. Models converted before the extras: tyres animated (4 frames, every
- * NFS2 SE car has them), brake lights not, wheels turn about their quad's centre.
+ * NFS2 SE car has them), brake lights not, wheels turn about their quad's centre. With `voodooReflections`, the
+ * reflections of nfs2sea.exe (see above; GLB attribute `_game_normal`, since 2026-11-23).
  * Not done (see nfs-web's src/nfs2/nfs2-physics/CLAUDE.md, "Car drawing"): body roll / pitch of the crash code, the
- * ground shadow, the track's light (tunnels), level of detail, traffic colors.
+ * ground shadow, the track's light (tunnels), level of detail, traffic colors, the spoiler callbacks (MCF1's airbrake,
+ * ISDE's and GT90's wings, CHEV's shaking hood part), the blinking after a wreck reset (Render_Cars, car+0x16c), body
+ * parts drawn at the body object's position (MACH's parts 6, 8, 10 by 1..5 cm), the software renderer's paint
+ * quantised to the screen palette (Pal_NewCarPalette 0x46d5d0).
  */
 export class Nfs2CarMeshController {
   /** car type (NFS2_MODEL_NAMES index), -1 when unknown */
@@ -582,6 +701,12 @@ export class Nfs2CarMeshController {
   private viewPitch = 0;
   private layerKey = '';
   private readonly cameraPosition = new Vector3();
+
+  // 3Dfx reflections: the chr0 texture's URL, the chr0 pass's materials by the parts' reflection (1, 2)
+  private readonly voodooEnvMap: string | null;
+  private readonly voodooEnvMaterials = new Map<number, MeshBasicMaterial>();
+  private voodooReady = false;
+  private _voodooReflections = false;
 
   private state: Nfs2CarDrawState = nfs2DrawStateOf(0, 0, false);
   // R3DCar_BodyCallback's frame counter (car+0x648) and the last sim tick seen
@@ -612,6 +737,9 @@ export class Nfs2CarMeshController {
   set paint(value: Nfs2CarPaint | null) {
     this._paint = value;
     this.paintUniforms.set(value);
+    for (const material of this.voodooEnvMaterials.values()) {
+      material.opacity = this.voodooAlpha() / 255;
+    }
   }
 
   private _color: number | null = null;
@@ -637,10 +765,17 @@ export class Nfs2CarMeshController {
     /**
      * model: the GEO's name (CALA ...), default from the assets path (".../<model>.geo/assets"); frames: animation
      * frames of a part's polygons with this texture, for models without TailsLab's extras (the OBJ export: TailsLab
-     * reads them from the parsed GEO)
+     * reads them from the parsed GEO); voodooReflections: the 3Dfx build's reflections (see above, needs
+     * `voodooEnvMap`: the URL of FXTEXT.FSH's chr0.png, or chr1.png)
      */
-    options: { model?: string; frames?: (part: number, texture: string) => number } = {},
+    options: {
+      model?: string;
+      frames?: (part: number, texture: string) => number;
+      voodooReflections?: boolean;
+      voodooEnvMap?: string;
+    } = {},
   ) {
+    this.voodooEnvMap = options.voodooEnvMap ?? null;
     const modelName = (options.model ?? /([^/]+)\.geo(?:\/|$)/i.exec(assetsPath)?.[1] ?? '').toUpperCase();
     this.model = NFS2_MODEL_NAMES.indexOf(modelName);
     this.layout = layoutOfModel(this.model);
@@ -710,6 +845,7 @@ export class Nfs2CarMeshController {
         index,
         depthMesh,
         wheel: this.wheelObjects.find(w => w.meshes.includes(m)) ?? null,
+        voodoo: null,
       };
       this.parts.push(entry);
       const beforeRender = (renderer: WebGLRenderer, camera: Camera) => this.beforeRender(entry, renderer, camera);
@@ -717,12 +853,150 @@ export class Nfs2CarMeshController {
       depthMesh.onBeforeRender = (renderer, _scene, camera) => beforeRender(renderer, camera);
     }
     this.updateLayers();
+    if (options.voodooReflections) {
+      this.voodooReflections = true;
+    }
+  }
+
+  /** The 3Dfx reflection of a part: 0 none, 1 or 2 (NFS2_CAR_PART_LAYOUTS) */
+  private reflectionOf(part: number): number {
+    return NFS2_CAR_PART_LAYOUTS[this.layout][part][5];
+  }
+
+  /** The part mesh can reflect: a race car's part with a reflection and the game's normals (TailsLab since 2026-11-23) */
+  private reflects(entry: PartMesh): boolean {
+    return (
+      this.model >= 0 &&
+      this.model < RACE_CAR_MODELS &&
+      this.reflectionOf(entry.part) !== 0 &&
+      !!entry.mesh.geometry.getAttribute('_game_normal')
+    );
+  }
+
+  /** The model has parts with 3Dfx reflections */
+  get hasVoodooReflections(): boolean {
+    return this.parts.some(p => this.reflects(p));
+  }
+
+  /** The 3Dfx build's reflections (see above): needs the constructor's `voodooEnvMap` */
+  get voodooReflections(): boolean {
+    return this._voodooReflections;
+  }
+
+  set voodooReflections(value: boolean) {
+    if (value && !this.setUpVoodoo()) {
+      return;
+    }
+    this._voodooReflections = value;
+    for (const { mesh: m, voodoo } of this.parts) {
+      if (voodoo) {
+        m.material = value ? voodoo.shaded : voodoo.plain;
+        voodoo.env.visible = value;
+      }
+    }
+  }
+
+  /**
+   * R3DCar_ReflectionAlpha 0x46f5d0: IDGO, CHEV 0x80, DAYT 0x70, FUTR 0x90, else (the paint's HSV value >> 2) + 0x40
+   * (Transfmr_ReflectionVertices takes the smaller of it and (light + it) / 2: it, at the light of daytime tracks)
+   */
+  private voodooAlpha(): number {
+    switch (this.model) {
+      case MODEL_IDGO:
+      case 0xc:
+        return 0x80;
+      case 0xd:
+        return 0x70;
+      case 0xe:
+        return 0x90;
+      default:
+        return ((this._paint?.value ?? 0xff) >> 2) + 0x40;
+    }
+  }
+
+  /**
+   * Reflective parts (see above): a copy of their material with the shade (animated ones follow the frames) and a mesh
+   * of the chr0 pass drawn right after the part (updateLayers). False when the model has none or no texture was given
+   */
+  private setUpVoodoo(): boolean {
+    if (this.voodooReady) {
+      return true;
+    }
+    if (!this.voodooEnvMap || !this.hasVoodooReflections) {
+      if (!this.voodooEnvMap) {
+        console.warn('Nfs2CarMeshController: 3Dfx reflections need the voodooEnvMap option');
+      }
+      return false;
+    }
+    this.voodooReady = true;
+    // Render_LoadFxTextures 0x434f60, R3dfx_SetState: filtered bilinearly, no mipmaps; the reflection pass wraps
+    const texture = new TextureLoader().load(this.voodooEnvMap);
+    texture.colorSpace = 'srgb';
+    texture.flipY = false;
+    texture.wrapS = RepeatWrapping;
+    texture.wrapT = RepeatWrapping;
+    texture.magFilter = LinearFilter;
+    texture.minFilter = LinearFilter;
+    texture.generateMipmaps = false;
+    this.ownTextures.push(texture);
+    const shaded = new Map<Material, MeshBasicMaterial>();
+    for (const entry of this.parts) {
+      if (!this.reflects(entry)) {
+        continue;
+      }
+      const reflection = this.reflectionOf(entry.part);
+      const plain = entry.mesh.material as MeshBasicMaterial;
+      let material = shaded.get(plain);
+      if (!material) {
+        material = plain.clone();
+        paintInShader(material, this.paintUniforms);
+        voodooShadeInShader(material);
+        this.ownMaterials.push(material);
+        shaded.set(plain, material);
+        for (const animation of this.animations.values()) {
+          for (const animated of animation.materials) {
+            if (animated.material === plain) {
+              animated.shadedMaterial = material;
+            }
+          }
+        }
+      }
+      let envMaterial = this.voodooEnvMaterials.get(reflection);
+      if (!envMaterial) {
+        // R3dfx_PolyReflectTri / Quad: added with the alpha (grAlphaBlendFunction(SRC_ALPHA, ONE)), the alpha test of
+        // R3dfx_SetState 8 (greater than 0x10); drawn in the layer order (not `transparent`, see updateLayers)
+        envMaterial = new MeshBasicMaterial({
+          map: texture,
+          opacity: this.voodooAlpha() / 255,
+          alphaTest: 0x10 / 255 + 1e-4,
+          side: FrontSide,
+          depthTest: true,
+          depthWrite: false,
+          blending: CustomBlending,
+          blendEquation: AddEquation,
+          blendSrc: SrcAlphaFactor,
+          blendDst: OneFactor,
+        });
+        voodooEnvInShader(envMaterial, reflection);
+        this.voodooEnvMaterials.set(reflection, envMaterial);
+        this.ownMaterials.push(envMaterial);
+      }
+      const env = new Mesh(entry.mesh.geometry, envMaterial);
+      env.name = `${entry.mesh.name}__reflection`;
+      env.visible = false;
+      env.onBeforeRender = entry.depthMesh.onBeforeRender;
+      entry.mesh.add(env);
+      entry.voodoo = { plain, shaded: material, env };
+    }
+    this.layerKey = '';
+    this.updateLayers();
+    return true;
   }
 
   /**
    * Wheel objects (R3DCar_AddWheel 0x45b700): wheel part and inner part turn and move together about the inner part's
    * position (the last mesh added sets the object's position, Transfmr_AddMesh 0x4622b0), so a tyre quad whose part
-   * position differs is drawn shifted by the difference (IDGO, MCF1: 1-2 cm). Fixing Wheels (R3DCar_LoadGeo): the
+   * position differs is drawn shifted by the difference (12 of the 15 race cars: rear 1.1..2.1 cm, IDGO's front 2.9 cm). Fixing Wheels (R3DCar_LoadGeo): the
    * tyre quads of IDGO's front wheels and of every race car's rear wheels (their first polygon has flag 2: all of
    * them) 5/256 m outward.
    */
@@ -829,6 +1103,7 @@ export class Nfs2CarMeshController {
         animated = {
           material: clone,
           depthMaterial: null!,
+          shadedMaterial: null,
           frames: [
             material.map,
             ...Array.from({ length: frames - 1 }, (_, i) => load(frameTextureName(name, i + 1), material.map!)),
@@ -854,6 +1129,9 @@ export class Nfs2CarMeshController {
           if (animated.material.map === texture) {
             animated.material.map = animated.frames[0];
             animated.depthMaterial.map = animated.frames[0];
+            if (animated.shadedMaterial) {
+              animated.shadedMaterial.map = animated.frames[0];
+            }
           }
         }
       }
@@ -867,10 +1145,13 @@ export class Nfs2CarMeshController {
       return;
     }
     animation.frame = frame;
-    for (const { material, depthMaterial, frames } of animation.materials) {
+    for (const { material, depthMaterial, shadedMaterial, frames } of animation.materials) {
       // the same program: a map for another (no needsUpdate)
       material.map = frames[Math.min(frame, frames.length - 1)];
       depthMaterial.map = material.map;
+      if (shadedMaterial) {
+        shadedMaterial.map = material.map;
+      }
     }
   }
 
@@ -927,7 +1208,8 @@ export class Nfs2CarMeshController {
 
   /**
    * R3DCar_WheelBounce 0x45bbc0, once per sim tick: the wheels drop by the height above ground (0.01..0.04 m) when
-   * they vibrate (crash vibration, wheelspin) and shake by a random part of the vibration
+   * the crash code vibrates them, and shake by a random part of the vibration (wheelspin: at least 0xb333, after the
+   * drop: shaking only)
    */
   private updateWheelBounce(state: Nfs2CarDrawState) {
     for (const [i, { meshes, front }] of this.wheelObjects.entries()) {
@@ -935,10 +1217,10 @@ export class Nfs2CarMeshController {
       if ((state.vibrationSpeed ?? 0) > 0x2c0000 && v <= 0x2666) {
         v = 0x2666;
       }
+      const drop = v > 0x28f ? Math.min(Math.abs(state.heightAboveGround!) + 0x28f, 0xa3d) : 0;
       if ((front ? state.frontWheelspin : state.wheelspin) !== 0 && v <= 0xb333) {
         v = 0xb333;
       }
-      const drop = v > 0x28f ? Math.min(Math.abs(state.heightAboveGround!) + 0x28f, 0xa3d) : 0;
       const shake = () => Math.trunc(fixmul(Math.floor(Math.random() * 0x1000000), v) / 0x1000);
       const offset = shake() > 0 ? -shake() - drop : shake() - drop;
       for (const m of meshes) {
@@ -994,7 +1276,13 @@ export class Nfs2CarMeshController {
       return;
     }
     this.layerKey = key;
-    this.parts.forEach((p, i) => (p.mesh.renderOrder = layers[i] * LAYER_ORDER + p.index));
+    this.parts.forEach((p, i) => {
+      p.mesh.renderOrder = layers[i] * LAYER_ORDER + p.index;
+      // the reflection pass of a polygon right after it
+      if (p.voodoo) {
+        p.voodoo.env.renderOrder = p.mesh.renderOrder + 0.5;
+      }
+    });
   }
 
   /** Transfmr_DrawObject: skipped from some view angles */
@@ -1106,10 +1394,14 @@ export class Nfs2CarMeshController {
       clearInterval(this.previewTimer);
       this.previewTimer = null;
     }
-    for (const { mesh: m, depthMesh } of this.parts) {
+    for (const { mesh: m, depthMesh, voodoo } of this.parts) {
       m.onBeforeRender = () => {};
       m.geometry.drawRange.count = Infinity;
       depthMesh.removeFromParent();
+      if (voodoo) {
+        m.material = voodoo.plain;
+        voodoo.env.removeFromParent();
+      }
     }
     this.ownMaterials.forEach(m => m.dispose());
     this.ownTextures.forEach(t => t.dispose());
