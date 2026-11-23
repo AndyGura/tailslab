@@ -1830,6 +1830,34 @@ def fce4_part_lod_prefix(part_name: str) -> str:
     return {'H': 'hp', 'M': 'mp', 'L': 'lp', 'T': 'tp'}.get(name[1:2], 'part')
 
 
+# FCE4 parts whose vertices nfs4.exe moves to their damaged positions (Car_DamageVisual 0x44a510 ->
+# Fce_DamageVertices 0x4ed390)
+FCE4_DAMAGED_PARTS = (':HB', ':MB', ':LB', ':OL', ':OT')
+# FCE4 parts with vertices turned by nfs4.exe: the steering wheel of ":OD" (about Z), the head ":OH" (about Y)
+FCE4_TURNING_PARTS = (':OD', ':OH')
+# FCE4 triangle flag bits of the windows (`Fce4Triangle.flags`): (bit, flag name)
+FCE4_WINDOW_FLAG_BITS = [
+    (5, 'window'),
+    (6, 'front_window'),
+    (7, 'left_window'),
+    (8, 'back_window'),
+    (9, 'right_window'),
+    (10, 'broken_window'),
+]
+# the window sides of the FCE4 triangle flags bits 6..9
+FCE4_WINDOW_SIDES = [(6, 'front'), (7, 'left'), (8, 'back'), (9, 'right')]
+
+
+def fce4_window_class(flags: int) -> Tuple[Tuple[str, ...], bool] | None:
+    """Window class of a FCE4 triangle by its flags: (sides, breaks away), None for a triangle that is no window.
+    nfs4.exe (Fce_BreakWindows 0x4ed0e0): a window triangle has one of the bits 5..9 (0x3e0); a hit cracks every window
+    triangle of the part sharing a side (bits 6..9: front, left, back, right) with a window triangle with a damaged
+    vertex, and stops drawing those with bit 10 ("breaks away") of a side hit hard"""
+    if not flags & 0x3E0:
+        return None
+    return tuple(side for bit, side in FCE4_WINDOW_SIDES if flags & (1 << bit)), bool(flags & 0x400)
+
+
 def _find_fce_siblings(id: str) -> Tuple[Optional[str], List[Tuple[str, bytes]]]:
     """Finds file name of FCE model and its TGA textures: TGA items of the same BIGF archive (car.viv), or TGA files
     next to FCE file. Returns (FCE file name, list of (texture name without extension, TGA bytes) sorted by name)"""
@@ -1865,6 +1893,8 @@ def _find_fce_siblings(id: str) -> Tuple[Optional[str], List[Tuple[str, bytes]]]
 class Fce3GeometrySerializer(BaseFileSerializer):
     # FCE3 texture V goes from bottom to top of the texture, FCE4 from top to bottom
     v_from_bottom = True
+    # True: the part positions go to the `.meta` and the OBJ's extra JSON as `fcePartPositions`
+    export_part_positions = False
 
     def __init__(self):
         super().__init__(is_dir=True)
@@ -1892,6 +1922,25 @@ class Fce3GeometrySerializer(BaseFileSerializer):
         if triangle['flags']['matte']:
             return 'none'
         return 'high' if triangle['flags']['high_chrome'] else 'normal'
+
+    def _window_class(self, triangle) -> tuple | None:
+        """Window class of a triangle, a key of `_window_class_extras`; None: not a window or no windows in the
+        format"""
+        return None
+
+    def _window_class_extras(self, window_class) -> Tuple[str, dict | None]:
+        """Mesh name suffix and node extras of a `_window_class`"""
+        return '', None
+
+    def _morph_target_tables(self, data: dict, part_name: str, name_suffix: str) -> List[Tuple[str, str]]:
+        """Morph targets of the meshes of a part's variant (`_vertex_tables` suffix): list of (target name, name of
+        the vertex positions table it moves the vertices to)"""
+        return []
+
+    def _vertex_turns(self, data: dict, part_index: int, part_name: str, name_suffix: str) -> List[bool] | None:
+        """For the meshes of a part's variant: per part vertex, True when the game turns it with the part (exported as
+        `_FCE_TURNS`), None: no turning vertices"""
+        return None
 
     def _transparency_mask(self, image: Image.Image) -> Image.Image:
         """Alpha channel of exported texture. FCE3 textures are opaque"""
@@ -1936,6 +1985,9 @@ class Fce3GeometrySerializer(BaseFileSerializer):
         scene.mtl_name = 'material'
         alpha_modes = {}
         vertex_tables = self._vertex_tables(data)
+        # mesh name -> 1 (turns) or 0 per face corner, in the order the OBJ writes the faces and their corners
+        fce_turns = {}
+        part_positions = {}
 
         for part_index in range(min(data['num_parts'], 64)):
             part_name = data['part_names'][part_index].split('\x00')[0]
@@ -1944,22 +1996,32 @@ class Fce3GeometrySerializer(BaseFileSerializer):
             if sanitized_name:
                 mesh_name += f'_{sanitized_name}'
             first_vertex = data['part_first_vertex'][part_index]
+            num_vertices = data['part_num_vertices'][part_index]
             first_triangle = data['part_first_triangle'][part_index]
             triangles = data['triangles'][first_triangle : first_triangle + data['part_num_triangles'][part_index]]
             position = data['part_positions'][part_index]
-            chrome_classes = {}
+            # in the export axes, as the vertices (y and z swapped)
+            part_positions[mesh_name] = [position['x'], position['z'], position['y']]
+            triangle_classes = {}
             for triangle in triangles:
-                chrome_classes.setdefault(self._chrome_class(triangle), []).append(triangle)
-            for (name_suffix, vertex_table, normal_table), (chrome_class, class_triangles) in (
-                (t, c) for t in vertex_tables for c in chrome_classes.items()
+                key = (self._chrome_class(triangle), self._window_class(triangle))
+                triangle_classes.setdefault(key, []).append(triangle)
+            for (name_suffix, vertex_table, normal_table), ((chrome_class, window_class), class_triangles) in (
+                (t, c) for t in vertex_tables for c in triangle_classes.items()
             ):
-                vertices = data[vertex_table][first_vertex : first_vertex + data['part_num_vertices'][part_index]]
-                normals = (
-                    data[normal_table][first_vertex : first_vertex + data['part_num_vertices'][part_index]]
-                    if normal_table
-                    else None
-                )
+                vertices = data[vertex_table][first_vertex : first_vertex + num_vertices]
+                normals = data[normal_table][first_vertex : first_vertex + num_vertices] if normal_table else None
                 class_suffix, class_properties = self.CHROME_CLASSES.get(chrome_class, ('', None))
+                window_suffix, window_properties = self._window_class_extras(window_class)
+                properties = {**(class_properties or {}), **(window_properties or {})}
+                morph_tables = [
+                    (target, data[table][first_vertex : first_vertex + num_vertices])
+                    for target, table in self._morph_target_tables(data, part_name, name_suffix)
+                ]
+                turns = self._vertex_turns(data, part_index, part_name, name_suffix)
+                # per mesh vertex: the delta to each morph target's position, whether it turns
+                morph_deltas = {target: [] for target, _ in morph_tables}
+                vertex_turns = []
                 mesh = Mesh()
                 mesh.name = mesh_name
                 mesh.pivot_offset = (-position['x'], -position['y'], -position['z'])
@@ -1983,6 +2045,11 @@ class Fce3GeometrySerializer(BaseFileSerializer):
                             if normals is not None:
                                 normal = normals[vi]
                                 mesh.vertex_normals.append([normal['x'], normal['y'], normal['z']])
+                            for target, target_vertices in morph_tables:
+                                moved = target_vertices[vi]
+                                morph_deltas[target].append([moved[k] - vertex[k] for k in ('x', 'y', 'z')])
+                            if turns is not None:
+                                vertex_turns.append(turns[vi])
                         polygon.append(corner_map[key])
                     mesh.polygons.append(polygon)
                     mesh.texture_ids.append(texture_id)
@@ -1991,15 +2058,27 @@ class Fce3GeometrySerializer(BaseFileSerializer):
                         mesh.texture_ids.append(texture_id)
                 if not mesh.polygons:
                     continue
-                for sub_mesh in mesh.sub_meshes():
+                for sub_mesh, vertex_indices, _ in mesh.split_by_texture_ids():
                     sub_mesh.name = (
                         mesh_name
                         + (f'__{sub_mesh.texture_id}' if sub_mesh.texture_id != 'untextured' else '')
                         + class_suffix
+                        + window_suffix
                         + name_suffix
                     )
-                    if class_properties:
-                        scene.object_properties[sub_mesh.name] = class_properties
+                    if properties:
+                        scene.object_properties[sub_mesh.name] = properties
+                    sub_mesh.morph_targets = {
+                        target: [deltas[i] for i in vertex_indices] for target, deltas in morph_deltas.items()
+                    }
+                    if turns is not None:
+                        sub_mesh_turns = [vertex_turns[i] for i in vertex_indices]
+                        # three.js: geometry attribute `_fce_turns`, 1 or 0
+                        sub_mesh.vertex_byte_attributes['_FCE_TURNS'] = [[255 if t else 0] for t in sub_mesh_turns]
+                        # three.js OBJLoader makes a vertex of every face corner, in file order
+                        fce_turns[sub_mesh.name] = [
+                            1 if sub_mesh_turns[i] else 0 for polygon in sub_mesh.polygons for i in polygon
+                        ]
                     sub_mesh.change_axes(new_y='z', new_z='y', pivot=True)
                     scene.sub_meshes.append(sub_mesh)
 
@@ -2022,6 +2101,11 @@ class Fce3GeometrySerializer(BaseFileSerializer):
             'collisionHalfSize': {'x': half_size['x'], 'y': half_size['y'], 'z': half_size['z']},
             'fceColors': self._fce_colors(data),
         }
+        if self.export_part_positions:
+            scene.meta_extras['fcePartPositions'] = part_positions
+            scene.extras['fcePartPositions'] = part_positions
+        if fce_turns:
+            scene.extras['fceTurns'] = fce_turns
         scene.mtl_texture_names = sorted({m.texture_id for m in scene.sub_meshes if m.texture_id != 'untextured'})
         scene.mtl_texture_path_func = lambda name: f'assets/{name.removesuffix("_translucent")}.png'
         scene.mtl_texture_alpha_modes = {name: alpha_modes.get(name, 'cutout') for name in scene.mtl_texture_names}
@@ -2045,6 +2129,36 @@ class Fce3GeometrySerializer(BaseFileSerializer):
 
 class Fce4GeometrySerializer(Fce3GeometrySerializer):
     v_from_bottom = False
+    # the pivots nfs4.exe turns ":OS", ":OD" and ":OH" about
+    export_part_positions = True
+
+    def _window_class(self, triangle) -> tuple | None:
+        flags = triangle['flags']
+        return fce4_window_class(sum(1 << bit for bit, name in FCE4_WINDOW_FLAG_BITS if flags.get(name)))
+
+    def _window_class_extras(self, window_class) -> Tuple[str, dict | None]:
+        if window_class is None:
+            return '', None
+        sides, breaks_away = window_class
+        suffix = '_window' + ''.join(f'_{side}' for side in sides) + ('_breakaway' if breaks_away else '')
+        return suffix, {'fceWindow': {'sides': list(sides), 'breaksAway': breaks_away}}
+
+    def _morph_target_tables(self, data: dict, part_name: str, name_suffix: str) -> List[Tuple[str, str]]:
+        # nfs4.exe blends the vertices of these parts from the undamaged to the damaged positions (Fce_DamageVertices
+        # 0x4ed390, called for them only by Car_DamageVisual 0x44a510). Only for a model with damaged positions, as
+        # the "_damaged" copies
+        if not name_suffix and part_name.upper() in FCE4_DAMAGED_PARTS and len(self._vertex_tables(data)) > 1:
+            return [('damaged', 'damaged_vertices')]
+        return []
+
+    def _vertex_turns(self, data: dict, part_index: int, part_name: str, name_suffix: str) -> List[bool] | None:
+        # ":OD": the steering wheel's vertices turn with the steering, ":OH": the head turns; animation flag bit 2: the
+        # vertex stays put
+        if name_suffix or part_name.upper() not in FCE4_TURNING_PARTS:
+            return None
+        first_vertex = data['part_first_vertex'][part_index]
+        flags = data['animation_flags'][first_vertex : first_vertex + data['part_num_vertices'][part_index]]
+        return [not (flag & 4) for flag in flags]
 
     def _fce_colors(self, data):
         # color set i: primary, interior, secondary and driver hair color i

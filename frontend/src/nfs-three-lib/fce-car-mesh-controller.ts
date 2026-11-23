@@ -17,6 +17,7 @@ import {
   Vector4,
 } from 'three';
 import { sceneSkyCube } from './scene-sky';
+import { Fce4CarParts, Fce4CarPartsOptions } from './fce4-car-parts';
 
 export type FceDummy = { name: string; position: [number, number, number] };
 
@@ -79,9 +80,10 @@ export const fce3HsbToRgb = (color: FceColor): [number, number, number] => {
 };
 
 /**
- * nfs3.exe 0x49cc50: the paint of a car texel, 0..255 RGB before the exe's reduction to 5 bits. The texel's blue
- * channel (5 bits, << 3) shades the color's brightness: brightness * blue / (255 - transparency) (transparency 255:
- * brightness * blue), truncated, at most 255; float32 as the exe stores the factor
+ * nfs3.exe 0x49cc50 (nfs4.exe Car_PaintTexel 0x4ee550 the same): the paint of a car texel, 0..255 RGB before the exe's
+ * reduction to 5 bits. The texel's blue channel (5 bits, << 3) shades the color's brightness: brightness * blue /
+ * (255 - transparency) (transparency 255: brightness * blue), truncated, at most 255; float32 as the exe stores the
+ * factor
  */
 export const fce3PaintColor = (blue: number, color: FceColor): [number, number, number] => {
   const blue8 = (blue >> 3) << 3;
@@ -109,30 +111,52 @@ export const fce3TexelColor = (
 
 export type FceVersion = 3 | 4;
 
-// FCE4: texture alpha of pixels, painted with primary, interior, secondary and driver hair color
-const FCE4_COLOR_ALPHAS = [224, 164, 96, 32];
+/**
+ * nfs4.exe Fce_NearestColorSet 0x4ef310: the index of the FCE4 color set whose primary color is the nearest (RGB
+ * distance, fce3HsbToRgb) to the chosen color; its interior, secondary and driver hair colors paint the car with it
+ */
+export const fce4NearestColorSet = (primaries: FceColor[], chosen: FceColor): number => {
+  const [r, g, b] = fce3HsbToRgb(chosen);
+  let nearest = 0;
+  let distance = 1000;
+  primaries.forEach((color, i) => {
+    const [cr, cg, cb] = fce3HsbToRgb(color);
+    const d = Math.fround(Math.hypot(cr - r, cg - g, cb - b));
+    if (d < distance) {
+      nearest = i;
+      distance = d;
+    }
+  });
+  return nearest;
+};
 
 // FCE3: part indices of car.fce wheels, by LOD. Order: front left, front right, rear left, rear right
 const FCE3_HIGH_POLY_WHEELS = [1, 2, 3, 4];
 const FCE3_MEDIUM_POLY_WHEELS = [7, 6, 9, 8];
 
 // FCE4: car.fce wheel part name: high/medium LOD, left/right, front/middle/rear
-const FCE4_WHEEL_REGEX = /^(?:hp|mp)_\d+_[HM][LR]([FMR])W(?=__|_damaged$|$)/i;
+const FCE4_WHEEL_REGEX = /^(?:hp|mp)_\d+_[HM]([LR])([FMR])W(?=__|_|$)/i;
 // FCE4: front brakes steer together with wheels, but don't spin
-const FCE4_BRAKE_REGEX = /^hp_\d+_O[LR]B(?=__|_damaged$|$)/i;
+const FCE4_BRAKE_REGEX = /^hp_\d+_O([LR])B(?=__|_|$)/i;
 
-// FCE4: wheel radius (m) for the spin rate at a speed
-const WHEEL_RADIUS = 0.33;
+// nfs3.exe, nfs4.exe: wheel spin steps per second (one per sim tick)
+const FCE_WHEEL_TICKS_PER_SECOND = 64;
 
-// nfs3.exe: wheel spin steps per second (one per sim tick)
-const FCE3_WHEEL_TICKS_PER_SECOND = 64;
+/** nfs4.exe 0x50bbb0 / 0x50bdd0: a damaged wheel (car+0x568.. 0..1) tilts 0.025 turn per unit about the forward axis */
+const FCE4_WHEEL_DAMAGE_TILT = 0.025 * 2 * Math.PI;
+
+/** Wheel places: FCE3 wheels 1..4 / 6..9, FCE4 ":H<L|R><F|R>W" (the middle wheels ":H<L|R>MW" follow the rear ones) */
+export type FceWheelPosition = 'frontLeft' | 'frontRight' | 'rearLeft' | 'rearRight';
 
 /**
  * nfs3.exe 0x4b9140 (front wheels) / 0x4b9280 (rear wheels): the spin of a wheel in one sim tick (1/64 s), in turns,
  * positive rolls forward: 0.25 * clamp(speed / 30, -0.5, 0.5), so at most 8 turns per second (from 15 m/s on); the
  * rear wheels with the handbrake (car+0x50d) at most +-0.05 * 0.25. The speed is the car's forward speed in m/s
  * (car+0x4f4). SKIPPED: + 0.1 to the clamped value of the front wheels with car+0x598 set, of the rear ones at the
- * rev limiter (car+0x594), the random up and down offset of the wheels (0x4b90e0, car+0x930)
+ * rev limiter (car+0x594), the random up and down offset of the wheels (0x4b90e0, car+0x930).
+ * nfs4.exe the same (0x50bbb0 front, 0x50bdd0 rear: forward speed car+0x43c, handbrake car+0x455; SKIPPED: its + 0.1
+ * before the clamp with car+0x4e8 / the rev limiter car+0x4e4), but a sliding wheel pair does not turn (car+0x4ec
+ * bit 0 front, bit 1 rear: FceCarMeshController.frontSliding / rearSliding)
  */
 export const fce3WheelSpinStep = (speed: number, isFront: boolean, handbrake: boolean): number => {
   const limit = !isFront && handbrake ? 0.05 : 0.5;
@@ -150,8 +174,9 @@ export const fcePaintMaskNextToTexture = (texture: Texture): string | null => {
 
 /**
  * Index of the paint (see FceCarMeshController.colors) of a paint mask alpha, -1 for unpainted (0 and 255). Kept in
- * sync with fcePaint in the fragment shader. FCE3 as nfs3.exe 0x49cd00: 1..127 primary, 128..254 secondary. FCE4: the
- * nearest of FCE4_COLOR_ALPHAS, the first one on a tie (not verified in nfs4.exe yet)
+ * sync with fcePaint in the fragment shader. FCE3 as nfs3.exe 0x49cd00: 1..127 primary, 128..254 secondary. FCE4 as
+ * nfs4.exe Car_PaintTexture 0x4ee620: 0xc4..0xfe primary, 0x80..0xc3 interior, 0x40..0x7f secondary, 1..0x3f driver
+ * hair. Alpha 0 is a transparent texel, never painted
  */
 export const fcePaintIndexOfAlpha = (version: FceVersion, alpha: number): number => {
   if (alpha === 0 || alpha === 255) {
@@ -160,21 +185,19 @@ export const fcePaintIndexOfAlpha = (version: FceVersion, alpha: number): number
   if (version === 3) {
     return alpha < 0x80 ? 0 : 1;
   }
-  let result = 0;
-  FCE4_COLOR_ALPHAS.forEach((value, i) => {
-    if (Math.abs(alpha - value) < Math.abs(alpha - FCE4_COLOR_ALPHAS[result])) {
-      result = i;
-    }
-  });
-  return result;
+  return alpha >= 0xc4 ? 0 : alpha >= 0x80 ? 1 : alpha >= 0x40 ? 2 : 3;
 };
 
 /**
- * FCE4: painted 0..255 sRGB channel, the texture a greyscale shading of the paint, mid-grey exactly the paint (not
- * verified in nfs4.exe yet)
+ * nfs4.exe Car_PaintTexture 0x4ee620: a texel of car00.tga (RGB, its alpha) as the game draws it, 0..255 RGB: painted
+ * by fce3PaintColor with the color of its alpha (fcePaintIndexOfAlpha, `colors`: primary, interior, secondary, driver
+ * hair), then every channel reduced to 5 bits (the 16-bit 1555 texture) as FCE3
  */
-export const fcePaintChannel = (texel: number, paint: number): number =>
-  Math.min(255, Math.round((texel * paint) / 128));
+export const fce4TexelColor = (rgb: [number, number, number], alpha: number, colors: FceColor[]): number[] => {
+  const index = fcePaintIndexOfAlpha(4, alpha);
+  const painted = index >= 0 && colors[index] ? fce3PaintColor(rgb[2], colors[index]) : rgb;
+  return painted.map(c => Math.round(((c >> 3) * 255) / 31));
+};
 
 /** Uniforms of one texture: its paint mask, and the controller's paints */
 class PaintUniforms {
@@ -182,7 +205,7 @@ class PaintUniforms {
   readonly enabled = { value: 0 };
 
   constructor(
-    /** FCE3: hue, saturation, brightness, transparency. FCE4: RGB */
+    /** hue, saturation, brightness, transparency */
     readonly colors: { value: Vector4[] },
     readonly fce4: { value: number },
   ) {}
@@ -190,7 +213,7 @@ class PaintUniforms {
 
 /**
  * The material paints its texels in the fragment shader (reading a canvas back gets noise from anti-fingerprinting),
- * as fcePaintIndexOfAlpha / fcePaintChannel. Each texel is painted before filtering: with a nearest filter the sample
+ * as fce3TexelColor / fce4TexelColor. Each texel is painted before filtering: with a nearest filter the sample
  * is the texel, a linearly filtered map is sampled texel by texel (base level), every texel with the mask texel at its
  * centre (the mask can have another size). The sRGB value is read back to 0..255
  */
@@ -246,25 +269,14 @@ function paintInShader(material: Material, uniforms: PaintUniforms) {
         vec4 fcePaint( vec4 sampled, vec2 uv ) {
           float alpha = floor( textureLod( fcePaintMask, uv, 0.0 ).a * 255.0 + 0.5 );
           vec3 texel = floor( sRGBTransferOETF( sampled ).rgb * 255.0 + 0.5 );
-          vec3 painted;
-          if ( fcePaintFce4 < 0.5 ) {
-            // fce3TexelColor: every texel of the texture goes through the 16-bit texture
-            if ( alpha > 0.0 && alpha < 128.0 ) {
-              texel = fce3PaintColor( texel.b, fcePaintColors[ 0 ] );
-            } else if ( alpha > 0.0 && alpha < 255.0 ) {
-              texel = fce3PaintColor( texel.b, fcePaintColors[ 1 ] );
-            }
-            painted = floor( floor( texel / 8.0 ) * 255.0 / 31.0 + 0.5 );
-          } else {
-            if ( alpha == 0.0 || alpha == 255.0 ) {
-              return sampled;
-            }
-            vec3 paint = alpha >= ${(FCE4_COLOR_ALPHAS[0] + FCE4_COLOR_ALPHAS[1]) / 2}.0 ? fcePaintColors[ 0 ].rgb
-              : alpha >= ${(FCE4_COLOR_ALPHAS[1] + FCE4_COLOR_ALPHAS[2]) / 2}.0 ? fcePaintColors[ 1 ].rgb
-              : alpha >= ${(FCE4_COLOR_ALPHAS[2] + FCE4_COLOR_ALPHAS[3]) / 2}.0 ? fcePaintColors[ 2 ].rgb
-              : fcePaintColors[ 3 ].rgb;
-            painted = min( floor( texel * paint / 128.0 + 0.5 ), 255.0 );
+          // fcePaintIndexOfAlpha; every texel of the texture goes through the 16-bit texture (fce3TexelColor,
+          // fce4TexelColor)
+          if ( alpha > 0.0 && alpha < 255.0 ) {
+            int index = fcePaintFce4 < 0.5 ? ( alpha < 128.0 ? 0 : 1 )
+              : alpha >= 196.0 ? 0 : alpha >= 128.0 ? 1 : alpha >= 64.0 ? 2 : 3;
+            texel = fce3PaintColor( texel.b, fcePaintColors[ index ] );
           }
+          vec3 painted = floor( floor( texel / 8.0 ) * 255.0 / 31.0 + 0.5 );
           return vec4( sRGBTransferEOTF( vec4( painted / 255.0, 1.0 ) ).rgb, sampled.a );
         }`,
       )
@@ -516,18 +528,38 @@ function chromeInShader(material: Material, uniforms: ChromeUniforms, vertexColo
   material.needsUpdate = true;
 }
 
+/** FceCarMeshController's FCE4 options (Fce4CarParts) */
+export type FceCarMeshOptions = Omit<Fce4CarPartsOptions, 'dummies'>;
+
+type Wheel = {
+  // one per texture (and the damaged copy of FCE3)
+  meshes: Mesh[];
+  isFront: boolean;
+  spins: boolean;
+  // FCE4: its place (middle wheels: the rear one of their side), the group that hides it
+  position: FceWheelPosition | null;
+  middle: boolean;
+  group: Group | null;
+};
+
 /**
  * Animates car.fce model: steers and spins wheels, shows light dummies, paints the car in the fragment shader of its
  * materials (the textures stay as they are). Expects meshes, exported by Fce3GeometrySerializer/Fce4GeometrySerializer:
  * "<lod>_<part index>_<part name>[__<texture>][_damaged]". A texture is painted by its paint mask (`paintMaskUrl`, the
- * alpha channel of car00.tga, see fcePaintIndexOfAlpha; FCE3: fce3TexelColor, the whole texture as nfs3.exe uploads
- * it, at 5 bits per channel). Materials are changed in place:
- * a material shared with another copy of the model gets this controller's paint
+ * alpha channel of car00.tga, see fcePaintIndexOfAlpha; fce3TexelColor / fce4TexelColor, the whole texture as the
+ * exe uploads it, at 5 bits per channel). Materials are changed in place:
+ * a material shared with another copy of the model gets this controller's paint.
+ * FCE4 (NFS4): `parts` draws the car's parts as nfs4.exe (pop-up headlights, roof, driver, spoiler, body lean,
+ * damage), the wheels tilt when damaged (setWheelDamage), hide (setWheelHidden), stop while sliding
  */
 export class FceCarMeshController {
-  // every wheel can consist of a few meshes (one per texture, damaged copy)
-  private wheels: { meshes: Mesh[]; isFront: boolean; spins: boolean }[] = [];
+  private wheels: Wheel[] = [];
   private lights: Group | null = null;
+  // light spheres by dummy index
+  private readonly lightMeshes = new Map<number, Mesh>();
+
+  /** FCE4: the parts nfs4.exe draws by the car's state (Fce4CarParts), null for FCE3 */
+  readonly parts: Fce4CarParts | null = null;
   // spin of the front and the rear wheels, turns (positive rolls forward)
   private readonly spinTurns = { front: 0, rear: 0 };
   // paint uniforms by texture
@@ -574,8 +606,8 @@ export class FceCarMeshController {
 
   private _speed = 0;
   /**
-   * Car speed in m/s, the wheels spin at it (backwards when negative). Can be set every frame. FCE3: as nfs3.exe spins
-   * them (fce3WheelSpinStep), FCE4: rolling at a radius of WHEEL_RADIUS
+   * Car speed in m/s, the wheels spin at it (backwards when negative). Can be set every frame. As nfs3.exe and
+   * nfs4.exe spin them (fce3WheelSpinStep)
    */
   get speed(): number {
     return this._speed;
@@ -587,7 +619,7 @@ export class FceCarMeshController {
   }
 
   private _handbrake = false;
-  /** FCE3: the handbrake slows the rear wheels down (fce3WheelSpinStep) */
+  /** The handbrake slows the rear wheels down (fce3WheelSpinStep) */
   get handbrake(): boolean {
     return this._handbrake;
   }
@@ -596,7 +628,13 @@ export class FceCarMeshController {
     this._handbrake = value;
   }
 
-  // FCE3: sim ticks of the spin done since the timer started, and that time (ms)
+  /** FCE4: the front wheels slide, they don't turn (nfs4.exe 0x50bbb0: car+0x4ec bit 0) */
+  frontSliding = false;
+
+  /** FCE4: the rear wheels slide, they don't turn (nfs4.exe 0x50bdd0: car+0x4ec bit 1) */
+  rearSliding = false;
+
+  // sim ticks of the spin done since the timer started, and that time (ms)
   private spinTicks = 0;
   private spinStart = 0;
 
@@ -616,29 +654,55 @@ export class FceCarMeshController {
   }
 
   private spinWheels() {
-    if (this.version === 3) {
-      const ticks = Math.floor(((performance.now() - this.spinStart) * FCE3_WHEEL_TICKS_PER_SECOND) / 1000);
-      for (; this.spinTicks < ticks; this.spinTicks++) {
-        for (const key of ['front', 'rear'] as const) {
-          const turns = this.spinTurns[key] + fce3WheelSpinStep(this._speed, key === 'front', this._handbrake);
-          // wrapped to -1..1 as the exe
-          this.spinTurns[key] = turns - Math.trunc(turns);
+    const ticks = Math.floor(((performance.now() - this.spinStart) * FCE_WHEEL_TICKS_PER_SECOND) / 1000);
+    for (; this.spinTicks < ticks; this.spinTicks++) {
+      for (const key of ['front', 'rear'] as const) {
+        if (this.version === 4 && (key === 'front' ? this.frontSliding : this.rearSliding)) {
+          continue;
         }
+        const turns = this.spinTurns[key] + fce3WheelSpinStep(this._speed, key === 'front', this._handbrake);
+        // wrapped to -1..1 as the exe
+        this.spinTurns[key] = turns - Math.trunc(turns);
       }
-    } else {
-      const turns = this.spinTurns.front + this._speed / WHEEL_RADIUS / 60 / (2 * Math.PI);
-      this.spinTurns.front = this.spinTurns.rear = turns - Math.trunc(turns);
     }
     this.updateWheels();
   }
 
   private _steeringAngle: number = 0;
+  /** The front wheels' angle in radians, positive to the left (FCE4: the driver's steering wheel turns with them) */
   get steeringAngle(): number {
     return this._steeringAngle;
   }
 
   set steeringAngle(value: number) {
     this._steeringAngle = value;
+    this.updateWheels();
+    if (this.parts) {
+      this.parts.steeringAngle = value;
+    }
+  }
+
+  private readonly wheelDamage: { [position in FceWheelPosition]?: number } = {};
+  private readonly wheelHidden: { [position in FceWheelPosition]?: boolean } = {};
+
+  /**
+   * FCE4: a wheel's damage 0..1 (nfs4.exe car+0x568 front left, +0x56c front right, +0x570 rear left, +0x574 rear
+   * right) tilts it FCE4_WHEEL_DAMAGE_TILT per unit about the forward axis (0x50bbb0 / 0x50bdd0: RotZ before its spin,
+   * so a bent wheel wobbles as it turns; the same way on both sides)
+   */
+  setWheelDamage(position: FceWheelPosition, damage: number) {
+    this.wheelDamage[position] = damage;
+    this.updateWheels();
+  }
+
+  /**
+   * FCE4: a wheel not drawn, its front brake neither: Render_CarParts skips the wheels of car+0xa0c's bits (1 front
+   * left, 2 front right, 4 rear right, 8 rear left), the tyres the spike strips hit (0x4496d0, pursuit; SKIPPED: what
+   * the spike strip effects draw instead, 0x526d90). The middle wheels (Knoc's) go with the rear wheel of the other
+   * side (the exe tests :HLMW with bit 4, :HRMW with bit 8)
+   */
+  setWheelHidden(position: FceWheelPosition, hidden: boolean) {
+    this.wheelHidden[position] = hidden;
     this.updateWheels();
   }
 
@@ -663,6 +727,7 @@ export class FceCarMeshController {
   /**
    * @param paintMaskUrl URL of a texture's paint mask, null for a texture never painted. Default: next to the texture
    * file (fcePaintMaskNextToTexture)
+   * @param options FCE4: the data of `parts` (Fce4CarPartsOptions)
    */
   constructor(
     mesh: Object3D,
@@ -670,16 +735,26 @@ export class FceCarMeshController {
     dummies: FceDummy[],
     colors: FceColor[],
     paintMaskUrl: (texture: Texture) => string | null = fcePaintMaskNextToTexture,
+    options: FceCarMeshOptions = {},
   ) {
     this.colors = colors.map(c => ({ ...c }));
     this.updateColorUniforms();
     this.root = mesh;
     if (version === 3) {
       this.setupChrome(mesh);
+    } else {
+      // first: it takes the damaged copies out of the model
+      this.parts = new Fce4CarParts(mesh, { ...options, dummies });
+      this.parts.onDummyBroken = (index, broken) => {
+        const light = this.lightMeshes.get(index);
+        if (light) {
+          light.visible = !broken;
+        }
+      };
     }
     this.setupPaint(mesh, paintMaskUrl);
     // wheel meshes by part index
-    const parts: { [index: number]: { meshes: Mesh[]; isFront: boolean; spins: boolean } } = {};
+    const parts: { [index: number]: Wheel } = {};
     let body: Mesh | null = null;
     mesh.traverse(o => {
       if (!(o instanceof Mesh)) {
@@ -694,26 +769,43 @@ export class FceCarMeshController {
       if (isBody && !body) {
         body = o;
       }
-      let wheel: { isFront: boolean; spins: boolean } | null = null;
+      let wheel: Omit<Wheel, 'meshes' | 'group'> | null = null;
       if (version === 3) {
         for (const wheelIndices of [FCE3_HIGH_POLY_WHEELS, FCE3_MEDIUM_POLY_WHEELS]) {
           if (wheelIndices.includes(index)) {
-            wheel = { isFront: wheelIndices.indexOf(index) < 2, spins: true };
+            wheel = { isFront: wheelIndices.indexOf(index) < 2, spins: true, position: null, middle: false };
           }
         }
       } else {
         const wheelMatch = FCE4_WHEEL_REGEX.exec(o.name);
+        const brakeMatch = FCE4_BRAKE_REGEX.exec(o.name);
+        const left = (wheelMatch ?? brakeMatch)?.[1].toUpperCase() === 'L';
         if (wheelMatch) {
-          wheel = { isFront: wheelMatch[1].toUpperCase() === 'F', spins: true };
-        } else if (FCE4_BRAKE_REGEX.test(o.name)) {
-          wheel = { isFront: true, spins: false };
+          const axle = wheelMatch[2].toUpperCase();
+          wheel = {
+            isFront: axle === 'F',
+            spins: true,
+            // the middle wheels: hidden with the rear wheel of the other side (setWheelHidden)
+            position:
+              axle === 'F' ? (left ? 'frontLeft' : 'frontRight') : left === (axle === 'R') ? 'rearLeft' : 'rearRight',
+            middle: axle === 'M',
+          };
+        } else if (brakeMatch) {
+          wheel = { isFront: true, spins: false, position: left ? 'frontLeft' : 'frontRight', middle: false };
         }
       }
       if (wheel) {
-        (parts[index] = parts[index] || { meshes: [], ...wheel }).meshes.push(o);
+        (parts[index] = parts[index] || { meshes: [], group: null, ...wheel }).meshes.push(o);
       }
     });
-    for (const wheel of Object.values(parts)) {
+    for (const [index, wheel] of Object.entries(parts)) {
+      if (version === 4) {
+        // shown and hidden through a group of its own: the meshes' `visible` stays the app's
+        wheel.group = new Group();
+        wheel.group.name = `wheel_${index}`;
+        mesh.add(wheel.group);
+        wheel.meshes.forEach(m => wheel.group!.attach(m));
+      }
       // move pivot to the wheel center, so it rotates in place
       const box = new Box3();
       for (const m of wheel.meshes) {
@@ -728,20 +820,23 @@ export class FceCarMeshController {
       }
       this.wheels.push(wheel);
     }
-    const lightDummies = dummies.filter(d => FceCarMeshController.lightColor(version, d.name) !== null);
-    if (body && lightDummies.length > 0) {
+    if (body && dummies.some(d => FceCarMeshController.lightColor(version, d.name) !== null)) {
       this.lights = new Group();
-      for (const dummy of lightDummies) {
-        const light = new Mesh(
-          new SphereGeometry(0.05, 8, 8),
-          new MeshBasicMaterial({ color: FceCarMeshController.lightColor(version, dummy.name)! }),
-        );
+      dummies.forEach((dummy, i) => {
+        const color = FceCarMeshController.lightColor(version, dummy.name);
+        if (color === null) {
+          return;
+        }
+        const light = new Mesh(new SphereGeometry(0.05, 8, 8), new MeshBasicMaterial({ color }));
         light.name = dummy.name;
         light.position.set(...dummy.position);
-        this.lights.add(light);
-      }
+        light.visible = !this.parts?.brokenDummies.has(i);
+        this.lightMeshes.set(i, light);
+        this.lights!.add(light);
+      });
       (body as Mesh).add(this.lights);
     }
+    this.updateWheels();
   }
 
   private readonly root: Object3D;
@@ -873,14 +968,7 @@ export class FceCarMeshController {
   }
 
   private updateColorUniforms() {
-    this.colors.forEach((c, i) => {
-      if (this.version === 3) {
-        this.colorUniforms.value[i]?.set(c.hue, c.saturation, c.brightness, c.transparency);
-      } else {
-        const rgb = fceColorToRgb(c);
-        this.colorUniforms.value[i]?.set(rgb >> 16, (rgb >> 8) & 0xff, rgb & 0xff, 0);
-      }
-    });
+    this.colors.forEach((c, i) => this.colorUniforms.value[i]?.set(c.hue, c.saturation, c.brightness, c.transparency));
   }
 
   /** Color of light dummy, null if dummy is not a light */
@@ -906,17 +994,24 @@ export class FceCarMeshController {
   }
 
   private updateWheels() {
-    for (const { meshes, isFront, spins } of this.wheels) {
+    for (const { meshes, isFront, spins, position, middle, group } of this.wheels) {
+      // a negative angle rolls the wheels forward
+      const spin = spins ? -this.spinTurns[isFront ? 'front' : 'rear'] * 2 * Math.PI : 0;
+      // FCE4: tilted by its damage before its spin (order ZXY: steering, spin, tilt), positive tilts the right up
+      const damage = position && !middle && spins ? (this.wheelDamage[position] ?? 0) : 0;
+      const tilt = damage ? -damage * FCE4_WHEEL_DAMAGE_TILT : 0;
       for (const m of meshes) {
-        // a negative angle rolls the wheels forward
-        const spin = spins ? -this.spinTurns[isFront ? 'front' : 'rear'] * 2 * Math.PI : 0;
-        m.rotation.set(spin, 0, isFront ? this._steeringAngle : 0);
+        m.rotation.set(spin, tilt, isFront ? this._steeringAngle : 0);
+      }
+      if (group && position) {
+        group.visible = !this.wheelHidden[position];
       }
     }
   }
 
   dispose() {
     this.disposed = true;
+    this.parts?.dispose();
     if (this.animationTimer) {
       clearInterval(this.animationTimer);
       this.animationTimer = null;

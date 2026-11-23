@@ -23,18 +23,21 @@ FCE4_PART_NAMES = [
     (':MB', 'medium body'),
     (':LB', 'low body'),
     (':TB', 'tiny body'),
-    (':OT', 'top of convertible'),
-    (':OL', 'pop-up headlights'),
-    (':OS', 'optional spoiler'),
+    (':OT', 'roof of a convertible, shown only with the top closed'),
+    (':OL', 'pop-up headlights, shown with the headlights on'),
+    (':OS', 'optional spoiler, turned about X by the spoiler angle'),
     (':OLB', 'left front brake'),
     (':ORB', 'right front brake'),
-    (':OLM', 'left mirror'),
-    (':ORM', 'right mirror'),
+    (':OLM', 'left mirror, hidden once broken'),
+    (':ORM', 'right mirror, hidden once broken'),
     (':OC', 'interior'),
-    (':ODL', 'dashboard when lit'),
-    (':OH', 'driver head'),
-    (':OD', 'driver holding steering wheel'),
-    (':OND', 'chair and steering wheel without driver'),
+    (':ODL', 'dashboard, drawn unlit when the headlights are on'),
+    (':OH', 'driver head, turned about Y by the head angle (`animation_flags`)'),
+    (':OD', 'driver holding the steering wheel, whose vertices turn about Z with the steering (`animation_flags`)'),
+    (
+        ':OND',
+        'chair and steering wheel without driver, drawn instead of ":OD" and ":OH" when the driver is out of the car',
+    ),
     (
         ':HLFW',
         'high left front wheel ("M" instead of "H" for medium wheels, "R" instead of "L" for right, '
@@ -89,12 +92,22 @@ class Fce4Triangle(DeclarativeCompoundBlock):
                 ],
             ),
             {
-                'description': 'Triangle flags. "matte": no environment reflection (underbody), "high_chrome": '
-                'strong reflection (windows), "no_cull": triangle is visible from both sides, "semi_transparent": '
-                'translucent triangle (windows). Triangle is visible behind a semi-transparent triangle only if it '
-                'has smaller index. "window" is set for all car windows, together with one of "front_window", '
-                '"left_window", "back_window", "right_window". "broken_window" marks a texture of broken glass, '
-                'which replaces the window after crash'
+                'description': 'Triangle flags, nfs4.exe reads the lower 16 bits. "matte": no environment reflection '
+                '(underbody), "high_chrome": strong reflection (windows), "no_cull": triangle is visible from both '
+                'sides, "semi_transparent": translucent triangle (windows). Triangle is visible behind a '
+                'semi-transparent triangle only if it has smaller index. Windows (Fce_BreakWindows 0x4ed0e0, run on a '
+                'part after a hit damaged its vertices): a triangle with any of the bits 5..9 (0x3e0) is a window '
+                'triangle, the bits 6..9 are its sides: "front_window", "left_window", "back_window", "right_window" '
+                '(one or none in the NFS4 cars, but for a triangle of traffic/sedan2 and one of traffic/snowplow with '
+                'two; "window" is set on most of them). The window triangles with a damaged vertex crack, and so do '
+                'all window triangles of the part sharing a side with one of them: they are '
+                'drawn with the broken glass texture "shat" of Data/FeArt/3dobj.fsh, texture coordinates (0, 0), '
+                '(0, 1), (1, 1) at their vertices 0, 1, 2. "broken_window" (bit 10): the glass breaks away: the '
+                'triangle is no longer drawn once its side was hit hard (vertex 0 of a damaged window triangle of '
+                'that side with a damage weight over 0.5, `reserve4`); the software renderer draws it on. The export '
+                'puts the window triangles of every class into meshes of their own, named '
+                '"..._window[_front][_left][_back][_right][_breakaway]", node extras '
+                '{"fceWindow": {"sides": [...], "breaksAway": ...}}'
             },
         )
         u = (
@@ -159,8 +172,12 @@ class Fce4Geometry(DeclarativeCompoundBlock):
         'which are used for lights, license plates, smoke and water effects. In addition to FCE3, every vertex '
         'has a "damaged" position, used when car is crashed. Coordinate system: X points right, Y up, Z '
         'forward. The unit is meter. Texture is a TGA image car00.tga, which is located next to car.fce in '
-        'car.viv. Alpha channel of the texture defines which car color is applied to the pixel: 224 primary, '
-        '164 interior, 96 secondary, 32 driver hair color'
+        'car.viv. Alpha channel of the texture defines which car color is applied to the pixel (nfs4.exe '
+        '0x4ee620): 0xff none, 0xc4..0xfe primary, 0x80..0xc3 interior, 0x40..0x7f secondary, 0x01..0x3f driver '
+        'hair, 0 a transparent pixel. The interior, secondary and hair colors are those of the color set whose '
+        'primary color is the nearest to the chosen one (0x4ef310). A painted pixel is shaded as in NFS3 '
+        "(0x4ee550 = nfs3.exe 0x49cc50): the color's brightness times the pixel's blue (5 bits) / (255 - "
+        'transparency), times the blue when transparency is 255, at most 255'
     )
     serializer = 'Fce4GeometrySerializer'
 
@@ -217,7 +234,16 @@ class Fce4Geometry(DeclarativeCompoundBlock):
         num_dummies = Fce3Geometry.Fields.num_dummies
         dummy_positions = Fce3Geometry.Fields.dummy_positions
         num_parts = Fce3Geometry.Fields.num_parts
-        part_positions = Fce3Geometry.Fields.part_positions
+        part_positions = (
+            Fce3Geometry.Fields.part_positions[0],
+            {
+                'description': 'Positions of parts. Vertices of the part are relative to it. Only first `num_parts` '
+                'are used. nfs4.exe turns ":OS" (about X), ":OD" (about Z) and ":OH" (about Y) about them, and tests '
+                'the mirrors ":OLM", ":ORM" for breaking at theirs. Exported as `fcePartPositions` of the `.meta` and '
+                'of the OBJ\'s extra JSON (mesh name prefix "<lod>_<part index>_<name>" -> [x, y, z], the GLB axes: x '
+                'right, y forward, z up)'
+            },
+        )
         part_first_vertex = Fce3Geometry.Fields.part_first_vertex
         part_num_vertices = Fce3Geometry.Fields.part_num_vertices
         part_first_triangle = Fce3Geometry.Fields.part_first_triangle
@@ -279,25 +305,51 @@ class Fce4Geometry(DeclarativeCompoundBlock):
         )
         reserve2 = (
             BytesBlock(length=(lambda ctx: 12 * ctx.data('num_vertices'), '12 * num_vertices')),
-            {'is_unknown': True},
+            {
+                'description': 'Run time slot of 3 floats per vertex: Fce_DamageVertices (nfs4.exe 0x4ed390) keeps '
+                'the undamaged vertex + its part position - the hit point there'
+            },
         )
         reserve3 = (
             BytesBlock(length=(lambda ctx: 12 * ctx.data('num_vertices'), '12 * num_vertices')),
             {'is_unknown': True},
         )
-        undamaged_vertices = _vector_table('Undamaged vertex positions, a copy of `vertices`')
-        undamaged_normals = _vector_table('Undamaged vertex normals, a copy of `normals`')
-        damaged_vertices = _vector_table('Vertex positions of crashed car, relative to position of their part')
-        damaged_normals = _vector_table('Vertex normals of crashed car')
+        undamaged_vertices = _vector_table(
+            'Undamaged vertex positions, a copy of `vertices` (in every NFS4 car): the run time copy nfs4.exe blends '
+            'the damaged parts from (Fce_DamageVertices 0x4ed390)'
+        )
+        undamaged_normals = _vector_table(
+            "Undamaged vertex normals, a copy of `normals`: the run time copy the damaged parts' normals are blended "
+            'from'
+        )
+        damaged_vertices = _vector_table(
+            'Vertex positions of crashed car, relative to position of their part. nfs4.exe blends the vertices of '
+            '":HB", ":MB", ":LB", ":OL" and ":OT" (only those, Car_DamageVisual 0x44a510) from `undamaged_vertices` to '
+            "these by their damage weight (`reserve4`, Fce_DamageVertices 0x4ed390); the other parts' damaged "
+            'positions are not used. Exported as a copy of every mesh, "<mesh>_damaged", and on the GLB meshes of '
+            'those parts as the morph target "damaged" (the delta to `vertices`; models with damaged positions only)'
+        )
+        damaged_normals = _vector_table(
+            'Vertex normals of crashed car, the normals of the damaged parts are blended from `undamaged_normals` to '
+            'these like the positions'
+        )
         reserve4 = (
             BytesBlock(length=(lambda ctx: 4 * ctx.data('num_vertices'), '4 * num_vertices')),
-            {'is_unknown': True},
+            {
+                'description': 'Run time slot of a float per vertex: its damage weight, 0..1, by which '
+                'Fce_DamageVertices (nfs4.exe 0x4ed390) blends it from `undamaged_vertices` to `damaged_vertices`'
+            },
         )
         animation_flags = (
             ArrayBlock(child=IntegerBlock(length=4), length='num_vertices'),
             {
-                'description': 'Vertex animation flags. Used by driver part ":OD": vertex with value 4 does not '
-                'move, vertex with value 0 rotates together with steering wheel'
+                'description': 'Vertex animation flags. Bit 2 (4): the vertex stays put; the vertices without it turn '
+                'with their part: on ":OD" (driver holding the steering wheel) the steering wheel\'s vertices (12 in '
+                'most cars) turn with the steering, about Z (forward) through the part position, on ":OH" (driver '
+                'head) all vertices turn with the head, about Y (up) through the part position. Bit 0: set by nfs4.exe '
+                'at run time on a vertex it damaged (Fce_DamageVertices 0x4ed390). Exported for ":OD" and ":OH" as '
+                "the GLB vertex attribute `_FCE_TURNS` (255: turns, 0: stays) and `fceTurns` of the OBJ's extra JSON "
+                '(OBJ object name -> 1 or 0 per face corner, in file order)'
             },
         )
         reserve5 = (

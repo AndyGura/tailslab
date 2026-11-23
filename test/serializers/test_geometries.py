@@ -561,6 +561,78 @@ class TestAddGlbMorphTargets(unittest.TestCase):
             with self.assertRaises(ValueError):
                 add_glb_morph_targets(path, [mesh])
 
+    @staticmethod
+    def _write_triangles_glb(path, positions, uvs, indices):
+        """One node "body" with an indexed triangle list"""
+        binary = (
+            b''.join(struct.pack('<3f', *p) for p in positions)
+            + b''.join(struct.pack('<2f', *t) for t in uvs)
+            + b''.join(struct.pack('<I', i) for i in indices)
+        )
+        count = len(positions)
+        gltf = {
+            'asset': {'version': '2.0'},
+            'nodes': [{'name': 'body', 'mesh': 0}],
+            'meshes': [{'primitives': [{'attributes': {'POSITION': 0, 'TEXCOORD_0': 1}, 'indices': 2}]}],
+            'buffers': [{'byteLength': len(binary)}],
+            'bufferViews': [
+                {'buffer': 0, 'byteOffset': 0, 'byteLength': 12 * count},
+                {'buffer': 0, 'byteOffset': 12 * count, 'byteLength': 8 * count},
+                {'buffer': 0, 'byteOffset': 20 * count, 'byteLength': 4 * len(indices)},
+            ],
+            'accessors': [
+                {'bufferView': 0, 'componentType': 5126, 'count': count, 'type': 'VEC3'},
+                {'bufferView': 1, 'componentType': 5126, 'count': count, 'type': 'VEC2'},
+                {'bufferView': 2, 'componentType': 5125, 'count': len(indices), 'type': 'SCALAR'},
+            ],
+        }
+        write_glb(path, gltf, binary)
+
+    def _targets_of(self, mesh, positions, uvs, indices):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, 'body.glb')
+            self._write_triangles_glb(path, positions, uvs, indices)
+            add_glb_morph_targets(path, [mesh])
+            gltf, binary = read_glb(path)
+        return read_accessor(gltf, binary, gltf['meshes'][0]['primitives'][0]['targets'][0]['POSITION'])
+
+    def test_vertices_at_the_same_place_moving_differently_matched_by_their_triangles(self):
+        # vertices 0 and 3 have the same position and texture coordinates, but other deltas: the corner of the
+        # triangle (0, 1, 2) moves by 1, the corner of the triangle (3, 4, 5) by 2
+        mesh = SubMesh()
+        mesh.name = 'body'
+        mesh.vertices = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 0], [-1, 0, 0], [0, -1, 0]]
+        mesh.vertex_uvs = [[0, 0]] * 6
+        mesh.polygons = [[0, 1, 2], [3, 4, 5]]
+        mesh.morph_targets = {'damaged': [[0, 0, 1], [0, 0, 0], [0, 0, 0], [0, 0, 2], [0, 0, 0], [0, 0, 0]]}
+        # glTF vertices in another order: 0 = sub-mesh 3, 3 = sub-mesh 0
+        positions = [(0, 0, 0), (-1, 0, 0), (0, -1, 0), (0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        deltas = self._targets_of(mesh, positions, [(0, 0)] * 6, [3, 4, 5, 0, 1, 2])
+        self.assertEqual(deltas, [(0, 0, 2), (0, 0, 0), (0, 0, 0), (0, 0, 1), (0, 0, 0), (0, 0, 0)])
+
+    def test_two_triangles_at_the_same_place_move_as_one_polygon_each(self):
+        # FCE4 cars have a few triangles twice, with vertices of their own, one of them damaged
+        mesh = SubMesh()
+        mesh.name = 'body'
+        mesh.vertices = [[0, 0, 0], [1, 0, 0], [0, 1, 0]] * 2
+        mesh.vertex_uvs = [[0, 0], [1, 0], [0, 1]] * 2
+        mesh.polygons = [[0, 1, 2], [3, 4, 5]]
+        mesh.morph_targets = {'damaged': [[0, 0, 0]] * 3 + [[0, 0, 1], [0, 0, 2], [0, 0, 3]]}
+        positions = [(0, 0, 0), (1, 0, 0), (0, 1, 0)] * 2
+        deltas = self._targets_of(mesh, positions, [(0, 0), (1, 0), (0, 1)] * 2, [0, 1, 2, 3, 4, 5])
+        self.assertEqual(sorted([deltas[:3], deltas[3:]]), [[(0, 0, 0)] * 3, [(0, 0, 1), (0, 0, 2), (0, 0, 3)]])
+
+    def test_ambiguous_vertex_without_triangles_is_an_error(self):
+        mesh = SubMesh()
+        mesh.name = 'body'
+        mesh.vertices = [[0, 0, 0], [0, 0, 0], [1, 0, 0], [0, 1, 0]]
+        mesh.vertex_uvs = [[0, 0]] * 4
+        mesh.polygons = [[0, 2, 3]]
+        mesh.morph_targets = {'damaged': [[0, 0, 1], [0, 0, 2], [0, 0, 0], [0, 0, 0]]}
+        with self.assertRaises(ValueError):
+            # the glTF triangle has its corners in the other cyclic order: no polygon matches it
+            self._targets_of(mesh, [(0, 0, 0), (1, 0, 0), (0, 1, 0)], [(0, 0)] * 3, [0, 2, 1])
+
 
 class TestComposeTexturePage(unittest.TestCase):
     def test_size_is_rounded_up_to_power_of_two(self):
@@ -962,12 +1034,155 @@ class TestFce3GeometrySerializer(unittest.TestCase):
             colors, {'primary': [{'hue': 10, 'saturation': 20, 'brightness': 30, 'transparency': 40}], 'secondary': []}
         )
 
+    def test_meta_and_extra_json_have_no_fce4_keys(self):
+        from test.resources.eac.test_geometries import build_fce3_data
+
+        self.assertEqual(set(self._exported_meta_extras(build_fce3_data)), {'collisionHalfSize', 'fceColors'})
+        with open(os.path.join(self._serialize_car_viv(), 'geometry_extra.json')) as f:
+            self.assertEqual(set(json.load(f)), {'curves', 'dummies', 'objects'})
+
+
+# FCE4 triangle flag bits by name (`Fce4Triangle.flags`)
+FCE4_FLAG_BITS = {
+    'matte': 0,
+    'high_chrome': 1,
+    'no_cull': 2,
+    'semi_transparent': 3,
+    'window': 5,
+    'front_window': 6,
+    'left_window': 7,
+    'back_window': 8,
+    'right_window': 9,
+    'broken_window': 10,
+}
+
+
+def build_fce4_model(parts):
+    """FCE4 model of `parts`: dicts with `name`, `vertices` [(x, y, z)], `triangles` [(vertex indices, flags)] and
+    optional `position` (x, y, z), `damaged` (vertices), `animation_flags`, `uvs` (per triangle: u and v lists)"""
+    from resources.eac.geometries.nfs4 import Fce4Geometry
+
+    block = Fce4Geometry()
+    data = block.new_data()
+    data['version'] = 0x00101014
+    data['num_parts'] = len(parts)
+    data['num_arts'] = 1
+    vertices, damaged, animation_flags, triangles = [], [], [], []
+    for i, part in enumerate(parts):
+        data['part_names'][i] = part['name']
+        data['part_positions'][i] = dict(zip('xyz', map(float, part.get('position', (0, 0, 0)))))
+        data['part_first_vertex'][i] = len(vertices)
+        data['part_num_vertices'][i] = len(part['vertices'])
+        data['part_first_triangle'][i] = len(triangles)
+        data['part_num_triangles'][i] = len(part['triangles'])
+        vertices += part['vertices']
+        damaged += part.get('damaged', part['vertices'])
+        animation_flags += part.get('animation_flags', [4] * len(part['vertices']))
+        uvs = part.get('uvs', [([0.0, 0.5, 1.0], [0.25, 0.5, 0.75])] * len(part['triangles']))
+        for (vertex_indices, flags), (u, v) in zip(part['triangles'], uvs):
+            triangle = block.field_blocks_map['triangles'].child.new_data()
+            triangle['vertex_indices'] = list(vertex_indices)
+            for name, bit in FCE4_FLAG_BITS.items():
+                triangle['flags'][name] = bool(flags & (1 << bit))
+            triangle['u'], triangle['v'] = list(u), list(v)
+            triangles.append(triangle)
+
+    def points(values):
+        return [dict(zip('xyz', map(float, value))) for value in values]
+
+    count = len(vertices)
+    data['vertices'] = points(vertices)
+    data['undamaged_vertices'] = points(vertices)
+    data['damaged_vertices'] = points(damaged)
+    for table in ('normals', 'undamaged_normals', 'damaged_normals'):
+        data[table] = points([(0, 1, 0)] * count)
+    data['triangles'] = triangles
+    data['reserve1'] = bytes(32 * count)
+    data['reserve2'] = bytes(12 * count)
+    data['reserve3'] = bytes(12 * count)
+    data['reserve4'] = bytes(4 * count)
+    data['animation_flags'] = animation_flags
+    data['reserve5'] = bytes(4 * count)
+    data['reserve6'] = bytes(12 * len(triangles))
+    return block, data
+
+
+QUAD = [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]
+
+
+def obj_objects(obj: str) -> dict:
+    """OBJ object name -> its face corners as positions [x, y, z] (strings as written), in file order"""
+    positions, objects, current = [], {}, None
+    for line in obj.splitlines():
+        if line.startswith('o '):
+            current = objects.setdefault(line[2:], [])
+        elif line.startswith('v '):
+            positions.append(line.split()[1:4])
+        elif line.startswith('f '):
+            current.extend(positions[int(corner.split('/')[0]) - 1] for corner in line.split()[1:])
+    return objects
+
+
+def write_glb_of_sub_meshes(path: str, sub_meshes):
+    """A GLB as the gg-web-engine export writes it from the scene's OBJ, for `add_glb_morph_targets` and
+    `add_glb_vertex_attributes`: a node per sub-mesh, positions without the pivot, the sub-mesh texture coordinates,
+    the vertices in reversed order"""
+    gltf = {'asset': {'version': '2.0'}, 'nodes': [], 'meshes': [], 'bufferViews': [], 'accessors': []}
+    binary = bytearray()
+
+    def add(data: bytes, component_type: int, count: int, type_name: str) -> int:
+        gltf['bufferViews'].append({'buffer': 0, 'byteOffset': len(binary), 'byteLength': len(data)})
+        binary.extend(data)
+        gltf['accessors'].append(
+            {
+                'bufferView': len(gltf['bufferViews']) - 1,
+                'componentType': component_type,
+                'count': count,
+                'type': type_name,
+            }
+        )
+        return len(gltf['accessors']) - 1
+
+    for sub_mesh in sub_meshes:
+        order = list(reversed(range(len(sub_mesh.vertices))))
+        new_index = {old: new for new, old in enumerate(order)}
+        positions = [[sub_mesh.vertices[i][k] - sub_mesh.pivot_offset[k] for k in range(3)] for i in order]
+        uvs = [sub_mesh.vertex_uvs[i] for i in order]
+        indices = [new_index[i] for polygon in sub_mesh.polygons for i in polygon]
+        primitive = {
+            'attributes': {
+                'POSITION': add(b''.join(struct.pack('<3f', *p) for p in positions), 5126, len(positions), 'VEC3'),
+                'TEXCOORD_0': add(b''.join(struct.pack('<2f', *t) for t in uvs), 5126, len(uvs), 'VEC2'),
+            },
+            'indices': add(b''.join(struct.pack('<I', i) for i in indices), 5125, len(indices), 'SCALAR'),
+        }
+        gltf['meshes'].append({'primitives': [primitive]})
+        gltf['nodes'].append({'name': sub_mesh.name, 'mesh': len(gltf['meshes']) - 1})
+    gltf['buffers'] = [{'byteLength': len(binary)}]
+    write_glb(path, gltf, bytes(binary))
+
 
 class TestFce4GeometrySerializer(unittest.TestCase):
     setUp = TestFce3GeometrySerializer.setUp
     tearDown = TestFce3GeometrySerializer.tearDown
     _serialize_car_viv = TestFce3GeometrySerializer._serialize_car_viv
     _exported_meta_extras = TestFce3GeometrySerializer._exported_meta_extras
+
+    def _exported_scene(self, build_data):
+        from unittest.mock import patch
+
+        import serializers.geometries as geometries_module
+
+        exported_scenes = []
+        real_export_scenes = geometries_module.export_scenes
+
+        def export_scenes(scenes, path, settings):
+            exported_scenes.extend(scenes)
+            return real_export_scenes(scenes, path, settings)
+
+        with patch.object(geometries_module, 'export_scenes', side_effect=export_scenes):
+            out_path = self._serialize_car_viv(build_data)
+        return exported_scenes[0], out_path
 
     def test_meta_has_collision_half_size_in_game_axes(self):
         from test.resources.eac.test_geometries import build_fce4_data
@@ -983,13 +1198,223 @@ class TestFce4GeometrySerializer(unittest.TestCase):
         with open(os.path.join(out_path, 'geometry.obj')) as f:
             obj = f.read()
         objects = re.findall(r'^o (.*)$', obj, re.MULTILINE)
+        # triangle 0 is a window that breaks away
         self.assertEqual(
-            objects, ['hp_0_HB__car00', 'hp_0_HB__car00_damaged', 'hp_1_HLFW__car00', 'hp_1_HLFW__car00_damaged']
+            objects,
+            [
+                'hp_0_HB__car00_window_breakaway',
+                'hp_0_HB__car00',
+                'hp_0_HB__car00_window_breakaway_damaged',
+                'hp_0_HB__car00_damaged',
+                'hp_1_HLFW__car00',
+                'hp_1_HLFW__car00_damaged',
+            ],
         )
         # damaged position of vertex 2 (x, z, y)
         self.assertIn('v 0.75 -0.5 0.75', obj)
         # V goes from top to bottom, OBJ has it from bottom to top
         self.assertIn('vt 0.0 0.75', obj)
+
+    def test_window_classes(self):
+        flags = [
+            (0x60, '_window_front'),
+            (0x460, '_window_front_breakaway'),
+            (0x1A0, '_window_left_back'),
+            # a side without bit 5 is a window too, of the class of the first triangle
+            (0x40, '_window_front'),
+            # bit 10 without a window bit: no window
+            (0x400, ''),
+            (0, ''),
+            (0x20, '_window'),
+            (0x220 | (1 << 3), '_window_right'),
+        ]
+
+        def build():
+            return build_fce4_model(
+                [{'name': ':HB', 'vertices': QUAD, 'triangles': [([0, 1, 2], f) for f, _ in flags]}]
+            )
+
+        out_path = self._serialize_car_viv(build)
+        with open(os.path.join(out_path, 'geometry.obj')) as f:
+            obj = f.read()
+        self.assertEqual(
+            re.findall(r'^o (.*)$', obj, re.MULTILINE),
+            [
+                'hp_0_HB__car00_window_front',
+                'hp_0_HB__car00_window_front_breakaway',
+                'hp_0_HB__car00_window_left_back',
+                'hp_0_HB__car00',
+                'hp_0_HB__car00_window',
+                # the texture goes before the window class
+                'hp_0_HB__car00_translucent_window_right',
+            ],
+        )
+        with open(os.path.join(out_path, 'geometry_extra.json')) as f:
+            extra = json.load(f)
+
+        def window(sides, breaks_away=False):
+            return {'fceWindow': {'sides': sides, 'breaksAway': breaks_away}}
+
+        self.assertEqual(
+            extra['objects'],
+            {
+                'hp_0_HB__car00_window_front': window(['front']),
+                'hp_0_HB__car00_window_front_breakaway': window(['front'], True),
+                'hp_0_HB__car00_window_left_back': window(['left', 'back']),
+                'hp_0_HB__car00_window': window([]),
+                'hp_0_HB__car00_translucent_window_right': window(['right']),
+            },
+        )
+
+    def test_window_class_of_flags(self):
+        from serializers.geometries import fce4_window_class
+
+        self.assertIsNone(fce4_window_class(0))
+        self.assertIsNone(fce4_window_class(0x40F))
+        self.assertEqual(fce4_window_class(0x3E0), (('front', 'left', 'back', 'right'), False))
+        self.assertEqual(fce4_window_class(0x520), (('back',), True))
+
+    def _damage_model(self):
+        # body and pop-up headlights take damage, the wheel's damaged positions are not used by the game
+        moved = [(0, 0, 0), (1, 0, 0), (0.75, 0.75, -0.5), (0, 1, 0)]
+        return build_fce4_model(
+            [
+                {'name': ':HB', 'vertices': QUAD, 'damaged': moved, 'triangles': [([0, 1, 2], 0), ([0, 2, 3], 0x60)]},
+                {'name': ':HLFW', 'vertices': QUAD, 'damaged': moved, 'triangles': [([0, 1, 2], 0)]},
+                {
+                    'name': ':OL',
+                    'position': (1, 2, 3),
+                    'vertices': QUAD[:3],
+                    'damaged': [(0, 0, 0.5), (1, 0, 0), (1, 1, 0)],
+                    'triangles': [([0, 1, 2], 0)],
+                },
+            ]
+        )
+
+    def test_damaged_positions_as_morph_target(self):
+        scene, _ = self._exported_scene(self._damage_model)
+        meshes = {m.name: m for m in scene.sub_meshes}
+        self.assertEqual(
+            list(meshes),
+            [
+                'hp_0_HB__car00',
+                'hp_0_HB__car00_window_front',
+                'hp_0_HB__car00_damaged',
+                'hp_0_HB__car00_window_front_damaged',
+                'hp_1_HLFW__car00',
+                'hp_1_HLFW__car00_damaged',
+                'hp_2_OL__car00',
+                'hp_2_OL__car00_damaged',
+            ],
+        )
+        # damaged - undamaged position per mesh vertex, in the export axes (x, z, y)
+        self.assertEqual(
+            meshes['hp_0_HB__car00'].morph_targets, {'damaged': [[0, 0, 0], [0, 0, 0], [-0.25, -0.5, -0.25]]}
+        )
+        self.assertEqual(
+            meshes['hp_0_HB__car00_window_front'].morph_targets,
+            {'damaged': [[0, 0, 0], [-0.25, -0.5, -0.25], [0, 0, 0]]},
+        )
+        self.assertEqual(meshes['hp_2_OL__car00'].morph_targets, {'damaged': [[0, 0.5, 0], [0, 0, 0], [0, 0, 0]]})
+        for name in ('hp_1_HLFW__car00', 'hp_0_HB__car00_damaged', 'hp_2_OL__car00_damaged'):
+            self.assertEqual(meshes[name].morph_targets, {})
+
+    def test_damaged_morph_target_in_glb(self):
+        # the gg-web-engine export's post-processing on a GLB written from the scene's meshes
+        scene, _ = self._exported_scene(self._damage_model)
+        path = os.path.join(self.tmp_dir, 'body.glb')
+        write_glb_of_sub_meshes(path, scene.sub_meshes)
+        add_glb_morph_targets(path, [m for m in scene.sub_meshes if m.morph_targets])
+        gltf, binary = read_glb(path)
+        nodes = {node['name']: gltf['meshes'][node['mesh']] for node in gltf['nodes']}
+        mesh = nodes['hp_2_OL__car00']
+        self.assertEqual(mesh['extras'], {'targetNames': ['damaged']})
+        self.assertEqual(mesh['weights'], [0.0])
+        # GLB vertices in reversed order
+        deltas = read_accessor(gltf, binary, mesh['primitives'][0]['targets'][0]['POSITION'])
+        self.assertEqual(deltas, [(0, 0, 0), (0, 0, 0), (0, 0.5, 0)])
+        self.assertNotIn('targets', nodes['hp_2_OL__car00_damaged']['primitives'][0])
+
+    def test_no_morph_target_without_damaged_positions(self):
+        scene, _ = self._exported_scene(
+            lambda: build_fce4_model([{'name': ':HB', 'vertices': QUAD, 'triangles': [([0, 1, 2], 0)]}])
+        )
+        self.assertEqual([(m.name, m.morph_targets) for m in scene.sub_meshes], [('hp_0_HB__car00', {})])
+
+    def _driver_model(self):
+        # ":OD": vertex 0 turns, 1 and 2 stay (bit 2; bit 0 is the game's damage mark), 3 turns; its second triangle
+        # is double-sided and has other texture coordinates at vertex 0. ":OH": every vertex turns
+        return build_fce4_model(
+            [
+                {'name': ':HB', 'vertices': QUAD, 'damaged': QUAD[:3] + [(0, 2, 0)], 'triangles': [([0, 1, 2], 0)]},
+                {
+                    'name': ':OD',
+                    'position': (0.5, 1, 1.5),
+                    'vertices': [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 0, 1)],
+                    'animation_flags': [0, 4, 5, 1],
+                    'triangles': [([0, 1, 2], 0), ([3, 0, 1], 1 << 2)],
+                    'uvs': [([0.0, 0.5, 1.0], [0.25, 0.5, 0.75]), ([0.0, 0.25, 0.5], [0.0, 0.0, 0.5])],
+                },
+                {'name': ':OH', 'vertices': QUAD[:3], 'animation_flags': [0, 0, 0], 'triangles': [([0, 1, 2], 0)]},
+            ]
+        )
+
+    def test_turning_vertices(self):
+        scene, out_path = self._exported_scene(self._driver_model)
+        meshes = {m.name: m for m in scene.sub_meshes}
+        self.assertEqual(
+            meshes['hp_1_OD__car00'].vertex_byte_attributes, {'_FCE_TURNS': [[255], [0], [0], [255], [255]]}
+        )
+        self.assertEqual(meshes['hp_2_OH__car00'].vertex_byte_attributes, {'_FCE_TURNS': [[255], [255], [255]]})
+        for name in ('hp_0_HB__car00', 'hp_1_OD__car00_damaged', 'hp_2_OH__car00_damaged'):
+            self.assertEqual(meshes[name].vertex_byte_attributes, {})
+
+        # OBJ: per face corner, in the order the OBJ has them
+        with open(os.path.join(out_path, 'geometry_extra.json')) as f:
+            fce_turns = json.load(f)['fceTurns']
+        with open(os.path.join(out_path, 'geometry.obj')) as f:
+            objects = obj_objects(f.read())
+        self.assertEqual(set(fce_turns), {'hp_1_OD__car00', 'hp_2_OH__car00'})
+        # ":OD" vertices in the OBJ (x, z, y), with the part position
+        turns_at = {
+            ('0.5', '1.5', '1.0'): 1,
+            ('1.5', '1.5', '1.0'): 0,
+            ('1.5', '1.5', '2.0'): 0,
+            ('0.5', '2.5', '1.0'): 1,
+        }
+        corners = objects['hp_1_OD__car00']
+        # the double-sided triangle twice
+        self.assertEqual(len(corners), 9)
+        self.assertEqual(fce_turns['hp_1_OD__car00'], [turns_at[tuple(c)] for c in corners])
+        self.assertEqual(fce_turns['hp_1_OD__car00'], [1, 0, 0, 1, 1, 0, 0, 1, 1])
+        self.assertEqual(fce_turns['hp_2_OH__car00'], [1, 1, 1])
+
+    def test_turning_vertices_in_glb(self):
+        scene, _ = self._exported_scene(self._driver_model)
+        path = os.path.join(self.tmp_dir, 'body.glb')
+        write_glb_of_sub_meshes(path, scene.sub_meshes)
+        add_glb_vertex_attributes(path, scene.sub_meshes)
+        gltf, binary = read_glb(path)
+        nodes = {node['name']: gltf['meshes'][node['mesh']] for node in gltf['nodes']}
+        attributes = nodes['hp_1_OD__car00']['primitives'][0]['attributes']
+        accessor = gltf['accessors'][attributes['_FCE_TURNS']]
+        self.assertEqual((accessor['componentType'], accessor['normalized'], accessor['type']), (5121, True, 'SCALAR'))
+        # GLB vertices in reversed order
+        self.assertEqual(read_accessor(gltf, binary, attributes['_FCE_TURNS']), [(255,), (255,), (0,), (0,), (255,)])
+        self.assertNotIn('_FCE_TURNS', nodes['hp_1_OD__car00_damaged']['primitives'][0]['attributes'])
+
+    def test_part_positions_in_export_axes(self):
+        scene, out_path = self._exported_scene(self._driver_model)
+        positions = {'hp_0_HB': [0, 0, 0], 'hp_1_OD': [0.5, 1.5, 1], 'hp_2_OH': [0, 0, 0]}
+        self.assertEqual(scene.meta_extras['fcePartPositions'], positions)
+        with open(os.path.join(out_path, 'geometry_extra.json')) as f:
+            self.assertEqual(json.load(f)['fcePartPositions'], positions)
+
+    def test_part_positions_of_every_part(self):
+        from test.resources.eac.test_geometries import build_fce4_data
+
+        extras = self._exported_meta_extras(build_fce4_data)
+        self.assertEqual(extras['fcePartPositions'], {'hp_0_HB': [0, 0, 0], 'hp_1_HLFW': [1, 3, 2]})
 
     def test_part_lod_prefix(self):
         from serializers.geometries import fce4_part_lod_prefix

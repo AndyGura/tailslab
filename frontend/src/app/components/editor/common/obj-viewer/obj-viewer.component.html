@@ -56,6 +56,9 @@
               [value]="c.value"
               (input)="c.value = +$any($event.currentTarget).value; c.change(c.value)" />
           }
+          @if (c.type === 'button') {
+            <button type="button" (click)="c.click()">{{ c.label }}</button>
+          }
         </div>
       }
     }

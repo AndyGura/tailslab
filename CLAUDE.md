@@ -1115,6 +1115,27 @@ When you do:
   reflected by the normal, alpha `fce3SkyChromeAlpha`), `chromeEnabled` off for none. The GUI uses the viewer's sky.
   Wheels spin as nfs3.exe spins them (`fce3WheelSpinStep`: per 1/64 s tick, at most 8 turns per second; `handbrake`
   slows the rear ones). nfs-web reads the mesh names, extras and the attribute: keep them stable.
+- The OBJ has a `no_cull` triangle twice, the second reversed; Blender's OBJ import drops that copy (a face of the
+  same vertices), so the GLB has it once.
+
+## NFS4 car models (`Data/Cars/<car>/car.viv`: `car.fce`, the upgrade levels `car1.fce`..`car3.fce`)
+
+- `Fce4GeometrySerializer`: `Fce3GeometrySerializer` through its hooks (`_vertex_tables`, `_window_class` /
+  `_window_class_extras`, `_morph_target_tables`, `_vertex_turns`, `export_part_positions`; FCE3 output stays as it
+  is), part roles by name (`fce4_part_lod_prefix`). Mesh names
+  `<lod>_<part>_<name>__<texture>[_translucent][_window[_front][_left][_back][_right][_breakaway]][_damaged]`: window
+  triangles (flag bits 5..9, `fce4_window_class`, nfs4.exe Fce_BreakWindows 0x4ed0e0) split by their sides (bits
+  6..9) and bit 10 (the glass breaks away), node extras `{"fceWindow": {"sides": [...], "breaksAway": bool}}`. A model
+  with damaged positions gets a `_damaged` copy of every mesh, and the undamaged meshes of `:HB :MB :LB :OL :OT` (the
+  parts nfs4.exe damages, `FCE4_DAMAGED_PARTS`) the GLB morph target `damaged` (delta to the damaged position). The
+  meshes of `:OD` / `:OH` (not their `_damaged` copies): GLB vertex attribute `_FCE_TURNS` (255: the vertex turns,
+  animation flag without bit 2; three.js `_fce_turns`), OBJ: `fceTurns` of `geometry_extra.json` (OBJ object name ->
+  1 / 0 per face corner, in file order, as three.js OBJLoader makes its vertices). `fcePartPositions` (mesh name prefix
+  `<lod>_<part>_<name>` -> part position [x, y, z] in the export axes) in the `.meta` and in `geometry_extra.json`.
+  nfs-web reads the names, extras, target, attribute and keys: keep them stable.
+- `add_glb_morph_targets` matches the GLB vertices by position, then texture coordinates, then the glTF triangles
+  they are corners of: 19 parts of the NFS4 cars have vertices at the same place and texture coordinates that move
+  differently, a few of them whole triangles twice with vertices of their own, one copy damaged.
 
 ## NFS3 car physics (`GameData/CarModel/<car>/car.viv`: `carp.txt`)
 

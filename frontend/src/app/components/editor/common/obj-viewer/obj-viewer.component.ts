@@ -130,6 +130,11 @@ export type ObjViewerControl =
       // text shown next to the label
       format?: (value: number) => string;
       change: (value: number) => void;
+    }
+  | {
+      label: string;
+      type: 'button';
+      click: () => void;
     };
 
 export type ObjViewerCustomControl = {
