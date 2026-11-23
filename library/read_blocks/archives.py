@@ -24,7 +24,9 @@ from library.read_blocks.basic import DataBlock
 #
 # Entry bytes: an entry owns its slot, from its item offset up to the offset of the next item (in the file order).
 # The item is parsed from the slot start, bytes left after the item end are `post_offset_payload`. Entries never
-# have bytes before their item: the offset table points at the item start.
+# have bytes before their item: the offset table points at the item start. Entries sharing an offset (NFS2 SE
+# HUDDATA.VIV: three of length 0 at the offset of the next item) share one slot: the longest item owns it, the others
+# take only their item length, so the slot's bytes are kept once and written back at the same offset.
 # With lazy read context, entries are unloaded `LazyDict`s, seeded with `alias`. Unloaded entry is written back as
 # its original slot bytes.
 
@@ -130,7 +132,11 @@ class ArchiveBlock(DeclarativeCompoundBlock, ABC):
         descriptions = self.item_descriptions(res)
         stored = [x for x in descriptions if x.offset is not None]
         offsets = [block_start + x.offset for x in stored]
-        lengths = slot_lengths(offsets, self.slots_end(res, block_start, end_pos, stored)) if stored else []
+        lengths = (
+            slot_lengths(offsets, self.slots_end(res, block_start, end_pos, stored), [x.item_length for x in stored])
+            if stored
+            else []
+        )
         # entries are parsed later in lazy mode: keep header (with io-only fields) for their contexts
         entry_ctx = self_ctx.detached(ctx.buffer, data=dict(res)) if self_ctx.lazy else self_ctx
         children = [None] * len(descriptions)
@@ -294,11 +300,24 @@ def pre_items_payload_length(ctx: ReadContext, offsets: List[int]) -> int:
     return max(0, min(offsets, default=ctx.local_buffer_pos) - ctx.local_buffer_pos)
 
 
-def slot_lengths(offsets: List[int], region_end: int) -> List[int]:
-    """Slot length of each item by absolute item offsets: up to the next bigger offset, or up to the region end"""
+def slot_lengths(offsets: List[int], region_end: int, item_lengths: Optional[List[Optional[int]]] = None) -> List[int]:
+    """Slot length of each item by absolute item offsets: up to the next bigger offset, or up to the region end.
+    Items at one offset with `item_lengths` (None: the whole slot) share the slot: the longest one (the last of equal
+    ones) owns it, the others get their item length"""
     ordered = sorted(set(offsets))
     next_offset = {x: ordered[i + 1] if i + 1 < len(ordered) else region_end for i, x in enumerate(ordered)}
-    return [next_offset[x] - x for x in offsets]
+    lengths = [next_offset[x] - x for x in offsets]
+    if item_lengths is None or len(ordered) == len(offsets):
+        return lengths
+    owners = {}
+    for i, offset in enumerate(offsets):
+        size = lengths[i] if item_lengths[i] is None else min(item_lengths[i], lengths[i])
+        if offset not in owners or size >= owners[offset][1]:
+            owners[offset] = (i, size)
+    return [
+        length if owners[offset][0] == i or item_lengths[i] is None else min(item_lengths[i], length)
+        for i, (offset, length) in enumerate(zip(offsets, lengths))
+    ]
 
 
 def _parse_entry(ctx: ReadContext, slot: Slot) -> dict:
