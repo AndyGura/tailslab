@@ -329,7 +329,9 @@ directory of items (`items_descr`), the items in `data_bytes`; the data has `chi
    and `make_items_descr(data, layouts, heap_offset)`: `items_descr` of the entries written at the
    `EntryLayout`s (offset in `data_bytes`, item and slot length; add `heap_offset`). Each entry owns its
    slot (up to the next item offset): bytes after the item's own end are its `post_offset_payload`; an
-   entry never has bytes before its item. Hooks for other layouts: `heap_order` (the order item data is
+   entry never has bytes before its item. Entries at one offset share the slot: the longest item (the
+   description's `item_length`) owns it, the others keep only their item (BIGF entries of length 0 at the
+   next item's offset). Hooks for other layouts: `heap_order` (the order item data is
    stored in, SHPI keeps the read one), `is_empty_entry` (WWWW offset 0), `slots_end` (BIGF: the length of
    the header), `after_read` (more data from the header), `heap_offset` (a header whose estimate is not
    its written size).

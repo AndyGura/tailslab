@@ -465,6 +465,37 @@ class TestBigfBlock(unittest.TestCase):
         reread['children'][0]['alias'] = 'abc.bin'
         self.assertEqual(int.from_bytes(block.pack(reread)[12:16], 'big'), 35)
 
+    def test_bigf_entries_sharing_an_offset(self):
+        from resources.eac.archives import BigfBlock
+
+        # NFS2 SE HUDDATA.VIV: empty entries at the offset of the next item. They share its slot, which is kept and
+        # written once, all of them at the same offset again
+        items = [('a.bin', b'1234'), ('e0.bin', b''), ('e1.bin', b''), ('b.bin', b'56789')]
+        data_start = 16 + sum(9 + len(name) for name, _ in items)
+        offsets = [data_start, data_start + 4, data_start + 4, data_start + 4]
+        directory = b''.join(
+            struct.pack('>II', offset, len(item)) + name.encode() + b'\0'
+            for (name, item), offset in zip(items, offsets)
+        )
+        size = data_start + 9
+        raw = b'BIGF' + struct.pack('>III', size, len(items), data_start) + directory + b'123456789'
+        block = BigfBlock()
+        data = block.unpack_from_bytes(raw)
+        self.assertEqual(
+            [(x['alias'], x['item']['data'], x['post_offset_payload']) for x in data['children']],
+            [(name, item, b'') for name, item in items],
+        )
+        self.assertEqual(block.pack(data), raw)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'HUDDATA.VIV')
+            with open(path, 'wb') as f:
+                f.write(raw)
+            name, lazy_block, lazy_data = require_file(path, lazy=True)
+            self.assertEqual(lazy_block.pack(lazy_data), raw)
+            from library.loader import clear_file_cache
+
+            clear_file_cache(path)
+
 
 def c0fb(items, first_item_padding=None):
     """Bytes of a C0FB archive of (name, item bytes): items 4-byte aligned (zero padding), but the last one"""

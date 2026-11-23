@@ -449,7 +449,12 @@ class Nfs6Ps2TrackPositionMarker(DeclarativeCompoundBlock):
             {
                 'description': 'Name hash (bStringHash: h = -1, h = h x 33 + byte): every track has '
                 '"ForwardStartingPosition" (0x8e55c895) and "BackwardStartingPosition" (0x8f90f7bf) indexes 0..7, '
-                'and 2..5 markers of other names'
+                'and the race boundaries Race::FigureOutBoundaries 0x147b20 looks up by name (index 0; '
+                'GetTrackPositionMarker 0x151478): "ForwardStartLine", "BackwardStartLine", "SplitTimeBoundary1", '
+                '"SplitTimeBoundary2" on every track, "SplitTimeBoundary3" on tracks 13, 16, 33, 36, 41..46, 63, 66, '
+                '"ForwardFinishLine" and "BackwardFinishLine" on the point to point tracks (x3, x6). A boundary '
+                'without its marker is put at a percentage of the lap (start 5 %, splits start + 33 % / + 66 %, no '
+                'third split, finish start + 95 %); a marker gives the lap percentage of its track path coordinate'
             },
         )
         index = (
@@ -489,13 +494,33 @@ class Nfs6Ps2TrackRoutePoint(DeclarativeCompoundBlock):
                 'heading)'
             },
         )
-        unk0 = (DecimalBlock(length=4), {'is_unknown': True})
+        next_distance = (
+            DecimalBlock(length=4),
+            {
+                'description': "2D distance from this point to the route's next one (exact on every point but the "
+                'last of every route of the 30 tracks; FuturePoints::BuildArray 0x2447c0, the traffic 0x18cc78 and '
+                'GuessTargetDestinations 0x1cbb70 sum it)'
+            },
+        )
         width_left = (
             DecimalBlock(length=4),
             {'description': "The point's lateral limits (TrackedController::FindWhereIAm 0x23a1c8)"},
         )
         width_right = (DecimalBlock(length=4), {'description': "The point's lateral limits"})
-        unk1 = (ArrayBlock(child=IntegerBlock(length=4), length=2), {'is_unknown': True})
+        side_z = (
+            DecimalBlock(length=4),
+            {
+                'description': 'Z of the side vector (dir.y, -dir.x, this): TrackRoutePoint::GetPosition 0x1c1408 '
+                'places a point along / across the route as position + side x across + forward x along'
+            },
+        )
+        forward_z = (
+            DecimalBlock(length=4),
+            {
+                'description': 'Z of the forward vector (dir.x, dir.y, this) of GetPosition 0x1c1408: the slope to '
+                'the next point (its height difference / `next_distance`, on every point of the 30 tracks)'
+            },
+        )
         distance = (
             DecimalBlock(length=4),
             {'description': 'Distance along the race route (TrackRoute::GetDistanceAway 0x1c16a0)'},
@@ -503,22 +528,72 @@ class Nfs6Ps2TrackRoutePoint(DeclarativeCompoundBlock):
         flags = (
             IntegerBlock(length=4),
             {
-                'description': 'Low byte: index of the signpost of the point, 0xff none; bits 14 and 15 are tested by '
-                'TrackRoute::FindClosestPoint 0x1c1b48; other bits unknown'
+                'description': 'Low byte: index of the signpost of the point ([Nfs6Ps2Signpost](#nfs6ps2signpost)), '
+                '0xff none (GetSignpost 0x1c14f8; remapped by the load, which sorts the signposts by distance). Bit '
+                '15: traffic may be placed on and walk through the point (TrafficTeleporter::GenerateRandomPoint '
+                '0x2230d0 draws again until it is set, GuessTargetDestinations 0x1cbb70; set on nearly every point, '
+                "clear on a few at the routes' ends and junctions); bits 14 and 15 are tested by "
+                'TrackRoute::FindClosestPoint 0x1c1b48 (its flags 4 and 2; bit 14 never set on traffic routes). Bits '
+                '16..21 are copied to the drive target (DrivingChoice::FillUpDriveTarget 0x243568, DriveTarget '
+                '+0x1f0), meaning unknown; bits 22..28 also vary, not read by the ported code'
             },
         )
-        unk2 = (BytesBlock(length=63), {'is_unknown': True})
+        line_offsets = (
+            ArrayBlock(child=FixedPointBlock(fraction_bits=8, length=2, is_signed=True), length=21),
+            {
+                'description': 'Lateral offset of each driving line from the point, in meters (1/256 m stored), right '
+                'positive (along (dir.y, -dir.x)). Routes 1..49: lines 0..19 (up to about 29 m; 0 where the route '
+                'lacks the line), line 20 0; traffic routes: 0 (one line, the route itself)'
+            },
+        )
+        line_speeds = (
+            ArrayBlock(child=IntegerBlock(length=1), length=20),
+            {
+                'description': "Speed of each driving line at the point, m/s (AICarController's desired speed "
+                '0x1932e8, GetCurrentDrivingLineSpeed 0x1936f0; TimeAroundTrackTable 0x1467a0 reads line 2 x the car '
+                'tier). Routes 1..49: 5..103; traffic routes: 60, 60, 55, 55, 50, 50, 46, 46, 42, 42 twice on every '
+                'point'
+            },
+        )
+        padding = (IntegerBlock(length=1), {'description': '0 on every point'})
         route_number = (
             IntegerBlock(length=1),
             {'description': 'Number of its route (TrackedController::FindWhereIAm 0x23a1c8)'},
         )
 
 
+class Nfs6Ps2TrackRouteDrivingLine(DeclarativeCompoundBlock):
+    block_description = 'A driving line of a route (TrackRouteDrivingLine, 0x30 bytes)'
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        flags = (
+            IntegerBlock(length=4),
+            {
+                'description': 'Bit 0 or bit 1: the route has this line (DrivingChoice::IsValid 0x241d40). Routes '
+                '1..49: 1 (2 on some) on lines 0..19 but where a line is missing, 0 on line 20; traffic routes: 0 '
+                'on every line. Some lines hold other values (0xff00ff00, 0x3f800001...)'
+            },
+        )
+        unk0 = (
+            DecimalBlock(length=4),
+            {
+                'is_unknown': True,
+                'description': 'Routes 1..49: 2.6 .. 999 by line; 999.0 on the traffic routes. Not read by the ported '
+                'code',
+            },
+        )
+        unk1 = (
+            BytesBlock(length=0x28),
+            {'is_unknown': True, 'description': 'Zeros on the traffic routes. Not read by the ported code'},
+        )
+
+
 class Nfs6Ps2TrackRoute(DeclarativeCompoundBlock):
     block_description = (
-        'A route: a lane of the roads (numbers 1..49) or a racing line (50..; forward under '
-        '60, backward from 60) (TrackRoute, 0x428 bytes and its points; TrackRouteManager::Loader SLUS_203.62 '
-        '0x1c2900)'
+        'A route (TrackRoute, 0x428 bytes and its points; TrackRouteManager::Loader SLUS_203.62 0x1c2900): the AI '
+        "racers' routes, numbers 1..49 (AIDriver::GetRouteNumbersToUse 0x130890: 0..49), carrying the driving lines "
+        "of the car tiers, and the traffic's routes, 50..59 in the race's direction and 60..69 backwards "
+        '(TrafficDriver::GetRouteNumbersToUse 0x18cae8; every track has at least 50, 51, 60 and 61)'
     )
 
     class Fields(DeclarativeCompoundBlock.Fields):
@@ -531,7 +606,13 @@ class Nfs6Ps2TrackRoute(DeclarativeCompoundBlock):
             IntegerBlock(length=2, is_signed=True),
             {'description': 'Route number (forward under 60: TrackRouteManager::GetNearestRoutePoint 0x1cb7a0)'},
         )
-        route_type = (IntegerBlock(length=4), {'description': '0 a lane, 1 a racing line'})
+        route_type = (
+            IntegerBlock(length=4),
+            {
+                'description': "The route manager's list of the route: 0 for routes 1..49, 1 for the traffic routes "
+                '50..69 (every route of the 30 tracks)'
+            },
+        )
         num_points = (
             IntegerBlock(length=4, programmatic_value=CountOf('points')),
             {'usage': 'io,doc', 'description': 'Amount of points'},
@@ -553,11 +634,22 @@ class Nfs6Ps2TrackRoute(DeclarativeCompoundBlock):
             DecimalBlock(length=4),
             {
                 'description': 'Written by the game: the range of route distances of the points (SetFirstAndLast '
-                '0x1c2600); 0 in the files but in 6 of the 742 routes'
+                '0x1c2600; for a route over the start line the larger of the minimums, the smaller of the '
+                'maximums); 0 in the files but in 6 of the 742 routes. A distance d is on the route when first <= d '
+                '<= last, or, with first >= last, d >= first or d <= last (TrackRoute::DistanceIsWithinRoute '
+                '0x1c2780)'
             },
         )
         last_distance = (DecimalBlock(length=4), {'description': 'Written by the game, as first_distance'})
-        unk2 = (BytesBlock(length=0x3F0), {'is_unknown': True})
+        driving_lines = (
+            ArrayBlock(child=Nfs6Ps2TrackRouteDrivingLine(), length=21),
+            {
+                'description': 'The driving lines (TrackRouteDrivingLine). The AI picks line car tier (CarTypeInfo '
+                '+0xe6, 0..4) x 2 + driving choice type - 1 (types 1..4; DrivingChoice::GetDrivingLine 0x241c20): '
+                "lines 0..11 for the AI's choices; the offsets and speeds of a line are in each point "
+                '(`line_offsets`, `line_speeds`)'
+            },
+        )
         bbox_min = (
             Point2D(child=DecimalBlock(length=4)),
             {'description': "Bounding box of the points (TrackRoute::FindClosestPoint 0x1c1b48's first test)"},
@@ -595,8 +687,16 @@ class Nfs6Ps2Signpost(DeclarativeCompoundBlock):
         kind = (
             IntegerBlock(length=1),
             {
-                'description': 'Low 3 bits: the kind (InitTrackRoutes 0x1c3250 flags the route of a kind 5 signpost '
-                'with 4); the other bits unknown'
+                'description': 'Bits 8..15 of the word at +0. Low 3 bits: the kind. The AI racers '
+                '(AICarController::SignPostDecision 0x191de0): 2 always taken, 4 taken half the time at random, 5 '
+                "never, 0 and 1 by the driver's skill (DifficultyInfo `signpost_choice`), kinds 0, 1 and 4 only after "
+                'TrackInfo `chance_signpost_seconds`. The traffic (GuessTargetDestinations 0x1cbb70): 2 a route '
+                'change with no branch, 3 a dead end, 0 a branch walked first, others walked last. InitTrackRoutes '
+                '0x1c3250 flags the route of a kind 5 signpost with 4. Bit 3 (0x8): the signpost is for the other '
+                'direction (the traffic takes it walking backwards only; the AI racers never). Bit 5 (0x20): a turn '
+                'the traffic takes (within 75 m it slows down, within 10 m it is put on the new route; 0x18cc78; 2 + '
+                '2 on tracks 13, 16, 23, 26, 33, 36, 43, 46, 63, 66). Bit 6 (0x40): the AI racers do not take it, '
+                'but for kind 2. Bits 4 and 7 unknown'
             },
         )
         point = (
@@ -610,7 +710,14 @@ class Nfs6Ps2Signpost(DeclarativeCompoundBlock):
                 'or leftovers in the files'
             },
         )
-        unk = (IntegerBlock(length=4), {'description': '0, 1 or 2', 'is_unknown': True})
+        speed_after_turn = (
+            IntegerBlock(length=4),
+            {
+                'description': "The AI racers' speed after taking it (AICarController 0x1921f8 / 0x191de0, the "
+                'desired speed 0x1932e8): 0 as before; 1 no speed limit for 2.5 s; 2 the signpost is remembered and '
+                'the desired speed is the line speed at its new route point'
+            },
+        )
 
 
 class Nfs6Ps2Signposts(ChunkBlock):
@@ -1539,6 +1646,305 @@ class Nfs6Ps2CarSkins(ChunkBlock):
         )
 
 
+class Nfs6Ps2DifficultySkill(DeclarativeCompoundBlock):
+    block_description = "The AI's settings of one skill level (0x1c bytes; the skill is DriverInfo +3, 0..9)"
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        signpost_choice = (
+            _floats(3),
+            {
+                'description': 'AICarController::SignPostDecision 0x191de0, signposts of kinds 0 and 1: a random '
+                'number 0..1 up to [0] takes kind 1 signposts, up to [1] kind 0 ones, up to [2] none'
+            },
+        )
+        avoid_chance = (
+            DecimalBlock(length=4),
+            {
+                'description': 'AIDriver::ShouldWeAvoidThisCar 0x1307b0 avoids a car (the AvoidCars and Pass actions) '
+                'when World::Random(1.0) is below it: 1.0 on every skill'
+            },
+        )
+        route_speed_scale = (
+            DecimalBlock(length=4),
+            {'description': "The desired speed (0x1932e8): the route's line speed x this (0.91..0.98)"},
+        )
+        catchup_min = (
+            DecimalBlock(length=4),
+            {
+                'description': "AICarController::DecideBoostFactor 0x1928f0: the catch-up's lower limit, also "
+                "Player::CatchupAllowed's argument (0.7..0.92)"
+            },
+        )
+        route_offset_range = (
+            IntegerBlock(length=1),
+            {'description': 'The desired speed (0x1932e8): a random route offset in -(n + 1)..n (10..4)'},
+        )
+        padding = (BytesBlock(length=3), {'description': 'Zeros'})
+
+
+class Nfs6Ps2DifficultyInfo(ChunkBlock):
+    block_description = (
+        "The AI's difficulty settings (TheDifficultyInfo, GLOBAL/GLOBALB.LZC chunk 0x34b00, 0x3e0 bytes; "
+        'LoaderDifficultyInfo SLUS_203.62 0x12ff68 copies it to 0x2f0080): the catch-up boosts, the skill levels '
+        "and the AI racers' skill chances"
+    )
+
+    CHUNK_ID = 0x00034B00
+
+    class Fields(ChunkBlock.Fields):
+        distance_boost_low = (
+            ArrayBlock(child=Point2D(child=DecimalBlock(length=4)), length=7),
+            {
+                'description': 'AICarController::CalculateDistanceAndPositionBoost 0x192c78: a graph (x the route '
+                'distance to the target in m, y the boost) at skill 0: (-1000, 0.2) .. (1000, -0.3)'
+            },
+        )
+        distance_boost_high = (
+            ArrayBlock(child=Point2D(child=DecimalBlock(length=4)), length=7),
+            {'description': "The same at skill 9 (0.65 .. -0.13); linear between the two by the driver's skill"},
+        )
+        position_boost_low = (
+            _floats(16),
+            {
+                'description': 'The position boost at skill 0, by the race position difference (target - own) + 7 '
+                '(>= 0) / + 8 (< 0) (0x192c78; [1..14] used)'
+            },
+        )
+        position_boost_high = (_floats(16), {'description': 'The same at skill 9'})
+        catchup_faster = (
+            ArrayBlock(child=Point2D(child=DecimalBlock(length=4)), length=8),
+            {
+                'description': "DecideBoostFactor 0x1928f0, by the player's race position 1..8 (entry position - 1), "
+                "when the player's speed ratio is 1 or more: the catch-up at skill 0 (x) and 9 (y), linear over the "
+                'skills'
+            },
+        )
+        catchup_slower = (
+            ArrayBlock(child=Point2D(child=DecimalBlock(length=4)), length=8),
+            {'description': 'The same when the speed ratio is below 1'},
+        )
+        skills = (
+            ArrayBlock(child=Nfs6Ps2DifficultySkill(), length=10),
+            {'description': 'By skill 0..9 (the exe takes the skill byte unchecked)'},
+        )
+        human_catchup_strength = (
+            _floats(15),
+            {
+                'description': "FrontendDatabase::StartRace 0x184f68: each human player's catch-up strength "
+                '(RaceParameters +0x2fc), [AI level x 5 + the car tier] for the AI levels 0..2 and tiers 0..4'
+            },
+        )
+        skill_chances = (
+            _floats(60),
+            {
+                'description': "FrontendDatabase::SetupCarsForRace 0x185690: an AI racer's skill is the first k (0..9) "
+                'whose entry is at least a random number 0..1, entry [no cops x 30 + AI level x 10 + k]: cumulative '
+                'chances, the first 30 with cops, the last 30 without'
+            },
+        )
+        unk = (
+            ArrayBlock(child=Point2D(child=DecimalBlock(length=4)), length=4),
+            {
+                'is_unknown': True,
+                'description': '(-500, 1.08), (-200, 1.03), (-100, 1.01), (-40, 1): no reader found',
+            },
+        )
+        route_offset_interval = (
+            DecimalBlock(length=4),
+            {'description': 'The desired speed (0x1932e8): seconds between new random route offsets (5)'},
+        )
+        boost_interval = (
+            DecimalBlock(length=4),
+            {'description': 'DecideBoostFactor 0x1928f0: seconds between boost updates (0.3)'},
+        )
+        catchup_max_distance = (
+            DecimalBlock(length=4),
+            {'description': '0x192c78: no boost beyond this route distance to the target, m (100000)'},
+        )
+
+
+class Nfs6Ps2CharacterInfo(DeclarativeCompoundBlock):
+    block_description = 'A driver character (CharacterInfo, 0x44 bytes)'
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        number = (
+            IntegerBlock(length=4, is_signed=True),
+            {'description': 'Its number, = the index (PickCopCharacterNumber 0x185640 returns it)'},
+        )
+        name = (
+            UTF8Block(length=32),
+            {
+                'description': 'Name: Rick, Wayne, Mika, Ashley, Dom, Juan, Alexis, Liv, Cop, FatCop '
+                '(GetCharacterInfo(char *) 0x1d9480; GetCharacterInfoFromNameHash 0x1d9508 by its bStringHash, as '
+                'TrackInfo `cop_character_hash`)'
+            },
+        )
+        body_type = (
+            UTF8Block(length=24),
+            {
+                'description': 'The name of its body type ([Nfs6Ps2BodyTypeInfo](#nfs6ps2bodytypeinfo)): Male, '
+                'Female, Cop, Cop3; PickCharacterNumberThatIsntRacing 0x1840a0 compares it with "MALE" '
+                '(bStrICmp)'
+            },
+        )
+        unk = (
+            ArrayBlock(child=IntegerBlock(length=4, is_signed=True), length=2),
+            {'is_unknown': True, 'description': '0..3, the two equal on every character; not read by the race setup'},
+        )
+
+
+class Nfs6Ps2CharacterInfos(ChunkBlock):
+    block_description = (
+        'The driver characters (GLOBAL/GLOBALB.LZC chunk 0x34300, 10 records; LoaderCharacterInfo SLUS_203.62 '
+        '0x1d9330: pointer 0x3313d4, count 0x3313d8; GetCharacterInfo(int) 0x1d9590). DriverInfo::DriverInfo '
+        '0x188610 keeps the record of the driver'
+    )
+
+    CHUNK_ID = 0x00034300
+
+    class Fields(ChunkBlock.Fields):
+        characters = (records_to_chunk_end(Nfs6Ps2CharacterInfo(), 0x44), {'description': 'Characters'})
+
+
+class Nfs6Ps2BodyTypeInfo(DeclarativeCompoundBlock):
+    block_description = 'A body type of the driver characters (0xb4 bytes)'
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        name = (
+            UTF8Block(length=24),
+            {'description': 'Name: Male, Female, Cop, Cop3 (GetBodyTypeInfo 0x1d93f8 finds a body type by it)'},
+        )
+        unk = (
+            BytesBlock(length=0x9C),
+            {
+                'is_unknown': True,
+                'description': 'Name hashes and counts (4 or 1 at +0x2c / +0x30, up to 4 hashes at +0x34 and at '
+                '+0x74 following those at +0x24 / +0x28); not read by the race setup',
+            },
+        )
+
+
+class Nfs6Ps2BodyTypeInfos(ChunkBlock):
+    block_description = (
+        'The body types of the driver characters (GLOBAL/GLOBALB.LZC chunk 0x34301, 4 records; LoaderCharacterInfo '
+        'SLUS_203.62 0x1d9330: pointer 0x3313cc, count 0x3313d0)'
+    )
+
+    CHUNK_ID = 0x00034301
+
+    class Fields(ChunkBlock.Fields):
+        body_types = (records_to_chunk_end(Nfs6Ps2BodyTypeInfo(), 0xB4), {'description': 'Body types'})
+
+
+class Nfs6Ps2TrackInfo(DeclarativeCompoundBlock):
+    block_description = 'Settings of a track (TrackInfo, 0xa4 bytes)'
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        name = (
+            UTF8Block(length=32),
+            {
+                'description': 'The track\'s name ("Coastal Parklands T11"). GetTrackInfo 0x153420 gives no track for '
+                'a record whose first byte is 0'
+            },
+        )
+        unk0 = (
+            BytesBlock(length=32),
+            {'is_unknown': True, 'description': 'The text "track, NFS" (or "Track, NFS") on every track'},
+        )
+        has_high_scores = (
+            IntegerBlock(length=1, is_signed=True),
+            {
+                'description': 'Not 0: the track has high score tables (HighScoreTable::InitStatsTables 0x186708); '
+                '1 on every track'
+            },
+        )
+        track_number = (
+            IntegerBlock(length=1, is_signed=True),
+            {
+                'description': "The track's number: InitStatsTables 0x186708 compares it with "
+                '`high_scores_track`, equal for a track with tables of its own'
+            },
+        )
+        high_scores_track = (
+            IntegerBlock(length=1, is_signed=True),
+            {
+                'description': 'The track whose high score tables it uses (InitStatsTables 0x186708): a track of the '
+                "same course in another weather or time shares the first one's (14 -> 11)"
+            },
+        )
+        point_to_point = (
+            IntegerBlock(length=1, is_signed=True),
+            {
+                'description': '1: a race from a start line to a finish line, one lap (FrontendDatabase::StartRace '
+                '0x184f68 sets RaceParameters +0x28); the x3 / x6 tracks, those with Forward / BackwardFinishLine '
+                'markers'
+            },
+        )
+        unk1 = (
+            ArrayBlock(child=IntegerBlock(length=1), length=2),
+            {'is_unknown': True, 'description': '0, 1, 2 or 4 by the variant; 0'},
+        )
+        unique_index = (
+            IntegerBlock(length=2, is_signed=True),
+            {
+                'description': 'Written by InitStatsTables 0x186708 (0, 1, .. in track order), read by '
+                'GetUniqueTrackIndex 0x1868a0; 0 in the files'
+            },
+        )
+        unk2 = (BytesBlock(length=12), {'is_unknown': True})
+        cop_character_hash = (
+            IntegerBlock(length=4),
+            {
+                'description': "bStringHash of the name of the cops' character ([Nfs6Ps2CharacterInfo]"
+                '(#nfs6ps2characterinfo); PickCopCharacterNumber 0x185640, 0: "Cop"): "FatCop" (0x5d6aefdc) on '
+                'locations 1 and 6, "Cop" (0x9f61) on the others'
+            },
+        )
+        unk3 = (BytesBlock(length=0x24), {'is_unknown': True})
+        start_route = (
+            IntegerBlock(length=4, is_signed=True),
+            {
+                'description': "The AI racers' start route number: RaceCoordinator::InitCars 0x14a2c8 puts them on "
+                'its first point; below 0 none (they find where they are). -1, 0 or 1'
+            },
+        )
+        chance_signpost_seconds = (
+            IntegerBlock(length=4, is_signed=True),
+            {
+                'description': 'Seconds into the race before the AI racers take signposts of kinds 0, 1 and 4 by '
+                "chance (SignPostDecision 0x191de0); -1: once the race's grace period is over. -1 or 0"
+            },
+        )
+        location = (
+            UTF8Block(length=32),
+            {'description': 'The name of the location: Parkland, Desert, Greece, Alpine, Tropics'},
+        )
+
+
+class Nfs6Ps2TrackInfos(ChunkBlock):
+    block_description = (
+        'Settings of every track (GLOBAL/GLOBALB.LZC chunk 0x34201, 66 records: record track - 1, empty for the '
+        'numbers without a track; LoaderTrackGeometry SLUS_203.62 0x153608, GetTrackInfo 0x153420)'
+    )
+
+    CHUNK_ID = 0x00034201
+
+    class Fields(ChunkBlock.Fields):
+        tracks = (records_to_chunk_end(Nfs6Ps2TrackInfo(), 0xA4), {'description': 'Tracks'})
+
+
+class Nfs6Ps2ThisTrackInfo(ChunkBlock):
+    block_description = (
+        "Settings of the bundle's track (TRACKS/TRACKB<track>.LZC chunk 0x34200; LoaderTrackGeometry SLUS_203.62 "
+        "0x153608): a copy of the track's record of chunk 0x34201 of GLOBALB, byte for byte on all 30 tracks"
+    )
+
+    CHUNK_ID = 0x00034200
+
+    class Fields(ChunkBlock.Fields):
+        track = (Nfs6Ps2TrackInfo(), {'description': 'The track'})
+
+
 NFS6_PS2_BUNDLE_CHUNK_BLOCKS = [
     ZeroChunk(),
     Nfs6Ps2SolidPack(),
@@ -1556,6 +1962,11 @@ NFS6_PS2_BUNDLE_CHUNK_BLOCKS = [
     Nfs6Ps2CarTypeInfos(),
     Nfs6Ps2LightingMaterials(),
     Nfs6Ps2CarSkins(),
+    Nfs6Ps2DifficultyInfo(),
+    Nfs6Ps2CharacterInfos(),
+    Nfs6Ps2BodyTypeInfos(),
+    Nfs6Ps2TrackInfos(),
+    Nfs6Ps2ThisTrackInfo(),
 ]
 
 

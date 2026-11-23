@@ -22,6 +22,7 @@ from resources.eac import horizons as eac_horizons
 from resources.eac import field_descriptions as eac_field_descriptions
 from resources.eac import fedata as eac_fedata
 from resources.eac import nfs5_career as eac_nfs5_career
+from resources.eac import nfs5_ai as eac_nfs5_ai
 from resources.blackbox.bitmaps import nfsu as blackbox_bitmaps_nfsu
 from resources.blackbox.maps import nfsu as blackbox_maps_nfsu
 from resources.blackbox.maps import nfsu2 as blackbox_maps_nfsu2
@@ -787,7 +788,19 @@ EXPORT_RESOURCES = {
 
 **FEData/Data/nfs5.per** AI personalities. {render_type(eac_nfs5_career.Nfs5Personalities())}
 
-**FEData/Data/nfs5.trk** tracks and their best times (15 records of 0x4a8 bytes: id, name text id, `.crp` name, pictures, lock, circuit flag, difficulty, the traffic and cop car ids of the track, speech locations, 8 records of driver, car and time in 1/100 s; Porsche.exe 0x4fb750, 0x4fae20, kept in the save folder), not parsed. **nfs5-1.hud**, **nfs5-2.hud** the default HUD layouts copied for a new player (0x4de5b0; 5 configs of 0x1e0 / 0x68 bytes), not parsed. **nfs5.loc** is not read by Porsche.exe. `GameData/Simulation/AI/`: **TRAFCFG.DAT** (the AI physics parameters; the game uses its built-in copy, 0x5cc0e0), **GLUE.BIN** / **hhglue.bin** (catch-up factors, loaded and never read), **SCRIPTS.BIN** and **prsonal.bin** (per personality), **tuning.bin** (NFS4's sheet, no effect), **SPREAD.BIN** (not loaded); the CSVs are the developers' sources, not read.
+**FEData/Data/nfs5.trk** tracks and their best times (15 records of 0x4a8 bytes: id, name text id, `.crp` name, pictures, lock, circuit flag, difficulty, the traffic and cop car ids of the track, speech locations, 8 records of driver, car and time in 1/100 s; Porsche.exe 0x4fb750, 0x4fae20, kept in the save folder), not parsed. Known offsets: +0 s16 track id, +4 int32 name text id (FEStrings 300..315), +8 the `.crp` name (any case), +0x6c s16 3 = locked, +0x6e s16 1 = a circuit (monaco1..5, skidpad; else an open track: one lap, LINEAR_TRACK, `FE_SendTrackOptions` 0x4ecdf0, `FE_GetRaceTrack` 0x4fc0b0), +0x7c 7 x s16 the ids of the traffic records of nfs5.car the race takes its traffic cars from (car i: entry i % 7, `FE_SendCars` 0x4ecf00; 0 on the skidpad), +0x8a 5 x s16 cop car ids. **nfs5-1.hud**, **nfs5-2.hud** the default HUD layouts copied for a new player (0x4de5b0; 5 configs of 0x1e0 / 0x68 bytes), not parsed. **nfs5.loc** is not read by Porsche.exe.
+
+**GameData/Simulation/AI/prsonal.bin** AI personality traits. {render_type(eac_nfs5_ai.Nfs5AiPersonalityTraits())}
+
+**GameData/Simulation/AI/SCRIPTS.BIN** AI scripts. {render_type(eac_nfs5_ai.Nfs5AiScripts())}
+
+**GameData/Simulation/AI/GLUE.BIN**, **hhglue.bin** AI catch-up factors (loaded, never read). {render_type(eac_nfs5_ai.Nfs5AiGlue())}
+
+**GameData/Simulation/AI/TRAFCFG.DAT** AI physics parameters (the game uses its built-in copy, 0x5cc0e0). {render_type(eac_nfs5_ai.Nfs5TrafficConfig())}
+
+**GameData/Track/racer/work/\\<track\\>\\<reverse\\>.lsp** AI racing line. {render_type(eac_nfs5_ai.Nfs5AiRacingLine())}
+
+`GameData/Simulation/AI/`: **tuning.bin** (NFS4's sheet: read by Ai_LoadTuning 0x40ace0, its results read by nothing), **SPREAD.BIN** (not loaded), not parsed; the CSVs are the developers' sources, not read.
         
 **\\*.FFN** bitmap font. {render_type(eac.fonts.FfnFont())}
 
@@ -838,6 +851,17 @@ EXPORT_RESOURCES = {
                 eac_nfs5_career.Nfs5TournamentRace(),
                 eac_nfs5_career.Nfs5Personalities(),
                 eac_nfs5_career.Nfs5Personality(),
+                eac_nfs5_ai.Nfs5AiPersonalityTraits(),
+                eac_nfs5_ai.Nfs5AiTraits(),
+                eac_nfs5_ai.Nfs5AiScripts(),
+                eac_nfs5_ai.Nfs5AiScript(),
+                eac_nfs5_ai.Nfs5AiScriptAction(),
+                eac_nfs5_ai.Nfs5AiScriptStep(),
+                eac_nfs5_ai.Nfs5AiGlue(),
+                eac_nfs5_ai.Nfs5TrafficConfig(),
+                eac_nfs5_ai.Nfs5AiControl(),
+                eac_nfs5_ai.Nfs5AiRacingLine(),
+                eac_nfs5_ai.Nfs5AiLinePoint(),
             ],
             'Geometries': [
                 eac.geometries.nfs5.CrpGeometry(),
@@ -1004,6 +1028,8 @@ EXPORT_RESOURCES = {
 
 **CARS/\\<car\\>/GEOMETRY.LZC** car model (COMP-compressed; GEOMETRY.BIN uncompressed): its meshes and collision hull. Textures are in **CARS/TEXTURES.BIN** and **GLOBAL/GLOBALB.LZC**, which has the car types table (wheels, physics values). {render_type(blackbox_maps_nfs6_ps2.Nfs6Ps2CarGeometry())}
 
+**GLOBAL/GLOBALB.LZC** global chunk bundle: besides textures and lighting materials the car types table and paints, the settings of every track ({render_type(blackbox_maps_nfs6_ps2.Nfs6Ps2TrackInfos())}), the driver characters and their body types, the AI's difficulty settings ({render_type(blackbox_maps_nfs6_ps2.Nfs6Ps2DifficultyInfo())}). {render_type(blackbox_maps_nfs6_ps2.Nfs6Ps2ChunkBundle())}
+
 **TRACKS/TEX\\<track\\>LOCATION.BIN**, **TRACKS/TEX\\<track\\>TRACK.BIN**, **GLOBAL/\\*.BIN** texture packs and other chunk bundles. {render_type(blackbox_maps_nfs6_ps2.Nfs6Ps2ChunkBundle())}
 
 **SOUND/JUKEBOXM.JBC** in-game music: the songs of the PC game, stereo PS-ADPCM. {render_type(blackbox_audios_nfs6_ps2.Nfs6Ps2Jukebox())}""",
@@ -1026,6 +1052,7 @@ EXPORT_RESOURCES = {
                 blackbox_maps_nfs6_ps2.Nfs6Ps2TrackPositionMarker(),
                 blackbox_maps_nfs6_ps2.Nfs6Ps2TrackRoutes(),
                 blackbox_maps_nfs6_ps2.Nfs6Ps2TrackRoute(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2TrackRouteDrivingLine(),
                 blackbox_maps_nfs6_ps2.Nfs6Ps2TrackRoutePoint(),
                 blackbox_maps_nfs6_ps2.Nfs6Ps2Signposts(),
                 blackbox_maps_nfs6_ps2.Nfs6Ps2Signpost(),
@@ -1036,6 +1063,17 @@ EXPORT_RESOURCES = {
                 blackbox_maps_nfs6_ps2.Nfs6Ps2TopologyTreePolygons(),
                 blackbox_maps_nfs6_ps2.Nfs6Ps2TopologyTreePolygon(),
                 blackbox_maps_nfs6_ps2.Nfs6Ps2TopologyTreeIndexes(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2TrackInfos(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2ThisTrackInfo(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2TrackInfo(),
+            ],
+            'AI and drivers': [
+                blackbox_maps_nfs6_ps2.Nfs6Ps2DifficultyInfo(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2DifficultySkill(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2CharacterInfos(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2CharacterInfo(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2BodyTypeInfos(),
+                blackbox_maps_nfs6_ps2.Nfs6Ps2BodyTypeInfo(),
             ],
             'Cars': [
                 blackbox_maps_nfs6_ps2.Nfs6Ps2CarGeometry(),

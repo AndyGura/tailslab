@@ -567,8 +567,10 @@ When you do:
   addresses in the descriptions): the car types' wheels, tyres, mass and inertia, suspensions, drive train, engine,
   aerodynamics and controls (`Nfs6Ps2CarTypeInfo`, its sub-blocks `Nfs6Ps2Car*`); in the track bundles the ground and wall polygons of the physics, a quad tree (0x34130 nodes and
   0x34131 squares, 16-byte aligned; 0x34132 polygons, 0x34133 polygon indexes, not aligned: `Nfs6Ps2TopologyTree*`), the
-  start grid markers 0x34146, the routes 0x34121 (lanes and racing lines, back to back, 0x428 bytes + 0x70 per point)
-  and signposts 0x34122; the collision volumes 0x80034020 (`Nfs6Ps2CollisionVolumes`: V-Clip polyhedra as memory images,
+  start grid and race boundary markers 0x34146, the routes 0x34121 (the AI racers' routes 1..49 with the 21 driving
+  lines of the car tiers, the traffic's 50..69; back to back, 0x428 bytes + 0x70 per point: the lines' offsets and
+  speeds) and signposts 0x34122 (kinds and direction bits as the AI racers and the traffic read them), the track's
+  settings 0x34200 (a copy of its GLOBALB record); the collision volumes 0x80034020 (`Nfs6Ps2CollisionVolumes`: V-Clip polyhedra as memory images,
   five sub-chunks each, 16-byte aligned; a car's GEOMETRY has its hull `<model>_CV`, the tracks and INGAMEB the props').
   Records the game uses in place keep their run time fields (list pointers, slots) as read.
 - Car types table (`Nfs6Ps2CarTypeInfo`, every byte named): readers found by a register taint scan of the whole
@@ -594,10 +596,14 @@ When you do:
   the wheels, aero, steering lock by speed, engine sound, camera views, HUD gauges, front end, all fields). The
   executable's formulas are `nfs6-ps2-car-specs.ts` (CalculateShiftPoints, the speed limiter, the steering tables, the
   grid order...): keep them and the field descriptions in sync.
+- GLOBALB's AI and race data (field meanings from nfs-web's port of the AI and traffic, `src/nfs6/nfs6-physics`,
+  `decomp/nfs6_ps2/port-work/ai-traffic/`): the track settings 0x34201 (`Nfs6Ps2TrackInfos`, record track - 1),
+  the driver characters 0x34300 and their body types 0x34301, the AI's difficulty settings 0x34b00
+  (`Nfs6Ps2DifficultyInfo`: catch-up boosts, the skill levels, the AI racers' skill chances).
 - Ghidra: nfs-web `decomp/nfs6_ps2/SLUS_203.62.gzf` (R5900 language of the extension `ghidra-emotionengine-reloaded`),
-  VU1 microcode: nfs-web `decomp/vu1dis.py`. Not read yet: the engine sound banks, speech, NIS, the 136 unnamed
-  files; GLOBALB's DifficultyInfo 0x34b00 (AI difficulty, LoaderDifficultyInfo 0x12ff68), CharacterInfo 0x34300 /
-  0x34301 (drivers), NisInfo 0x37010.
+  VU1 microcode: nfs-web `decomp/vu1dis.py`. Not read yet: the engine sound banks, speech, NIS (NisInfo 0x37010), the
+  language files `LANGUAGES/FE_<language>.BIN` (one chunk 0x39000: string hash and id tables, LanguageManager::Loader
+  0x21e3d0), the 136 unnamed files.
 
 ## NFS5 data files (`resources/eac/car_specs.py`, `resources/eac/nfs5_career.py`, `resources/eac/maps/nfs5.py`, `resources/eac/geometries/nfs5.py`)
 
@@ -609,9 +615,13 @@ When you do:
   colours stored A, R, G, B, read as big-endian 0xAARRGGBB; texts are Latin-1: `UTF8Block(length, encoding='latin-1')`), and in
   `nfs5_career.py` `nfs5.fac` `Nfs5FactoryMissions` (0xf0), `nfs5.trn` `Nfs5Tournaments` (0xd40), `nfs5.per`
   `Nfs5Personalities` (0x2c), picked by name and record size; `<track>.jnc` `Nfs5Junctions`, `<track>.edg`
-  `Nfs5WallEdges`. Every byte is a named field (`padding_*` / `unused_*`: read by no code); the few values with no
-  reader whose meaning is unknown stay `is_unknown` (`unk_*`). `nfs5.trk`, `nfs5-1.hud` / `nfs5-2.hud` and the
-  `Simulation/AI` files are not parsed (what they are: the NFS5 doc). All write back byte-exact.
+  `Nfs5WallEdges`; in `resources/eac/nfs5_ai.py` the AI files of `GameData/Simulation/AI/` (`prsonal.bin`
+  `Nfs5AiPersonalityTraits`, `SCRIPTS.BIN` `Nfs5AiScripts`, `GLUE.BIN` / `hhglue.bin` `Nfs5AiGlue`, `TRAFCFG.DAT`
+  `Nfs5TrafficConfig`, picked by name and size; names from the CSV / DES sources next to them) and the racing lines
+  `GameData/Track/racer/work/<track><0|1>.lsp` (`Nfs5AiRacingLine`), from nfs-web's port of the AI and traffic
+  (`decomp/nfs5/port-work/ai-traffic/`). Every byte is a named field (`padding_*` / `unused_*`: read by no code); the few values with no
+  reader whose meaning is unknown stay `is_unknown` (`unk_*`). `nfs5.trk`, `nfs5-1.hud` / `nfs5-2.hud`,
+  `tuning.bin` and `SPREAD.BIN` are not parsed (what they are: the NFS5 doc). All write back byte-exact.
 - Conversion: the car data blocks use `CompleteJsonSerializer` (`serializers/complete_json.py`): `<file>.json` with
   every field (unknown ones too), reversible: the JSON imports back and writes the file byte-exact
   (`test/resources/eac/test_nfs5_car_data.py`, samples `test/samples/nfs5/`). nfs-web reads the raw files, not the
@@ -626,8 +636,9 @@ When you do:
   `nfs5.prt` next to the opened file (`nfs5-files.ts`: `find_files` + `retrieve_value`) for names, and link to the
   other files (`.sim`, `.ais`, a car, a part) by opening them (`nfs5PendingSelection` picks the record shown; off
   with unsaved changes). Their derived values follow the field descriptions: keep the two in sync.
-- In the CRP, the track parts `DmiS` / `TmiS` (road spline slices and sections), `esaB` (`CrpBasePart`: flags, bounds,
-  object tag, levels of detail) and `fd` (vertex colours) are parsed.
+- In the CRP, the track parts `DmiS` / `TmiS` (road spline slices and sections; a slice's lanes, lane bits and widths
+  as the AI reads them), `esaB` (`CrpBasePart`: flags, bounds, object tag, levels of detail) and `fd` (vertex
+  colours) are parsed.
 - CRP layout (`CrpGeometry`): 16-byte chunks (header, articles, common parts, parts; parts picked by identifier,
   `MagicDispatchBlock`), then the part data at each part's `offset` / `len`: 16-byte aligned, in no fixed order, some at
   4 KB boundaries, zeros between, the file padded to 4 KB. `write` lays the data out again in the order of the offsets
@@ -1174,8 +1185,9 @@ When you do:
 ## NFS4 tracks (`Data/Tracks/<track>/`, nfs4.exe)
 
 - `Nfs4FrdMap` (`resources/eac/maps/nfs4.py`) field names and descriptions follow nfs4.exe (FRD loader 0x4327b0,
-  track position search 0x439fe0, car collisions 0x45cf20 / 0x45d8c0, lanes 0x41cc00 / 0x41cce0): vroad records =
-  slices (8 per block, `num_slices` of the block header), lane widths / counts / open bits, side types; block header
+  track position search 0x439fe0, car collisions 0x45cf20 / 0x45d8c0, lanes 0x41cc00 / 0x41cce0, the AI's lane
+  choice 0x41a290 / 0x41ad10): vroad records = slices (8 per block, `num_slices` of the block header), wall
+  distances (the AI's road borders), lane widths / counts / open bits, side types; block header
   pointer slots (`*_pointer(s)`, `Nfs4BlockCount.pointer`: written by the loader, leftovers in the files); polygon
   records with cell ranges, per-edge wall flags, the surface byte and the chunk-4 polygon number; xobj refs with
   radius, state index and collision type. All 29 `Tr.frd` / `Trn.frd` write back byte-exact (the polygon normals are

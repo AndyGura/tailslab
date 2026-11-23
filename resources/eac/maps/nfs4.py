@@ -94,14 +94,21 @@ class Nfs4VRoadBlock(DeclarativeCompoundBlock):
         left_wall = (
             DecimalBlock(length=4),
             {
-                'description': 'Distance from the slice centre to the left wall/edge in meters: the lateral offset '
+                'description': 'Distance from the slice centre to the left wall/edge in meters: the left border of '
+                "the road for the AI. An AI car's target lateral offset is kept at least its half width inside it "
+                '(nfs4.exe 0x41ad10), the lane choice scores an edge lane down when the shoulder (this - '
+                '`left_lanes` x `left_lane_width`) is narrower than the half width (0x41a290), and the lateral offset '
                 'of an AI lane is kept at least a margin (2 m for the AI line the game makes when the speed file is '
-                'short) inside it (nfs4.exe 0x41e0d0)'
+                'short) inside it (0x41e0d0)'
             },
         )
         right_wall = (
             DecimalBlock(length=4),
-            {'description': 'Distance from the slice centre to the right wall/edge in meters, as `left_wall`'},
+            {
+                'description': 'Distance from the slice centre to the right wall/edge in meters: the right border of '
+                'the road for the AI, as `left_wall` (0x41ad10, 0x41a290 with `right_lanes` x `right_lane_width`, '
+                '0x41e0d0)'
+            },
         )
         left_lane_width = (
             DecimalBlock(length=4),
@@ -164,15 +171,20 @@ class Nfs4VRoadBlock(DeclarativeCompoundBlock):
         left_side_type = (
             IntegerBlock(length=1, is_signed=False),
             {
-                'description': 'Type of the road side left of the centre (0..5). Two code-verified uses of this '
-                'byte: 2 = covered (tunnel, roof: no weather there, the ceiling of heights.sim applies; nfs4.exe '
-                '0x4399d0 / 0x439ab0, with polygon surface bit 0x20); and the wall crash type of a wall hit on this '
-                'side, crash type 0x40000 | value, 0 or above 7 counting as 4 (0x45cf20)'
+                'description': 'Type of the road side left of the centre (0..5). Code-verified uses of this byte: '
+                '2 = covered (tunnel, roof: no weather there, the ceiling of heights.sim applies; nfs4.exe 0x4399d0 / '
+                "0x439ab0, with polygon surface bit 0x20; the AI's slice table flags the slice covered when either "
+                'side is 2, runs of fewer than 21 such slices left out, 0x41bd90, tested by 0x41e6b0); and the wall '
+                'crash type of a wall hit on this side, crash type 0x40000 | value, 0 or above 7 counting as 4 '
+                '(0x45cf20)'
             },
         )
         right_side_type = (
             IntegerBlock(length=1, is_signed=False),
-            {'description': 'Type of the road side right of the centre, as `left_side_type` (0x4399d0, 0x45cf20)'},
+            {
+                'description': 'Type of the road side right of the centre, as `left_side_type` (0x4399d0, 0x41bd90, '
+                '0x45cf20)'
+            },
         )
         unk1 = (
             ArrayBlock(child=IntegerBlock(length=1, is_signed=False), length=2),
