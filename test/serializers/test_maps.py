@@ -218,6 +218,50 @@ class TestEacTrackSerializers(unittest.TestCase):
             # the animated boat of the COL file
             self.assertTrue(objects)
             self.assertTrue(all(json.loads(o['animation'])['delay'] == 44 for o in objects.values()))
+            # the road physics data next to the map
+            with open(os.path.join(out, 'collision.json')) as f:
+                self.assertEqual(json.load(f)['format_version'], 1)
+
+    def test_trk_collision_json_should_hold_what_the_road_physics_reads(self):
+        from library import require_file
+        from serializers.maps import nfs2_collision_json
+
+        _, _, data = require_file('test/golden_corpus/TR02.TRK')
+        _, _, col = require_file('test/golden_corpus/TR02.COL')
+        slices = next(eb['data_records']['data'] for eb in col['extrablocks'] if eb['type'] == 'collision_data')
+        raw_blocks = [b for sb in data['superblocks'] for b in sb['blocks']]
+        blocks = nfs2_collision_json(data)['blocks']
+        self.assertEqual(len(blocks), len(raw_blocks))
+        for i, (b, raw) in enumerate(zip(blocks, raw_blocks)):
+            num_polygons = raw['num_high_polygons']
+            self.assertEqual(len(b['polygons']), 4 * num_polygons, i)
+            # one polygon_map record per high polygon, its road vectors in the block
+            self.assertEqual(len(b['surfaces']), num_polygons, i)
+            self.assertEqual(len(b['vectors']), num_polygons, i)
+            self.assertTrue(all(v < len(b['road_vectors']) // 6 for v in b['vectors']), i)
+            # one median record per slice of the block, each a run of high polygons
+            self.assertEqual(len(b['medians']) // 4, min(8, len(slices) - b['first_slice']), i)
+            for first, count in zip(b['medians'][0::4], b['medians'][1::4]):
+                self.assertLessEqual(first + count, num_polygons, i)
+            self.assertEqual(len(b['objects']) % 6, 0, i)
+        self.assertEqual(sum(len(b['medians']) // 4 for b in blocks), len(slices))
+        # the stored corner order A, B, C, D and the whole surface byte
+        b, raw = blocks[18], raw_blocks[18]
+        self.assertEqual(b['polygons'][:4], raw['high_polygons'][0]['vertices'])
+        polygon_map = next(eb for eb in raw['extrablocks'] if eb['type'] == 'polygon_map')['data_records']['data']
+        surface = polygon_map[0]['surface']
+        self.assertEqual(b['surfaces'][0], surface['barriers'] << 7 | surface['objects'] << 6 | surface['type'])
+        # vertices below nv8 from the next block's position, the others from this block's
+        positions = data['block_positions']
+        for vertex_i, pivot in [(0, positions[19]), (raw['nv8'], positions[18])]:
+            v = raw['vertices'][vertex_i]
+            for axis_i, a in enumerate('xyz'):
+                self.assertAlmostEqual(b['vertices'][vertex_i * 3 + axis_i], pivot[a] + v[a], places=4)
+        # solid and knockable objects, numbered in block order
+        objects = [o for b in blocks for o in zip(*[b['objects'][k::6] for k in range(6)])]
+        self.assertTrue(objects)
+        self.assertEqual([o[4] for o in objects], list(range(len(objects))))
+        self.assertTrue({o[5] for o in objects} <= {1, 2})
 
     def _obj_faces_by_mesh(self, path):
         faces, name = {}, None

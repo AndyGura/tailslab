@@ -1283,6 +1283,90 @@ class EacTrackSerializer(BaseFileSerializer):
 # Levels of detail of a NFS2 TRK block, highest first: polygon sets <level>_polygons + <level>_extra_polygons
 TRK_LODS = ['high', 'medium', 'low']
 
+NFS2_COLLISION_FORMAT_VERSION = 1
+
+
+def _rounded(value: float):
+    """`value` rounded to 4 decimals, an int when whole (compact JSON), never -0"""
+    value = round(value, 4) or 0
+    return int(value) if value == int(value) else value
+
+
+def nfs2_collision_json(data: dict) -> dict:
+    """The data of a NFS2 / NFS2 SE TRK that the game's road physics reads (nfs2sen.exe: polygon search 0x4384c0,
+    barriers 0x44e8e0, track objects 0x441ec0), written as "collision.json" next to the track export. One entry per
+    block, in block order (`block_idx`, every superblock's blocks one after the other):
+    - `first_slice`: the block's first slice (COL collision_data record)
+    - `vertices`: x, y, z of every vertex in the world, in meters on the game's axes (x right, y up, z forward), as the
+      track is drawn: indexes below nv8 from the next block's position (block 0's for the last block), the others
+      from this block's
+    - `polygons`: the 4 vertex indexes of every `high_polygons` polygon (set 4, the road the physics searches) in
+      their stored order A, B, C, D (polygon +4..+7: the game's point in quad test depends on it)
+    - `surfaces`, `vectors`: the polygon_map record of every polygon: the whole surface byte (0x80 barriers, 0x40
+      objects, low 6 bits the surface type; 0x0e not road) and the road_vectors index
+    - `road_vectors`: normal x, y, z, forward x, y, z of every road_vectors record (raw / 32768)
+    - `medians`: first polygon, polygon count, alt_slice_1, alt_slice_2 of every median_polygons record (one per
+      slice of the block, from `first_slice` on)
+    - `objects`: x, y, z (world, meters), radius (meters), object number, type (1 solid, 2 knockable) of every
+      track_objects record
+    Lists are flat; an extrablock the block lacks gives an empty list. Floats are rounded to 4 decimals (whole
+    numbers written as ints), within 0.00005 of the file's values: vertices are 8.8 fixed point values plus 16.16
+    block positions (whole 1 / 256 in every NFS2 SE track, so round(v * 256) / 256 gives a vertex back exactly), radii
+    8.8, object positions 16.16, the vectors multiples of 1 / 32768"""
+    from resources.eac.maps.nfs_common import PolygonMapExtraDataRecord, TrackObjectExtraDataRecord
+
+    surface_block = PolygonMapExtraDataRecord().field_blocks_map['surface']
+    object_type_block = TrackObjectExtraDataRecord().field_blocks_map['type']
+    blocks = [b for sb in data['superblocks'] for b in sb['blocks']]
+    positions = data['block_positions']
+    result = []
+    for block in blocks:
+        block_i = block['block_idx']
+        pivot = positions[block_i]
+        next_pivot = positions[block_i + 1 if block_i < len(blocks) - 1 else 0]
+        vertices = []
+        for i, v in enumerate(block['vertices']):
+            base = next_pivot if i < block['nv8'] else pivot
+            vertices += [_rounded(base['x'] + v['x']), _rounded(base['y'] + v['y']), _rounded(base['z'] + v['z'])]
+
+        def records(kind):
+            return [r for eb in block['extrablocks'] if eb['type'] == kind for r in eb['data_records']['data']]
+
+        polygon_map = records('polygon_map')
+        result.append(
+            {
+                'first_slice': block['first_slice'],
+                'vertices': vertices,
+                'polygons': [i for p in block['high_polygons'] for i in p['vertices']],
+                'surfaces': [surface_block.to_raw(r['surface']) for r in polygon_map],
+                'vectors': [r['vectors_idx'] for r in polygon_map],
+                'road_vectors': [
+                    _rounded(r[vector][axis])
+                    for r in records('road_vectors')
+                    for vector in ('normal', 'forward')
+                    for axis in 'xyz'
+                ],
+                'medians': [
+                    x
+                    for r in records('median_polygons')
+                    for x in (r['first_polygon'], r['num_polygons'], r['alt_slice_1'], r['alt_slice_2'])
+                ],
+                'objects': [
+                    x
+                    for r in records('track_objects')
+                    for x in (
+                        _rounded(r['position']['x']),
+                        _rounded(r['position']['y']),
+                        _rounded(r['position']['z']),
+                        _rounded(r['radius']),
+                        r['object_idx'],
+                        object_type_block.to_raw(r['type']),
+                    )
+                ],
+            }
+        )
+    return {'format_version': NFS2_COLLISION_FORMAT_VERSION, 'blocks': result}
+
 
 class TrkMapSerializer(EacTrackSerializer):
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
@@ -1388,7 +1472,10 @@ class TrkMapSerializer(EacTrackSerializer):
             prop_models.update(col_models)
 
         files = self._export_track(path, map_scene, chunks, props, prop_models, texture_archive)
-        return files + _export_nfs2_line_textures(id, path, sorted(line_textures))
+        collision_path = path_join(path, 'collision.json')
+        with open(collision_path, 'w') as f:
+            json.dump(nfs2_collision_json(data), f, separators=(',', ':'))
+        return files + [collision_path] + _export_nfs2_line_textures(id, path, sorted(line_textures))
 
 
 def _export_nfs2_line_textures(id: str, path: str, names: List[str]) -> List[str]:

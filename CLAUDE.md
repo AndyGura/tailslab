@@ -229,6 +229,13 @@ When you do:
   mirror, then turn, Tex_OrientCorners 0x475164); NFS3 COL props keep the enum reading (`nfs3_col_alignment_uvs`,
   not verified in nfs3.exe). Animated textures (`flags.animated`, `animation_frames` / `animation_delay`) are exported
   with their first frame only.
+- NFS2 TRK road physics data (`nfs2_collision_json`, `TrkMapSerializer`): every TRK export also writes
+  `collision.json` (compact JSON, `format_version` 1, no setting), what nfs2sen.exe's road physics reads from the TRK
+  (polygon search 0x4384c0, barriers 0x44e8e0, track objects 0x441ec0), per block in block order: `first_slice`,
+  world `vertices` (game axes, meters, resolved as for drawing), `high_polygons` corners in stored order, polygon_map
+  `surfaces` (whole byte) and `vectors`, `road_vectors`, `medians` (median_polygons) and `objects` (track_objects:
+  position, radius, number, type), flat lists, floats to 4 decimals. nfs-web's Ammo NFS2 mode reads it: keep the
+  keys stable, bump `NFS2_COLLISION_FORMAT_VERSION` when they change. The slices stay in the COL export.
 - Conversion settings presets (`config.py`): "No preset" is the `[Conversion]` section, a user-defined preset is a
   `[Conversion: <name>]` section with the conversion settings and input / output paths (everything but
   `selected_preset`, see `CONVERSION_NON_PRESET_KEYS`); a setting missing in a preset takes the built-in default.
