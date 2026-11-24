@@ -1115,7 +1115,7 @@ When you do:
   `fce3ChromeAdd`, verified in nfs3.exe and its Direct3D driver `D3DA.DLL`, nfs-web `decomp/nfs3/`). Its source:
   `chromeTexture` (a track's `SKY.FSH` `CHRD`, the sphere map the game uses for nothing else), else the sky of the
   scene (`scene.background` when it is a cube texture, e.g. gg-web-engine's baked sky: the camera's direction
-  reflected by the normal, alpha `fce3SkyChromeAlpha`), `chromeEnabled` off for none. The GUI uses the viewer's sky.
+  reflected by the normal, dimmed by `fce3SkyChromeAlpha` to what the tracks' `CHRD` textures add on average), `chromeEnabled` off for none. The GUI uses the viewer's sky.
   Wheels spin as nfs3.exe spins them (`fce3WheelSpinStep`: per 1/64 s tick, at most 8 turns per second; `handbrake`
   slows the rear ones). nfs-web reads the mesh names, extras and the attribute: keep them stable.
 - The OBJ has a `no_cull` triangle twice, the second reversed; Blender's OBJ import drops that copy (a face of the

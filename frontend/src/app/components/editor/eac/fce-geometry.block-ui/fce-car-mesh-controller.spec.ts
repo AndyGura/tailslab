@@ -545,7 +545,8 @@ describe('FceCarMeshController', () => {
     black.needsUpdate = true;
     const plane = new Mesh(new PlaneGeometry(2, 2), new MeshBasicMaterial({ map: black }));
     plane.name = 'hp_0_body__car00';
-    const normal = new Vector3(0.3, -0.8, 0.5).normalize();
+    // turned up in the environment matrix space (y 0.83): the sky adds about half of itself (fce3SkyChromeAlpha)
+    const normal = new Vector3(0.2, -0.3, 0.93).normalize();
     const normals = new Float32Array(4 * 3).map((_, i) => normal.getComponent(i % 3));
     plane.geometry.setAttribute('_game_normal', new BufferAttribute(normals, 3));
     const scene = new Scene();
@@ -582,11 +583,15 @@ describe('FceCarMeshController', () => {
       .clone()
       .multiplyScalar(2 * normal.dot(eye))
       .sub(eye);
-    expect(r.z).toBeGreaterThan(0.1);
     const lookup = [-r.x, r.y, r.z];
     const axis = [0, 1, 2].reduce((a, c) => (Math.abs(lookup[c]) > Math.abs(lookup[a]) ? c : a), 0);
     const face = faces[axis * 2 + (lookup[axis] < 0 ? 1 : 0)];
-    const expected = fce3ChromeAdd([...face, fce3SkyChromeAlpha(r.z) * 255] as any, 0x7f / 255);
+    // the normal's y in the environment matrix space (game axes: x, z up as y, y as z)
+    const e = fce3ChromeEnvMatrix([camera.x, camera.z, camera.y]);
+    const up = normal.x * e[1] + normal.z * e[4] + normal.y * e[7];
+    expect(up).toBeCloseTo(0.832, 2);
+    const expected = fce3ChromeAdd([...face, fce3SkyChromeAlpha(up) * 255] as any, 0x7f / 255);
+    expect(Math.max(...expected)).toBeGreaterThan(20);
     Array.from(pixel.slice(0, 3)).forEach((c, i) => expect(Math.abs(c - expected[i])).toBeLessThanOrEqual(1));
     // no chrome without the option, or without a sky
     controller.chromeEnabled = false;
@@ -603,11 +608,13 @@ describe('FceCarMeshController', () => {
     renderer.dispose();
   });
 
-  it('gives the sky chrome the alpha the game gives the sky, none to the ground', () => {
-    expect(fce3SkyChromeAlpha(1)).toBe(0.6);
-    expect(fce3SkyChromeAlpha(0.1)).toBe(0.6);
-    expect(fce3SkyChromeAlpha(0)).toBeCloseTo(0.3, 6);
-    expect(fce3SkyChromeAlpha(-0.1)).toBe(0);
+  it('dims the sky chrome to what the CHRD textures of the tracks add: sky for normals turned up, little elsewhere', () => {
+    expect(fce3SkyChromeAlpha(1)).toBeCloseTo(0.55, 6);
+    expect(fce3SkyChromeAlpha(0.65)).toBeCloseTo(0.275, 6);
+    expect(fce3SkyChromeAlpha(0.3)).toBeCloseTo(0.07, 6);
+    expect(fce3SkyChromeAlpha(0)).toBeCloseTo(0.07, 6);
+    expect(fce3SkyChromeAlpha(-0.15)).toBeCloseTo(0.035, 6);
+    expect(fce3SkyChromeAlpha(-0.3)).toBe(0);
     expect(fce3SkyChromeAlpha(-1)).toBe(0);
   });
 

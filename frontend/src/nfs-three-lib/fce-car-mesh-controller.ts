@@ -506,13 +506,20 @@ export const fceChromeClassOf = (mesh: Object3D): string => {
 };
 
 /**
- * The alpha of the chrome texel of a direction of the scene's sky (no texture alpha there), by the direction's height
- * (unit vector, up = 1): the game's CHR* textures of SKY.FSH reflect the sky with an alpha of 0.4..1 (0.6 in most
- * tracks) and the ground with about 0, the horizon in between
+ * The alpha of the chrome texel of the scene's sky (no texture alpha there), by `up`, the y of the normal in the
+ * environment matrix space (fce3ChromeEnvMatrix: the camera's frame, up tilted with its elevation; the texture's v of
+ * fce3ChromeUv). The tracks' CHRD textures (NFS3 SKY.FSH, NFS4 sky.qfs: the same pictures) are sphere maps with the
+ * sky at the bottom (normals turned up, alpha 0.5..1), dark scenery with a low alpha across the middle (normals
+ * facing the camera or sideways) and almost nothing at the top (normals turned down): this is the mean of their 19
+ * pictures' texel x alpha per row over their sky's brightness (about 0.68), so that the sky (about as bright) adds
+ * what a CHRD adds on average to a car seen from a chase camera, hood, sides and rear alike
  */
 export const fce3SkyChromeAlpha = (up: number): number => {
-  const t = Math.max(0, Math.min(1, (up + 0.1) / 0.2));
-  return 0.6 * t * t * (3 - 2 * t);
+  const smooth = (from: number, to: number) => {
+    const t = Math.max(0, Math.min(1, (up - from) / (to - from)));
+    return t * t * (3 - 2 * t);
+  };
+  return Math.max(0.07 * smooth(-0.3, 0), 0.55 * smooth(0.3, 1));
 };
 
 /** Chrome pass sources: none, a sphere map of the game (CHRD), the scene's sky (a cube texture) */
@@ -555,8 +562,9 @@ class ChromeUniforms {
  * vertex color (`color`, a uniform of ChromeUniforms.colors) as fce3ChromeAdd / fce4ChromeAdd (alpha included), added in the
  * output color space (the game blends in the framebuffer's), divided by the fragment's alpha (or premultiplied) so
  * that blending adds it whole. Sky mode (ChromeMode.SKY): the texel is the scene's sky cube texture in the direction
- * the normal reflects the camera's direction to (per vertex, interpolated, as the game's coordinates), alpha
- * fce3SkyChromeAlpha, reduced to 4 bits as the game's texture
+ * the normal reflects the camera's direction to (per vertex, interpolated, as the game's coordinates), dimmed to the
+ * game's chrome textures by the alpha fce3SkyChromeAlpha of the normal in the environment matrix space, reduced to 4
+ * bits as the game's texture
  */
 function chromeInShader(material: Material, uniforms: ChromeUniforms, color: { value: Vector4 }, gameNormals: boolean) {
   const previous = material.onBeforeCompile;
@@ -596,6 +604,7 @@ function chromeInShader(material: Material, uniforms: ChromeUniforms, color: { v
         uniform vec3 fceChromeEye;
         uniform float fceChromeFlipY;
         varying vec2 vFceChromeUv;
+        varying float vFceChromeUp;
         varying vec3 vFceChromeReflect;`,
       )
       .replace(
@@ -604,6 +613,7 @@ function chromeInShader(material: Material, uniforms: ChromeUniforms, color: { v
         vec3 fceChromeNormal = fceChromeMatrix * ${gameNormals ? '_game_normal' : 'normal'};
         float fceChromeM = 0.707106 / sqrt( ( abs( fceChromeNormal.z ) + 1.0 ) * 2.0 );
         vFceChromeUv = fceChromeNormal.xy * fceChromeM + 0.5;
+        vFceChromeUp = fceChromeNormal.y;
         // D3D: v = 0 is the top row
         if ( fceChromeFlipY > 0.5 ) {
           vFceChromeUv.y = 1.0 - vFceChromeUv.y;
@@ -623,6 +633,7 @@ function chromeInShader(material: Material, uniforms: ChromeUniforms, color: { v
         uniform float fceChromeFiltered;
         uniform float fceChromeSrgb;
         varying vec2 vFceChromeUv;
+        varying float vFceChromeUp;
         varying vec3 vFceChromeReflect;
         // a texel of the 4444 chrome texture, 0..1
         vec4 fceChromeTexel( ivec2 c ) {
@@ -632,13 +643,14 @@ function chromeInShader(material: Material, uniforms: ChromeUniforms, color: { v
           }
           return floor( floor( t * 255.0 + 0.5 ) / 16.0 ) / 15.0;
         }
-        // the scene's sky in a world direction as a 4444 chrome texel, 0..1 (linear texels to the output's sRGB)
-        vec4 fceChromeSkyTexel( vec3 direction ) {
+        // the scene's sky in a world direction as a 4444 chrome texel, 0..1 (linear texels to the output's sRGB), its
+        // alpha by the y of the normal in the environment matrix space
+        vec4 fceChromeSkyTexel( vec3 direction, float up ) {
           vec3 d = normalize( direction );
           vec4 t = vec4(
             sRGBTransferOETF( vec4( textureCube( fceChromeCube, fceChromeCubeMatrix * d ).rgb, 1.0 ) ).rgb,
             // fce3SkyChromeAlpha
-            0.6 * smoothstep( -0.1, 0.1, d.z ) );
+            max( 0.07 * smoothstep( -0.3, 0.0, up ), 0.55 * smoothstep( 0.3, 1.0, up ) ) );
           return floor( floor( clamp( t, 0.0, 1.0 ) * 255.0 + 0.5 ) / 16.0 ) / 15.0;
         }`,
       )
@@ -648,7 +660,7 @@ function chromeInShader(material: Material, uniforms: ChromeUniforms, color: { v
         if ( fceChromeMode > 0.5 ) {
           vec4 env;
           if ( fceChromeMode > 1.5 ) {
-            env = fceChromeSkyTexel( vFceChromeReflect );
+            env = fceChromeSkyTexel( vFceChromeReflect, vFceChromeUp );
           } else {
             ivec2 size = textureSize( fceChromeMap, 0 );
             ivec2 last = size - 1;
