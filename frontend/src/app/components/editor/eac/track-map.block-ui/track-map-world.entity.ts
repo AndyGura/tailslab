@@ -73,6 +73,26 @@ function extraJsonDummyToGgDummy(dummy: any): GgDummy {
   return { ...(dummy.properties || {}), name: dummy.name, position: { x, y, z }, rotation };
 }
 
+// The game's vertex shading in a terrain material (the OBJ's vertex colours, which OBJLoader decodes from sRGB: turned
+// back into the game's values): NFS3 / NFS4 draw texel x colour (Direct3D modulate) on 8-bit values, in three's linear
+// space texel x pow(colour, 2.2), as nfs-web draws the GLB's COLOR_0
+export const TRACK_VERTEX_SHADING_FRAGMENT = `
+#if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
+	diffuseColor.rgb *= pow( sRGBTransferOETF( vec4( vColor.rgb, 1.0 ) ).rgb, vec3( 2.2 ) );
+#endif
+`;
+
+// A copy of a terrain material drawing the vertex shading (`TRACK_VERTEX_SHADING_FRAGMENT`)
+export function vertexShadingMaterial(material: MeshBasicMaterial): MeshBasicMaterial {
+  const shaded = material.clone();
+  shaded.vertexColors = true;
+  shaded.onBeforeCompile = shader => {
+    shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', TRACK_VERTEX_SHADING_FRAGMENT);
+  };
+  shaded.customProgramCacheKey = () => 'track-vertex-shading';
+  return shaded;
+}
+
 function setupTerrainTextureDefault(texture: Texture) {
   texture.wrapS = RepeatWrapping;
   texture.wrapT = RepeatWrapping;
@@ -86,6 +106,8 @@ function setupTerrainTextureDefault(texture: Texture) {
 export class TrackMapWorldEntity extends MapGraph3dEntity<TypeDocOf<ThreeGgWorld>> implements TrackPropsAssets {
   public readonly textureLoader = new TextureLoader();
   private readonly terrainMaterials: { [key: string]: MeshBasicMaterial } = {};
+  // The same drawing the vertex shading (`vertexShadingMaterial`), for meshes with vertex colours
+  private readonly shadedTerrainMaterials: { [key: string]: MeshBasicMaterial } = {};
   private readonly objLoader = new OBJLoader();
   private readonly models = new Map<string, Promise<Object3D | null>>();
   private readonly propsController: TrackPropsController | null;
@@ -240,7 +262,7 @@ export class TrackMapWorldEntity extends MapGraph3dEntity<TypeDocOf<ThreeGgWorld
     const lodMeshes: Mesh[] = [];
     object.traverse((child: any) => {
       if (child instanceof Mesh) {
-        child.material = this.getTerrainMaterial(meshTextureName(child));
+        child.material = this.getTerrainMaterial(meshTextureName(child), this.drawsVertexShading(child));
         const lod = meshLod(child);
         if (lod !== null) {
           lodMeshes.push(child);
@@ -296,7 +318,21 @@ export class TrackMapWorldEntity extends MapGraph3dEntity<TypeDocOf<ThreeGgWorld
       console.warn(`Could not load props of ${node.path}`, err);
       return [];
     }
-    return this.propsController.spawnChunkProps(dummies, node.position);
+    const props = await this.propsController.spawnChunkProps(dummies, node.position);
+    // the controller gives the meshes the terrain materials without the vertex shading
+    for (const prop of props) {
+      prop.entity.object3D?.nativeMesh.traverse(o => {
+        if (o instanceof Mesh && this.drawsVertexShading(o)) {
+          o.material = this.getTerrainMaterial(meshTextureName(o), true);
+        }
+      });
+    }
+    return props;
+  }
+
+  // The adapter's tracks have vertex shading and the mesh has vertex colours
+  private drawsVertexShading(mesh: Mesh): boolean {
+    return !!this.adapter.terrainVertexShading && !!mesh.geometry.getAttribute('color');
   }
 
   // `TrackPropsAssets`: models are the OBJ files of the converter
@@ -358,7 +394,8 @@ export class TrackMapWorldEntity extends MapGraph3dEntity<TypeDocOf<ThreeGgWorld
     }
   }
 
-  getTerrainMaterial(matId: string): Material {
+  // `vertexShading`: the material drawing the vertex colours as the game does (`vertexShadingMaterial`)
+  getTerrainMaterial(matId: string, vertexShading = false): Material {
     if (!this.terrainMaterials[matId]) {
       this.terrainMaterials[matId] = new MeshBasicMaterial({
         side: DoubleSide,
@@ -367,9 +404,13 @@ export class TrackMapWorldEntity extends MapGraph3dEntity<TypeDocOf<ThreeGgWorld
         alphaTest: this.adapter.terrainAlphaTest || 0,
       });
       const applyTexture = (texture: Texture) => {
-        this.terrainMaterials[matId].map = texture;
-        this.terrainMaterials[matId].needsUpdate = true;
-        this.terrainMaterials[matId].visible = true;
+        for (const material of [this.terrainMaterials[matId], this.shadedTerrainMaterials[matId]]) {
+          if (material) {
+            material.map = texture;
+            material.needsUpdate = true;
+            material.visible = true;
+          }
+        }
       };
       if (this.textureArchivePath) {
         this.textureLoader
@@ -389,6 +430,13 @@ export class TrackMapWorldEntity extends MapGraph3dEntity<TypeDocOf<ThreeGgWorld
         this.getPlaceholderTerrainTexture().then(applyTexture);
       }
     }
-    return this.terrainMaterials[matId];
+    if (!vertexShading) {
+      return this.terrainMaterials[matId];
+    }
+    if (!this.shadedTerrainMaterials[matId]) {
+      // the texture (when it is there yet) with it
+      this.shadedTerrainMaterials[matId] = vertexShadingMaterial(this.terrainMaterials[matId]);
+    }
+    return this.shadedTerrainMaterials[matId];
   }
 }

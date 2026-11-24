@@ -272,7 +272,9 @@ class Nfs3HorizonInfo(_HrzText):
         'of `TR<nn>0.QFS`), base y (relative to the eye), Gouraud height, Gouraud middle, pixmap top and bottom '
         '(offsets from base), colours (r, g, b): EARTH top, EARTH base, SKY top, SKY base at the sun and opposite '
         'to it, 8 weather values (type, start slice, end slice, fade, stay time on, fade time off, stay time off, '
-        'fade time on, in ticks) and the ambient light (R, G, B %). The sun sprite is set by the text of the '
+        'fade time on, in ticks) and the ambient light (R, G, B %: tints the vertex shading of the track at load, '
+        'nfs3.exe 0x419750 -> 0x419660, per channel c * p / 100; 100 in every day file). The sun sprite is set by the '
+        'text of the '
         '`SUN*` images of `SKY.FSH` (`A<azimuth degrees> B<degrees> R<size / 10>` and the words `ROTATE`, '
         '`NOADD`, `INFRONT`). See `library/utils/eac_horizon_to_spherical.py`'
     )
@@ -426,6 +428,16 @@ def parse_nfs4_sky_settings(text: str) -> Nfs4SkySettings:
     return Nfs4SkySettings(**values)
 
 
+def parse_nfs4_ambient_light(text: str) -> Rgb:
+    """`[light]` `AmbientRed`, `AmbientGreen`, `AmbientBlue` of an NFS4 `Tr.ini` (read by nfs4.exe Tr_ReadIni
+    0x4c70a0): percentages that tint the vertex shading of the track at load (0x4323f0 -> 0x432230,
+    `nfs4_shading_tint` in `serializers/maps.py`); 100 for a key the file lacks (every game file has them)"""
+    light = nfs4_ini_sections(text).get('light', {})
+    return tuple(
+        _ini_int(light[key]) if light.get(key) else 100 for key in ('ambientred', 'ambientgreen', 'ambientblue')
+    )
+
+
 class Nfs4TrackIni(DeclarativeCompoundBlock):
     block_description = (
         'Track settings of NFS4, `Data/Tracks/<track>/Tr.ini` (day; `TrN.ini` night, '
@@ -440,8 +452,11 @@ class Nfs4TrackIni(DeclarativeCompoundBlock):
         'dome height already multiplied by 3), `cloudUscale` / `cloudVscale` texture repeats per grid cell); '
         '`[fog]` (`fogColor`, `fogDensity`, `fogHorizon`, `fogNumRegions`, regions in `[fog region <n>]`); '
         '`[sun]` (`hasSun`, `angleTheta` azimuth and `angleRho` in turns: direction (cos theta, cos rho, '
-        'sin theta), `radius` of the sprite, `rotates`, `additive`, `inFront` drawn after the clouds). Other '
-        'sections: `[lightning]`, `[weather]`, `[light]`, `[special]`, `[track glows]`. See '
+        'sin theta), `radius` of the sprite, `rotates`, `additive`, `inFront` drawn after the clouds). `[light]` '
+        '`AmbientRed`, `AmbientGreen`, `AmbientBlue`: percentages tinting the vertex shading of the track (`Tr.frd`; '
+        '`TrN.ini` the night track `Trn.frd` where there is one) at load (nfs4.exe 0x4323f0 -> 0x432230, per channel '
+        "c: below 100 c * p / 100, above c + (p - 100) * (255 - c) / 100; 100 in every day file but Snowy's "
+        '110, 120, 130). Other sections: `[lightning]`, `[weather]`, `[special]`, `[track glows]`. See '
         '`library/utils/eac_horizon_to_spherical.py`'
     )
     serializer = 'EacHorizonSettingsSerializer'

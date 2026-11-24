@@ -976,17 +976,80 @@ def nfs3_col_alignment_uvs(alignment) -> List[List[float]]:
     return [list(uv) for uv in uvs]
 
 
-def _add_quads(model: Mesh, polygons: list, vertices: list, get_texture):
+def _add_quads(model: Mesh, polygons: list, vertices: list, get_texture, colors: Optional[list] = None):
     """Adds quad polygons ({'vertices': [4 indexes], ...}) to the model. get_texture(polygon) returns
-    (texture name, UVs of the 4 polygon vertices)"""
+    (texture name, UVs of the 4 polygon vertices). `colors`: the vertex colours of `vertices` (`track_shading_colors`),
+    given to the corners (the model's `vertex_colors`)"""
     for p in polygons:
         texture_name, uvs = get_texture(p)
         base_idx = len(model.vertices)
         for i, v_index in enumerate(p['vertices']):
             model.vertices.append(list(vertices[v_index]))
             model.vertex_uvs.append(list(uvs[i]))
+            if colors is not None:
+                model.vertex_colors.append(list(colors[v_index]))
         model.polygons.append([base_idx, base_idx + 1, base_idx + 2, base_idx + 3])
         model.texture_ids.append(texture_name)
+
+
+def nfs3_shading_tint(c: int, percent: int) -> int:
+    """A colour channel (0..255) of NFS3 FRD vertex shading tinted by the ambient light percentage of its channel, as
+    nfs3.exe does at load (0x419750 -> 0x419660): c * p / 100, integer division (at most 255 here: every NFS3 day
+    HRZ has 100)"""
+    return min(c * percent // 100, 255)
+
+
+def nfs4_shading_tint(c: int, percent: int) -> int:
+    """A colour channel (0..255) of NFS4 FRD vertex shading tinted by the ambient light percentage of its channel, as
+    nfs4.exe does at load (0x4323f0 -> 0x432230): below 100 c * p / 100, above 100 c + (p - 100) * (255 - c) / 100,
+    integer divisions (at most 255 here); 100 leaves it"""
+    if percent < 100:
+        return c * percent // 100
+    if percent > 100:
+        return min(c + (percent - 100) * (255 - c) // 100, 255)
+    return c
+
+
+def track_shading_colors(shading: list, percents: Tuple[int, int, int], tint) -> List[List[float]]:
+    """Vertex colours [r, g, b] (0..1, the game's 8-bit values / 255, not linearized) of NFS3 / NFS4 FRD vertex
+    shading (0xAARRGGBB), each channel tinted by `tint(c, percent)` with the ambient light percentage
+    of its channel (`nfs3_shading_tint`, `nfs4_shading_tint`); the alpha is left out. The games draw a polygon's
+    texel times its corners' colour (Direct3D modulate)"""
+    cache = {}
+    res = []
+    for value in shading:
+        color = cache.get(value)
+        if color is None:
+            color = cache[value] = [tint(value >> shift & 0xFF, p) / 255 for shift, p in zip((16, 8, 0), percents)]
+        res.append(color)
+    return res
+
+
+def _track_sibling_text(id: str, file_name: str) -> Optional[str]:
+    """The text of the file `file_name` next to the track file (any letter case), None when there is none"""
+    from library.loader import id_to_path
+    from library.utils.file_utils import find_file_case_insensitive
+
+    dirpath = id_to_path(id).rpartition('/')[0] if id else ''
+    path = find_file_case_insensitive(f'{dirpath}/{file_name}' if dirpath else file_name)
+    if path is None:
+        return None
+    with open(path, 'rb') as f:
+        return f.read().decode('utf-8', errors='replace')
+
+
+def _with_white_vertex_colors(meshes: List[SubMesh]) -> List[SubMesh]:
+    """`meshes`, those without vertex colours given white ones when the others have colours: every mesh of a GLB then
+    has COLOR_0 (one shader draws them all; COL props of NFS3 have no shading)"""
+
+    def colored(m):
+        return len(m.vertices) > 0 and len(m.vertex_colors) == len(m.vertices)
+
+    if any(colored(m) for m in meshes):
+        for m in meshes:
+            if not colored(m):
+                m.vertex_colors = [[1.0, 1.0, 1.0] for _ in m.vertices]
+    return meshes
 
 
 def _require_track_sibling(id: str, *file_names: str, sub_id: str = ''):
@@ -1047,6 +1110,7 @@ def _deduplicate_models(models: Dict[str, Mesh]) -> Dict[str, str]:
             tuple(tuple(round(c, 5) for c in uv) for uv in model.vertex_uvs),
             tuple(tuple(p) for p in model.polygons),
             tuple(model.texture_ids),
+            tuple(tuple(round(c, 4) for c in color) for color in model.vertex_colors),
         )
         result[model_id] = first_ids.setdefault(key, model_id)
     return result
@@ -1101,10 +1165,18 @@ class EacTrackSerializer(BaseFileSerializer):
     def __init__(self):
         super().__init__(is_dir=True)
 
-    def _terrain_meshes(self, name: str, lods: List[List[list]], vertices: list, get_texture, pivot_offset=(0, 0, 0)):
+    def _terrain_meshes(
+        self,
+        name: str,
+        lods: List[List[list]],
+        vertices: list,
+        get_texture,
+        pivot_offset=(0, 0, 0),
+        colors: Optional[list] = None,
+    ):
         """Terrain sub-meshes of a track block from its polygon lists by level of detail, the highest first: only the
         highest one, or every level with the setting maps__save_all_lods, then named "<name>_lod<level>" (the GUI's
-        track viewer shows one level at a time). Polygons are quads, see `_add_quads`"""
+        track viewer shows one level at a time). Polygons are quads, see `_add_quads` (`colors`: of `vertices`)"""
         all_lods = self.settings.maps__save_all_lods
         meshes = []
         for lod, polygon_lists in enumerate(lods if all_lods else lods[:1]):
@@ -1112,7 +1184,7 @@ class EacTrackSerializer(BaseFileSerializer):
             model.name = f'{name}_lod{lod}' if all_lods else name
             model.pivot_offset = pivot_offset
             for polygons in polygon_lists:
-                _add_quads(model, polygons, vertices, get_texture)
+                _add_quads(model, polygons, vertices, get_texture, colors)
             if model.polygons:
                 meshes += model.sub_meshes()
         return meshes
@@ -1134,6 +1206,7 @@ class EacTrackSerializer(BaseFileSerializer):
         mesh.name = name
         mesh.vertices = [_rotate_by_quaternion(orientation, v) for v in model.vertices]
         mesh.vertex_uvs = list(model.vertex_uvs)
+        mesh.vertex_colors = list(model.vertex_colors)
         mesh.polygons = list(model.polygons)
         mesh.texture_ids = list(model.texture_ids)
         mesh.pivot_offset = (-position[0], -position[1], -position[2])
@@ -1254,7 +1327,7 @@ class EacTrackSerializer(BaseFileSerializer):
                 scenes.append(
                     terrain_chunk_scene(
                         f'terrain_chunk_{i}',
-                        terrain[i] + prop_meshes[i],
+                        _with_white_vertex_colors(terrain[i] + prop_meshes[i]),
                         dummies=dummies[i],
                         object_properties=object_properties[i],
                     )
@@ -1264,6 +1337,7 @@ class EacTrackSerializer(BaseFileSerializer):
                 map_scene.sub_meshes.extend(terrain[i] + prop_meshes[i])
                 map_scene.dummies.extend(dummies[i])
                 map_scene.object_properties.update(object_properties[i])
+            _with_white_vertex_colors(map_scene.sub_meshes)
 
         exported_files = []
         # export QFS
@@ -1566,10 +1640,31 @@ def nfs3_track_route(data: dict, col_data: Optional[dict]) -> dict:
     return {'closed': True, 'chunks': chunks, 'points': points, 'roads': roads}
 
 
+def nfs3_ambient_percent(id: str) -> Tuple[int, int, int]:
+    """The ambient light percentages (R, G, B) of the NFS3 track `id` (`TR<nn>.FRD`): of its day `3TR<nn>.HRZ`, 100
+    without one"""
+    from library.loader import id_to_path
+    from resources.eac.horizons import parse_nfs3_horizon_settings
+
+    track_name = id_to_path(id).rpartition('/')[2][:-4] if id else ''
+    text = _track_sibling_text(id, f'3{track_name}.HRZ') if track_name else None
+    settings = parse_nfs3_horizon_settings(text) if text else None
+    return tuple(settings.ambient_percent) if settings else (100, 100, 100)
+
+
 class FrdMapSerializer(EacTrackSerializer):
+    """NFS3 track: terrain chunks (a block each), the block objects (POLYOBJ) with them, extra objects (XOBJ) and the
+    COL file's objects as props, textures of `TR<nn>0.QFS`. Meshes of block and XOBJ vertices have the vertex
+    shading as vertex colours (OBJ `v` colours, GLB COLOR_0), tinted by the day HRZ's ambient light
+    (`track_shading_colors`); the COL props have none"""
+
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
         super().serialize(data, path, id, block, **kwargs)
         track_name = id.split('/')[-1][:-4]
+        ambient = nfs3_ambient_percent(id)
+
+        def shading_colors(shading):
+            return track_shading_colors(shading, ambient, nfs3_shading_tint)
 
         def texture_archive():
             return _require_track_sibling(id, f'{track_name}0.QFS', sub_id='data')
@@ -1596,6 +1691,7 @@ class FrdMapSerializer(EacTrackSerializer):
         for block_i, block in enumerate(blocks):
             polygon_block = data['polygon_blocks'][block_i]
             vertices = [_point(v) for v in block['vertices']]
+            colors = shading_colors(block['vertex_shading'])
             lods = [
                 [
                     polygon_block['polygons'][chunk_i]['data']['data']
@@ -1604,7 +1700,7 @@ class FrdMapSerializer(EacTrackSerializer):
                 ]
                 for lod_chunks in FRD_LOD_POLYGON_CHUNKS
             ]
-            meshes = self._terrain_meshes(f'block_{block_i}', lods, vertices, polygon_texture)
+            meshes = self._terrain_meshes(f'block_{block_i}', lods, vertices, polygon_texture, colors=colors)
             # static objects of the block (POLYOBJ), their vertices are in the block's vertex table
             objects = Mesh()
             objects.name = f'block_{block_i}_objects'
@@ -1612,7 +1708,7 @@ class FrdMapSerializer(EacTrackSerializer):
                 if chunk['sz'] > 0:
                     for obj in chunk['data']['data']:
                         if obj['type'] == 1:
-                            _add_quads(objects, obj['data']['data'], vertices, polygon_texture)
+                            _add_quads(objects, obj['data']['data'], vertices, polygon_texture, colors)
             if objects.polygons:
                 meshes += objects.sub_meshes()
             chunks.append((meshes, _point(block['position'])))
@@ -1625,7 +1721,13 @@ class FrdMapSerializer(EacTrackSerializer):
             for xobj_i, xobj in enumerate(xobj_chunk):
                 model_id = f'xobj_{xobj_chunk_i}_{xobj_i}'
                 model = Mesh()
-                _add_quads(model, xobj['polygons'], [_point(v) for v in xobj['vertices']], polygon_texture)
+                _add_quads(
+                    model,
+                    xobj['polygons'],
+                    [_point(v) for v in xobj['vertices']],
+                    polygon_texture,
+                    shading_colors(xobj['vertex_shading']),
+                )
                 prop_models[model_id] = model
                 xobj_data = xobj['data']['data']
                 if xobj['cross_type'] == 4:
@@ -1722,11 +1824,11 @@ def _scaled(p: tuple, scale: float) -> tuple:
 
 
 def _require_nfs4_texture_archive(id):
-    # A NFS4 reverse-direction track ("Trn.FRD") doesn't always have its own texture archive -
-    # for some tracks (e.g. GT1, GT2, Park) only the forward track's "Tr0.QFS" exists on disk,
-    # and the reverse FRD's polygons reference texture indices into that same archive. Try the
+    # A NFS4 night track ("Trn.FRD") doesn't always have its own texture archive -
+    # for some tracks (e.g. GT1, GT2, Park) only the day track's "Tr0.QFS" exists on disk,
+    # and the night FRD's polygons reference texture indices into that same archive. Try the
     # archive named after this FRD's own basename first, and fall back to the same path with a
-    # trailing "n" (the reverse-track marker) stripped before giving up.
+    # trailing "n" (the night-track marker) stripped before giving up.
     from library.loader import id_to_path
 
     basename = id_to_path(id).rpartition('/')[2][:-4]
@@ -1743,10 +1845,37 @@ def _is_mirrored_copy(shpi_child) -> bool:
     return bool(text) and text['text'].startswith('<mirrored>')
 
 
+def nfs4_track_ini_name(id: str) -> str:
+    """The `.ini` of an NFS4 track file `id`, by its name: `TrN.ini` of the night track `Trn.frd` (nfs4.exe 0x432f80
+    opens `Tr` + `n%s` at night, `g_gs_night`, when the file exists, else `Tr.frd`; its vertex shading a third as
+    bright as the day one's, its textures `TRN0.QFS` where there is one), else `Tr.ini` of the day"""
+    from library.loader import id_to_path
+
+    basename = id_to_path(id).rpartition('/')[2][:-4] if id else ''
+    return 'TrN.ini' if basename[-1:].lower() == 'n' else 'Tr.ini'
+
+
+def nfs4_ambient_percent(id: str) -> Tuple[int, int, int]:
+    """The ambient light percentages (R, G, B) of the NFS4 track file `id`: `[light]` of its `.ini`
+    (`nfs4_track_ini_name`), 100 without one"""
+    from resources.eac.horizons import parse_nfs4_ambient_light
+
+    text = _track_sibling_text(id, nfs4_track_ini_name(id)) if id else None
+    return parse_nfs4_ambient_light(text) if text else (100, 100, 100)
+
+
 class Nfs4FrdMapSerializer(EacTrackSerializer):
+    """NFS4 track in meters (`NFS4_TRACK_SCALE`): terrain chunks (a block each, with its objects), extra objects as
+    props, textures of `Tr0.QFS`, `vroad.json`. Every mesh has the vertex shading as vertex colours (OBJ `v` colours,
+    GLB COLOR_0), tinted by the ambient light of the track's `.ini` (`nfs4_ambient_percent`, `track_shading_colors`)"""
+
     def serialize(self, data: dict, path: str, id=None, block=None, **kwargs) -> List[str]:
         super().serialize(data, path, id, block, **kwargs)
         scale = NFS4_TRACK_SCALE
+        ambient = nfs4_ambient_percent(id)
+
+        def shading_colors(shading):
+            return track_shading_colors(shading, ambient, nfs4_shading_tint)
 
         def texture_archive():
             return _require_nfs4_texture_archive(id)
@@ -1774,7 +1903,11 @@ class Nfs4FrdMapSerializer(EacTrackSerializer):
                 model_id = f'{model_prefix}{i}'
                 model = Mesh()
                 _add_quads(
-                    model, xobj['polygons'], [_scaled(_point(v), scale) for v in xobj['vertices']], polygon_texture
+                    model,
+                    xobj['polygons'],
+                    [_scaled(_point(v), scale) for v in xobj['vertices']],
+                    polygon_texture,
+                    shading_colors(xobj['vertex_shading']),
                 )
                 prop = nfs4_extra_object_prop(model_id, header, xobj, chunk_index, scale)
                 if prop and model.polygons:
@@ -1783,13 +1916,14 @@ class Nfs4FrdMapSerializer(EacTrackSerializer):
 
         for block_i, (position, trk_block) in enumerate(zip(positions, data['blocks'])):
             vertices = [_scaled(_point(v), scale) for v in trk_block['vertices']]
+            colors = shading_colors(trk_block['vertex_shading'])
             lods = [[trk_block[name] for name in lod_chunks] for lod_chunks in NFS4_LOD_POLYGON_CHUNKS]
-            meshes = self._terrain_meshes(f'block_{block_i}', lods, vertices, polygon_texture)
+            meshes = self._terrain_meshes(f'block_{block_i}', lods, vertices, polygon_texture, colors=colors)
             # the block objects, drawn at every level of detail
             objects = Mesh()
             objects.name = f'block_{block_i}_objects'
             for name in NFS4_OBJECT_POLYGON_CHUNKS:
-                _add_quads(objects, trk_block[name], vertices, polygon_texture)
+                _add_quads(objects, trk_block[name], vertices, polygon_texture, colors)
             if objects.polygons:
                 meshes += objects.sub_meshes()
             chunks.append((meshes, position))

@@ -66,6 +66,10 @@ export interface TrackMapAdapter {
   bundledTextures?: boolean;
   // Alpha test of terrain materials, for textures with alpha masks (foliage, fences)
   terrainAlphaTest?: number;
+  // Meshes of the chunks and props with vertex colours (OBJ `v` colours: NFS3 / NFS4 FRD vertex shading, as written
+  // by the serializer) draw texel x colour as the game (`vertexShadingMaterial`). Defaults to false: the colours are
+  // not drawn
+  terrainVertexShading?: boolean;
   // Serializer settings patch used when exporting the texture archive
   textureArchiveSettings?: { [key: string]: any };
   // Whether the texture archive provides a spherical skybox texture (with `bundledTextures`: the track serializer
@@ -140,6 +144,7 @@ export const NFS3_TRACK_ADAPTER: TrackMapAdapter = {
   textureArchivePatterns: qfsPatterns,
   hasSkybox: true,
   terrainAlphaTest: 0.5,
+  terrainVertexShading: true,
   propsController: eacTrackPropsController,
 };
 
@@ -158,9 +163,9 @@ export const NFS4_TRACK_ADAPTER: TrackMapAdapter = {
   textureArchiveKind: 'QFS',
   textureArchivePatterns: resourceId => {
     // Same convention as the backend's Nfs4FrdMapSerializer: the track's texture archive is named
-    // after the .FRD's basename + "0.QFS". A reverse-direction track ("Trn.FRD") doesn't always have
-    // its own archive (e.g. GT1, GT2, Park only ship the forward track's "Tr0.QFS", which the
-    // reverse FRD's polygons reference directly), so the forward one comes next.
+    // after the .FRD's basename + "0.QFS". A night track ("Trn.FRD") doesn't always have
+    // its own archive (e.g. GT1, GT2, Park only ship the day track's "Tr0.QFS", which the
+    // night FRD's polygons reference directly), so the day one comes next.
     const { dir, base } = splitPath(resourceId);
     const patterns = [`${dir}${base}0.QFS`];
     if (base.slice(-1).toLowerCase() === 'n') {
@@ -170,6 +175,7 @@ export const NFS4_TRACK_ADAPTER: TrackMapAdapter = {
   },
   hasSkybox: false,
   terrainAlphaTest: 0.5,
+  terrainVertexShading: true,
   propsController: eacTrackPropsController,
 };
 

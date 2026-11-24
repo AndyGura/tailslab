@@ -278,7 +278,15 @@ class FrdBlock(DeclarativeCompoundBlock):
         )
         vertex_shading = (
             ArrayBlock(child=IntegerBlock(length=4, is_signed=False), length='num_vertices'),
-            {'description': 'Per-vertex shading color, 32-bit ARGB (0xFFRRGGBB), one item per vertex'},
+            {
+                'description': 'Per-vertex shading colour 0xAARRGGBB, one item per vertex (alpha 0xFF but for 206 '
+                'of the 414749 vertices of the NFS3 tracks). nfs3.exe draws texel x colour: the block render '
+                "0x41cdc0 passes the block's vertices (+0x70) and shading (+0x74) to the vertex transform 0x41a970 "
+                '(terrain and POLYOBJ objects), its Direct3D driver D3DA.DLL blends with D3DTBLEND_MODULATE. At load '
+                "(0x419750 -> 0x419660) each channel c becomes c * p / 100 (integer division), p the day HRZ's ambient "
+                'light percentage of the channel (100 in every NFS3 day HRZ; 0x419870 greys it for software '
+                "rendering). The export's vertex colours (OBJ `v` colours, GLB COLOR_0: RGB / 255, not linearized)"
+            },
         )
         neighbour_data = (
             ArrayBlock(child=IntegerBlock(length=2, is_signed=False), length=2 * 0x12C),
@@ -616,7 +624,11 @@ class ExtraObjectBlock(DeclarativeCompoundBlock):
         )
         vertex_shading = (
             ArrayBlock(child=IntegerBlock(length=4), length='num_vertices'),
-            {'description': 'Per-vertex shading color, 32-bit ARGB (0xFFRRGGBB), one item per vertex'},
+            {
+                'description': 'Per-vertex shading colour 0xAARRGGBB (alpha 0xFF in every NFS3 track), one item per '
+                "vertex, drawn and tinted as the block `vertex_shading`; the export's vertex colours of the object's "
+                'model'
+            },
         )
         polygons = (
             LengthPrefixedArrayBlock(length_block=IntegerBlock(length=4), child=FrdPolygonRecord()),

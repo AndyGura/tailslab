@@ -656,6 +656,197 @@ class TestEacTrackSerializers(unittest.TestCase):
         self.assertEqual(nfs4_polygon_uvs(flags(flip_v=True)), [[1, 1], [0, 1], [0, 0], [1, 0]])
         self.assertEqual(nfs4_polygon_uvs(flags(uv_tiling='v2')), [[1, 0], [0, 0], [0, 2], [1, 2]])
 
+    def _obj_colored_vertices(self, path):
+        """(x, y, z, r, g, b) of the `v` lines of an OBJ"""
+        with open(path) as f:
+            return [tuple(float(x) for x in line.split()[1:]) for line in f if line.startswith('v ')]
+
+    def _assert_corners_have_vertex_colors(self, obj_path, pivot, vertices, colors, scale=1):
+        """Every vertex of the chunk OBJ (export axes, relative to the chunk `pivot`, game axes) has the colour of a
+        track vertex (game axes, file units times `scale`) at its place"""
+        import math
+
+        by_position = {}
+        for v, c in zip(vertices, colors):
+            key = tuple(round(v[k] * scale, 2) for k in 'xyz')
+            by_position.setdefault(key, set()).add(tuple(round(x, 6) for x in c))
+        corners = self._obj_colored_vertices(obj_path)
+        self.assertGreater(len(corners), 0)
+        for x, y, z, *color in corners:
+            self.assertEqual(len(color), 3)
+            game = (x + pivot[0] * scale, z + pivot[1] * scale, y + pivot[2] * scale)
+            key = tuple(round(c, 2) for c in game)
+            near = by_position.get(key) or next(
+                (cs for k, cs in by_position.items() if math.dist(k, game) < 0.02), set()
+            )
+            self.assertIn(tuple(round(c, 6) for c in color), near)
+
+    def test_frd_meshes_should_have_the_vertex_shading_as_colors(self):
+        import os
+        import tempfile
+
+        from library import require_file
+
+        _, _, data = require_file('test/golden_corpus/TR00.FRD')
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, 'tr00')
+            self._serialize(
+                'test/golden_corpus/TR00.FRD', out, maps__save_as_chunked=True, maps__add_props_to_obj=False
+            )
+            # terrain and POLYOBJ objects of block 10: the block's shading (0xAARRGGBB) by vertex index; no HRZ next
+            # to the golden corpus file: ambient 100 %
+            block = data['blocks'][10]
+            colors = [[(s >> k & 0xFF) / 255 for k in (16, 8, 0)] for s in block['vertex_shading']]
+            p = block['position']
+            self._assert_corners_have_vertex_colors(
+                os.path.join(out, 'terrain_chunk_10.obj'), (p['x'], p['y'], p['z']), block['vertices'], colors
+            )
+            # an extra object: its own shading
+            xobj = data['extraobject_blocks'][96][0]
+            prop_colors = {
+                tuple(round(c, 6) for c in v[3:])
+                for v in self._obj_colored_vertices(os.path.join(out, 'props', 'xobj_96_0', 'geometry.obj'))
+            }
+            expected = {tuple(round((s >> k & 0xFF) / 255, 6) for k in (16, 8, 0)) for s in xobj['vertex_shading']}
+            self.assertTrue(prop_colors and prop_colors <= expected)
+            # COL props have no shading
+            for v in self._obj_colored_vertices(os.path.join(out, 'props', 'col_0', 'geometry.obj')):
+                self.assertEqual(len(v), 3)
+
+    def test_frd_baked_col_props_should_get_white_vertex_colors(self):
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, 'tr00')
+            self._serialize('test/golden_corpus/TR00.FRD', out, maps__save_as_chunked=True, maps__add_props_to_obj=True)
+            white = 0
+            for name in os.listdir(out):
+                if name.startswith('terrain_chunk_') and name.endswith('.obj'):
+                    corners = self._obj_colored_vertices(os.path.join(out, name))
+                    # every mesh of a chunk has colours
+                    self.assertTrue(all(len(v) == 6 for v in corners), name)
+                    white += sum(1 for v in corners if v[3:] == (1.0, 1.0, 1.0))
+            self.assertGreater(white, 0)
+
+    def test_nfs4_frd_meshes_should_have_the_tinted_vertex_shading_as_colors(self):
+        import os
+        import tempfile
+        from unittest.mock import patch
+
+        from library import require_file
+        from serializers.maps import nfs4_shading_tint
+
+        _, _, data = require_file('test/golden_corpus/NFS4_GT1.FRD')
+        block = data['blocks'][10]
+        p = data['blocks_headers'][10]['position']
+        for ambient in [(100, 100, 100), (110, 120, 130)]:
+            with (
+                tempfile.TemporaryDirectory() as tmp,
+                patch('serializers.maps.nfs4_ambient_percent', return_value=ambient),
+            ):
+                out = os.path.join(tmp, 'gt1')
+                self._serialize(
+                    'test/golden_corpus/NFS4_GT1.FRD', out, maps__save_as_chunked=True, maps__add_props_to_obj=False
+                )
+                colors = [
+                    [nfs4_shading_tint(s >> k & 0xFF, a) / 255 for k, a in zip((16, 8, 0), ambient)]
+                    for s in block['vertex_shading']
+                ]
+                # terrain and block objects
+                self._assert_corners_have_vertex_colors(
+                    os.path.join(out, 'terrain_chunk_10.obj'),
+                    (p['x'], p['y'], p['z']),
+                    block['vertices'],
+                    colors,
+                    scale=1.3,
+                )
+                xobj = data['global_objects_1']['objects'][94]
+                prop_colors = {
+                    tuple(round(c, 6) for c in v[3:])
+                    for v in self._obj_colored_vertices(os.path.join(out, 'props', 'xobj_global_1_94', 'geometry.obj'))
+                }
+                expected = {
+                    tuple(round(nfs4_shading_tint(s >> k & 0xFF, a) / 255, 6) for k, a in zip((16, 8, 0), ambient))
+                    for s in xobj['vertex_shading']
+                }
+                self.assertTrue(prop_colors and prop_colors <= expected)
+
+    def test_shading_tints_should_follow_the_games(self):
+        from serializers.maps import nfs3_shading_tint, nfs4_shading_tint, track_shading_colors
+
+        # nfs3.exe 0x419660: c * p / 100
+        self.assertEqual([nfs3_shading_tint(c, 100) for c in (0, 77, 255)], [0, 77, 255])
+        self.assertEqual(nfs3_shading_tint(77, 50), 38)
+        # nfs4.exe 0x432230: darker below 100, towards white above
+        self.assertEqual([nfs4_shading_tint(c, 100) for c in (0, 77, 255)], [0, 77, 255])
+        self.assertEqual(nfs4_shading_tint(77, 30), 23)
+        self.assertEqual(nfs4_shading_tint(77, 110), 77 + 10 * 178 // 100)
+        self.assertEqual(nfs4_shading_tint(255, 130), 255)
+        self.assertEqual(nfs4_shading_tint(0, 130), 76)
+        # 0xAARRGGBB, signed (NFS3 XOBJ) or not; the alpha is left out
+        colors = track_shading_colors(
+            [0xFF336699, 0x80336699 - (1 << 32), 0xFFFFFFFF], (100, 100, 100), nfs4_shading_tint
+        )
+        self.assertEqual(colors, [[0x33 / 255, 0x66 / 255, 0x99 / 255]] * 2 + [[1.0, 1.0, 1.0]])
+        self.assertEqual(
+            track_shading_colors([0xFF336699], (110, 120, 130), nfs4_shading_tint),
+            [
+                [
+                    nfs4_shading_tint(0x33, 110) / 255,
+                    nfs4_shading_tint(0x66, 120) / 255,
+                    nfs4_shading_tint(0x99, 130) / 255,
+                ]
+            ],
+        )
+
+    def test_ambient_light_should_come_from_the_track_settings(self):
+        import os
+        import shutil
+        import tempfile
+
+        from library.loader import path_to_name
+        from serializers.maps import nfs3_ambient_percent, nfs4_ambient_percent, nfs4_track_ini_name
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = tmp.replace('\\', '/')
+            # NFS3: the day HRZ
+            shutil.copy('test/samples/NFS3_3TR00.HRZ', os.path.join(tmp, '3tr00.hrz'))
+            self.assertEqual(nfs3_ambient_percent(path_to_name(f'{tmp}/TR00.FRD')), (100, 100, 100))
+            self.assertEqual(nfs3_ambient_percent(path_to_name(f'{tmp}/TR01.FRD')), (100, 100, 100))
+            with open('test/samples/NFS3_3TR00.HRZ', 'rb') as f:
+                hrz = f.read()
+            # the last three numbers are the ambient light
+            with open(os.path.join(tmp, '3TR02.HRZ'), 'wb') as f:
+                f.write(hrz.rstrip().rstrip(b'0123456789,') + b'50,60,70\r\n')
+            self.assertEqual(nfs3_ambient_percent(path_to_name(f'{tmp}/TR02.FRD')), (50, 60, 70))
+            # NFS4: Tr.ini for the day track, TrN.ini for the night one
+            self.assertEqual(nfs4_track_ini_name(path_to_name(f'{tmp}/Tr.frd')), 'Tr.ini')
+            self.assertEqual(nfs4_track_ini_name(path_to_name(f'{tmp}/Trn.frd')), 'TrN.ini')
+            self.assertEqual(nfs4_ambient_percent(path_to_name(f'{tmp}/Tr.frd')), (100, 100, 100))
+            with open(os.path.join(tmp, 'tr.ini'), 'w') as f:
+                f.write('[light]\r\nAmbientRed=110\r\nAmbientGreen=120\r\nAmbientBlue=130\r\nlightTheta=0.60\r\n')
+            with open(os.path.join(tmp, 'TrN.ini'), 'w') as f:
+                f.write('[light]\r\nAmbientRed=80\r\n')
+            self.assertEqual(nfs4_ambient_percent(path_to_name(f'{tmp}/Tr.frd')), (110, 120, 130))
+            self.assertEqual(nfs4_ambient_percent(path_to_name(f'{tmp}/Trn.frd')), (80, 100, 100))
+
+    def test_prop_models_with_other_colors_should_stay_apart(self):
+        from serializers.common.three_d import Mesh
+        from serializers.maps import _deduplicate_models
+
+        def model(color):
+            m = Mesh()
+            m.vertices = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]]
+            m.vertex_uvs = [[0, 0], [1, 0], [1, 1], [0, 1]]
+            m.vertex_colors = [color] * 4
+            m.polygons = [[0, 1, 2, 3]]
+            m.texture_ids = ['tex']
+            return m
+
+        models = {'a': model([1, 1, 1]), 'b': model([1, 1, 1]), 'c': model([0.5, 0.5, 0.5])}
+        self.assertEqual(_deduplicate_models(models), {'a': 'a', 'b': 'a', 'c': 'c'})
+
 
 class TestTriMapSerializer(unittest.TestCase):
     def _serialize(self, out_dir, chunks_per_file):

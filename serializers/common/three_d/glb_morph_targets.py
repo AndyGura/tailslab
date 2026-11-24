@@ -135,8 +135,9 @@ def _position_index(sub_mesh: SubMesh) -> dict:
 
 def _vertices_near(sub_mesh: SubMesh, index: dict, position, tolerance: float) -> List[int]:
     """Sub-mesh vertices within `tolerance` of `position`, in vertex order: those of the cells of the position index
-    the tolerance reaches"""
-    reach = [max(tolerance, 2e-9 * abs(x)) for x in position]
+    the tolerance reaches. Far from the origin the reach is a float32 step of the coordinate (the GLB's positions are
+    float32: 2.4e-4 at 2000, the absolute positions of NFS4 extra objects)"""
+    reach = [max(tolerance, 2**-23 * abs(x)) for x in position]
     # a reach under half a cell: at most two cells per axis
     if max(reach) >= 5e-4:
         cells = list(index.values())
@@ -148,7 +149,9 @@ def _vertices_near(sub_mesh: SubMesh, index: dict, position, tolerance: float) -
     pivot = sub_mesh.pivot_offset
     candidates = sorted(i for cell in cells for i in cell)
     return [
-        i for i in candidates if _close([sub_mesh.vertices[i][k] - pivot[k] for k in range(3)], position, tolerance)
+        i
+        for i in candidates
+        if all(abs(sub_mesh.vertices[i][k] - pivot[k] - position[k]) <= reach[k] for k in range(3))
     ]
 
 
@@ -336,8 +339,9 @@ def _match_values(
 def add_glb_vertex_attributes(glb_path: str, sub_meshes: List[SubMesh], tolerance: float = 1e-4):
     """Adds the `vertex_normals` of `sub_meshes` to the meshes of the nodes with their names in the GLB file, as the
     vertex attribute `_GAME_NORMAL` (an application-specific glTF attribute; three.js GLTFLoader reads it as the
-    geometry attribute `_game_normal`), their `vertex_colors` as COLOR_0 and their `vertex_byte_attributes` as unsigned
-    byte normalized attributes of their names (three.js: the name in lower case, value / 255; `_PSX_GOURAUD`). The GLB
+    geometry attribute `_game_normal`), their `vertex_colors` as COLOR_0 (float VEC4, or VEC3 for colours without
+    alpha; replacing one Blender wrote) and their `vertex_byte_attributes` as unsigned byte normalized attributes of
+    their names (three.js: the name in lower case, value / 255; `_PSX_GOURAUD`). The GLB
     keeps Blender's NORMAL: the game normals are for code that follows the game's own shading (FCE chrome,
     `FceCarMeshController`). Vertices are matched as for the morph targets"""
     with_normals = {sm.name for sm in sub_meshes if len(sm.vertices) and len(sm.vertex_normals) == len(sm.vertices)}
@@ -377,7 +381,9 @@ def add_glb_vertex_attributes(glb_path: str, sub_meshes: List[SubMesh], toleranc
                     _match_values(sub_mesh, sub_mesh.vertex_colors, index, p, uv, tolerance, 'vertex colors', False)
                     for p, uv in zip(positions, uvs)
                 ]
-                attributes['COLOR_0'] = _append_float_accessor(gltf, binary, colors, 'VEC4')
+                attributes['COLOR_0'] = _append_float_accessor(
+                    gltf, binary, colors, f'VEC{len(colors[0]) if colors else 4}'
+                )
             if sub_mesh.name in with_bytes:
                 for name, values in sorted(sub_mesh.vertex_byte_attributes.items()):
                     if len(values) != len(sub_mesh.vertices):

@@ -160,8 +160,10 @@ When you do:
   pieces: archive items `export_child` / `write_skipped` / `unique_name`; WAVs `write_wav_with_meta` + `loop_meta`
   (`serializers/audios.py`); textures written on first use `TextureExporter` (`serializers/geometries.py`); track
   exports `track_map_scene`, `terrain_chunk_scene`, `road_path_curve`, `write_terrain_chunks_json`
-  (`serializers/common/three_d/scenes.py`); `Mesh.sub_meshes()`, `change_axes(..., pivot=True)`. Lookups:
-  `require_resource_as(id, ShpiBlock)` (through compressed wrappers), `find_chunk(s)` (data of chunks by id,
+  (`serializers/common/three_d/scenes.py`); `Mesh.sub_meshes()`, `change_axes(..., pivot=True)`; vertex colours
+  `vertex_colors` (OBJ `v` colours, which three.js OBJLoader decodes from sRGB; GLB COLOR_0 float VEC3 / VEC4 as
+  given, not linearized, by `add_glb_vertex_attributes`, Blender told to write none: `_gg_scene_export_options`).
+  Lookups: `require_resource_as(id, ShpiBlock)` (through compressed wrappers), `find_chunk(s)` (data of chunks by id,
   `resources/blackbox/chunks.py`), `find_file_case_insensitive` / `find_folder_case_insensitive`
   (`library/utils/file_utils.py`). Colours: `library/utils/colors.py` (`decode_colors` / `encode_colors` of whole
   arrays: packed ARGB formats, BGR555, DOS 6-bit; `rgba_image`, `image_rgba`, `rgb_palette`), never per pixel.
@@ -1217,6 +1219,14 @@ When you do:
   slices at their two ends name each other (`alt_slice_1` / `alt_slice_2`, a run of neighbouring pairs), used only by
   the polygon search (`BWorld_FindPolygonForks` 0x41f330). Byte 3 of a position record is the slice's music event
   (`SND_PathEvent`). FRD block `position`s are mean terrain vertices, off the centre line.
+- Vertex shading (`vertex_shading` of the blocks and the XOBJs, 0xAARRGGBB): nfs3.exe draws texel x colour (block
+  render 0x41cdc0 -> vertex transform 0x41a970, D3DA.DLL D3DTBLEND_MODULATE), each channel tinted at load by the day
+  `3TR<nn>.HRZ` ambient light (0x419750 -> 0x419660: c * p / 100; 100 in every day HRZ). `FrdMapSerializer` gives
+  the terrain (every exported level), POLYOBJ and XOBJ meshes these colours (`track_shading_colors`,
+  `nfs3_ambient_percent`; RGB / 255, the alpha left out): OBJ `v` colours, GLB COLOR_0 float VEC3. The COL props have
+  none (white when baked into the chunks: every mesh of a GLB has COLOR_0). Prop models of the same geometry are one
+  model only with the same colours too (`_deduplicate_models`). The GUI track viewer draws them (`terrainVertexShading`
+  of the adapter: texel x pow(colour, 2.2), as nfs-web).
 - `FrdMapSerializer` writes `track_route.json` (`nfs3_track_route`, game axes, Y up): `chunks` the block positions
   (chunk pivots), `points` the slice centres with headings, `roads` one straight line per shortcut (middle pair of
   its run); the block positions without a fitting COL (golden corpus `TR00.COL` is NFS2's: NFS3's is
@@ -1241,6 +1251,14 @@ When you do:
   7..10, mesh `block_<i>_objects`), as nfs4.exe draws a block (0x437770); the lanes (chunk 6) are left out. UVs come
   from nfs4.exe's UV table (`nfs4_polygon_uvs`: `tex_flags` rotation / mirror / flip / tiling, corners passed as 1, 0,
   3, 2). Type 2 extra objects (trees) are billboards in the game: dummy property `billboard`.
+- Vertex shading (`vertex_shading` of the blocks and the extra objects, alpha 0xFF everywhere): nfs4.exe draws texel
+  x colour (Render_TrackBlocks 0x437770, Render_XobjChunk 0x436a20; d3da.dll stage 0 MODULATE of TEXTURE and DIFFUSE),
+  each channel tinted at load (0x4323f0 -> 0x432230) by the ini's `[light]` `AmbientRed` / `AmbientGreen` /
+  `AmbientBlue` p: below 100 c * p / 100, above c + (p - 100) * (255 - c) / 100 (`nfs4_shading_tint`). The export's
+  colours (terrain, block objects, extra objects; OBJ `v` colours, GLB COLOR_0 float VEC3, RGB / 255) take the ini of
+  the FRD (`nfs4_track_ini_name`): `Tr.ini` for `Tr.frd` (100 everywhere but Snowy's 110, 120, 130), `TrN.ini` for
+  `Trn.frd`, the night track (shading about a third as bright, `TRN0.QFS` textures where there is one; 100 but GT1,
+  Germany, Park). Props and the GUI as NFS3's.
 - `Nfs4HeightsSim` (`heights.sim`, a float per slice) and `Nfs4SpeedFile` (`spdFA.bin` / `spdRA.bin`, any case:
   ceil(n / 2) speed bytes, n lane bytes, n float AI line offsets; `is_nfs4_speed_file_size`) are picked under a
   `/Data/Tracks/` path, exported as JSON. NFS4 `.CAN` files are `Nfs3CanAnimation` (the same layout).

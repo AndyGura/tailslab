@@ -527,6 +527,52 @@ class TestAddGlbMorphTargets(unittest.TestCase):
         )
         self.assertEqual(gltf['buffers'][0]['byteLength'], len(binary))
 
+    def test_adds_vertex_colors_as_they_are(self):
+        mesh = SubMesh()
+        mesh.name = 'wheel'
+        mesh.vertices = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]]
+        mesh.vertex_uvs = [[0, 0], [1, 0], [1, 1], [0, 1]]
+        # without alpha: VEC3
+        mesh.vertex_colors = [[0.25, 0.5, 1.0], [1.0, 0.0, 0.5], [0.0, 0.0, 0.0], [1.0, 1.0, 1.0]]
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, 'body.glb')
+            self._write_quad_glb(path)
+            add_glb_vertex_attributes(path, [mesh])
+            gltf, binary = read_glb(path)
+        index = gltf['meshes'][0]['primitives'][0]['attributes']['COLOR_0']
+        accessor = gltf['accessors'][index]
+        self.assertEqual((accessor['componentType'], accessor['type']), (5126, 'VEC3'))
+        self.assertNotIn('normalized', accessor)
+        self.assertEqual(
+            read_accessor(gltf, binary, index), [(1.0, 0.0, 0.5), (0.25, 0.5, 1.0), (0.0, 0.0, 0.0), (1.0, 1.0, 1.0)]
+        )
+        # with alpha: VEC4
+        mesh.vertex_colors = [c + [0.5] for c in mesh.vertex_colors]
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, 'body.glb')
+            self._write_quad_glb(path)
+            add_glb_vertex_attributes(path, [mesh])
+            gltf, binary = read_glb(path)
+        accessor = gltf['accessors'][gltf['meshes'][0]['primitives'][0]['attributes']['COLOR_0']]
+        self.assertEqual(accessor['type'], 'VEC4')
+
+    def test_matches_float32_positions_far_from_the_origin(self):
+        # an NFS4 extra object with absolute positions: the GLB's float32 positions are off by up to 1.2e-4 there
+        mesh = SubMesh()
+        mesh.name = 'xobj_global_0_0__DTC1'
+        mesh.vertices = [[2674.000115, 2582.18978, 115.1465], [2674.6018, 2580.0, 115.1], [2670.0, 2582.18978, 115.0]]
+        mesh.vertex_uvs = [[0, 0], [1, 0], [0, 1]]
+        mesh.vertex_colors = [[0.25, 0.5, 1.0], [1.0, 0.0, 0.5], [0.0, 0.0, 0.0]]
+        mesh.polygons = [[0, 1, 2]]
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, 'body.glb')
+            write_glb_of_sub_meshes(path, [mesh])
+            add_glb_vertex_attributes(path, [mesh])
+            gltf, binary = read_glb(path)
+        colors = read_accessor(gltf, binary, gltf['meshes'][0]['primitives'][0]['attributes']['COLOR_0'])
+        # the GLB has the vertices in reversed order
+        self.assertEqual(colors, [(0.0, 0.0, 0.0), (1.0, 0.0, 0.5), (0.25, 0.5, 1.0)])
+
     def test_adds_byte_attributes_matched_by_position(self):
         mesh = SubMesh()
         mesh.name = 'wheel'
