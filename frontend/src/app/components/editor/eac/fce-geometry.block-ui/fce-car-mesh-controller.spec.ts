@@ -19,6 +19,7 @@ import {
 } from 'three';
 import {
   FceCarMeshController,
+  FCE3_TRANSLUCENT_ALPHA,
   FCE4_DEFAULT_TRACK_LIGHT,
   fce3ChromeAdd,
   fce3ChromeEnvMatrix,
@@ -453,6 +454,23 @@ describe('FceCarMeshController', () => {
     expect(meshes['hp_1_wheel__car00'].material).toBe(shared);
     expect(meshes['hp_0_body__car00'].material).not.toBe(shared);
     expect(new FceCarMeshController(car.clone(), 4, [], [], () => null).hasChrome).toBeFalse();
+    controller.dispose();
+  });
+
+  it('draws FCE3 translucent polygons at the race vertex alpha 0x4f, the chrome copy too', () => {
+    const car = new Object3D();
+    const meshes: { [name: string]: Mesh } = {};
+    for (const name of ['hp_0_body__car00_translucent_high_chrome', 'hp_0_body__car00']) {
+      meshes[name] = new Mesh(new BoxGeometry(), new MeshBasicMaterial({ map: new Texture(), transparent: true }));
+      meshes[name].name = name;
+      car.add(meshes[name]);
+    }
+    const controller = new FceCarMeshController(car, 3, [], [], () => null);
+    expect(FCE3_TRANSLUCENT_ALPHA).toBe(0x4f / 255);
+    expect((meshes['hp_0_body__car00_translucent_high_chrome'].material as MeshBasicMaterial).opacity).toBe(
+      FCE3_TRANSLUCENT_ALPHA,
+    );
+    expect((meshes['hp_0_body__car00'].material as MeshBasicMaterial).opacity).toBe(1);
     controller.dispose();
   });
 

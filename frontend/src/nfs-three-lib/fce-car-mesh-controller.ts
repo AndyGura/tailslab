@@ -448,6 +448,16 @@ export const fce3ChromeUv = (n: [number, number, number]): [number, number] => {
 const FCE3_CHROME_COLORS = { normal: 0x7f / 255, high: 1 };
 
 /**
+ * FCE3: the vertex alpha of "semi_transparent" polygons in the race: CarDraw_CarLods calls CarDraw_SetAlphas(0x8f,
+ * 0x4f) before the parts (0x4ba071), Car_SetupPolys 0x49cfa0 marks them (poly flag 2) and CarDraw_QueuePolys 0x49dbf0
+ * gives them the translucent color [0x55e6e8] (white, this alpha) whether lit or not; D3DA.DLL multiplies the texel's
+ * alpha by it (D3DTBLEND_MODULATEALPHA) and blends every polygon (thrash state 0xa = 2, 0x4b59f0). The front end's car
+ * view fades it with the view (0x466cf0: half its alpha, 0x7f when shown). Other polygons have alpha 0xff unlit
+ * (CarDraw_Part 0x49de20; 0x8f lit, with the carlight option, not ported). None of NFS3's own models has such polygons
+ */
+export const FCE3_TRANSLUCENT_ALPHA = 0x4f / 255;
+
+/**
  * One chrome pass color added over the framebuffer, 0..255: the chrome texel (ARGB4444, texture type 7 of the
  * Direct3D driver D3DA.DLL: every channel 8 bits >> 4, shown as c / 15) times the vertex color, alpha included: D3DA.DLL
  * sets D3DRENDERSTATE_TEXTUREMAPBLEND to D3DTBLEND_MODULATEALPHA (texture x vertex, for the alpha too) with the device
@@ -900,6 +910,16 @@ export class FceCarMeshController {
     this.colors = colors.map(c => ({ ...c }));
     this.updateColorUniforms();
     this.root = mesh;
+    if (version === 3) {
+      // before the chrome copies of the materials
+      mesh.traverse(o => {
+        if (o instanceof Mesh && /_translucent/.test(o.name)) {
+          for (const material of Array.isArray(o.material) ? o.material : [o.material]) {
+            material.opacity = FCE3_TRANSLUCENT_ALPHA;
+          }
+        }
+      });
+    }
     if (version === 4) {
       // first: it takes the damaged copies out of the model
       this.parts = new Fce4CarParts(mesh, { ...options, dummies });
