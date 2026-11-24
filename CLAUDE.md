@@ -1234,7 +1234,8 @@ When you do:
   the polygon search (`BWorld_FindPolygonForks` 0x41f330). Byte 3 of a position record is the slice's music event
   (`SND_PathEvent`). FRD block `position`s are mean terrain vertices, off the centre line.
 - Vertex shading (`vertex_shading` of the blocks and the XOBJs, 0xAARRGGBB): nfs3.exe draws texel x colour (block
-  render 0x41cdc0 -> vertex transform 0x41a970, D3DA.DLL D3DTBLEND_MODULATE), each channel tinted at load by the day
+  render 0x41cdc0 -> vertex transform 0x41a970, D3DA.DLL D3DTBLEND_MODULATEALPHA, set with the device at 0x6000410c and
+  never changed: alpha included), each channel tinted at load by the day
   `3TR<nn>.HRZ` ambient light (0x419750 -> 0x419660: c * p / 100; 100 in every day HRZ). `FrdMapSerializer` gives
   the terrain (every exported level), POLYOBJ and XOBJ meshes these colours (`track_shading_colors`,
   `nfs3_ambient_percent`; RGB / 255, the alpha left out): OBJ `v` colours, GLB COLOR_0 float VEC3. The COL props have

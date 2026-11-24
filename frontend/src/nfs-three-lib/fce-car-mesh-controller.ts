@@ -442,20 +442,22 @@ export const fce3ChromeUv = (n: [number, number, number]): [number, number] => {
 /**
  * Vertex color of the chrome pass (CarDraw_QueuePolys 0x49dbf0, CarDraw_SetChromeColors 0x49d800): 0x7f7f7f7f, a
  * "high_chrome" triangle 0xffffffff, none for a "matte" one (Fce3GeometrySerializer's mesh name suffixes and
- * "fceChrome" extras). SKIPPED: both are scaled by [0x6fbc38] when it is below 1 (hardware renderers)
+ * "fceChrome" extras); its alpha is the same value as its grey. SKIPPED: both are scaled by [0x6fbc38] when it is
+ * below 1 (hardware renderers)
  */
 const FCE3_CHROME_COLORS = { normal: 0x7f / 255, high: 1 };
 
 /**
  * One chrome pass color added over the framebuffer, 0..255: the chrome texel (ARGB4444, texture type 7 of the
- * Direct3D driver D3DA.DLL: every channel 8 bits >> 4, shown as c / 15) times the vertex color, D3D's
- * D3DTBLEND_MODULATE (the texture's alpha, the vertex alpha is not used), blended with source alpha and one (THRASH
- * state 0x68 = 1). The reduction of the SKY.FSH texel to 4 bits is assumed (the exe's 32-bit to 4444 conversion is
- * not verified)
+ * Direct3D driver D3DA.DLL: every channel 8 bits >> 4, shown as c / 15) times the vertex color, alpha included: D3DA.DLL
+ * sets D3DRENDERSTATE_TEXTUREMAPBLEND to D3DTBLEND_MODULATEALPHA (texture x vertex, for the alpha too) with the device
+ * (0x6000410c) and never changes it; blended with source alpha and one (THRASH state 0x68 = 1). The vertex color
+ * (FCE3_CHROME_COLORS) is a grey with the same alpha: texel.rgb x c x texel.a x c. The reduction of the SKY.FSH texel to
+ * 4 bits is assumed (the exe's 32-bit to 4444 conversion is not verified)
  */
 export const fce3ChromeAdd = (texel: [number, number, number, number], vertexColor: number): number[] => {
   const [r, g, b, a] = texel.map(c => (c >> 4) / 15);
-  return [r, g, b].map(c => c * vertexColor * a * 255);
+  return [r, g, b].map(c => c * vertexColor * a * vertexColor * 255);
 };
 
 /**
@@ -512,9 +514,16 @@ const enum ChromeMode {
 
 /** Uniforms of the chrome pass of one car, shared by its chrome materials */
 class ChromeUniforms {
-  // the vertex color of each class (0..1 RGBA): FCE3 FCE3_CHROME_COLORS (alpha 1: not used), FCE4 fce4ChromeColors
+  // the vertex color of each class (0..1 RGBA): FCE3 FCE3_CHROME_COLORS (alpha = grey), FCE4 fce4ChromeColors
   readonly colors = {
-    normal: { value: new Vector4(FCE3_CHROME_COLORS.normal, FCE3_CHROME_COLORS.normal, FCE3_CHROME_COLORS.normal, 1) },
+    normal: {
+      value: new Vector4(
+        FCE3_CHROME_COLORS.normal,
+        FCE3_CHROME_COLORS.normal,
+        FCE3_CHROME_COLORS.normal,
+        FCE3_CHROME_COLORS.normal,
+      ),
+    },
     high: { value: new Vector4(1, 1, 1, 1) },
   };
   readonly map: { value: Texture | null } = { value: null };
@@ -533,7 +542,7 @@ class ChromeUniforms {
  * The chrome pass of nfs3.exe (Render_CarPolyList 0x434120, a second pass of every body triangle but matte ones) and
  * nfs4.exe (the FCE4_CHROME_PARTS), added in the fragment shader of the material over its own color: texture
  * coordinates per vertex from the game's normal (`_game_normal`, else `normal`), the chrome texel times the class's
- * vertex color (`color`, a uniform of ChromeUniforms.colors) as fce3ChromeAdd (alpha 1) / fce4ChromeAdd, added in the
+ * vertex color (`color`, a uniform of ChromeUniforms.colors) as fce3ChromeAdd / fce4ChromeAdd (alpha included), added in the
  * output color space (the game blends in the framebuffer's), divided by the fragment's alpha (or premultiplied) so
  * that blending adds it whole. Sky mode (ChromeMode.SKY): the texel is the scene's sky cube texture in the direction
  * the normal reflects the camera's direction to (per vertex, interpolated, as the game's coordinates), alpha
