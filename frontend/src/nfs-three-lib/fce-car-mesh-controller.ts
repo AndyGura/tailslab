@@ -15,9 +15,10 @@ import {
   TextureLoader,
   Vector3,
   Vector4,
+  WebGLRenderer,
 } from 'three';
-import { sceneSkyCube } from './scene-sky';
-import { Fce4CarParts, Fce4CarPartsOptions } from './fce4-car-parts';
+import { sceneSkyCube, sceneSkyTopColor, sceneTrackLight } from './scene-sky';
+import { Fce4CarParts, Fce4CarPartsOptions, fce4PartOf } from './fce4-car-parts';
 
 export type FceDummy = { name: string; position: [number, number, number] };
 
@@ -77,6 +78,95 @@ export const fce3HsbToRgb = (color: FceColor): [number, number, number] => {
     [v, p, q],
   ];
   return rgb[sector].map(clamp) as [number, number, number];
+};
+
+/**
+ * nfs4.exe 0x4edf60: 0xRRGGBB to HSB (hue, saturation, brightness), every component 0..255, the exe's integer math:
+ * brightness = max, saturation = delta * 256 / max (truncated), the hue as 16.16 sectors (sector * 2 + (c1 - c2) /
+ * delta, its integer part and fraction each truncated) / 6 (truncated), + 1 turn when negative, then * 256 rounded
+ * (bit 15); each clamped to 0..255. A grey (delta 0) or black has hue and saturation 0
+ */
+export const fce4RgbToHsb = (rgb: number): [number, number, number] => {
+  const [r, g, b] = [(rgb >> 16) & 0xff, (rgb >> 8) & 0xff, rgb & 0xff];
+  const max = Math.max(r, g, b);
+  const delta = max - Math.min(r, g, b);
+  const clamp = (c: number) => Math.max(0, Math.min(255, c));
+  if (max === 0 || delta === 0) {
+    return [0, 0, clamp(max)];
+  }
+  const [x, base] = r === max ? [g - b, 0] : g === max ? [b - r, 0x20000] : [r - g, 0x40000];
+  let hue = Math.trunc(x / delta) * 0x10000 + Math.trunc(((x % delta) * 0x10000) / delta) + base;
+  hue = Math.trunc(hue / 6);
+  if (hue < 0) {
+    hue += 0x10000;
+  }
+  return [clamp(Math.floor((hue * 256 + 0x8000) / 0x10000)), clamp(Math.trunc((delta * 256) / max)), clamp(max)];
+};
+
+/** nfs4.exe 0x439880: the track light off any road polygon (and of a wheel on none, Render_CarTrackLight) */
+export const FCE4_DEFAULT_TRACK_LIGHT = 0x7f7f7f;
+
+/**
+ * nfs4.exe Render_CarTrackLight 0x50dc00: a race car's track light (car+0x98c) as 0xRRGGBB, per channel the mean
+ * (sum >> 2) of the track light (0x439880, SceneTrackLight) under its 4 wheels (front left, front right, rear left,
+ * rear right: the road polygons of car+0x328, +0x378, +0x3c8, +0x418); a wheel on none (null, or missing)
+ * FCE4_DEFAULT_TRACK_LIGHT. SKIPPED: at night (0x7c4cf8) for a car nearer than 100 (car+0x908), 0x50c580 and 0x50c200
+ * add the headlights of the cars nearby and the lights of the track to it
+ */
+export const fce4CarTrackLight = (wheels: (number | null)[]): number => {
+  const lights = [0, 1, 2, 3].map(i => wheels[i] ?? FCE4_DEFAULT_TRACK_LIGHT);
+  return [16, 8, 0].reduce(
+    (rgb, shift) => rgb | ((lights.reduce((sum, c) => sum + ((c >> shift) & 0xff), 0) >> 2) << shift),
+    0,
+  );
+};
+
+/**
+ * nfs4.exe Render_CarChrome 0x50d6f0: the vertex colours of a race car's chrome pass, 0xAARRGGBB (unsigned), the exe's
+ * integer math (all values 0..255):
+ * - `trackLight` 0xRRGGBB: the car's track light (car+0x98c, fce4CarTrackLight),
+ * - `skyTop` 0xRRGGBB: the track's sky top colour (0x7c8b64..66, Tr.ini [strip] hrzSkyTopColor; SCENE_SKY_TOP_COLOR),
+ * - `paintBrightness`: the HSB brightness of the car's paint (car+0xa28: fce4RgbToHsb of the game setup car's paint
+ *   when the car is loaded, 0x508770),
+ * - `coveredSlices`: 0 on an open road (car+0x910 0), else 1..8: the count of the loop over the road slices on both
+ *   sides of the car's slice (BWorld_SliceCovered 0x4399d0: from 1, up while slice + n and slice - n are covered).
+ *
+ * Covered, f1 = 256 - 16 n and f2 = 256 - 32 n: each sky channel is blended towards the track light, ((256 - f2) light
+ * >> 8) + (sky f2 >> 8). Of the sky's HSB (h, s, v) and the track light's brightness b: "normal" = HSB->RGB(h, s * 96
+ * >> 8, (v b >> 9) + 0x80 - (paintBrightness >> 2)), "high" (the high_chrome triangles) = HSB->RGB(h, s >> 1, (v b >>
+ * 9) + 0x80), hue and saturation clamped to 0..255, the brightness to 0x7f..0xff, which is the colour's alpha too
+ * (HSB->RGB: nfs4.exe 0x4ee210, nfs3.exe 0x49ca50's code, fce3HsbToRgb). Covered, every byte of both colours, the
+ * alpha too, is then scaled by f1 (c f1 >> 8, 0x50db59). CarDraw_SetChromeColors 0x4f0350 stores them for
+ * CarDraw_QueuePolys 0x4f0a70 (0x5bcffc normal, 0x5bd008 high)
+ */
+export const fce4ChromeColors = (
+  trackLight: number,
+  skyTop: number,
+  paintBrightness: number,
+  coveredSlices: number,
+): { normal: number; high: number } => {
+  const n = Math.max(0, Math.min(8, Math.trunc(coveredSlices)));
+  const f1 = n ? 256 - 16 * n : 256;
+  const f2 = n ? 256 - 32 * n : 256;
+  const channels = (c: number) => [(c >> 16) & 0xff, (c >> 8) & 0xff, c & 0xff];
+  const light = channels(trackLight);
+  const lightBrightness = fce4RgbToHsb(trackLight)[2];
+  const sky = channels(skyTop).map((c, i) => (n ? (((256 - f2) * light[i]) >> 8) + ((c * f2) >> 8) : c));
+  const [h, s, v] = fce4RgbToHsb((sky[0] << 16) | (sky[1] << 8) | sky[2]);
+  const clamp = (x: number, min: number, max: number) => Math.max(min, Math.min(max, x));
+  const color = (saturation: number, brightness: number) => {
+    const b = clamp(brightness, 0x7f, 0xff);
+    const rgb = fce3HsbToRgb({
+      hue: clamp(h, 0, 255),
+      saturation: clamp(saturation, 0, 255),
+      brightness: b,
+      transparency: 0,
+    });
+    const argb = [b, ...rgb].map(c => (f1 < 256 ? (c * f1) >> 8 : c));
+    return ((argb[0] << 24) | (argb[1] << 16) | (argb[2] << 8) | argb[3]) >>> 0;
+  };
+  const brightness = ((v * lightBrightness) >> 9) + 0x80;
+  return { normal: color((s * 96) >> 8, brightness - (paintBrightness >> 2)), high: color(s >> 1, brightness) };
 };
 
 /**
@@ -369,6 +459,41 @@ export const fce3ChromeAdd = (texel: [number, number, number, number], vertexCol
 };
 
 /**
+ * One FCE4 chrome pass color added over the framebuffer, 0..255: the chrome texel (as fce3ChromeAdd's, 4 bits) times
+ * the vertex color 0xAARRGGBB (fce4ChromeColors), alpha included: nfs4.exe draws the pass with THRASH state 0x68 = 1
+ * (source alpha, one; its Direct3D driver d3da.dll THRASH_setstate 0x600044d6), texture stage 0 as THRASH_treset sets
+ * it (the game never sets state 0x29): COLOROP and ALPHAOP MODULATE (texture x diffuse) with
+ * D3DPTBLENDCAPS_MODULATEALPHA, which every card has. So texel.rgb x color.rgb x texel.a x color.a.
+ * SKIPPED: the reduction of nfs4.exe's sky.qfs CHRD texel (assumed 4 bits, as NFS3); SELECTARG1 for the alpha
+ * without MODULATEALPHA
+ */
+export const fce4ChromeAdd = (texel: [number, number, number, number], color: number): number[] => {
+  const [r, g, b, a] = texel.map(c => (c >> 4) / 15);
+  const [ca, cr, cg, cb] = [24, 16, 8, 0].map(shift => ((color >>> shift) & 0xff) / 255);
+  return [r * cr, g * cg, b * cb].map(c => c * a * ca * 255);
+};
+
+/**
+ * FCE4: the parts nfs4.exe draws the chrome pass over (Render_CarParts 0x50dd60: CarDraw_Part 0x4f0e00 with
+ * Render_CarChrome's texture, the part names of the tables 0x5bed14..; only for body LOD 0..2, so never :TB). Not
+ * the wheels, brakes, driver (:OD, :OH, :OND: CarDraw_PartNoChrome 0x4f1120). TailsLab's FCE4_CHROME_PARTS
+ */
+const FCE4_CHROME_PARTS = ['HB', 'MB', 'LB', 'OC', 'ODL', 'OLM', 'ORM', 'OS', 'OT', 'OL'];
+
+/**
+ * The chrome class of a mesh (TailsLab's FCE3 / FCE4 export): its node extras `fceChrome` ("normal", "high", "none"),
+ * else its name's suffix before the FCE4 window class: "_matte" none, "_high_chrome" high, else normal
+ */
+export const fceChromeClassOf = (mesh: Object3D): string => {
+  const kind = mesh.userData?.['fceChrome'];
+  if (typeof kind === 'string') {
+    return kind;
+  }
+  const name = mesh.name.replace(/_damaged$/, '').replace(/_window(?:_(?:front|left|back|right))*(?:_breakaway)?$/, '');
+  return /_matte$/.test(name) ? 'none' : /_high_chrome$/.test(name) ? 'high' : 'normal';
+};
+
+/**
  * The alpha of the chrome texel of a direction of the scene's sky (no texture alpha there), by the direction's height
  * (unit vector, up = 1): the game's CHR* textures of SKY.FSH reflect the sky with an alpha of 0.4..1 (0.6 in most
  * tracks) and the ground with about 0, the horizon in between
@@ -387,6 +512,11 @@ const enum ChromeMode {
 
 /** Uniforms of the chrome pass of one car, shared by its chrome materials */
 class ChromeUniforms {
+  // the vertex color of each class (0..1 RGBA): FCE3 FCE3_CHROME_COLORS (alpha 1: not used), FCE4 fce4ChromeColors
+  readonly colors = {
+    normal: { value: new Vector4(FCE3_CHROME_COLORS.normal, FCE3_CHROME_COLORS.normal, FCE3_CHROME_COLORS.normal, 1) },
+    high: { value: new Vector4(1, 1, 1, 1) },
+  };
   readonly map: { value: Texture | null } = { value: null };
   readonly cube: { value: Texture | null } = { value: null };
   readonly mode = { value: ChromeMode.OFF };
@@ -400,15 +530,16 @@ class ChromeUniforms {
 }
 
 /**
- * The chrome pass of nfs3.exe (Render_CarPolyList 0x434120, a second pass of every body triangle but matte ones),
- * added in the fragment shader of the material over its own color: texture coordinates per vertex from the game's
- * normal (`_game_normal`, else `normal`), the chrome texel as fce3ChromeAdd, added in the output color space (the game
- * blends in the framebuffer's), divided by the fragment's alpha (or premultiplied) so that blending adds it whole.
- * Sky mode (ChromeMode.SKY): the texel is the scene's sky cube texture in the direction the normal reflects the
- * camera's direction to (per vertex, interpolated, as the game's coordinates), alpha fce3SkyChromeAlpha, reduced to
- * 4 bits as the game's texture
+ * The chrome pass of nfs3.exe (Render_CarPolyList 0x434120, a second pass of every body triangle but matte ones) and
+ * nfs4.exe (the FCE4_CHROME_PARTS), added in the fragment shader of the material over its own color: texture
+ * coordinates per vertex from the game's normal (`_game_normal`, else `normal`), the chrome texel times the class's
+ * vertex color (`color`, a uniform of ChromeUniforms.colors) as fce3ChromeAdd (alpha 1) / fce4ChromeAdd, added in the
+ * output color space (the game blends in the framebuffer's), divided by the fragment's alpha (or premultiplied) so
+ * that blending adds it whole. Sky mode (ChromeMode.SKY): the texel is the scene's sky cube texture in the direction
+ * the normal reflects the camera's direction to (per vertex, interpolated, as the game's coordinates), alpha
+ * fce3SkyChromeAlpha, reduced to 4 bits as the game's texture
  */
-function chromeInShader(material: Material, uniforms: ChromeUniforms, vertexColor: number, gameNormals: boolean) {
+function chromeInShader(material: Material, uniforms: ChromeUniforms, color: { value: Vector4 }, gameNormals: boolean) {
   const previous = material.onBeforeCompile;
   const previousKey = material.customProgramCacheKey;
   material.onBeforeCompile = (shader, renderer) => {
@@ -420,7 +551,7 @@ function chromeInShader(material: Material, uniforms: ChromeUniforms, vertexColo
     shader.uniforms['fceChromeWorldMatrix'] = uniforms.worldMatrix;
     shader.uniforms['fceChromeEye'] = uniforms.eye;
     shader.uniforms['fceChromeCubeMatrix'] = uniforms.cubeMatrix;
-    shader.uniforms['fceChromeColor'] = { value: vertexColor };
+    shader.uniforms['fceChromeColor'] = color;
     shader.uniforms['fceChromeFlipY'] = {
       get value() {
         return uniforms.map.value?.flipY ? 1 : 0;
@@ -469,7 +600,7 @@ function chromeInShader(material: Material, uniforms: ChromeUniforms, vertexColo
         uniform samplerCube fceChromeCube;
         uniform mat3 fceChromeCubeMatrix;
         uniform float fceChromeMode;
-        uniform float fceChromeColor;
+        uniform vec4 fceChromeColor;
         uniform float fceChromeFiltered;
         uniform float fceChromeSrgb;
         varying vec2 vFceChromeUv;
@@ -514,7 +645,7 @@ function chromeInShader(material: Material, uniforms: ChromeUniforms, vertexColo
               env = fceChromeTexel( clamp( ivec2( floor( vFceChromeUv * vec2( size ) ) ), ivec2( 0 ), last ) );
             }
           }
-          vec3 fceChromeAdd = env.rgb * fceChromeColor * env.a;
+          vec3 fceChromeAdd = env.rgb * fceChromeColor.rgb * env.a * fceChromeColor.a;
           #ifdef PREMULTIPLIED_ALPHA
           gl_FragColor.rgb += fceChromeAdd;
           #else
@@ -523,8 +654,7 @@ function chromeInShader(material: Material, uniforms: ChromeUniforms, vertexColo
         }`,
       );
   };
-  material.customProgramCacheKey = () =>
-    `${previousKey.call(material)}|fce-chrome-${gameNormals ? 'game' : 'normal'}-${vertexColor}`;
+  material.customProgramCacheKey = () => `${previousKey.call(material)}|fce-chrome-${gameNormals ? 'game' : 'normal'}`;
   material.needsUpdate = true;
 }
 
@@ -550,7 +680,9 @@ type Wheel = {
  * exe uploads it, at 5 bits per channel). Materials are changed in place:
  * a material shared with another copy of the model gets this controller's paint.
  * FCE4 (NFS4): `parts` draws the car's parts as nfs4.exe (pop-up headlights, roof, driver, spoiler, body lean,
- * damage), the wheels tilt when damaged (setWheelDamage), hide (setWheelHidden), stop while sliding
+ * damage), the wheels tilt when damaged (setWheelDamage), hide (setWheelHidden), stop while sliding.
+ * Chrome (hasChrome): the exe's environment mapped second pass (chromeInShader), FCE3 on the body, FCE4 on the
+ * FCE4_CHROME_PARTS with nfs4.exe's colours (fce4ChromeColors: the track light, the sky top colour, the paint)
  */
 export class FceCarMeshController {
   private wheels: Wheel[] = [];
@@ -567,24 +699,43 @@ export class FceCarMeshController {
   private readonly paintedMaterials = new Set<Material>();
   private disposed = false;
   private readonly chrome = new ChromeUniforms();
-  // FCE3 body meshes with a chrome pass
+  // meshes with a chrome pass: FCE3 body (part 0), FCE4 FCE4_CHROME_PARTS
   private readonly chromeMeshes: Mesh[] = [];
 
-  /** Whether the model has meshes with chrome (FCE3 body triangles but matte ones) */
+  /** Whether the model has meshes with chrome (FCE3 body, FCE4 FCE4_CHROME_PARTS: their triangles but matte ones) */
   get hasChrome(): boolean {
     return this.chromeMeshes.length > 0;
   }
 
-  /** Whether the FCE3 body draws its chrome pass (the game's "carchrome" option) */
+  /** Whether the chrome pass is drawn (the game's "carchrome" option, NFS4 g_opt_car_chrome 0x7c3d38) */
   chromeEnabled = true;
 
   /**
    * The chrome (environment) texture as nfs3.exe draws it: the track's SKY.FSH `CHRD` (day; `CHRN` night, `CHRW` /
-   * `CHNW` in the rain). Null: the chrome reflects the sky of the scene drawing the car (sceneSkyCube: the cube texture
-   * `scene.userData[SCENE_SKY_CUBE]`, else `scene.background` when it is one, e.g. gg-web-engine's baked sky), no
-   * chrome without one. Not owned by the controller
+   * `CHNW` in the rain); nfs4.exe the same of the track's sky.qfs (Hrz_LoadSkyQfs). Null: the chrome reflects the sky
+   * of the scene drawing the car (sceneSkyCube: the cube texture `scene.userData[SCENE_SKY_CUBE]`, else
+   * `scene.background` when it is one, e.g. gg-web-engine's baked sky), no chrome without one. Not owned by the
+   * controller
    */
   chromeTexture: Texture | null = null;
+
+  /**
+   * FCE4: the car's track light, 0xRRGGBB (nfs4.exe car+0x98c, FCE4_DEFAULT_TRACK_LIGHT off the road), the chrome
+   * colours' light (fce4ChromeColors) when the scene drawing the car has no SceneTrackLight (SCENE_TRACK_LIGHT); with
+   * one, the car's is fce4CarTrackLight of its wheels' places
+   */
+  chromeTrackLight = FCE4_DEFAULT_TRACK_LIGHT;
+
+  /**
+   * FCE4: the covered road slices around the car for the chrome colours (fce4ChromeColors `coveredSlices`): 0 on an
+   * open road (nfs4.exe car+0x910 0), else 1..8
+   */
+  chromeCoveredSlices = 0;
+
+  // FCE4: the wheel meshes fce4CarTrackLight reads the track light under (front left, front right, rear left, rear
+  // right), and the renderer and frame the chrome colours were last computed for
+  private readonly trackLightWheels: (Mesh | null)[] = [null, null, null, null];
+  private chromeColorsFrame: { renderer: WebGLRenderer; frame: number } | null = null;
 
   // FCE3: primary, secondary. FCE4: primary, interior, secondary, driver hair
   private readonly colors: FceColor[];
@@ -740,9 +891,7 @@ export class FceCarMeshController {
     this.colors = colors.map(c => ({ ...c }));
     this.updateColorUniforms();
     this.root = mesh;
-    if (version === 3) {
-      this.setupChrome(mesh);
-    } else {
+    if (version === 4) {
       // first: it takes the damaged copies out of the model
       this.parts = new Fce4CarParts(mesh, { ...options, dummies });
       this.parts.onDummyBroken = (index, broken) => {
@@ -752,6 +901,8 @@ export class FceCarMeshController {
         }
       };
     }
+    // before the paint: the chrome meshes' own materials are painted too
+    this.setupChrome(mesh);
     this.setupPaint(mesh, paintMaskUrl);
     // wheel meshes by part index
     const parts: { [index: number]: Wheel } = {};
@@ -819,6 +970,10 @@ export class FceCarMeshController {
         m.rotation.order = 'ZXY';
       }
       this.wheels.push(wheel);
+      const place = ['frontLeft', 'frontRight', 'rearLeft', 'rearRight'].indexOf(wheel.position ?? '');
+      if (version === 4 && wheel.spins && !wheel.middle && place >= 0 && !this.trackLightWheels[place]) {
+        this.trackLightWheels[place] = wheel.meshes[0];
+      }
     }
     if (body && dummies.some(d => FceCarMeshController.lightColor(version, d.name) !== null)) {
       this.lights = new Group();
@@ -842,20 +997,31 @@ export class FceCarMeshController {
   private readonly root: Object3D;
 
   /**
-   * Gives every FCE3 body mesh (part 0) but matte ones its own copies of its materials, with the chrome pass (shared
-   * materials: the wheels and the other parts draw the same textures without it)
+   * Gives every chrome mesh but matte ones its own copies of its materials, with the chrome pass (shared materials: the
+   * wheels and the other parts draw the same textures without it). FCE3: the body (part 0, high and medium level of
+   * detail). FCE4: the FCE4_CHROME_PARTS of the high, medium and low levels. The class (fceChromeClassOf) picks the
+   * vertex color uniform. SKIPPED: FCE4's chrome over cracked windows (Fce4CarParts' glass meshes)
    */
   private setupChrome(mesh: Object3D) {
+    const meshes: Mesh[] = [];
     mesh.traverse(o => {
-      if (!(o instanceof Mesh) || !/^(hp|mp)_0(?:_|$)/.test(o.name)) {
-        return;
+      if (o instanceof Mesh) {
+        meshes.push(o);
       }
-      const name = o.name.replace(/_damaged$/, '');
-      const kind: string =
-        o.userData?.['fceChrome'] ?? (/_matte$/.test(name) ? 'none' : /_high_chrome$/.test(name) ? 'high' : 'normal');
-      const color = FCE3_CHROME_COLORS[kind as keyof typeof FCE3_CHROME_COLORS];
+    });
+    for (const o of meshes) {
+      const part = this.version === 4 ? fce4PartOf(o.name) : null;
+      const isChromePart =
+        this.version === 3
+          ? /^(hp|mp)_0(?:_|$)/.test(o.name)
+          : !!part && /^(hp|mp|lp)_/.test(part.key) && FCE4_CHROME_PARTS.includes(part.name);
+      if (!isChromePart) {
+        continue;
+      }
+      const kind = fceChromeClassOf(o);
+      const color = kind === 'normal' || kind === 'high' ? this.chrome.colors[kind] : undefined;
       if (color === undefined) {
-        return;
+        continue;
       }
       const gameNormals = !!o.geometry.getAttribute('_game_normal');
       const copy = (material: Material) => {
@@ -873,22 +1039,24 @@ export class FceCarMeshController {
       o.onBeforeRender = (renderer, scene, camera, ...rest) => {
         previous.call(o, renderer, scene, camera, ...rest);
         if (!this.disposed) {
-          this.updateChrome(camera.getWorldPosition(this.cameraPosition), scene, o);
+          this.updateChrome(camera.getWorldPosition(this.cameraPosition), scene, o, renderer);
         }
       };
       this.chromeMeshes.push(o);
-    });
+    }
   }
 
   private readonly cameraPosition = new Vector3();
 
   /**
    * Turns the chrome to the camera (CarDraw_SetupChrome 0x4ba350: the environment matrix from the camera's
-   * direction, fce3ChromeEnvMatrix) and picks its source (chromeTexture, else the sky of `scene`). Called before a
-   * chrome mesh (`mesh`, default the first one) is drawn, with the camera drawing it. The world is expected in
-   * TailsLab's export axes (x, y = game z, z up = game y): the GLB / OBJ axes, nfs-web's world and TailsLab's viewers
+   * direction, fce3ChromeEnvMatrix; nfs4.exe Render_CarChrome 0x50d6f0 -> CarDraw_SetEnvMatrix 0x4f02b0, the same
+   * code) and picks its source (chromeTexture, else the sky of `scene`); FCE4: its colours too
+   * (updateFce4ChromeColors), once per frame of `renderer` (every call without one). Called before a chrome mesh
+   * (`mesh`, default the first one) is drawn, with the camera drawing it. The world is expected in TailsLab's export
+   * axes (x, y = game z, z up = game y): the GLB / OBJ axes, nfs-web's world and TailsLab's viewers
    */
-  updateChrome(cameraPosition: Vector3, scene?: Scene, mesh: Mesh = this.chromeMeshes[0]) {
+  updateChrome(cameraPosition: Vector3, scene?: Scene, mesh: Mesh = this.chromeMeshes[0], renderer?: WebGLRenderer) {
     const chrome = this.chrome;
     // the cube matrix as three.js turns a background cube texture (WebGLBackground)
     const sky = sceneSkyCube(scene, chrome.cubeMatrix.value);
@@ -905,6 +1073,14 @@ export class FceCarMeshController {
     if (chrome.mode.value === ChromeMode.OFF) {
       return;
     }
+    if (this.version === 4) {
+      const frame = renderer?.info.render.frame;
+      const last = this.chromeColorsFrame;
+      if (!renderer || frame === undefined || last?.renderer !== renderer || last.frame !== frame) {
+        this.chromeColorsFrame = renderer && frame !== undefined ? { renderer, frame } : null;
+        this.updateFce4ChromeColors(scene);
+      }
+    }
     this.root.updateWorldMatrix(true, false);
     mesh.updateWorldMatrix(true, false);
     const d = cameraPosition.clone().sub(new Vector3().setFromMatrixPosition(this.root.matrixWorld));
@@ -916,6 +1092,43 @@ export class FceCarMeshController {
     const envT = new Matrix3().set(e[0], e[3], e[6], e[1], e[4], e[7], e[2], e[5], e[8]);
     const swap = new Matrix3().set(1, 0, 0, 0, 0, 1, 0, 1, 0);
     chrome.matrix.value.copy(envT.multiply(swap).multiply(rotation));
+  }
+
+  private readonly wheelPosition = new Vector3();
+
+  /**
+   * FCE4: the chrome colour uniforms of fce4ChromeColors: the track light (the scene's SceneTrackLight at the wheels,
+   * fce4CarTrackLight; without one chromeTrackLight), the scene's sky top colour (sceneSkyTopColor), the brightness of
+   * the primary paint (fce4RgbToHsb of fce3HsbToRgb(colors[0]): nfs4.exe car+0xa28 from the paint's RGB),
+   * chromeCoveredSlices
+   */
+  private updateFce4ChromeColors(scene: Scene | undefined) {
+    const trackLight = sceneTrackLight(scene);
+    let light = this.chromeTrackLight;
+    if (trackLight) {
+      light = fce4CarTrackLight(
+        this.trackLightWheels.map(wheel => {
+          if (!wheel) {
+            return null;
+          }
+          const p = wheel.getWorldPosition(this.wheelPosition);
+          return trackLight(p.x, p.y, p.z);
+        }),
+      );
+    }
+    const paint = this.colors[0];
+    const [r, g, b] = paint ? fce3HsbToRgb(paint) : [0, 0, 0];
+    const paintBrightness = fce4RgbToHsb((r << 16) | (g << 8) | b)[2];
+    const colors = fce4ChromeColors(light, sceneSkyTopColor(scene), paintBrightness, this.chromeCoveredSlices);
+    for (const kind of ['normal', 'high'] as const) {
+      const c = colors[kind];
+      this.chrome.colors[kind].value.set(
+        ((c >>> 16) & 0xff) / 255,
+        ((c >>> 8) & 0xff) / 255,
+        (c & 0xff) / 255,
+        ((c >>> 24) & 0xff) / 255,
+      );
+    }
   }
 
   /** Every material with a texture that has a paint mask URL paints in its shader once the mask is loaded */

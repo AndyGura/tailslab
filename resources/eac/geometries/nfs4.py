@@ -95,7 +95,16 @@ class Fce4Triangle(DeclarativeCompoundBlock):
                 'description': 'Triangle flags, nfs4.exe reads the lower 16 bits. "matte": no environment reflection '
                 '(underbody), "high_chrome": strong reflection (windows), "no_cull": triangle is visible from both '
                 'sides, "semi_transparent": translucent triangle (windows). Triangle is visible behind a '
-                'semi-transparent triangle only if it has smaller index. Windows (Fce_BreakWindows 0x4ed0e0, run on a '
+                'semi-transparent triangle only if it has smaller index. Chrome: nfs4.exe draws a second, environment '
+                'mapped pass over the parts ":HB", ":MB", ":LB", ":OC", ":ODL", ":OLM", ":ORM", ":OS", ":OT", ":OL" '
+                '(Render_CarParts 0x50dd60; not the wheels, brakes, driver nor ":TB") with the track\'s chrome texture '
+                '(sky.qfs CHRD) at sphere map coordinates of the vertex `normals`, as nfs3.exe: none for "matte" '
+                '(polygon flag 4, 0x4eee40), the high colour for "high_chrome" (flag 8), the normal colour for the '
+                'others (CarDraw_QueuePolys 0x4f0a70), both from the track light under the car, the sky top colour '
+                'and the paint (Render_CarChrome 0x50d6f0), texel x colour (alphas too) added to the framebuffer '
+                '(source alpha, one). The export splits the triangles of those parts by these classes, mesh name '
+                'suffix "_matte" / "_high_chrome" (before the window suffix), node extras {"fceChrome": "normal" | '
+                '"high" | "none"}. Windows (Fce_BreakWindows 0x4ed0e0, run on a '
                 'part after a hit damaged its vertices): a triangle with any of the bits 5..9 (0x3e0) is a window '
                 'triangle, the bits 6..9 are its sides: "front_window", "left_window", "back_window", "right_window" '
                 '(one or none in the NFS4 cars, but for a triangle of traffic/sedan2 and one of traffic/snowplow with '
@@ -294,7 +303,11 @@ class Fce4Geometry(DeclarativeCompoundBlock):
         )
         unk2 = (BytesBlock(length=528), {'is_unknown': True})
         vertices = _vector_table('Vertex positions, relative to position of their part')
-        normals = _vector_table('Vertex normals')
+        normals = _vector_table(
+            'Vertex normals, the ones the chrome pass reads (CarDraw_Part 0x4f0e00 -> CarDraw_EnvMapUVs 0x4f09d0, '
+            'sphere map coordinates as nfs3.exe). Exported for the parts with chrome (see the triangle `flags`): OBJ '
+            '`vn`, GLB vertex attribute `_GAME_NORMAL` (game axes swapped as the vertices)'
+        )
         triangles = (
             ArrayBlock(child=Fce4Triangle(), length='num_triangles'),
             {'description': 'Triangles'},
@@ -330,8 +343,10 @@ class Fce4Geometry(DeclarativeCompoundBlock):
             'those parts as the morph target "damaged" (the delta to `vertices`; models with damaged positions only)'
         )
         damaged_normals = _vector_table(
-            'Vertex normals of crashed car, the normals of the damaged parts are blended from `undamaged_normals` to '
-            'these like the positions'
+            'Vertex normals of crashed car: Fce_DamageVertices (nfs4.exe 0x4ed390) blends `normals` of the damaged '
+            'parts from `undamaged_normals` to these by the damage weight of the vertex, as the positions, not '
+            'normalized. Exported for the parts with chrome: GLB vertex attribute `_GAME_NORMAL_DAMAGED` of the '
+            'meshes with the morph target "damaged" (the same vertices), OBJ `vn` of the "<mesh>_damaged" copies'
         )
         reserve4 = (
             BytesBlock(length=(lambda ctx: 4 * ctx.data('num_vertices'), '4 * num_vertices')),

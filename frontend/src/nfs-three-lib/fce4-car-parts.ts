@@ -19,11 +19,13 @@ import {
  * vertices blended towards their damaged positions, broken windows, mirrors and lights). Every state is set by the
  * app that draws the car (TailsLab's viewer: its controls; a game: its car's state), nothing changes by itself.
  *
- * Meshes are found by TailsLab's names: "<lod>_<part index>_<part name>__<texture>[_translucent][_window...][_damaged]"
- * (part names without ":", e.g. "hp_4_HB__car00"). Data from TailsLab's export: the part positions (`partPositions`,
- * the pivots), the damaged positions (GLB morph target "damaged", or the "<mesh>_damaged" copy of an OBJ, same
- * vertices), the window classes (mesh name suffix "_window[_front][_left][_back][_right][_breakaway]") and the
- * vertices of :OD and :OH that turn (geometry attribute `_fce_turns`, > 0.5: the FCE animation flag without bit 2).
+ * Meshes are found by TailsLab's names: "<lod>_<part index>_<part name>__<texture>[_translucent][_matte|_high_chrome]
+ * [_window...][_damaged]" (part names without ":", e.g. "hp_4_HB__car00"). Data from TailsLab's export: the part
+ * positions (`partPositions`, the pivots), the damaged positions (GLB morph target "damaged", or the "<mesh>_damaged"
+ * copy of an OBJ, same vertices) and normals (the chrome's: GLB `_game_normal` and `_game_normal_damaged`, OBJ
+ * `normal` and the copy's `normal`), the window classes (mesh name suffix "_window[_front][_left][_back][_right]
+ * [_breakaway]") and the vertices of :OD and :OH that turn (geometry attribute `_fce_turns`, > 0.5: the FCE animation
+ * flag without bit 2).
  * Positions are in the model's axes as TailsLab exports them: x right, y forward, z up, metres.
  *
  * Each part's meshes go into a group of their own (`<part key>__part`, all of them in the group `fce4_body`, which
@@ -134,6 +136,8 @@ type DamageMesh = {
   toLocal: Matrix4;
   base: Float32Array;
   damaged: Float32Array | null;
+  // the normals blended with the positions: the geometry attribute, its undamaged and damaged values
+  normals: { attribute: string; base: Float32Array; damaged: Float32Array } | null;
   weights: Float32Array;
   window: Window | null;
 };
@@ -221,6 +225,7 @@ export class Fce4CarParts {
           toLocal,
           base: new Float32Array(0),
           damaged: null,
+          normals: null,
           weights: new Float32Array(0),
           window: null,
         });
@@ -536,6 +541,26 @@ export class Fce4CarParts {
           d.damaged.set([copy.getX(i), copy.getY(i), copy.getZ(i)], i * 3);
         }
       }
+      // the normals the chrome reads (FceCarMeshController: the game's, else the OBJ's), damaged as the positions:
+      // GLB `_game_normal_damaged` (the vertices of the morph target), OBJ the copy's normals
+      const normalName = geometry.getAttribute('_game_normal') ? '_game_normal' : 'normal';
+      const normals = geometry.getAttribute(normalName);
+      const damagedNormals =
+        target && target.count === count
+          ? geometry.getAttribute('_game_normal_damaged')
+          : d.damaged
+            ? this.damagedCopies.get(d.mesh.name)?.geometry.getAttribute(normalName)
+            : undefined;
+      if (normals && normals.count === count && damagedNormals && damagedNormals.count === count) {
+        const values = (attribute: typeof normals) => {
+          const array = new Float32Array(count * 3);
+          for (let i = 0; i < count; i++) {
+            array.set([attribute.getX(i), attribute.getY(i), attribute.getZ(i)], i * 3);
+          }
+          return array;
+        };
+        d.normals = { attribute: normalName, base: values(normals), damaged: values(damagedNormals) };
+      }
       const window = fce4WindowOf(d.mesh.name);
       if (window && !Array.isArray(d.mesh.material)) {
         const index = geometry.getIndex();
@@ -552,11 +577,12 @@ export class Fce4CarParts {
    * A hit at `point` (model axes, metres) of `amount` (0..1) within `radius` (metres), as Car_DamageVisual 0x44a510
    * (the race's crash code 0x44c430 calls it with the contact point, the amount and radius of the contact type):
    * every vertex of the bodies (all LODs), :OL and :OT whose undamaged position is within the radius and whose
-   * damage is below the amount gets it: its position is undamaged x (1 - amount) + damaged x amount (Fce_DamageVertices
-   * 0x4ed390); the windows of those parts crack and break away (Fce_BreakWindows 0x4ed0e0: see updateWindows); a
-   * mirror whose part position is within the radius breaks off; above FCE4_LIGHT_BREAK_AMOUNT the first ":LICENSE"
-   * dummy and the lights (BREAKABLE_LIGHT_KINDS) within the radius break. SKIPPED: the game's options (damage off,
-   * the arrested car) are the app's
+   * damage is below the amount gets it: its position is undamaged x (1 - amount) + damaged x amount, its normal the
+   * same of the undamaged and damaged normals, not normalized (Fce_DamageVertices 0x4ed390: FCE header tables +0x2c /
+   * +0x34 -> +0x14, +0x30 / +0x38 -> +0x18, which the chrome pass reads); the windows of those parts crack and break
+   * away (Fce_BreakWindows 0x4ed0e0: see updateWindows); a mirror whose part position is within the radius breaks off;
+   * above FCE4_LIGHT_BREAK_AMOUNT the first ":LICENSE" dummy and the lights (BREAKABLE_LIGHT_KINDS) within the radius
+   * break. SKIPPED: the game's options (damage off, the arrested car) are the app's
    */
   hit(point: { x: number; y: number; z: number }, amount: number, radius: number): Fce4HitResult {
     const result: Fce4HitResult = {
@@ -632,13 +658,22 @@ export class Fce4CarParts {
       return;
     }
     const position = this.ownPositions(d.mesh);
+    const normals = d.normals;
+    const normal = normals ? (d.mesh.geometry.getAttribute(normals.attribute) as BufferAttribute) : null;
     for (let i = 0; i < d.weights.length; i++) {
       const w = d.weights[i];
       for (let c = 0; c < 3; c++) {
         (position.array as Float32Array)[i * 3 + c] = d.base[i * 3 + c] * (1 - w) + d.damaged[i * 3 + c] * w;
+        if (normal) {
+          (normal.array as Float32Array)[i * 3 + c] =
+            normals!.base[i * 3 + c] * (1 - w) + normals!.damaged[i * 3 + c] * w;
+        }
       }
     }
     position.needsUpdate = true;
+    if (normal) {
+      normal.needsUpdate = true;
+    }
     d.mesh.geometry.computeBoundingSphere();
     if (d.window?.glass?.visible) {
       this.updateGlassPositions(d);

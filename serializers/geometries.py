@@ -1833,6 +1833,11 @@ def fce4_part_lod_prefix(part_name: str) -> str:
 # FCE4 parts whose vertices nfs4.exe moves to their damaged positions (Car_DamageVisual 0x44a510 ->
 # Fce_DamageVertices 0x4ed390)
 FCE4_DAMAGED_PARTS = (':HB', ':MB', ':LB', ':OL', ':OT')
+# FCE4 parts nfs4.exe draws the chrome pass over (Render_CarParts 0x50dd60: CarDraw_Part 0x4f0e00 with the chrome
+# texture of Render_CarChrome 0x50d6f0, for the part names of the tables 0x5bed14.. at body LOD 0..2 only: the bodies of
+# the high, medium and low levels, never ":TB"). The wheels, the brakes and the driver (":OD", ":OH", ":OND",
+# CarDraw_PartNoChrome 0x4f1120) have none
+FCE4_CHROME_PARTS = (':HB', ':MB', ':LB', ':OC', ':ODL', ':OLM', ':ORM', ':OS', ':OT', ':OL')
 # FCE4 parts with vertices turned by nfs4.exe: the steering wheel of ":OD" (about Z), the head ":OH" (about Y)
 FCE4_TURNING_PARTS = (':OD', ':OH')
 # FCE4 triangle flag bits of the windows (`Fce4Triangle.flags`): (bit, flag name)
@@ -1910,7 +1915,8 @@ class Fce3GeometrySerializer(BaseFileSerializer):
 
     # mesh name suffix and node extras of a triangle's chrome. nfs3.exe draws a second, environment mapped pass over
     # the body (part 0) triangles but "matte" ones (CarDraw_QueuePolys 0x49dbf0): vertex color 0x7f7f7f7f, "high_chrome"
-    # 0xffffffff. FceCarMeshController reads the "fceChrome" extras
+    # 0xffffffff; nfs4.exe over the `FCE4_CHROME_PARTS` the same way (CarDraw_QueuePolys 0x4f0a70: no pass with poly
+    # flag 4 = "matte", the high colour with flag 8 = "high_chrome"). FceCarMeshController reads the "fceChrome" extras
     CHROME_CLASSES = {
         'normal': ('', {'fceChrome': 'normal'}),
         'high': ('_high_chrome', {'fceChrome': 'high'}),
@@ -1918,10 +1924,21 @@ class Fce3GeometrySerializer(BaseFileSerializer):
     }
 
     def _chrome_class(self, triangle) -> str | None:
-        """Key of `CHROME_CLASSES` for a triangle, None when the game has no chrome for the model"""
+        """Key of `CHROME_CLASSES` for a triangle of a `_chrome_part`"""
         if triangle['flags']['matte']:
             return 'none'
         return 'high' if triangle['flags']['high_chrome'] else 'normal'
+
+    def _chrome_part(self, part_name: str, is_car: bool) -> bool:
+        """Whether a part's triangles are split by `_chrome_class` and its vertices get the normals of `_vertex_tables`
+        (the chrome pass reads them). FCE3: every part (nfs3.exe draws the chrome over part 0 only, which
+        FceCarMeshController picks)"""
+        return True
+
+    def _glb_game_normals(self, name_suffix: str) -> bool:
+        """Whether the meshes of a `_vertex_tables` variant get their normals as the GLB `_GAME_NORMAL` too (the OBJ
+        always has them as `vn`)"""
+        return True
 
     def _window_class(self, triangle) -> tuple | None:
         """Window class of a triangle, a key of `_window_class_extras`; None: not a window or no windows in the
@@ -1932,9 +1949,10 @@ class Fce3GeometrySerializer(BaseFileSerializer):
         """Mesh name suffix and node extras of a `_window_class`"""
         return '', None
 
-    def _morph_target_tables(self, data: dict, part_name: str, name_suffix: str) -> List[Tuple[str, str]]:
+    def _morph_target_tables(self, data: dict, part_name: str, name_suffix: str) -> List[Tuple[str, str, str]]:
         """Morph targets of the meshes of a part's variant (`_vertex_tables` suffix): list of (target name, name of
-        the vertex positions table it moves the vertices to)"""
+        the vertex positions table it moves the vertices to, name of the normals table there or None; the normals go
+        to the GLB as `_GAME_NORMAL_<TARGET>` for a `_chrome_part`)"""
         return []
 
     def _vertex_turns(self, data: dict, part_index: int, part_name: str, name_suffix: str) -> List[bool] | None:
@@ -2002,25 +2020,31 @@ class Fce3GeometrySerializer(BaseFileSerializer):
             position = data['part_positions'][part_index]
             # in the export axes, as the vertices (y and z swapped)
             part_positions[mesh_name] = [position['x'], position['z'], position['y']]
+            chrome_part = self._chrome_part(part_name, is_car)
+
+            def part_table(table):
+                return data[table][first_vertex : first_vertex + num_vertices]
+
             triangle_classes = {}
             for triangle in triangles:
-                key = (self._chrome_class(triangle), self._window_class(triangle))
+                key = (self._chrome_class(triangle) if chrome_part else None, self._window_class(triangle))
                 triangle_classes.setdefault(key, []).append(triangle)
             for (name_suffix, vertex_table, normal_table), ((chrome_class, window_class), class_triangles) in (
                 (t, c) for t in vertex_tables for c in triangle_classes.items()
             ):
-                vertices = data[vertex_table][first_vertex : first_vertex + num_vertices]
-                normals = data[normal_table][first_vertex : first_vertex + num_vertices] if normal_table else None
+                vertices = part_table(vertex_table)
+                normals = part_table(normal_table) if normal_table and chrome_part else None
                 class_suffix, class_properties = self.CHROME_CLASSES.get(chrome_class, ('', None))
                 window_suffix, window_properties = self._window_class_extras(window_class)
                 properties = {**(class_properties or {}), **(window_properties or {})}
                 morph_tables = [
-                    (target, data[table][first_vertex : first_vertex + num_vertices])
-                    for target, table in self._morph_target_tables(data, part_name, name_suffix)
+                    (target, part_table(table), part_table(target_normals) if target_normals and chrome_part else None)
+                    for target, table, target_normals in self._morph_target_tables(data, part_name, name_suffix)
                 ]
                 turns = self._vertex_turns(data, part_index, part_name, name_suffix)
-                # per mesh vertex: the delta to each morph target's position, whether it turns
-                morph_deltas = {target: [] for target, _ in morph_tables}
+                # per mesh vertex: the delta to each morph target's position and the normal there, whether it turns
+                morph_deltas = {target: [] for target, _, _ in morph_tables}
+                morph_normals = {target: [] for target, _, target_normals in morph_tables if target_normals}
                 vertex_turns = []
                 mesh = Mesh()
                 mesh.name = mesh_name
@@ -2045,9 +2069,11 @@ class Fce3GeometrySerializer(BaseFileSerializer):
                             if normals is not None:
                                 normal = normals[vi]
                                 mesh.vertex_normals.append([normal['x'], normal['y'], normal['z']])
-                            for target, target_vertices in morph_tables:
+                            for target, target_vertices, target_normals in morph_tables:
                                 moved = target_vertices[vi]
                                 morph_deltas[target].append([moved[k] - vertex[k] for k in ('x', 'y', 'z')])
+                                if target_normals:
+                                    morph_normals[target].append([target_normals[vi][k] for k in ('x', 'y', 'z')])
                             if turns is not None:
                                 vertex_turns.append(turns[vi])
                         polygon.append(corner_map[key])
@@ -2071,6 +2097,11 @@ class Fce3GeometrySerializer(BaseFileSerializer):
                     sub_mesh.morph_targets = {
                         target: [deltas[i] for i in vertex_indices] for target, deltas in morph_deltas.items()
                     }
+                    sub_mesh.morph_target_normals = {
+                        target: [target_normals[i] for i in vertex_indices]
+                        for target, target_normals in morph_normals.items()
+                    }
+                    sub_mesh.glb_game_normals = self._glb_game_normals(name_suffix)
                     if turns is not None:
                         sub_mesh_turns = [vertex_turns[i] for i in vertex_indices]
                         # three.js: geometry attribute `_fce_turns`, 1 or 0
@@ -2143,12 +2174,13 @@ class Fce4GeometrySerializer(Fce3GeometrySerializer):
         suffix = '_window' + ''.join(f'_{side}' for side in sides) + ('_breakaway' if breaks_away else '')
         return suffix, {'fceWindow': {'sides': list(sides), 'breaksAway': breaks_away}}
 
-    def _morph_target_tables(self, data: dict, part_name: str, name_suffix: str) -> List[Tuple[str, str]]:
-        # nfs4.exe blends the vertices of these parts from the undamaged to the damaged positions (Fce_DamageVertices
-        # 0x4ed390, called for them only by Car_DamageVisual 0x44a510). Only for a model with damaged positions, as
-        # the "_damaged" copies
+    def _morph_target_tables(self, data: dict, part_name: str, name_suffix: str) -> List[Tuple[str, str, str]]:
+        # nfs4.exe blends the vertices of these parts from the undamaged to the damaged positions, and their normals
+        # from the undamaged to the damaged normals by the same weight (Fce_DamageVertices 0x4ed390: header tables
+        # +0x2c / +0x34 -> +0x14, +0x30 / +0x38 -> +0x18; called for these parts only by Car_DamageVisual 0x44a510;
+        # Fce_ApplyDamageWeights 0x4ed8a0 the same). Only for a model with damaged positions, as the "_damaged" copies
         if not name_suffix and part_name.upper() in FCE4_DAMAGED_PARTS and len(self._vertex_tables(data)) > 1:
-            return [('damaged', 'damaged_vertices')]
+            return [('damaged', 'damaged_vertices', 'damaged_normals')]
         return []
 
     def _vertex_turns(self, data: dict, part_index: int, part_name: str, name_suffix: str) -> List[bool] | None:
@@ -2177,14 +2209,19 @@ class Fce4GeometrySerializer(Fce3GeometrySerializer):
         return fce4_part_lod_prefix(part_name) if is_car else 'part'
 
     def _vertex_tables(self, data: dict) -> List[Tuple[str, str, str]]:
-        # crashed car model is exported as a copy of every mesh, "<mesh>_damaged". The normals stay Blender's (no
-        # chrome port for NFS4 yet)
+        # crashed car model is exported as a copy of every mesh, "<mesh>_damaged". The chrome pass reads the `normals`
+        # table (CarDraw_Part 0x4f0e00 -> CarDraw_EnvMapUVs 0x4f09d0: header +0x18), the copies get the damaged ones
         if data['damaged_vertices'] != data['vertices']:
-            return [('', 'vertices', None), ('_damaged', 'damaged_vertices', None)]
-        return [('', 'vertices', None)]
+            return [('', 'vertices', 'normals'), ('_damaged', 'damaged_vertices', 'damaged_normals')]
+        return [('', 'vertices', 'normals')]
 
-    def _chrome_class(self, triangle) -> str | None:
-        return None
+    def _chrome_part(self, part_name: str, is_car: bool) -> bool:
+        return is_car and part_name.upper() in FCE4_CHROME_PARTS
+
+    def _glb_game_normals(self, name_suffix: str) -> bool:
+        # the damaged normals reach the GLB as `_GAME_NORMAL_DAMAGED` of the undamaged meshes of the parts nfs4.exe
+        # damages (`_morph_target_tables`); the "_damaged" copies keep them in the OBJ only
+        return not name_suffix
 
 
 def eagl_texture_archive_name(model_file_name: str) -> str:

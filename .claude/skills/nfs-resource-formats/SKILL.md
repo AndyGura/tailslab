@@ -402,7 +402,7 @@ files: `extrablocks`), are read with `read_items_at_offsets` and written back fr
    `<name>0N.tga` (NFS4 upgrade models `car1.fce`..`car3.fce` use `car100.tga`..`car300.tga`, `dash.fce` uses
    `dash00.tga`), falling back to all sibling TGAs in alphabetical order. Both versions
    share the GUI viewer `eac/fce-geometry.block-ui` (`FceCarMeshController`, `frontend/src/nfs-three-lib/`), which picks FCE3/FCE4 behavior (wheels,
-   paint colors by texture alpha, light dummies, damage filter) from `block_class_mro`.
+   paint colors by texture alpha, chrome, light dummies, damage filter) from `block_class_mro`.
    NFS6 track geometry (`compNN.o`, `levelG.o`, `trackg.o`, `skyg.o`) is an EAGL MIPS ELF object (`EaglModel` in
    `resources/eac/geometries/nfs6.py`, detected by the `\x7fELF` magic): the block keeps the raw sections, and
    `read_eagl_meshes` walks `__RenderMethod` symbols and `.data` relocations to vertex/index buffers (format notes in
