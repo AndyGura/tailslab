@@ -1,24 +1,26 @@
 --- Test Statistics ---
-Total files tested: 13051
-Files without parser: 3931
-Files read successfully: 9058
-Files written successfully: 9000
-Files read again successfully: 8943
-Files passed comparison test: 8847
+Total files tested: 13050
+Files without parser: 3894
+Files read successfully: 9094
+Files written successfully: 9036
+Files read again successfully: 8980
+Files passed comparison test: 8884
 Files with compressed blocks written: 1983
 Files with compressor round-trip failures: 0
 
 --- File Extension Read Success Rates (Test 1) ---
 .62: 100.00% (1/1)
 .AIS: 100.00% (22/22)
+.ALN: 100.00% (9/9)
 .AS4: 100.00% (12/12)
 .ASF: 100.00% (79/79)
+.ASP: 100.00% (10/10)
 .AST: 100.00% (9/9)
 .BAK: 100.00% (2/2)
 .BIG: 100.00% (2/2)
 .BIGSPECSFAM: 100.00% (8/8)
 .CAN: 100.00% (324/324)
-.CFM: 100.00% (40/40)
+.CFM: 100.00% (39/39)
 .CNK: 100.00% (28/28)
 .COL: 100.00% (24/24)
 .CRP: 100.00% (63/63)
@@ -55,8 +57,10 @@ Files with compressor round-trip failures: 0
 .PDN: 100.00% (22/22)
 .PER: 100.00% (1/1)
 .PFN: 100.00% (17/17)
+.PLN: 100.00% (9/9)
 .PRT: 100.00% (1/1)
 .PSH: 100.00% (734/734)
+.PSP: 100.00% (9/9)
 .QAL: 100.00% (23/23)
 .QAS: 100.00% (23/23)
 .QDA: 100.00% (76/76)
@@ -100,14 +104,16 @@ Files with compressor round-trip failures: 0
 --- File Extension Write Success Rates (Test 2) ---
 .62: 100.00% (1/1)
 .AIS: 100.00% (22/22)
+.ALN: 100.00% (9/9)
 .AS4: 100.00% (12/12)
 .ASF: 100.00% (79/79)
+.ASP: 100.00% (10/10)
 .AST: 100.00% (9/9)
 .BAK: 100.00% (2/2)
 .BIG: 100.00% (2/2)
 .BIGSPECSFAM: 100.00% (8/8)
 .CAN: 100.00% (324/324)
-.CFM: 100.00% (40/40)
+.CFM: 100.00% (39/39)
 .CNK: 100.00% (28/28)
 .COL: 100.00% (24/24)
 .CRP: 100.00% (63/63)
@@ -143,8 +149,10 @@ Files with compressor round-trip failures: 0
 .PDN: 100.00% (22/22)
 .PER: 100.00% (1/1)
 .PFN: 100.00% (17/17)
+.PLN: 100.00% (9/9)
 .PRT: 100.00% (1/1)
 .PSH: 100.00% (734/734)
+.PSP: 100.00% (9/9)
 .QAL: 100.00% (23/23)
 .QAS: 100.00% (23/23)
 .QDA: 100.00% (76/76)
@@ -189,8 +197,10 @@ Files with compressor round-trip failures: 0
 --- File Extension Read-Again Success Rates (Test 3) ---
 .62: 100.00% (1/1)
 .AIS: 100.00% (22/22)
+.ALN: 100.00% (9/9)
 .AS4: 100.00% (12/12)
 .ASF: 100.00% (79/79)
+.ASP: 100.00% (10/10)
 .AST: 100.00% (9/9)
 .BAK: 100.00% (2/2)
 .BIG: 100.00% (2/2)
@@ -229,8 +239,10 @@ Files with compressor round-trip failures: 0
 .PCX: 100.00% (8/8)
 .PDN: 100.00% (22/22)
 .PER: 100.00% (1/1)
+.PLN: 100.00% (9/9)
 .PRT: 100.00% (1/1)
 .PSH: 100.00% (734/734)
+.PSP: 100.00% (9/9)
 .QAL: 100.00% (23/23)
 .QAS: 100.00% (23/23)
 .QDA: 100.00% (76/76)
@@ -248,9 +260,9 @@ Files with compressor round-trip failures: 0
 .WSM: 100.00% (18/18)
 .BNK: 99.69% (646/648)
 .QFS: 99.19% (1588/1601)
-.VIV: 96.74% (416/430)
+.VIV: 96.98% (417/430)
 .MUS: 96.30% (52/54)
-.CFM: 95.00% (38/40)
+.CFM: 94.87% (37/39)
 .TRK: 88.89% (16/18)
 .BIN: 85.76% (1800/2099)
 .BUN: 79.05% (200/253)
@@ -278,7 +290,9 @@ Files with compressor round-trip failures: 0
 --- File Extension Comparison Success Rates (Test 4) ---
 .62: 100.00% (1/1)
 .AIS: 100.00% (22/22)
+.ALN: 100.00% (9/9)
 .AS4: 100.00% (12/12)
+.ASP: 100.00% (10/10)
 .AST: 100.00% (9/9)
 .BAK: 100.00% (2/2)
 .BIG: 100.00% (2/2)
@@ -315,8 +329,10 @@ Files with compressor round-trip failures: 0
 .PCX: 100.00% (8/8)
 .PDN: 100.00% (22/22)
 .PER: 100.00% (1/1)
+.PLN: 100.00% (9/9)
 .PRT: 100.00% (1/1)
 .PSH: 100.00% (734/734)
+.PSP: 100.00% (9/9)
 .QAL: 100.00% (23/23)
 .QAS: 100.00% (23/23)
 .QDA: 100.00% (76/76)
@@ -334,11 +350,11 @@ Files with compressor round-trip failures: 0
 .WSM: 100.00% (18/18)
 .BNK: 99.23% (643/648)
 .QFS: 99.19% (1588/1601)
-.VIV: 96.74% (416/430)
+.VIV: 96.98% (417/430)
 .MUS: 96.30% (52/54)
 .ASF: 96.20% (76/79)
 .EAS: 95.85% (185/193)
-.CFM: 95.00% (38/40)
+.CFM: 94.87% (37/39)
 .BIN: 85.76% (1800/2099)
 .TRK: 83.33% (15/18)
 .BUN: 79.05% (200/253)
@@ -382,4 +398,4 @@ Files with compressor round-trip failures: 0
 .WSM: 100.00% (18/18)
 
 --- Time Spent ---
-Total time: 00:04:17.66
+Total time: 00:04:6.91

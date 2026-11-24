@@ -547,7 +547,16 @@ class CollisionExtraDataRecord(DeclarativeCompoundBlock):
                 '0x4395c0)'
             },
         )
-        unk1 = (IntegerBlock(length=2), {'is_unknown': True})
+        open_lanes = (
+            IntegerBlock(length=2, is_signed=False),
+            {
+                'description': 'Open lanes of the slice, one bit per lane: lane l (0..13, the numbering of `lanes`: '
+                '0..6 left of the slice line, 6 the nearest, 7..13 right of it, 7 the nearest) is bit `1 << (14 - l)` '
+                '(AI_LaneBit 0x42c000; bits 15 and 0 stand for the lanes -1 and 14 just outside). A clear bit closes '
+                'the lane for the AI racers (AI_LanesOpen 0x428050: lane rules 8, closed, and 6, closing ahead), '
+                'e.g. the lanes on the central divider of TR02 and TR05',
+            },
+        )
         left_border = (
             FixedPointBlock(length=2, is_signed=False, fraction_bits=8),
             {
@@ -577,33 +586,46 @@ class CollisionExtraDataRecord(DeclarativeCompoundBlock):
                 schema=[
                     (
                         4,
-                        'unk',
+                        'left_count',
                         'number',
                         [],
-                        'Unknown. In the NFS2 and NFS2 SE files it is 0 in (nearly) exactly the slices whose '
-                        '`left_lane_width` is 0 (all of TR00, TR06, TR08)',
+                        'Number of lanes left of the slice line (nfs2sen.exe reads `(byte >> 4) & 0xf`), each '
+                        '`left_lane_width` wide',
                     ),
-                    (4, 'count', 'number', [], "The slice's lane count (NFS2 SE start grid, nfs2sen.exe 0x43ea40)"),
+                    (
+                        4,
+                        'right_count',
+                        'number',
+                        [],
+                        'Number of lanes right of the slice line (`byte & 0xf`), each `right_lane_width` wide',
+                    ),
                 ],
             ),
             {
-                'description': "Low nibble `count`: the slice's lane count. The NFS2 SE start grid (car start "
-                'position, nfs2sen.exe 0x43ea40) puts the cars (count / 2) lane widths (`left_lane_width` / '
-                '`right_lane_width`) from the centre, only on tracks whose grid side flag is set. High nibble `unk` '
-                'unknown',
+                'description': 'The lanes of the slice: high nibble `left_count` lanes left of the slice line, low '
+                'nibble `right_count` right of it. NFS2 SE numbers them 7 - left_count .. 6 (left, 6 the nearest '
+                'to the line) and 7 .. 6 + right_count (right): the AI lane choice and target (AI_LaneTarget '
+                '0x4284e0), the AI speed (AI_RacerSpeed 0x427010), the traffic (AI_TrafficSpawn 0x42ae80: right '
+                'lane n (0 the nearest) at `right_lane_width` x (n + 1) - `right_lane_width` / 2 from the line, '
+                'left lane n at -`left_lane_width` x (n + 1) + `left_lane_width` / 2), the start grid (0x43ea40: '
+                'on tracks with the grid side flag around (right_count / 2) right lane widths right of the line). The side a '
+                "race drives on and the grid side flag come from the executable's track records (nfs2sen.exe "
+                '0x42f350, field 3: 1 the right lanes, -1 the left ones (TR02); the grid side flag set on TR00, '
+                'TR06 and TR08: no left lanes, no oncoming traffic); tracks from 9 on have no record: the grid '
+                'side flag is set when slice 1 has no left lanes (TrackRecord_GridSide 0x42c4b0)',
             },
         )
         left_lane_width = (
             FixedPointBlock(length=1, is_signed=False, fraction_bits=1),
             {
-                'description': 'Lane width on the left side in meters, unit 0.5 m: NFS2 SE reads it as `value << 15` '
-                '(16.16; start grid, nfs2sen.exe 0x43ea40)',
+                'description': 'Width of the lanes left of the slice line in meters, unit 0.5 m: NFS2 SE reads it as '
+                '`value << 15` (16.16; AI lanes, traffic, start grid)',
             },
         )
         right_lane_width = (
             FixedPointBlock(length=1, is_signed=False, fraction_bits=1),
             {
-                'description': 'Lane width on the right side in meters, read like `left_lane_width`',
+                'description': 'Width of the lanes right of the slice line in meters, read like `left_lane_width`',
             },
         )
         unk3 = (IntegerBlock(length=2), {'is_unknown': True})

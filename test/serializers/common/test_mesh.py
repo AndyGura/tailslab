@@ -1,6 +1,6 @@
 import unittest
 
-from serializers.common.three_d import SubMesh
+from serializers.common.three_d import Mesh, SubMesh
 
 
 class TestMesh(unittest.TestCase):
@@ -73,3 +73,18 @@ class TestMesh(unittest.TestCase):
         obj, _ = mesh.to_obj(1)
         vertex_lines = [x for x in obj.split('\n') if x.startswith('v ')]
         self.assertEqual(vertex_lines, ['v 0 0 0 0.5 0.25 1', 'v 1 0 0 0 0 0', 'v 0 1 0 1 1 1'])
+
+    def test_split_by_texture_ids_keeps_vertex_colors(self):
+        mesh = Mesh()
+        mesh.name = 'block_0'
+        mesh.vertices = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0]]
+        mesh.vertex_uvs = [[0, 0], [1, 0], [0, 1], [1, 1]]
+        mesh.vertex_colors = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6], [0.7, 0.8, 0.9], [1, 1, 1]]
+        mesh.polygons = [[0, 1, 2], [3, 2, 1]]
+        mesh.texture_ids = ['a', 'b']
+        a, b = mesh.sub_meshes()
+        self.assertEqual(a.vertex_colors, [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6], [0.7, 0.8, 0.9]])
+        self.assertEqual(b.vertex_colors, [[1, 1, 1], [0.7, 0.8, 0.9], [0.4, 0.5, 0.6]])
+        mesh.texture_ids = ['a', 'a']
+        (single,) = mesh.sub_meshes()
+        self.assertEqual(single.vertex_colors, mesh.vertex_colors)

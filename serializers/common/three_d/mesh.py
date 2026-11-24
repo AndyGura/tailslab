@@ -20,9 +20,10 @@ class BaseMesh(ABC):
         # `_GAME_NORMAL` (`add_glb_vertex_attributes`; three.js geometry attribute `_game_normal`): the game's own
         # normals, which Blender's may differ from. Only `change_axes` keeps them in sync with the vertices
         self.vertex_normals = []
-        # [r, g, b, a] (0..1) per vertex (parallel to `vertices`) or empty: written to the OBJ as `v x y z r g b` (the
-        # alpha left out; three.js OBJLoader reads them as the geometry attribute `color`) and by the gg-web-engine
-        # export to the GLB as the vertex attribute COLOR_0 (`add_glb_vertex_attributes`)
+        # [r, g, b, a] or [r, g, b] (0..1) per vertex (parallel to `vertices`) or empty: written to the OBJ as
+        # `v x y z r g b` (the alpha left out; three.js OBJLoader reads them as the geometry attribute `color`, decoded
+        # from sRGB) and by the gg-web-engine export to the GLB as the vertex attribute COLOR_0, float VEC4 or VEC3 as
+        # given, the values as they are (`add_glb_vertex_attributes`; Blender then writes no COLOR_0 of its own)
         self.vertex_colors = []
         # application-specific GLB vertex attribute name (`_PSX_GOURAUD`) -> unsigned bytes per vertex (parallel to
         # `vertices`, the same count for every vertex): written by the gg-web-engine export as unsigned byte normalized
@@ -208,7 +209,8 @@ class Mesh(BaseMesh):
         super().__init__()
         self.texture_ids = []
 
-    # splits mesh to few single-texture meshes. Returns list of tuples: ( mesh, vertex index map, polygon index map )
+    # splits mesh to few single-texture meshes (with the normals and colours of their vertices). Returns list of
+    # tuples: ( mesh, vertex index map, polygon index map )
     def split_by_texture_ids(self) -> List[Tuple[SubMesh, List[int], List[int]]]:
         texture_ids = list({x for x in self.texture_ids})
         texture_ids.sort()
@@ -220,6 +222,7 @@ class Mesh(BaseMesh):
             sm.vertices = self.vertices
             sm.vertex_uvs = self.vertex_uvs
             sm.vertex_normals = self.vertex_normals
+            sm.vertex_colors = self.vertex_colors
             sm.polygons = self.polygons
             return [(sm, list(range(len(self.vertices))), list(range(len(self.polygons))))]
         res = []
@@ -247,6 +250,8 @@ class Mesh(BaseMesh):
                 sm.vertex_uvs.append(self.vertex_uvs[v_idx])
                 if self.vertex_normals:
                     sm.vertex_normals.append(self.vertex_normals[v_idx])
+                if self.vertex_colors:
+                    sm.vertex_colors.append(self.vertex_colors[v_idx])
             res.append((sm, vertex_indices, polygon_indices))
         return res
 

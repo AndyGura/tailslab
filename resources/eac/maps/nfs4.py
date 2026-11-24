@@ -759,7 +759,12 @@ class Nfs4ExtraObject(DeclarativeCompoundBlock):
         )
         vertex_shading = (
             ArrayBlock(child=IntegerBlock(length=4, is_signed=False), length=lambda ctx: len(ctx.data('vertices'))),
-            {'description': 'Per-vertex shading color, 32-bit ARGB (0xFFRRGGBB), one item per vertex'},
+            {
+                'description': 'Per-vertex shading colour 0xAARRGGBB (alpha 0xFF in every NFS4 track), one item per '
+                "vertex: nfs4.exe Render_XobjChunk 0x436a20 copies it into the transformed vertex's colour before "
+                "drawing the object, tinted at load as the block `vertex_shading`; the export's vertex colours of the "
+                "object's model"
+            },
         )
         polygons = (
             ArrayBlock(child=Nfs4Polygon(), length=_object_header_field('num_polygons')),
@@ -805,7 +810,19 @@ class Nfs4TrkBlock(DeclarativeCompoundBlock):
         )
         vertex_shading = (
             ArrayBlock(child=IntegerBlock(length=4, is_signed=False), length=lambda ctx: len(ctx.data('vertices'))),
-            {'description': 'Per-vertex shading color, 32-bit ARGB (0xFFRRGGBB), one item per vertex'},
+            {
+                'description': 'Per-vertex shading colour 0xAARRGGBB (alpha 0xFF in every NFS4 track), one item per '
+                "vertex. nfs4.exe draws texel x colour: Render_TrackBlocks 0x437770 copies each vertex's shading "
+                "(header `vertex_pointers[1]`, +0x74) into the transformed vertex's colour (+0x10) before drawing the "
+                'terrain polygon chunks and the block object chunks; the Direct3D driver d3da.dll (THRASH_setstate, '
+                'default texture blend) sets stage 0 COLOROP D3DTOP_MODULATE of TEXTURE and DIFFUSE. At load '
+                "(0x4323f0 -> 0x432230: every block's `num_vertices` values, the extra objects of the blocks and the "
+                'global ones) each channel c is tinted by p, the `[light]` `AmbientRed` / `AmbientGreen` / '
+                "`AmbientBlue` percentage of the track's ini (Tr_ReadIni 0x4c70a0): below 100 c * p / 100, above 100 "
+                'c + (p - 100) * (255 - c) / 100 (integer divisions); 0x432560 greys it for software rendering. The '
+                "export's vertex colours (OBJ `v` colours, GLB COLOR_0: RGB / 255, not linearized; `Tr.ini` for "
+                '`Tr.frd`, `TrN.ini` for the night track `Trn.frd`)'
+            },
         )
         polygon_vroad_data = (
             ArrayBlock(child=Nfs4PolygonVroadData(), length=_block_header_field('num_polygons')),

@@ -4,10 +4,12 @@ Adds morph targets to a GLB written by the gg-web-engine Blender exporter, which
 
 `export_scenes` calls `add_glb_morph_targets` after Blender has written the GLB, with the sub-meshes that have
 `morph_targets`. Every glTF vertex of the mesh (node name = sub-mesh name) is matched with the sub-mesh vertex at the
-same position (and the same texture coordinates when positions alone are ambiguous): Blender reorders and splits
-vertices, but the GLB positions are the OBJ ones, since the OBJ is imported with forward Y / up Z and exported without
-Y-up conversion. Each target becomes a glTF morph target with a POSITION accessor of relative deltas, named in
-`mesh.extras.targetNames` (three.js GLTFLoader reads them into `morphTargetDictionary`), with default weights 0.
+same position (and the same texture coordinates when positions alone are ambiguous; and the glTF triangles it is a
+corner of, matched with the sub-mesh polygons, when vertices with the same position and texture coordinates move
+differently): Blender reorders and splits vertices, but the GLB positions are the OBJ ones, since the OBJ is imported
+with forward Y / up Z and exported without Y-up conversion. Each target becomes a glTF morph target with a POSITION
+accessor of relative deltas, named in `mesh.extras.targetNames` (three.js GLTFLoader reads them into
+`morphTargetDictionary`), with default weights 0.
 """
 
 import itertools
@@ -133,8 +135,9 @@ def _position_index(sub_mesh: SubMesh) -> dict:
 
 def _vertices_near(sub_mesh: SubMesh, index: dict, position, tolerance: float) -> List[int]:
     """Sub-mesh vertices within `tolerance` of `position`, in vertex order: those of the cells of the position index
-    the tolerance reaches"""
-    reach = [max(tolerance, 2e-9 * abs(x)) for x in position]
+    the tolerance reaches. Far from the origin the reach is a float32 step of the coordinate (the GLB's positions are
+    float32: 2.4e-4 at 2000, the absolute positions of NFS4 extra objects)"""
+    reach = [max(tolerance, 2**-23 * abs(x)) for x in position]
     # a reach under half a cell: at most two cells per axis
     if max(reach) >= 5e-4:
         cells = list(index.values())
@@ -146,26 +149,122 @@ def _vertices_near(sub_mesh: SubMesh, index: dict, position, tolerance: float) -
     pivot = sub_mesh.pivot_offset
     candidates = sorted(i for cell in cells for i in cell)
     return [
-        i for i in candidates if _close([sub_mesh.vertices[i][k] - pivot[k] for k in range(3)], position, tolerance)
+        i
+        for i in candidates
+        if all(abs(sub_mesh.vertices[i][k] - pivot[k] - position[k]) <= reach[k] for k in range(3))
     ]
 
 
-def _match_vertex(sub_mesh: SubMesh, index: dict, position, uv, tolerance: float) -> int:
-    """Index of the sub-mesh vertex exported as the glTF vertex at `position` with texture coordinates `uv`: one with
-    the same position, or with the same texture coordinates among them too when the vertices at that position have
+def _same_deltas(sub_mesh: SubMesh, indices) -> bool:
+    return all(len({tuple(deltas[i]) for i in indices}) == 1 for deltas in sub_mesh.morph_targets.values())
+
+
+def _morph_candidates(sub_mesh: SubMesh, index: dict, position, uv, tolerance: float) -> List[int]:
+    """The sub-mesh vertices that can be the glTF vertex at `position` with texture coordinates `uv`: those with the
+    same position, or with the same texture coordinates among them too when the vertices at that position have
     different morph deltas"""
     candidates = _vertices_near(sub_mesh, index, position, tolerance)
-
-    def same_deltas(indices):
-        return all(len({tuple(deltas[i]) for i in indices}) == 1 for deltas in sub_mesh.morph_targets.values())
-
-    if candidates and not same_deltas(candidates) and uv is not None:
+    if candidates and not _same_deltas(sub_mesh, candidates) and uv is not None:
         candidates = [i for i in candidates if _close(sub_mesh.vertex_uvs[i], uv, tolerance)]
     if not candidates:
         raise ValueError(f'Mesh "{sub_mesh.name}": no vertex at {position} for the morph targets')
-    if not same_deltas(candidates):
-        raise ValueError(f'Mesh "{sub_mesh.name}": vertices at {position} have different morph deltas')
-    return candidates[0]
+    return candidates
+
+
+def _polygons_by_vertex(sub_mesh: SubMesh) -> dict:
+    """Sub-mesh vertex index -> indices of the polygons it is a corner of"""
+    polygons_of = {}
+    for p, polygon in enumerate(sub_mesh.polygons):
+        for i in set(polygon):
+            polygons_of.setdefault(i, []).append(p)
+    return polygons_of
+
+
+def _matching_polygons(sub_mesh: SubMesh, polygons_of: dict, corner_sets: List[set]) -> List[Tuple[int, List[int]]]:
+    """The sub-mesh polygons matching a glTF triangle, whose corners can be the sub-mesh vertices of `corner_sets`: the
+    polygons with three corners, in the same cyclic order, in those sets. (polygon index, those three corners)"""
+    result = []
+    for p in sorted({p for s in corner_sets[0] for p in polygons_of.get(s, ())}):
+        polygon = sub_mesh.polygons[p]
+        for chosen in itertools.combinations(range(len(polygon)), 3):
+            for rotation in range(3):
+                corners = [polygon[x] for x in chosen[rotation:] + chosen[:rotation]]
+                if all(c in corner_sets[i] for i, c in enumerate(corners)):
+                    result.append((p, corners))
+    return result
+
+
+def _triangle_corner_vertices(
+    sub_mesh: SubMesh, polygons_of: dict, candidates: List[List[int]], triangles, wanted: set
+) -> dict:
+    """For the glTF vertices `wanted`: the sub-mesh vertices they can be by the glTF triangles they are corners of
+    (`candidates`: per glTF vertex, the sub-mesh vertices at its position), the corners at their place of the
+    `_matching_polygons`. Per wanted vertex, the vertices every triangle with a matching polygon gives"""
+    found = {}
+    for triangle in triangles:
+        if not wanted.intersection(triangle):
+            continue
+        matching = _matching_polygons(sub_mesh, polygons_of, [set(candidates[g]) for g in triangle])
+        for k, g in enumerate(triangle):
+            vertices = {corners[k] for _, corners in matching}
+            if g in wanted and vertices:
+                found[g] = found[g] & vertices if g in found else vertices
+    return found
+
+
+def _primitive_triangles(gltf: dict, binary: bytes, primitive: dict, count: int) -> List[tuple]:
+    """Vertex index triples of a triangle list primitive, none for other modes"""
+    if primitive.get('mode', 4) != 4:
+        return []
+    if 'indices' in primitive:
+        indices = [x[0] for x in read_accessor(gltf, binary, primitive['indices'])]
+    else:
+        indices = list(range(count))
+    return [tuple(indices[i : i + 3]) for i in range(0, len(indices) - 2, 3)]
+
+
+def _match_vertices(sub_mesh: SubMesh, index: dict, positions, uvs, triangles, tolerance: float) -> List[int]:
+    """Index of the sub-mesh vertex exported as each glTF vertex: of the `_morph_candidates`; where they have
+    different morph deltas (vertices with the same position and texture coordinates), the one the glTF triangles of
+    the vertex give (`_triangle_corner_vertices`). Left: corners of glTF triangles matching several polygons (two
+    triangles at the same place, moved differently), each triangle taking a polygon of its own where it can, its
+    corners moving as one polygon's"""
+    candidates = [_morph_candidates(sub_mesh, index, p, uv, tolerance) for p, uv in zip(positions, uvs)]
+    matches = [c[0] if _same_deltas(sub_mesh, c) else None for c in candidates]
+    unresolved = {g for g, match in enumerate(matches) if match is None}
+    if not unresolved:
+        return matches
+    polygons_of = _polygons_by_vertex(sub_mesh)
+    for g, vertices in _triangle_corner_vertices(sub_mesh, polygons_of, candidates, triangles, unresolved).items():
+        if _same_deltas(sub_mesh, vertices):
+            matches[g] = min(vertices)
+            unresolved.discard(g)
+
+    def deltas_of(i):
+        return [tuple(deltas[i]) for deltas in sub_mesh.morph_targets.values()]
+
+    taken = set()
+    for triangle in triangles:
+        if not unresolved.intersection(triangle):
+            continue
+        # polygons whose corners move as the corners of the triangle already matched
+        matching = [
+            (p, corners)
+            for p, corners in _matching_polygons(sub_mesh, polygons_of, [set(candidates[g]) for g in triangle])
+            if all(matches[g] is None or deltas_of(matches[g]) == deltas_of(c) for g, c in zip(triangle, corners))
+        ]
+        if not matching:
+            continue
+        p, corners = next((m for m in matching if m[0] not in taken), matching[0])
+        taken.add(p)
+        for g, c in zip(triangle, corners):
+            if matches[g] is None:
+                matches[g] = c
+                unresolved.discard(g)
+    if unresolved:
+        g = min(unresolved)
+        raise ValueError(f'Mesh "{sub_mesh.name}": vertices at {positions[g]} have different morph deltas')
+    return matches
 
 
 def add_glb_morph_targets(glb_path: str, sub_meshes: List[SubMesh], tolerance: float = 1e-4):
@@ -188,7 +287,8 @@ def add_glb_morph_targets(glb_path: str, sub_meshes: List[SubMesh], tolerance: f
             uv_accessor = primitive['attributes'].get('TEXCOORD_0')
             # the same as the sub-mesh ones: the OBJ has 1 - v, the glTF exporter flips V back
             uvs = read_accessor(gltf, binary, uv_accessor) if uv_accessor is not None else [None] * len(positions)
-            matches = [_match_vertex(sub_mesh, index, p, uv, tolerance) for p, uv in zip(positions, uvs)]
+            triangles = _primitive_triangles(gltf, binary, primitive, len(positions))
+            matches = _match_vertices(sub_mesh, index, positions, uvs, triangles, tolerance)
             primitive['targets'] = [
                 {
                     'POSITION': _append_float_accessor(
@@ -239,8 +339,9 @@ def _match_values(
 def add_glb_vertex_attributes(glb_path: str, sub_meshes: List[SubMesh], tolerance: float = 1e-4):
     """Adds the `vertex_normals` of `sub_meshes` to the meshes of the nodes with their names in the GLB file, as the
     vertex attribute `_GAME_NORMAL` (an application-specific glTF attribute; three.js GLTFLoader reads it as the
-    geometry attribute `_game_normal`), their `vertex_colors` as COLOR_0 and their `vertex_byte_attributes` as unsigned
-    byte normalized attributes of their names (three.js: the name in lower case, value / 255; `_PSX_GOURAUD`). The GLB
+    geometry attribute `_game_normal`), their `vertex_colors` as COLOR_0 (float VEC4, or VEC3 for colours without
+    alpha; replacing one Blender wrote) and their `vertex_byte_attributes` as unsigned byte normalized attributes of
+    their names (three.js: the name in lower case, value / 255; `_PSX_GOURAUD`). The GLB
     keeps Blender's NORMAL: the game normals are for code that follows the game's own shading (FCE chrome,
     `FceCarMeshController`). Vertices are matched as for the morph targets"""
     with_normals = {sm.name for sm in sub_meshes if len(sm.vertices) and len(sm.vertex_normals) == len(sm.vertices)}
@@ -280,7 +381,9 @@ def add_glb_vertex_attributes(glb_path: str, sub_meshes: List[SubMesh], toleranc
                     _match_values(sub_mesh, sub_mesh.vertex_colors, index, p, uv, tolerance, 'vertex colors', False)
                     for p, uv in zip(positions, uvs)
                 ]
-                attributes['COLOR_0'] = _append_float_accessor(gltf, binary, colors, 'VEC4')
+                attributes['COLOR_0'] = _append_float_accessor(
+                    gltf, binary, colors, f'VEC{len(colors[0]) if colors else 4}'
+                )
             if sub_mesh.name in with_bytes:
                 for name, values in sorted(sub_mesh.vertex_byte_attributes.items()):
                     if len(values) != len(sub_mesh.vertices):

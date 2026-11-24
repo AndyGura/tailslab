@@ -128,6 +128,18 @@ def _gg_export_options(**options):
 _warned_missing_export_options = False
 
 
+def _gg_scene_export_options(scene: Scene) -> Dict[str, object]:
+    """Options of the gg-web-engine export of the scene besides the defaults: no NORMAL / TANGENT for a scene without
+    normals; no COLOR_0 of Blender's (the OBJ's colours, decoded from sRGB) for a scene with vertex colours, which
+    `add_glb_vertex_attributes` writes as they are: Blender's copy would stay in the file, unused"""
+    options = {}
+    if not scene.export_normals:
+        options.update(export_normals=False, export_tangents=False)
+    if any(len(sm.vertices) and len(sm.vertex_colors) == len(sm.vertices) for sm in scene.sub_meshes):
+        options['export_vertex_color'] = 'NONE'
+    return options
+
+
 def _warn_if_exporter_lacks_normals_options(gg_exporter_dir: str):
     """Logs once per process that the exporter writes normals anyway: the Blender log is hidden by default"""
     global _warned_missing_export_options
@@ -325,8 +337,9 @@ $extra_script
             script += (
                 f'\n\nimport sys\nsys.path.insert(0, "{gg_exporter_dir}")\nimport exporter as gg_web_engine_exporter\n'
             )
-            if any(not scene.export_normals for scene in scenes):
+            if any(_gg_scene_export_options(scene) for scene in scenes):
                 script += _GG_EXPORT_OPTIONS_SCRIPT
+            if any(not scene.export_normals for scene in scenes):
                 _warn_if_exporter_lacks_normals_options(gg_exporter_dir)
         for scene in scenes:
             script += '\n\n' + import_template.substitute(
@@ -341,10 +354,11 @@ $extra_script
             file_path = path_join(os.getcwd(), output_path, scene.directory, scene.name)
             if settings.geometry__export_to_gg_web_engine:
                 gg_export_target = file_path.replace('\\', '/')
+                scene_options = _gg_scene_export_options(scene)
                 options = (
-                    ''
-                    if scene.export_normals
-                    else ', **_gg_export_options(export_normals=False, export_tangents=False)'
+                    ', **_gg_export_options(' + ', '.join(f'{k}={v!r}' for k, v in scene_options.items()) + ')'
+                    if scene_options
+                    else ''
                 )
                 script += (
                     f'\ngg_web_engine_exporter.export_glb_meta("{gg_export_target}", '

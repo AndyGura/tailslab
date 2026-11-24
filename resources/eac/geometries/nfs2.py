@@ -13,7 +13,9 @@ from resources.eac.fields.misc import Point3D
 # "Verified" in the descriptions below: read in the NFS2 SE executable (nfs2sen.exe, software renderer, nfs-web
 # `decomp/nfs2` Ghidra project): GEO loader `R3DCar_LoadGeo` 0x45b860, part render info `R3DCar_SetMeshRenderInfo`
 # 0x45b830, polygon builder `Transfmr_AddMeshPolys` 0x46f570, texture setup `CarIO_SetupTextures` 0x463900. Checked
-# against every GEO of NFS2 (`CARMODEL/PC/*.GEO`) and NFS2 SE (`SIM/CARDATA/CARDATA.VIV`)
+# against every GEO of NFS2 (`CARMODEL/PC/*.GEO`) and NFS2 SE (`SIM/CARDATA/CARDATA.VIV`). "nfs2sea.exe": the 3Dfx
+# build of NFS2 SE (nfs-web `decomp/nfs2/nfs2sea.exe.gzf`), its car reflections: vertex normals
+# `R3DCar_ComputeVoodooNormals` 0x46ed80, part layout table `g_car_part_layouts` 0x4d8650
 
 
 class GeoPolygon(DeclarativeCompoundBlock):
@@ -39,7 +41,14 @@ class GeoPolygon(DeclarativeCompoundBlock):
                     (1, 'double_sided', 'boolean', [], 'Drawn from both sides (verified)'),
                     (1, 'color_keyed', 'boolean', [], 'Colour-keyed (transparent) texture (inferred)'),
                     (1, 'flip_normal', 'boolean', [], 'Vertices taken in reverse order (verified)'),
-                    (1, 'uv_flip', 'boolean', [], 'Other texture coordinates; not read by the renderer'),
+                    (
+                        1,
+                        'uv_flip',
+                        'boolean',
+                        [],
+                        "Other texture coordinates; not read by the renderer. nfs2sea.exe's normals take 4 "
+                        'vertices when set, 3 when clear (verified)',
+                    ),
                     (1, 'is_triangle', 'boolean', [], 'Triangle: 3 vertices (verified)'),
                 ],
             ),
@@ -48,8 +57,12 @@ class GeoPolygon(DeclarativeCompoundBlock):
                 '(verified). Bit 1 "uv_flip": changes the texture coordinates (as the converter maps them, which '
                 'looks right); the renderer does not read it, `R3DCar_LoadGeo` checks it only on the first polygon '
                 'of the rear wheel parts 16 and 18 before moving that quad 5/256 m outwards ("Fixing Wheels"; set '
-                'there in every race car). Bit 2 "flip_normal": the game takes the vertices in reverse order, quad '
-                '0, 3, 2, 1, triangle 2, 1, 0 (verified, `Transfmr_AddMeshPolys`). Bit 3 "color_keyed": the '
+                'there in every race car). The vertex normals of nfs2sea.exe (3Dfx, `R3DCar_ComputeVoodooNormals` '
+                '0x46ed80) take the polygon as 4 vertices when bit 1 is set, as 3 when clear (verified): a quirk, '
+                'the renderer goes by bit 0; in every NFS2 / NFS2 SE GEO bit 1 is set exactly on the quads, so both '
+                'agree. Bit 2 "flip_normal": the game takes the vertices in reverse order, quad '
+                '0, 3, 2, 1, triangle 2, 1, 0 (verified, `Transfmr_AddMeshPolys`); the normals of nfs2sea.exe are '
+                'negated (verified). Bit 3 "color_keyed": the '
                 'renderer uses another polygon type for it (9 / 0xD instead of 8 / 0xC, verified); set on the '
                 'polygons whose textures have transparent pixels (tyre quads, inner wheel parts, ground part, some '
                 'grilles and spoilers), so most likely the colour-keyed (transparent) texture mode: inferred, the '
@@ -105,10 +118,16 @@ class GeoMesh(DeclarativeCompoundBlock):
         unk2 = (
             IntegerBlock(length=8, value_validator=Eq(0)),
             {
-                'description': 'At +0x1c. Bytes 0x1e..0x33 of the part header (the last 6 bytes of this field, '
-                '`unk3` and `unk4`) are overwritten at run time with render info of the part from a table of the '
-                'executable (`R3DCar_SetMeshRenderInfo` 0x45b830, verified): u16 at +0x1e, draw layer at +0x20, '
-                'four view angle limits at +0x24..+0x30. The values in the files are these constants',
+                'description': 'At +0x1c. Run time slots: the bytes from here to +0x33 (this field, `unk3` and '
+                '`unk4`) are overwritten at load, the values in the files (these constants) mean nothing. '
+                'nfs2sen.exe (software renderer) writes render info of the part from a table of the executable '
+                'there (`R3DCar_SetMeshRenderInfo` 0x45b830, verified): u16 at +0x1e, draw layer at +0x20, four view '
+                'angle limits at +0x24..+0x30. nfs2sea.exe (3Dfx) lays them out otherwise (verified): +0x1c the '
+                "pointer to the part's vertex normals (0 when it has none; `R3DCar_ComputeVoodooNormals` 0x46ed80), "
+                "+0x20 byte the reflection flag (byte 0 of the part's 0x14-byte entry of the part layout table "
+                '`g_car_part_layouts` 0x4d8650: 0 none, 1 and 2 two variants), +0x21 byte, u16 draw layer at +0x22, '
+                'the view limits at +0x24..+0x30. The converter exports normals computed as nfs2sea.exe does (OBJ '
+                '`vn`, GLB `_GAME_NORMAL`), see `GeoGeometry`',
                 'is_unknown': True,
             },
         )
@@ -141,7 +160,16 @@ class GeoGeometry(DeclarativeCompoundBlock):
         'A set of 3D meshes, used for cars and props. Contains multiple meshes with '
         'high details, medium and low LOD-s. Textures are in a separate QFS archive: '
         '<name>.QFS next to the GEO file (NFS2), or CARMODEL/PC/<name>.QFS for GEO '
-        'items of CARDATA.VIV (NFS2SE)'
+        'items of CARDATA.VIV (NFS2SE). GEO files hold no normals: the vertex normals the converter exports (OBJ '
+        '`vn`, GLB vertex attribute `_GAME_NORMAL`, game axes swapped as the vertices) are the ones nfs2sea.exe '
+        "(NFS2 SE, 3Dfx) computes at load for the race cars' reflections (`R3DCar_ComputeVoodooNormals` 0x46ed80, "
+        'verified), computed for every GEO: parts with polygons, fewer than 126 vertices and fewer than 66 '
+        'polygons get them, the others none (no `vn`, no `_GAME_NORMAL`). Polygon normal: normalize((B - A) x (C - '
+        'A)) of vertex indices 0, 1, 2, with flag bit 1 normalize(that + normalize((C - A) x (D - A))), negated with '
+        'bit 2. Vertex normal: the sum of the normals of the first 8 polygons of its part using it, plus, for parts '
+        '0..19 but 2, 9 and 10, those of the polygons of the other parts 0..19 (but 0, 2, 9, 10, 11) with a vertex '
+        'within 12/256 m of it on every axis (part positions not applied), normalized, x set to 0 for a vertex at '
+        'x = 0; (0, 0, 0) for a vertex of no polygon (the game draws it without the reflection)'
     )
     serializer = 'GeoGeometrySerializer'
 

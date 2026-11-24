@@ -2,6 +2,9 @@ from .nfs2 import (
     TrkBlock,
     TrkSuperBlock,
     TrkMap,
+    Nfs2AiSpeedRecord,
+    Nfs2AiSpeeds,
+    Nfs2AiLanes,
 )
 from .nfs3 import (
     FrdMap,

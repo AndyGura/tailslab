@@ -469,7 +469,10 @@ class TestCollisionExtraDataRecord(unittest.TestCase):
         block = CollisionExtraDataRecord()
         data = block.unpack(ReadContext(BytesIO(raw)), read_bytes_amount=len(raw))
         self.assertEqual(data['flags'], 0x55)
-        self.assertEqual(data['lanes'], {'unk': 3, 'count': 1})
+        self.assertEqual(data['lanes'], {'left_count': 3, 'right_count': 1})
+        # lanes 4..9 open: the 3 left lanes 4..6 and the right lane 7 among them
+        self.assertEqual(data['open_lanes'], 0x7E0)
+        self.assertEqual([lane for lane in range(14) if data['open_lanes'] & (1 << (14 - lane))], [4, 5, 6, 7, 8, 9])
         self.assertEqual(data['left_lane_width'], 4.5)
         self.assertEqual(data['right_lane_width'], 5.0)
         self.assertEqual(data['unk3'], 0)
@@ -643,3 +646,45 @@ class TestNfs5TrackSmallFiles(unittest.TestCase):
         self.assertEqual(edge['p0'], {'x': 1.0, 'y': 2.0, 'z': 3.0})
         self.assertEqual(edge['p1'], {'x': 4.0, 'y': 5.0, 'z': 6.0})
         self.assertEqual(block.pack(data), raw)
+
+
+class TestNfs2AiSpeedsAndLanes(unittest.TestCase):
+    def test_raw_files_should_hold_speeds_and_lanes(self):
+        from library.loader import probe_block_class
+
+        speeds = bytes([104, 1, 103, 1, 102, 1])
+        for name in ('TR00.ASP', 'TR03.PSP', 'tr04b.asp', 'TR02.QAS__uncompressed', 'TR02B.QPS__uncompressed'):
+            block_class = probe_block_class(BytesIO(speeds), f'GAMEDATA/TRACKS/SPEEDS/{name}', len(speeds))
+            self.assertEqual(block_class.__name__, 'Nfs2AiSpeeds', name)
+        data = block_class().unpack_from_bytes(speeds)
+        self.assertEqual(data['speeds'], [{'speed': 104, 'unk': 1}, {'speed': 103, 'unk': 1}, {'speed': 102, 'unk': 1}])
+        self.assertEqual(block_class().pack(data), speeds)
+        lanes = bytes([0, 6, 7, 8, 0])
+        for name in ('TR00.ALN', 'TR05B.PLN', 'TR02.QAL__uncompressed', 'TR02.QPL__uncompressed'):
+            block_class = probe_block_class(BytesIO(lanes), f'GAMEDATA/TRACKS/SPEEDS/{name}', len(lanes))
+            self.assertEqual(block_class.__name__, 'Nfs2AiLanes', name)
+        data = block_class().unpack_from_bytes(lanes)
+        self.assertEqual(data['lanes'], list(lanes))
+        self.assertEqual(block_class().pack(data), lanes)
+        # another name, or the packed name itself (its data is compressed)
+        for name in ('TR00.SPD', 'TR00.QAS', 'TRAA.ASP', 'XX00.ALN'):
+            with self.assertRaises(NotImplementedError, msg=name):
+                probe_block_class(BytesIO(lanes), f'GAMEDATA/TRACKS/SPEEDS/{name}', len(lanes))
+
+    def test_packed_files_should_open_with_the_speeds_and_lanes_blocks(self):
+        # NFS2 SE TR00: 1287 COL slices, (1287 // 2) * 2 + 2 speed bytes (RefPack), 1287 lane bytes (QFS3)
+        for file, class_name, length in [('TR00.QAS', 'Nfs2AiSpeeds', 644), ('TR00.QAL', 'Nfs2AiLanes', 1287)]:
+            path = f'test/samples/nfs2_speeds/{file}'
+            (name, block, data) = require_file(path, lazy=False)
+            self.assertEqual(block.__class__.__name__, 'EacCompressedBlock')
+            inner = block.possible_blocks[data['choice_index']]
+            self.assertEqual(inner.__class__.__name__, class_name, file)
+            values = data['data']['speeds' if class_name == 'Nfs2AiSpeeds' else 'lanes']
+            self.assertEqual(len(values), length, file)
+            with open(path, 'rb') as f:
+                self.assertEqual(block.pack(data), f.read(), file)
+            if class_name == 'Nfs2AiSpeeds':
+                self.assertEqual({x['speed'] for x in values}, {102, 103, 104})
+                self.assertEqual({x['unk'] for x in values}, {1})
+            else:
+                self.assertEqual(set(values), {0})

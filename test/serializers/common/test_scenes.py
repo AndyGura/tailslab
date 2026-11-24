@@ -68,6 +68,8 @@ class TestExportScenesGlbOptions(unittest.TestCase):
                 patch.object(scenes_module, 'ensure_gg_web_engine_exporter_installed', return_value=exporter_dir),
                 patch.object(scenes_module, 'run_blender') as run_blender,
                 patch.object(scenes_module, '_warned_missing_export_options', False),
+                # no GLB without Blender
+                patch.object(scenes_module, 'add_glb_vertex_attributes'),
             ):
                 export_scenes(scenes, tmp + '/', _GgSettings())
             return run_blender.call_args.kwargs['script']
@@ -77,6 +79,26 @@ class TestExportScenesGlbOptions(unittest.TestCase):
         self.assertIn('def _gg_export_options(', script)
         self.assertIn(
             'copyright="Gurakl Games", **_gg_export_options(export_normals=False, export_tangents=False))', script
+        )
+
+    def test_scene_with_vertex_colors_gets_no_blender_colors(self):
+        mesh = SubMesh()
+        mesh.name = 'block_0__tex'
+        mesh.vertices = [[0, 0, 0], [1, 0, 0], [0, 1, 0]]
+        mesh.vertex_uvs = [[0, 0], [1, 0], [0, 1]]
+        mesh.vertex_colors = [[1, 1, 1], [0.5, 0.5, 0.5], [0, 0, 0]]
+        mesh.polygons = [[0, 1, 2]]
+        mesh.texture_id = 'tex'
+        script = self._export(
+            [Scene(name='a', directory='a/', sub_meshes=[mesh]), Scene(name='b', directory='b/')], _NEW_EXPORTER
+        )
+        # COLOR_0 comes from `add_glb_vertex_attributes`, with the values as they are
+        self.assertIn('copyright="Gurakl Games", **_gg_export_options(export_vertex_color=\'NONE\'))', script)
+        self.assertIn('/b", export_materials=True, copyright="Gurakl Games")\n', script)
+        script = self._export([Scene(name='a', directory='a/', sub_meshes=[mesh], export_normals=False)], _NEW_EXPORTER)
+        self.assertIn(
+            "**_gg_export_options(export_normals=False, export_tangents=False, export_vertex_color='NONE'))",
+            script,
         )
 
     def test_default_scene_script_is_unchanged(self):

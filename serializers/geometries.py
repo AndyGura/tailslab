@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 import re
 import traceback
@@ -848,6 +849,7 @@ class GeoGeometrySerializer(BaseFileSerializer):
         super().serialize(data, path)
         meshes = []
         object_properties = {}
+        vertex_normals = geo_vertex_normals(data['parts'])
         for part_index, part in enumerate(data['parts']):
             if part_index < 20:
                 key = f'part_hp_{part_index}'
@@ -867,6 +869,8 @@ class GeoGeometrySerializer(BaseFileSerializer):
             ]
             mesh.texture_ids = [p['texture_name'] for p in part['polygons']]
             mesh.pivot_offset = (-part['pos']['x'], -part['pos']['y'], -part['pos']['z'])
+            # the game's normals (OBJ `vn`, GLB `_GAME_NORMAL`) on the parts nfs2sea.exe gives them, none on the others
+            mesh.vertex_normals = vertex_normals[part_index]
 
             sub_meshes = mesh.split_by_texture_ids()
             for submesh, _, polygon_idx_map in sub_meshes:
@@ -936,6 +940,129 @@ def geo_sub_mesh_properties(part_index: int, polygons: List[dict], name: str = '
         elif values:
             logging.warning(f'GEO sub-mesh {name}: polygons with different "{key}" ({sorted(values)}), left out')
     return properties
+
+
+# GEO vertex normals as nfs2sea.exe (NFS2 SE, 3Dfx build) computes them at load for its car reflections (nfs-web
+# `decomp/nfs2/nfs2sea.exe.gzf`): `R3DCar_ComputeVoodooNormals` 0x46ed80, `R3DCar_AddNeighbourPartNormals` 0x46f160,
+# `Math_TriangleNormal` 0x46f490, `Math_QuadNormal` 0x46f430, `R3DCar_VerticesTouch` 0x46f3d0. A part gets them with
+# polygons, fewer than `GEO_NORMALS_MAX_VERTICES` vertices and fewer than `GEO_NORMALS_MAX_POLYGONS` polygons
+GEO_NORMALS_MAX_VERTICES = 0x7E
+GEO_NORMALS_MAX_POLYGONS = 0x42
+# polygons are listed for the vertices of lower indices only, at most `GEO_NORMALS_MAX_VERTEX_POLYGONS` per vertex
+GEO_NORMALS_LISTED_VERTICES = 0x7D
+GEO_NORMALS_MAX_VERTEX_POLYGONS = 8
+# a polygon of another high poly part (0..19) adds its normal to the vertices of a part it touches: within this
+# distance on every axis, raw 8.8 units (12 / 256 m), positions in the parts' own coordinates (`pos` not applied)
+GEO_NORMALS_TOUCH_DISTANCE = 12
+GEO_NORMALS_NEIGHBOUR_PARTS = 20
+# parts whose vertices take no neighbour normals, and parts never taken as neighbours
+GEO_NORMALS_PARTS_WITHOUT_NEIGHBOURS = (2, 9, 10)
+GEO_NORMALS_PARTS_NOT_NEIGHBOURS = (0, 2, 9, 10, 11)
+
+
+def _geo_raw_vertices(part: dict) -> List[Tuple[int, int, int]]:
+    """The part's vertices as stored: signed 8.8 fixed point (meters x 256)"""
+    return [(round(v['x'] * 256), round(v['y'] * 256), round(v['z'] * 256)) for v in part['vertices']]
+
+
+def _geo_normal_corners(polygon: dict) -> List[int]:
+    """The vertices the normals code takes of a polygon: 4 when flag bit 1 (`uv_flip`) is set, 3 when clear (the
+    renderer goes by bit 0, `is_triangle`; the same in every NFS2 / NFS2 SE GEO)"""
+    return polygon['vertex_indices'][: 4 if polygon['mapping']['uv_flip'] else 3]
+
+
+def _normalized(v) -> List[float]:
+    length = math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
+    return [v[0] / length, v[1] / length, v[2] / length] if length else [0.0, 0.0, 0.0]
+
+
+def _cross(a, b) -> List[float]:
+    return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+
+
+def geo_polygon_normal(vertices: List[Tuple[int, int, int]], polygon: dict) -> List[float]:
+    """Unit normal of a GEO polygon in the game's axes (x right, y up, z forward), `vertices` raw (`_geo_raw_vertices`):
+    corners A, B, C (and D, `_geo_normal_corners`) = `vertex_indices` 0..3; normalize((B - A) x (C - A)), for 4
+    corners normalize(that + normalize((C - A) x (D - A))); negated with `flip_normal`. A zero cross product (or a
+    corner past the part's vertices) gives (0, 0, 0)"""
+    corners = _geo_normal_corners(polygon)
+    if any(i >= len(vertices) for i in corners):
+        return [0.0, 0.0, 0.0]
+    a, b, c = (vertices[i] for i in corners[:3])
+    ab = [b[k] - a[k] for k in range(3)]
+    ac = [c[k] - a[k] for k in range(3)]
+    normal = _normalized(_cross(ab, ac))
+    if len(corners) == 4:
+        d = vertices[corners[3]]
+        ad = [d[k] - a[k] for k in range(3)]
+        second = _normalized(_cross(ac, ad))
+        normal = _normalized([normal[k] + second[k] for k in range(3)])
+    if polygon['mapping']['flip_normal']:
+        normal = [-x for x in normal]
+    return [x + 0.0 for x in normal]
+
+
+def _geo_vertices_touch(a: Tuple[int, int, int], b: Tuple[int, int, int]) -> bool:
+    return all(abs(a[k] - b[k]) <= GEO_NORMALS_TOUCH_DISTANCE for k in range(3))
+
+
+def geo_vertex_normals(parts: List[dict]) -> List[List[List[float]]]:
+    """Unit normal per vertex of each GEO part (game axes, parallel to its `vertices`), as nfs2sea.exe computes them
+    (see `GEO_NORMALS_MAX_VERTICES`); an empty list for a part it gives none. The normal of a vertex is the sum of
+    the normals (`geo_polygon_normal`) of the first 8 polygons of its part using it (in file order, a polygon once
+    per corner; vertex indices >= 0x7D get none), plus, for parts 0..19 but 2, 9 and 10, the normals of the polygons
+    of the other parts 0..19 with polygons (but 0, 2, 9, 10, 11; no limit there) with a corner touching it
+    (`GEO_NORMALS_TOUCH_DISTANCE`), normalized, each axis clamped to -1..1, x set to 0 for a vertex at x = 0 (not
+    normalized again). A vertex of no polygon keeps (0, 0, 0): the game draws it without the reflection's shading"""
+    raw = [_geo_raw_vertices(part) for part in parts]
+    polygon_normals = [[geo_polygon_normal(raw[i], p) for p in part['polygons']] for i, part in enumerate(parts)]
+    candidates = [
+        q
+        for q in range(min(GEO_NORMALS_NEIGHBOUR_PARTS, len(parts)))
+        if parts[q]['polygons'] and q not in GEO_NORMALS_PARTS_NOT_NEIGHBOURS
+    ]
+    res = []
+    for p, part in enumerate(parts):
+        polygons = part['polygons']
+        if not polygons or part['num_vrtx'] >= GEO_NORMALS_MAX_VERTICES or part['num_plgn'] >= GEO_NORMALS_MAX_POLYGONS:
+            res.append([])
+            continue
+        vertices = raw[p]
+        listed = [[] for _ in vertices]
+        for i, polygon in enumerate(polygons):
+            for v in _geo_normal_corners(polygon):
+                if (
+                    v < min(GEO_NORMALS_LISTED_VERTICES, len(listed))
+                    and len(listed[v]) < GEO_NORMALS_MAX_VERTEX_POLYGONS
+                ):
+                    listed[v].append(i)
+        neighbours = (
+            [q for q in candidates if q != p]
+            if p < GEO_NORMALS_NEIGHBOUR_PARTS and p not in GEO_NORMALS_PARTS_WITHOUT_NEIGHBOURS
+            else []
+        )
+        normals = []
+        for v, polygon_indices in enumerate(listed):
+            if not polygon_indices:
+                normals.append([0.0, 0.0, 0.0])
+                continue
+            total = [0.0, 0.0, 0.0]
+            for i in polygon_indices:
+                total = [total[k] + polygon_normals[p][i][k] for k in range(3)]
+            for q in neighbours:
+                for j, polygon in enumerate(parts[q]['polygons']):
+                    if any(
+                        _geo_vertices_touch(vertices[v], raw[q][k])
+                        for k in _geo_normal_corners(polygon)
+                        if k < len(raw[q])
+                    ):
+                        total = [total[k] + polygon_normals[q][j][k] for k in range(3)]
+            normal = [max(-1.0, min(1.0, x)) + 0.0 for x in _normalized(total)]
+            if vertices[v][0] == 0:
+                normal[0] = 0.0
+            normals.append(normal)
+        res.append(normals)
+    return res
 
 
 def _read_12_bit_signed(value: int) -> int:
@@ -1703,6 +1830,34 @@ def fce4_part_lod_prefix(part_name: str) -> str:
     return {'H': 'hp', 'M': 'mp', 'L': 'lp', 'T': 'tp'}.get(name[1:2], 'part')
 
 
+# FCE4 parts whose vertices nfs4.exe moves to their damaged positions (Car_DamageVisual 0x44a510 ->
+# Fce_DamageVertices 0x4ed390)
+FCE4_DAMAGED_PARTS = (':HB', ':MB', ':LB', ':OL', ':OT')
+# FCE4 parts with vertices turned by nfs4.exe: the steering wheel of ":OD" (about Z), the head ":OH" (about Y)
+FCE4_TURNING_PARTS = (':OD', ':OH')
+# FCE4 triangle flag bits of the windows (`Fce4Triangle.flags`): (bit, flag name)
+FCE4_WINDOW_FLAG_BITS = [
+    (5, 'window'),
+    (6, 'front_window'),
+    (7, 'left_window'),
+    (8, 'back_window'),
+    (9, 'right_window'),
+    (10, 'broken_window'),
+]
+# the window sides of the FCE4 triangle flags bits 6..9
+FCE4_WINDOW_SIDES = [(6, 'front'), (7, 'left'), (8, 'back'), (9, 'right')]
+
+
+def fce4_window_class(flags: int) -> Tuple[Tuple[str, ...], bool] | None:
+    """Window class of a FCE4 triangle by its flags: (sides, breaks away), None for a triangle that is no window.
+    nfs4.exe (Fce_BreakWindows 0x4ed0e0): a window triangle has one of the bits 5..9 (0x3e0); a hit cracks every window
+    triangle of the part sharing a side (bits 6..9: front, left, back, right) with a window triangle with a damaged
+    vertex, and stops drawing those with bit 10 ("breaks away") of a side hit hard"""
+    if not flags & 0x3E0:
+        return None
+    return tuple(side for bit, side in FCE4_WINDOW_SIDES if flags & (1 << bit)), bool(flags & 0x400)
+
+
 def _find_fce_siblings(id: str) -> Tuple[Optional[str], List[Tuple[str, bytes]]]:
     """Finds file name of FCE model and its TGA textures: TGA items of the same BIGF archive (car.viv), or TGA files
     next to FCE file. Returns (FCE file name, list of (texture name without extension, TGA bytes) sorted by name)"""
@@ -1738,6 +1893,8 @@ def _find_fce_siblings(id: str) -> Tuple[Optional[str], List[Tuple[str, bytes]]]
 class Fce3GeometrySerializer(BaseFileSerializer):
     # FCE3 texture V goes from bottom to top of the texture, FCE4 from top to bottom
     v_from_bottom = True
+    # True: the part positions go to the `.meta` and the OBJ's extra JSON as `fcePartPositions`
+    export_part_positions = False
 
     def __init__(self):
         super().__init__(is_dir=True)
@@ -1765,6 +1922,25 @@ class Fce3GeometrySerializer(BaseFileSerializer):
         if triangle['flags']['matte']:
             return 'none'
         return 'high' if triangle['flags']['high_chrome'] else 'normal'
+
+    def _window_class(self, triangle) -> tuple | None:
+        """Window class of a triangle, a key of `_window_class_extras`; None: not a window or no windows in the
+        format"""
+        return None
+
+    def _window_class_extras(self, window_class) -> Tuple[str, dict | None]:
+        """Mesh name suffix and node extras of a `_window_class`"""
+        return '', None
+
+    def _morph_target_tables(self, data: dict, part_name: str, name_suffix: str) -> List[Tuple[str, str]]:
+        """Morph targets of the meshes of a part's variant (`_vertex_tables` suffix): list of (target name, name of
+        the vertex positions table it moves the vertices to)"""
+        return []
+
+    def _vertex_turns(self, data: dict, part_index: int, part_name: str, name_suffix: str) -> List[bool] | None:
+        """For the meshes of a part's variant: per part vertex, True when the game turns it with the part (exported as
+        `_FCE_TURNS`), None: no turning vertices"""
+        return None
 
     def _transparency_mask(self, image: Image.Image) -> Image.Image:
         """Alpha channel of exported texture. FCE3 textures are opaque"""
@@ -1809,6 +1985,9 @@ class Fce3GeometrySerializer(BaseFileSerializer):
         scene.mtl_name = 'material'
         alpha_modes = {}
         vertex_tables = self._vertex_tables(data)
+        # mesh name -> 1 (turns) or 0 per face corner, in the order the OBJ writes the faces and their corners
+        fce_turns = {}
+        part_positions = {}
 
         for part_index in range(min(data['num_parts'], 64)):
             part_name = data['part_names'][part_index].split('\x00')[0]
@@ -1817,22 +1996,32 @@ class Fce3GeometrySerializer(BaseFileSerializer):
             if sanitized_name:
                 mesh_name += f'_{sanitized_name}'
             first_vertex = data['part_first_vertex'][part_index]
+            num_vertices = data['part_num_vertices'][part_index]
             first_triangle = data['part_first_triangle'][part_index]
             triangles = data['triangles'][first_triangle : first_triangle + data['part_num_triangles'][part_index]]
             position = data['part_positions'][part_index]
-            chrome_classes = {}
+            # in the export axes, as the vertices (y and z swapped)
+            part_positions[mesh_name] = [position['x'], position['z'], position['y']]
+            triangle_classes = {}
             for triangle in triangles:
-                chrome_classes.setdefault(self._chrome_class(triangle), []).append(triangle)
-            for (name_suffix, vertex_table, normal_table), (chrome_class, class_triangles) in (
-                (t, c) for t in vertex_tables for c in chrome_classes.items()
+                key = (self._chrome_class(triangle), self._window_class(triangle))
+                triangle_classes.setdefault(key, []).append(triangle)
+            for (name_suffix, vertex_table, normal_table), ((chrome_class, window_class), class_triangles) in (
+                (t, c) for t in vertex_tables for c in triangle_classes.items()
             ):
-                vertices = data[vertex_table][first_vertex : first_vertex + data['part_num_vertices'][part_index]]
-                normals = (
-                    data[normal_table][first_vertex : first_vertex + data['part_num_vertices'][part_index]]
-                    if normal_table
-                    else None
-                )
+                vertices = data[vertex_table][first_vertex : first_vertex + num_vertices]
+                normals = data[normal_table][first_vertex : first_vertex + num_vertices] if normal_table else None
                 class_suffix, class_properties = self.CHROME_CLASSES.get(chrome_class, ('', None))
+                window_suffix, window_properties = self._window_class_extras(window_class)
+                properties = {**(class_properties or {}), **(window_properties or {})}
+                morph_tables = [
+                    (target, data[table][first_vertex : first_vertex + num_vertices])
+                    for target, table in self._morph_target_tables(data, part_name, name_suffix)
+                ]
+                turns = self._vertex_turns(data, part_index, part_name, name_suffix)
+                # per mesh vertex: the delta to each morph target's position, whether it turns
+                morph_deltas = {target: [] for target, _ in morph_tables}
+                vertex_turns = []
                 mesh = Mesh()
                 mesh.name = mesh_name
                 mesh.pivot_offset = (-position['x'], -position['y'], -position['z'])
@@ -1856,6 +2045,11 @@ class Fce3GeometrySerializer(BaseFileSerializer):
                             if normals is not None:
                                 normal = normals[vi]
                                 mesh.vertex_normals.append([normal['x'], normal['y'], normal['z']])
+                            for target, target_vertices in morph_tables:
+                                moved = target_vertices[vi]
+                                morph_deltas[target].append([moved[k] - vertex[k] for k in ('x', 'y', 'z')])
+                            if turns is not None:
+                                vertex_turns.append(turns[vi])
                         polygon.append(corner_map[key])
                     mesh.polygons.append(polygon)
                     mesh.texture_ids.append(texture_id)
@@ -1864,15 +2058,27 @@ class Fce3GeometrySerializer(BaseFileSerializer):
                         mesh.texture_ids.append(texture_id)
                 if not mesh.polygons:
                     continue
-                for sub_mesh in mesh.sub_meshes():
+                for sub_mesh, vertex_indices, _ in mesh.split_by_texture_ids():
                     sub_mesh.name = (
                         mesh_name
                         + (f'__{sub_mesh.texture_id}' if sub_mesh.texture_id != 'untextured' else '')
                         + class_suffix
+                        + window_suffix
                         + name_suffix
                     )
-                    if class_properties:
-                        scene.object_properties[sub_mesh.name] = class_properties
+                    if properties:
+                        scene.object_properties[sub_mesh.name] = properties
+                    sub_mesh.morph_targets = {
+                        target: [deltas[i] for i in vertex_indices] for target, deltas in morph_deltas.items()
+                    }
+                    if turns is not None:
+                        sub_mesh_turns = [vertex_turns[i] for i in vertex_indices]
+                        # three.js: geometry attribute `_fce_turns`, 1 or 0
+                        sub_mesh.vertex_byte_attributes['_FCE_TURNS'] = [[255 if t else 0] for t in sub_mesh_turns]
+                        # three.js OBJLoader makes a vertex of every face corner, in file order
+                        fce_turns[sub_mesh.name] = [
+                            1 if sub_mesh_turns[i] else 0 for polygon in sub_mesh.polygons for i in polygon
+                        ]
                     sub_mesh.change_axes(new_y='z', new_z='y', pivot=True)
                     scene.sub_meshes.append(sub_mesh)
 
@@ -1895,6 +2101,11 @@ class Fce3GeometrySerializer(BaseFileSerializer):
             'collisionHalfSize': {'x': half_size['x'], 'y': half_size['y'], 'z': half_size['z']},
             'fceColors': self._fce_colors(data),
         }
+        if self.export_part_positions:
+            scene.meta_extras['fcePartPositions'] = part_positions
+            scene.extras['fcePartPositions'] = part_positions
+        if fce_turns:
+            scene.extras['fceTurns'] = fce_turns
         scene.mtl_texture_names = sorted({m.texture_id for m in scene.sub_meshes if m.texture_id != 'untextured'})
         scene.mtl_texture_path_func = lambda name: f'assets/{name.removesuffix("_translucent")}.png'
         scene.mtl_texture_alpha_modes = {name: alpha_modes.get(name, 'cutout') for name in scene.mtl_texture_names}
@@ -1918,6 +2129,36 @@ class Fce3GeometrySerializer(BaseFileSerializer):
 
 class Fce4GeometrySerializer(Fce3GeometrySerializer):
     v_from_bottom = False
+    # the pivots nfs4.exe turns ":OS", ":OD" and ":OH" about
+    export_part_positions = True
+
+    def _window_class(self, triangle) -> tuple | None:
+        flags = triangle['flags']
+        return fce4_window_class(sum(1 << bit for bit, name in FCE4_WINDOW_FLAG_BITS if flags.get(name)))
+
+    def _window_class_extras(self, window_class) -> Tuple[str, dict | None]:
+        if window_class is None:
+            return '', None
+        sides, breaks_away = window_class
+        suffix = '_window' + ''.join(f'_{side}' for side in sides) + ('_breakaway' if breaks_away else '')
+        return suffix, {'fceWindow': {'sides': list(sides), 'breaksAway': breaks_away}}
+
+    def _morph_target_tables(self, data: dict, part_name: str, name_suffix: str) -> List[Tuple[str, str]]:
+        # nfs4.exe blends the vertices of these parts from the undamaged to the damaged positions (Fce_DamageVertices
+        # 0x4ed390, called for them only by Car_DamageVisual 0x44a510). Only for a model with damaged positions, as
+        # the "_damaged" copies
+        if not name_suffix and part_name.upper() in FCE4_DAMAGED_PARTS and len(self._vertex_tables(data)) > 1:
+            return [('damaged', 'damaged_vertices')]
+        return []
+
+    def _vertex_turns(self, data: dict, part_index: int, part_name: str, name_suffix: str) -> List[bool] | None:
+        # ":OD": the steering wheel's vertices turn with the steering, ":OH": the head turns; animation flag bit 2: the
+        # vertex stays put
+        if name_suffix or part_name.upper() not in FCE4_TURNING_PARTS:
+            return None
+        first_vertex = data['part_first_vertex'][part_index]
+        flags = data['animation_flags'][first_vertex : first_vertex + data['part_num_vertices'][part_index]]
+        return [not (flag & 4) for flag in flags]
 
     def _fce_colors(self, data):
         # color set i: primary, interior, secondary and driver hair color i

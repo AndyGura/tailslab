@@ -160,8 +160,10 @@ When you do:
   pieces: archive items `export_child` / `write_skipped` / `unique_name`; WAVs `write_wav_with_meta` + `loop_meta`
   (`serializers/audios.py`); textures written on first use `TextureExporter` (`serializers/geometries.py`); track
   exports `track_map_scene`, `terrain_chunk_scene`, `road_path_curve`, `write_terrain_chunks_json`
-  (`serializers/common/three_d/scenes.py`); `Mesh.sub_meshes()`, `change_axes(..., pivot=True)`. Lookups:
-  `require_resource_as(id, ShpiBlock)` (through compressed wrappers), `find_chunk(s)` (data of chunks by id,
+  (`serializers/common/three_d/scenes.py`); `Mesh.sub_meshes()`, `change_axes(..., pivot=True)`; vertex colours
+  `vertex_colors` (OBJ `v` colours, which three.js OBJLoader decodes from sRGB; GLB COLOR_0 float VEC3 / VEC4 as
+  given, not linearized, by `add_glb_vertex_attributes`, Blender told to write none: `_gg_scene_export_options`).
+  Lookups: `require_resource_as(id, ShpiBlock)` (through compressed wrappers), `find_chunk(s)` (data of chunks by id,
   `resources/blackbox/chunks.py`), `find_file_case_insensitive` / `find_folder_case_insensitive`
   (`library/utils/file_utils.py`). Colours: `library/utils/colors.py` (`decode_colors` / `encode_colors` of whole
   arrays: packed ARGB formats, BGR555, DOS 6-bit; `rgba_image`, `image_rgba`, `rgb_palette`), never per pixel.
@@ -229,6 +231,13 @@ When you do:
   mirror, then turn, Tex_OrientCorners 0x475164); NFS3 COL props keep the enum reading (`nfs3_col_alignment_uvs`,
   not verified in nfs3.exe). Animated textures (`flags.animated`, `animation_frames` / `animation_delay`) are exported
   with their first frame only.
+- NFS2 TRK road physics data (`nfs2_collision_json`, `TrkMapSerializer`): every TRK export also writes
+  `collision.json` (compact JSON, `format_version` 1, no setting), what nfs2sen.exe's road physics reads from the TRK
+  (polygon search 0x4384c0, barriers 0x44e8e0, track objects 0x441ec0), per block in block order: `first_slice`,
+  world `vertices` (game axes, meters, resolved as for drawing), `high_polygons` corners in stored order, polygon_map
+  `surfaces` (whole byte) and `vectors`, `road_vectors`, `medians` (median_polygons) and `objects` (track_objects:
+  position, radius, number, type), flat lists, floats to 4 decimals. nfs-web's Ammo NFS2 mode reads it: keep the
+  keys stable, bump `NFS2_COLLISION_FORMAT_VERSION` when they change. The slices stay in the COL export.
 - Conversion settings presets (`config.py`): "No preset" is the `[Conversion]` section, a user-defined preset is a
   `[Conversion: <name>]` section with the conversion settings and input / output paths (everything but
   `selected_preset`, see `CONVERSION_NON_PRESET_KEYS`); a setting missing in a preset takes the built-in default.
@@ -1016,6 +1025,12 @@ When you do:
   animation frames, >= 1: tyres 4, brake lights 2) and `color_keyed` (polygon flag bit 3). A key whose value differs
   between the polygons of a sub-mesh is left out with a warning (none in the game files). nfs-web reads these keys:
   keep them stable. Flags and part meanings: `resources/eac/geometries/nfs2.py` (verified in nfs2sen.exe).
+- Vertex normals (GEO files have none): `geo_vertex_normals` computes them as nfs2sea.exe (the 3Dfx build) does at
+  load for its car reflections (`R3DCar_ComputeVoodooNormals` 0x46ed80, nfs-web `decomp/nfs2/nfs2sea.exe.gzf`; the
+  rules in its docstring and in `GeoGeometry`'s description), for every GEO, in the game's axes from the raw 8.8
+  vertices; written as OBJ `vn` and GLB `_GAME_NORMAL` (`add_glb_vertex_attributes`) on the parts the exe gives them
+  (polygons, < 126 vertices, < 66 polygons), none on the others. A vertex of no polygon keeps (0, 0, 0). nfs-web's
+  `Nfs2CarMeshController` draws the 3Dfx reflections from them.
 
 ## NFS2 SE car physics and AI (GAMEDATA/SIM/CARDATA/P*.DAT, GAMEDATA/SIM/AI/*.DAT, their copies in CARDATA.VIV)
 
@@ -1066,7 +1081,14 @@ When you do:
   by name (any case) and size 3012. Both are `BigfBlock` item blocks; the exe also has compiled-in copies of both.
 - Conversion: all five export to `<name>.json` with every field (`ReversibleJsonSerializer`, `serializers/json.py`:
   JsonSerializer's output, plus import: the JSON's values over the resource, `merge_json_values`); a `.QDA` converts
-  through its compressed wrapper to `<name>.QDA.json`.
+  through its compressed wrapper to `<name>.QDA__data.json`.
+- AI speeds and lanes of the track slices, `GAMEDATA/TRACKS/SPEEDS/TR<nn>[B].*` (`resources/eac/maps/nfs2.py`):
+  `Nfs2AiSpeeds` (ASP arcade, PSP sim; `speeds`: one `{speed, unk}` record per two slices, (n / 2) * 2 + 2 bytes for
+  n COL slices, nfs2sen.exe reads only `speed`) and `Nfs2AiLanes` (ALN, PLN; `lanes`: a byte per slice). The game
+  loads the packed copies (AiSpeeds_Load 0x42f120): QAS / QPS (RefPack or QFS3), QAL / QPL (QFS3), the same blocks
+  inside `EacCompressedBlock`, converted to `<name>.QAS__data.json`. Picked by name (`nfs2_ai_track_file_kind`: the
+  raw extensions, or a packed one's `__uncompressed` data). The raw files are the packed ones' bytes but TR04's and
+  TR04B's (other data; most backward ones have no raw copy). JsonSerializer.
 - The developers' `.DES` files (`P*.DES`, `SIMTUNE.DES`, `MCF1.DES`, `TRAFCFG.DES`, `PRSONAL.DES`, the smackables'
   `TRACKS/DATA/PC/SM*.DES`; NFS5 `TRAFCFG.DES` too) = `EaFieldDescriptions` (`resources/eac/field_descriptions.py`,
   module docstring has the layout): a body (94 bytes of garbage, int data size, int records size, a copy of the data,
@@ -1095,6 +1117,27 @@ When you do:
   reflected by the normal, alpha `fce3SkyChromeAlpha`), `chromeEnabled` off for none. The GUI uses the viewer's sky.
   Wheels spin as nfs3.exe spins them (`fce3WheelSpinStep`: per 1/64 s tick, at most 8 turns per second; `handbrake`
   slows the rear ones). nfs-web reads the mesh names, extras and the attribute: keep them stable.
+- The OBJ has a `no_cull` triangle twice, the second reversed; Blender's OBJ import drops that copy (a face of the
+  same vertices), so the GLB has it once.
+
+## NFS4 car models (`Data/Cars/<car>/car.viv`: `car.fce`, the upgrade levels `car1.fce`..`car3.fce`)
+
+- `Fce4GeometrySerializer`: `Fce3GeometrySerializer` through its hooks (`_vertex_tables`, `_window_class` /
+  `_window_class_extras`, `_morph_target_tables`, `_vertex_turns`, `export_part_positions`; FCE3 output stays as it
+  is), part roles by name (`fce4_part_lod_prefix`). Mesh names
+  `<lod>_<part>_<name>__<texture>[_translucent][_window[_front][_left][_back][_right][_breakaway]][_damaged]`: window
+  triangles (flag bits 5..9, `fce4_window_class`, nfs4.exe Fce_BreakWindows 0x4ed0e0) split by their sides (bits
+  6..9) and bit 10 (the glass breaks away), node extras `{"fceWindow": {"sides": [...], "breaksAway": bool}}`. A model
+  with damaged positions gets a `_damaged` copy of every mesh, and the undamaged meshes of `:HB :MB :LB :OL :OT` (the
+  parts nfs4.exe damages, `FCE4_DAMAGED_PARTS`) the GLB morph target `damaged` (delta to the damaged position). The
+  meshes of `:OD` / `:OH` (not their `_damaged` copies): GLB vertex attribute `_FCE_TURNS` (255: the vertex turns,
+  animation flag without bit 2; three.js `_fce_turns`), OBJ: `fceTurns` of `geometry_extra.json` (OBJ object name ->
+  1 / 0 per face corner, in file order, as three.js OBJLoader makes its vertices). `fcePartPositions` (mesh name prefix
+  `<lod>_<part>_<name>` -> part position [x, y, z] in the export axes) in the `.meta` and in `geometry_extra.json`.
+  nfs-web reads the names, extras, target, attribute and keys: keep them stable.
+- `add_glb_morph_targets` matches the GLB vertices by position, then texture coordinates, then the glTF triangles
+  they are corners of: 19 parts of the NFS4 cars have vertices at the same place and texture coordinates that move
+  differently, a few of them whole triangles twice with vertices of their own, one copy damaged.
 
 ## NFS3 car physics (`GameData/CarModel/<car>/car.viv`: `carp.txt`)
 
@@ -1176,6 +1219,14 @@ When you do:
   slices at their two ends name each other (`alt_slice_1` / `alt_slice_2`, a run of neighbouring pairs), used only by
   the polygon search (`BWorld_FindPolygonForks` 0x41f330). Byte 3 of a position record is the slice's music event
   (`SND_PathEvent`). FRD block `position`s are mean terrain vertices, off the centre line.
+- Vertex shading (`vertex_shading` of the blocks and the XOBJs, 0xAARRGGBB): nfs3.exe draws texel x colour (block
+  render 0x41cdc0 -> vertex transform 0x41a970, D3DA.DLL D3DTBLEND_MODULATE), each channel tinted at load by the day
+  `3TR<nn>.HRZ` ambient light (0x419750 -> 0x419660: c * p / 100; 100 in every day HRZ). `FrdMapSerializer` gives
+  the terrain (every exported level), POLYOBJ and XOBJ meshes these colours (`track_shading_colors`,
+  `nfs3_ambient_percent`; RGB / 255, the alpha left out): OBJ `v` colours, GLB COLOR_0 float VEC3. The COL props have
+  none (white when baked into the chunks: every mesh of a GLB has COLOR_0). Prop models of the same geometry are one
+  model only with the same colours too (`_deduplicate_models`). The GUI track viewer draws them (`terrainVertexShading`
+  of the adapter: texel x pow(colour, 2.2), as nfs-web).
 - `FrdMapSerializer` writes `track_route.json` (`nfs3_track_route`, game axes, Y up): `chunks` the block positions
   (chunk pivots), `points` the slice centres with headings, `roads` one straight line per shortcut (middle pair of
   its run); the block positions without a fitting COL (golden corpus `TR00.COL` is NFS2's: NFS3's is
@@ -1200,6 +1251,14 @@ When you do:
   7..10, mesh `block_<i>_objects`), as nfs4.exe draws a block (0x437770); the lanes (chunk 6) are left out. UVs come
   from nfs4.exe's UV table (`nfs4_polygon_uvs`: `tex_flags` rotation / mirror / flip / tiling, corners passed as 1, 0,
   3, 2). Type 2 extra objects (trees) are billboards in the game: dummy property `billboard`.
+- Vertex shading (`vertex_shading` of the blocks and the extra objects, alpha 0xFF everywhere): nfs4.exe draws texel
+  x colour (Render_TrackBlocks 0x437770, Render_XobjChunk 0x436a20; d3da.dll stage 0 MODULATE of TEXTURE and DIFFUSE),
+  each channel tinted at load (0x4323f0 -> 0x432230) by the ini's `[light]` `AmbientRed` / `AmbientGreen` /
+  `AmbientBlue` p: below 100 c * p / 100, above c + (p - 100) * (255 - c) / 100 (`nfs4_shading_tint`). The export's
+  colours (terrain, block objects, extra objects; OBJ `v` colours, GLB COLOR_0 float VEC3, RGB / 255) take the ini of
+  the FRD (`nfs4_track_ini_name`): `Tr.ini` for `Tr.frd` (100 everywhere but Snowy's 110, 120, 130), `TrN.ini` for
+  `Trn.frd`, the night track (shading about a third as bright, `TRN0.QFS` textures where there is one; 100 but GT1,
+  Germany, Park). Props and the GUI as NFS3's.
 - `Nfs4HeightsSim` (`heights.sim`, a float per slice) and `Nfs4SpeedFile` (`spdFA.bin` / `spdRA.bin`, any case:
   ceil(n / 2) speed bytes, n lane bytes, n float AI line offsets; `is_nfs4_speed_file_size`) are picked under a
   `/Data/Tracks/` path, exported as JSON. NFS4 `.CAN` files are `Nfs3CanAnimation` (the same layout).

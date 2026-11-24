@@ -23,12 +23,12 @@ import {
   fce3ChromeUv,
   fce3SkyChromeAlpha,
   fce3WheelSpinStep,
-  fceColorToRgb,
   fce3HsbToRgb,
   fce3PaintColor,
   fce3TexelColor,
+  fce4NearestColorSet,
+  fce4TexelColor,
   FceColor,
-  fcePaintChannel,
   FceVersion,
   rgbToFceColor,
   fcePaintIndexOfAlpha,
@@ -84,13 +84,16 @@ describe('FceCarMeshController', () => {
     // nfs3.exe 0x49cd00: 1..127 primary, 128..254 secondary
     expect(fcePaintIndexOfAlpha(3, 127)).toBe(0);
     expect(fcePaintIndexOfAlpha(3, 128)).toBe(1);
-    // FCE4: the nearest of 224, 164, 96, 32, the first one on a tie (the shader's thresholds 194, 130, 64)
-    expect(fcePaintIndexOfAlpha(4, 194)).toBe(0);
-    expect(fcePaintIndexOfAlpha(4, 193)).toBe(1);
-    expect(fcePaintIndexOfAlpha(4, 130)).toBe(1);
-    expect(fcePaintIndexOfAlpha(4, 129)).toBe(2);
-    expect(fcePaintIndexOfAlpha(4, 64)).toBe(2);
-    expect(fcePaintIndexOfAlpha(4, 63)).toBe(3);
+    // nfs4.exe 0x4ee620: 0xc4..0xfe primary, 0x80..0xc3 interior, 0x40..0x7f secondary, 1..0x3f driver hair
+    expect(fcePaintIndexOfAlpha(4, 0)).toBe(-1);
+    expect(fcePaintIndexOfAlpha(4, 255)).toBe(-1);
+    expect(fcePaintIndexOfAlpha(4, 0xfe)).toBe(0);
+    expect(fcePaintIndexOfAlpha(4, 0xc4)).toBe(0);
+    expect(fcePaintIndexOfAlpha(4, 0xc3)).toBe(1);
+    expect(fcePaintIndexOfAlpha(4, 0x80)).toBe(1);
+    expect(fcePaintIndexOfAlpha(4, 0x7f)).toBe(2);
+    expect(fcePaintIndexOfAlpha(4, 0x40)).toBe(2);
+    expect(fcePaintIndexOfAlpha(4, 0x3f)).toBe(3);
     expect(fcePaintIndexOfAlpha(4, 1)).toBe(3);
   });
 
@@ -120,10 +123,27 @@ describe('FceCarMeshController', () => {
     expect(fce3TexelColor([10, 20, 30], 255, color, color)).toEqual([8, 16, 25]);
   });
 
-  it('shades the FCE4 paint by the texture: mid-grey is exactly the paint', () => {
-    expect(fcePaintChannel(128, 200)).toBe(200);
-    expect(fcePaintChannel(64, 200)).toBe(100);
-    expect(fcePaintChannel(255, 200)).toBe(255);
+  it('paints FCE4 texels as nfs4.exe: the FCE3 paint, four colors by the alpha, 5 bits', () => {
+    const colors: FceColor[] = [
+      { hue: 0, saturation: 255, brightness: 200, transparency: 127 },
+      { hue: 85, saturation: 255, brightness: 200, transparency: 127 },
+      { hue: 170, saturation: 255, brightness: 200, transparency: 127 },
+      { hue: 0, saturation: 0, brightness: 100, transparency: 127 },
+    ];
+    // the texel's blue shades the brightness: 128 / (255 - 127) = 1
+    expect(fce4TexelColor([0, 0, 128], 0xd0, colors)).toEqual(fce3TexelColor([0, 0, 128], 1, colors[0], colors[0]));
+    expect(fce4TexelColor([0, 0, 128], 0x90, colors)).toEqual(fce3TexelColor([0, 0, 128], 1, colors[1], colors[1]));
+    expect(fce4TexelColor([0, 0, 128], 0x50, colors)).toEqual(fce3TexelColor([0, 0, 128], 1, colors[2], colors[2]));
+    expect(fce4TexelColor([0, 0, 64], 0x10, colors)).toEqual([49, 49, 49]);
+    // unpainted texels go through the 16-bit texture too
+    expect(fce4TexelColor([10, 20, 30], 255, colors)).toEqual([8, 16, 25]);
+  });
+
+  it('picks the FCE4 color set whose primary is the nearest to the chosen color', () => {
+    const primaries = [rgbToFceColor(0xff0000, 127), rgbToFceColor(0x00ff00, 127), rgbToFceColor(0x0000ff, 127)];
+    expect(fce4NearestColorSet(primaries, rgbToFceColor(0x10e020, 127))).toBe(1);
+    expect(fce4NearestColorSet(primaries, rgbToFceColor(0x2000c0, 127))).toBe(2);
+    expect(fce4NearestColorSet([], rgbToFceColor(0x2000c0, 127))).toBe(0);
   });
 
   it('finds the paint mask next to a texture file', () => {
@@ -435,10 +455,7 @@ describe('FceCarMeshController', () => {
         if (version === 3) {
           expected = fce3TexelColor(texel as [number, number, number], alphas[i], colors[0], colors[1]);
         } else {
-          const index = fcePaintIndexOfAlpha(4, alphas[i]);
-          const rgb = index < 0 ? null : fceColorToRgb(colors[index]);
-          const paint = rgb === null ? null : [rgb >> 16, (rgb >> 8) & 0xff, rgb & 0xff];
-          expected = texel.map((t, c) => (paint ? fcePaintChannel(t, paint[c]) : t));
+          expected = fce4TexelColor(texel as [number, number, number], alphas[i], colors);
         }
         const actual = Array.from(pixels.slice(i * 4, i * 4 + 3));
         actual.forEach((v, c) =>

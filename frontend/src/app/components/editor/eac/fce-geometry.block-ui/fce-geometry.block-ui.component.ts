@@ -11,25 +11,54 @@ import {
 import { GuiComponent } from '../../gui.component';
 import { BehaviorSubject, debounceTime, filter, Subject, takeUntil } from 'rxjs';
 import {
+  ObjViewerControl,
   ObjViewerCustomControl,
   ViewFilterOpts,
   ObjViewerComponent,
 } from '../../common/obj-viewer/obj-viewer.component';
 import { steeringControl, wheelSpeedControl } from '../../common/obj-viewer/car-preview-controls';
-import { Object3D } from 'three';
+import { Box3, BufferAttribute, Mesh, Object3D, Vector3 } from 'three';
 import {
   FceCarMeshController,
   FceColor,
   fce3HsbToRgb,
-  fceColorToRgb,
   FceDummy,
   FceVersion,
+  FceWheelPosition,
   rgbToFceColor,
 } from '../../../../../nfs-three-lib/fce-car-mesh-controller';
+import { Fce4CarParts } from '../../../../../nfs-three-lib/fce4-car-parts';
 import { CompoundBlockUiComponent } from '../../library/compound.block-ui/compound.block-ui.component';
 import { AsyncPipe } from '@angular/common';
 
 const rgbOf = ([r, g, b]: [number, number, number]): number => (r << 16) | (g << 8) | b;
+
+const DEGREES = Math.PI / 180;
+
+const WHEELS: [string, FceWheelPosition | null][] = [
+  ['None', null],
+  ['Front left', 'frontLeft'],
+  ['Front right', 'frontRight'],
+  ['Rear left', 'rearLeft'],
+  ['Rear right', 'rearRight'],
+];
+
+/** A slider of an angle in degrees, `change` gets radians */
+const angleControl = (
+  label: string,
+  min: number,
+  max: number,
+  change: (radians: number) => void,
+): ObjViewerControl => ({
+  label,
+  type: 'slider',
+  minValue: min,
+  maxValue: max,
+  valueStep: 1,
+  value: 0,
+  format: v => `${v}°`,
+  change: v => change(v * DEGREES),
+});
 
 @Component({
   selector: 'app-fce-geometry-block-ui',
@@ -53,9 +82,8 @@ export class FceGeometryBlockUiComponent extends GuiComponent implements AfterVi
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes.hasOwnProperty('resourceSchema')) {
-      // FCE4 has damaged copy of every mesh
-      this.previewViewFilters =
-        this.version === 4 ? [this.previewViewFilter, this.damageViewFilter] : [this.previewViewFilter];
+      // FCE4's damaged copies: the controller's damage controls
+      this.previewViewFilters = [this.previewViewFilter];
     }
     if (changes.hasOwnProperty('resourceId') || changes.hasOwnProperty('resourceData')) {
       this.loadPreview().then();
@@ -77,13 +105,17 @@ export class FceGeometryBlockUiComponent extends GuiComponent implements AfterVi
   async onObjectLoaded(obj: Object3D) {
     try {
       this.meshController?.dispose();
-      let dummies: FceDummy[] = [];
+      let extra: any = {};
       if (this.extraPath) {
         try {
-          dummies = (await (await fetch(this.extraPath)).json()).dummies || [];
+          extra = await (await fetch(this.extraPath)).json();
         } catch (err) {
           console.warn('Cannot load FCE dummies', err);
         }
+      }
+      const dummies: FceDummy[] = extra.dummies || [];
+      if (this.version === 4) {
+        this.setTurningVertices(obj, extra.fceTurns || {});
       }
       // default paint is the first color of the car
       const paints = this.paints;
@@ -92,6 +124,13 @@ export class FceGeometryBlockUiComponent extends GuiComponent implements AfterVi
         this.version,
         dummies,
         paints.map(x => x.color),
+        undefined,
+        {
+          partPositions: extra.fcePartPositions,
+          halfSize: this.resourceData?.half_size ?? null,
+          // the broken glass texture is in another file (Data/FeArt/3dobj.fsh shat): cracked windows look as before
+          brokenGlassTexture: null,
+        },
       );
       this.meshController = meshController;
       const controls: ObjViewerCustomControl['controls'] = [];
@@ -100,7 +139,7 @@ export class FceGeometryBlockUiComponent extends GuiComponent implements AfterVi
           controls.push({
             label,
             type: 'color',
-            value: this.version === 3 ? rgbOf(fce3HsbToRgb(color)) : fceColorToRgb(color),
+            value: rgbOf(fce3HsbToRgb(color)),
             // the picked color keeps the transparency of the car's color: it shades the paint (nfs3.exe)
             change: c => this.debounced(() => meshController.setColor(i, rgbToFceColor(c, color.transparency))),
           }),
@@ -127,21 +166,153 @@ export class FceGeometryBlockUiComponent extends GuiComponent implements AfterVi
         controls.push(
           wheelSpeedControl(v => (meshController.speed = v)),
           steeringControl(v => (meshController.steeringAngle = v)),
-        );
-        if (this.version === 3) {
-          controls.push({
+          {
             label: 'Handbrake',
             type: 'checkbox',
             value: meshController.handbrake,
             change: v => (meshController.handbrake = v),
-          });
-        }
+          },
+        );
       }
       this.customControls = controls.length > 0 ? [{ title: `NFS${this.version} car features`, controls }] : [];
+      if (meshController.parts) {
+        this.customControls.push(...this.fce4Controls(meshController, meshController.parts, obj));
+      }
       this.cdr.markForCheck();
     } catch (err) {
       console.error(err);
     }
+  }
+
+  /** NFS4 controls: the parts nfs4.exe draws by the car's state, the wheels and the damage of hits */
+  private fce4Controls(controller: FceCarMeshController, parts: Fce4CarParts, obj: Object3D): ObjViewerCustomControl[] {
+    const partControls: ObjViewerControl[] = [];
+    const checkbox = (label: string, value: boolean, change: (v: boolean) => void): ObjViewerControl => ({
+      label,
+      type: 'checkbox',
+      value,
+      change,
+    });
+    if (parts.has('OL') || parts.has('ODL')) {
+      partControls.push(checkbox('Headlights (pop-ups, lit dashboard)', parts.headlights, v => (parts.headlights = v)));
+    }
+    if (parts.has('OT')) {
+      partControls.push(checkbox('Roof closed', parts.roofClosed, v => (parts.roofClosed = v)));
+    }
+    if (parts.has('OD') || parts.has('OND')) {
+      partControls.push(checkbox('Driver in the car', parts.driverInCar, v => (parts.driverInCar = v)));
+    }
+    if (parts.has('OH')) {
+      // the game's limit: 0.2 turn
+      partControls.push(angleControl('Driver head turn', -72, 72, v => (parts.driverHeadYaw = v)));
+    }
+    if (parts.has('OS')) {
+      // the air brake's angle braking: 0.25 turn
+      partControls.push(angleControl('Spoiler angle', 0, 90, v => (parts.spoilerAngle = v)));
+    }
+    partControls.push(
+      angleControl('Body pitch (nose down)', -10, 10, v => (parts.bodyPitch = v)),
+      angleControl('Body roll (right side up)', -10, 10, v => (parts.bodyRoll = v)),
+    );
+    const wheelControls: ObjViewerControl[] = [];
+    if (controller.hasWheels) {
+      const damage = (label: string, positions: FceWheelPosition[]): ObjViewerControl => ({
+        label,
+        type: 'slider',
+        minValue: 0,
+        maxValue: 1,
+        valueStep: 0.05,
+        value: 0,
+        change: v => positions.forEach(p => controller.setWheelDamage(p, v)),
+      });
+      let hidden: FceWheelPosition | null = null;
+      wheelControls.push(
+        damage('Front wheels damage', ['frontLeft', 'frontRight']),
+        damage('Rear wheels damage', ['rearLeft', 'rearRight']),
+        checkbox('Front wheels slide', false, v => (controller.frontSliding = v)),
+        checkbox('Rear wheels slide', false, v => (controller.rearSliding = v)),
+        {
+          label: 'Hidden wheel (spike strips)',
+          type: 'radio',
+          options: WHEELS.map(([label]) => label),
+          value: WHEELS[0][0],
+          change: v => {
+            if (hidden) {
+              controller.setWheelHidden(hidden, false);
+            }
+            hidden = WHEELS.find(([label]) => label === v)?.[1] ?? null;
+            if (hidden) {
+              controller.setWheelHidden(hidden, true);
+            }
+          },
+        },
+      );
+    }
+    const result: ObjViewerCustomControl[] = [
+      { title: 'NFS4 parts', controls: partControls },
+      ...(wheelControls.length ? [{ title: 'NFS4 wheels', controls: wheelControls }] : []),
+    ];
+    if (parts.hasDamage) {
+      // hits on the middle of the high poly body's sides
+      const box = new Box3();
+      obj.traverse(o => {
+        if (o instanceof Mesh && /^hp_\d+_HB(?=__|$)/.test(o.name)) {
+          o.geometry.computeBoundingBox();
+          box.union(o.geometry.boundingBox!);
+        }
+      });
+      const c = box.getCenter(new Vector3());
+      const hit = { amount: 1, radius: 1 };
+      const hitButton = (label: string, point: Vector3): ObjViewerControl => ({
+        label,
+        type: 'button',
+        click: () => parts.hit(point, hit.amount, hit.radius),
+      });
+      result.push({
+        title: 'NFS4 damage',
+        controls: [
+          {
+            label: 'Hit amount',
+            type: 'slider',
+            minValue: 0,
+            maxValue: 1,
+            valueStep: 0.05,
+            value: hit.amount,
+            change: v => (hit.amount = v),
+          },
+          {
+            label: 'Hit radius',
+            type: 'slider',
+            minValue: 0.1,
+            maxValue: 3,
+            valueStep: 0.1,
+            value: hit.radius,
+            format: v => `${v.toFixed(1)} m`,
+            change: v => (hit.radius = v),
+          },
+          hitButton('Hit front', new Vector3(c.x, box.max.y, c.z)),
+          hitButton('Hit rear', new Vector3(c.x, box.min.y, c.z)),
+          hitButton('Hit left', new Vector3(box.min.x, c.y, c.z)),
+          hitButton('Hit right', new Vector3(box.max.x, c.y, c.z)),
+          hitButton('Hit top', new Vector3(c.x, c.y, box.max.z)),
+          { label: 'Repair', type: 'button', click: () => parts.repair() },
+        ],
+      });
+    }
+    return result;
+  }
+
+  /**
+   * The vertices of :OD and :OH that turn, from the OBJ's extra JSON (`fceTurns`: 1 or 0 per face corner, the OBJ
+   * loader's vertex order), as the geometry attribute FceCarMeshController reads (the GLB's `_FCE_TURNS`)
+   */
+  private setTurningVertices(obj: Object3D, turns: { [mesh: string]: number[] }) {
+    obj.traverse(o => {
+      const values = turns[o.name];
+      if (o instanceof Mesh && values && values.length === o.geometry.getAttribute('position').count) {
+        o.geometry.setAttribute('_fce_turns', new BufferAttribute(Float32Array.from(values), 1));
+      }
+    });
   }
 
   get version(): FceVersion {
@@ -199,13 +370,6 @@ export class FceGeometryBlockUiComponent extends GuiComponent implements AfterVi
     const match = /^(?:hp|mp|lp|tp|part)_\d+(?:_.*?)?(?=__|_damaged$|$)/.exec(object.name);
     return match ? match[0] : object.name;
   }
-
-  private readonly damageViewFilter: ViewFilterOpts = {
-    name: 'Damage',
-    filterGroups: ['Not damaged', 'Damaged'],
-    checkedIndex: 0,
-    pickFunction: object => (object.name.endsWith('_damaged') ? 1 : 0),
-  };
 
   private readonly previewViewFilter: ViewFilterOpts = {
     name: 'LOD',

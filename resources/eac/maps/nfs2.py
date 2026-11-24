@@ -1,5 +1,6 @@
 from library.context import ReadContext, WriteContext
 from library.read_blocks import (
+    REMAINING,
     DeclarativeCompoundBlock,
     IntegerBlock,
     UTF8Block,
@@ -298,4 +299,92 @@ class TrkMap(DeclarativeCompoundBlock):
         superblocks = (
             ArrayBlock(child=TrkSuperBlock(), length='num_superblocks'),
             {'description': 'Superblocks'},
+        )
+
+
+# NFS2 / NFS2 SE AI speeds and lanes files of GAMEDATA/TRACKS/SPEEDS: raw name -> packed name. nfs2sen.exe loads the
+# packed ones (AiSpeeds_Load 0x42f120: TR<nn>.QAS / .QAL in arcade and Wild, .QPS / .QPL in simulation, TR<nn>B.* for a
+# backward race), the raw ones are the same bytes without compression (not every one is on the disc, TR04's differ)
+NFS2_AI_SPEEDS_FILES = {'ASP': 'QAS', 'PSP': 'QPS'}
+NFS2_AI_LANES_FILES = {'ALN': 'QAL', 'PLN': 'QPL'}
+
+
+def nfs2_ai_track_file_kind(name: str) -> str | None:
+    """'speeds' or 'lanes' for the name of an NFS2 / NFS2 SE AI speeds or lanes file (`TR<nn>[B].<ext>`, any case):
+    a raw one (ASP, PSP / ALN, PLN), or the data of a packed one (`<name>.QAS__uncompressed` ...); None otherwise"""
+    upper = name.upper()
+    packed = upper.endswith('__UNCOMPRESSED')
+    if packed:
+        upper = upper[: -len('__UNCOMPRESSED')]
+    base, _, ext = upper.rpartition('.')
+    if not (len(base) in (4, 5) and base.startswith('TR') and base[2:4].isdigit() and base[4:] in ('', 'B')):
+        return None
+    for kind, files in (('speeds', NFS2_AI_SPEEDS_FILES), ('lanes', NFS2_AI_LANES_FILES)):
+        if ext in (files.values() if packed else files.keys()):
+            return kind
+    return None
+
+
+class Nfs2AiSpeedRecord(DeclarativeCompoundBlock):
+    block_description = 'AI target speed of two track slices (NFS2, NFS2 SE speeds files), 2 bytes'
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        speed = (
+            IntegerBlock(length=1, is_signed=False),
+            {
+                'description': 'AI target speed of slices 2i and 2i + 1 in m/s: nfs2sen.exe reads byte (slice / 2) * 2 '
+                "`<< 16` (16.16): the AI racers' target speed (AI_RacerSpeed 0x427010, AI_SkillFactor 0x427350), "
+                "0.4 of it the traffic's (AI_TargetSpeed 0x427800); Wild's slides of the human cars compare 0.9 of "
+                'it with the car (Physics_Wild 0x4520e0). 50 m/s without the file (0x42f0a0). 1..126 in the records the '
+                'game reads of the NFS2 and NFS2 SE files (the unread last record of an even slice count: 0..255)',
+            },
+        )
+        unk = (
+            IntegerBlock(length=1, is_signed=False),
+            {
+                'description': 'Never read by nfs2sen.exe (every read takes the even byte), not written by its '
+                'default fill (0x42f0a0). 1 in the forward files of the NFS2 and NFS2 SE tracks (but the unread '
+                'last records of TR07: 255, TR08: 0), TR04.QAS aside; other values, which look like leftovers of '
+                'other data, in TR04.QAS and in the backward files',
+                'is_unknown': True,
+            },
+        )
+
+
+class Nfs2AiSpeeds(DeclarativeCompoundBlock):
+    block_description = (
+        'AI target speeds of the track slices (NFS2, NFS2 SE GAMEDATA/TRACKS/SPEEDS/TR<nn>.ASP (arcade), .PSP '
+        '(simulation), TR<nn>B.* backward; TR<nn>.QAS / .QPS the same RefPack or QFS3 packed, which nfs2sen.exe loads, '
+        'AiSpeeds_Load 0x42f120, into 0x4c4cf4). One record per two slices of the COL collision_data ([CollisionExtraDataRecord]'
+        '(#collisionextradatarecord)): (n / 2) * 2 + 2 bytes for n slices (integer division), the size the game '
+        'allocates when the file is missing; for an even n the last record is never read'
+    )
+    serializer = 'JsonSerializer'
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        speeds = (
+            ArrayBlock(child=Nfs2AiSpeedRecord(), byte_length=(REMAINING, 'file size')),
+            {'description': 'Record i: the speed of slices 2i and 2i + 1'},
+        )
+
+
+class Nfs2AiLanes(DeclarativeCompoundBlock):
+    block_description = (
+        'Lanes the AI racers prefer per track slice (NFS2, NFS2 SE GAMEDATA/TRACKS/SPEEDS/TR<nn>.ALN (arcade), .PLN '
+        '(simulation), TR<nn>B.* backward; TR<nn>.QAL / .QPL the same QFS3 packed, which nfs2sen.exe loads, '
+        'AiSpeeds_Load 0x42f120, into 0x4c4cf8). One byte per slice of the COL collision_data '
+        '([CollisionExtraDataRecord](#collisionextradatarecord)), all 0 without the file (0x42f0f0)'
+    )
+    serializer = 'JsonSerializer'
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        lanes = (
+            ArrayBlock(child=IntegerBlock(length=1, is_signed=False), byte_length=(REMAINING, 'file size')),
+            {
+                'description': "A lane number per slice, the game's lane numbering: 0..6 the lanes left of the slice "
+                'line (6 the nearest), 7..13 those right of it (7 the nearest); 0 = no preference. An AI racer '
+                'votes for the lane of the slice speed x 0.3 / 65536 slices ahead (behind in a backward race) '
+                '(AI_VoteFileLane 0x42a9d0): left, stay or right of its own lane. 0..13 and 16 (TR08.QPL) in the '
+                'NFS2 and NFS2 SE files',
+            },
         )
