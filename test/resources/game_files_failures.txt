@@ -58,8 +58,7 @@ tnfsse/SIMDATA/MISC/TR6INFO		NotImplementedError:
 tnfsse/SIMDATA/MISC/TR7INFO		NotImplementedError: 
 tnfsse/SIMDATA/MISC/TRXINFO		NotImplementedError: 
 
---- Read-again failures (Test 3): 57 ---
-nfs2se/GAMEDATA/DASHHUD/PC/HUDDATA.VIV		Read-again data differs from original data
+--- Read-again failures (Test 3): 56 ---
 nfs2se/SETUP/ENGLISH/_INST32I.EX_		Read-again data differs from original data
 nfs2se/SETUP/SPANISH/_INST32I.EX_		Read-again data differs from original data
 nfs2se/UTILITY/MP/_INST32I.EX_		Read-again data differs from original data
