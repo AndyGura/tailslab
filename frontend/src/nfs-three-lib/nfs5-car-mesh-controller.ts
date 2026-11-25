@@ -1002,18 +1002,14 @@ export class Nfs5CarMeshController {
    * R3DCarLOD_Build 0x43c1b0 sorts a level's articles by their draw order (the tag's third byte, ascending) and the
    * game draws them so: an overlay (a lamp's lens, a decal, the license plate, the gauges) lies on the triangles of an
    * article drawn before it (the body's lamp, the trunk, the dash) and covers them. three.js has no such rule for
-   * surfaces at the same depth: each mesh is drawn in its article's order (`renderOrder`) and the later orders of its
-   * group (outside < 0x80 <= inside) are pulled towards the camera by their rank (polygon offset), on copies of the
-   * materials
+   * surfaces at the same depth: each mesh is drawn in its article's order (`renderOrder`) and the later orders are
+   * pulled towards the camera by their rank (polygon offset), on copies of the materials
    */
   private setupDrawOrder() {
     const orderOf = (entry: MeshEntry) => entry.article?.order ?? 0;
-    const ranks = new Map<number, number>();
-    for (const group of [0, 0x80]) {
-      [...new Set(this.entries.map(orderOf).filter(o => (o & 0x80) === group))]
-        .sort((a, b) => a - b)
-        .forEach((order, rank) => ranks.set(order, rank));
-    }
+    const ranks = new Map(
+      [...new Set(this.entries.map(orderOf))].sort((a, b) => a - b).map((order, rank) => [order, rank] as const),
+    );
     const copies = new Map<Material, Map<number, Material>>();
     const offsetCopy = (material: Material, rank: number): Material => {
       const byRank = copies.get(material) ?? copies.set(material, new Map()).get(material)!;
