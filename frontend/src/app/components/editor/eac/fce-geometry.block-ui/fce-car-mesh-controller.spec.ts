@@ -448,7 +448,12 @@ describe('FceCarMeshController', () => {
     const key = (name: string) => (meshes[name].material as MeshBasicMaterial).customProgramCacheKey();
     expect(key('hp_0_body__car00')).toContain('fce-chrome-normal');
     // nfs3.exe's vertex colors, 0x7f7f7f7f and 0xffffffff
-    expect(chromeColorOf(meshes['hp_0_body__car00']).toArray()).toEqual([0x7f / 255, 0x7f / 255, 0x7f / 255, 0x7f / 255]);
+    expect(chromeColorOf(meshes['hp_0_body__car00']).toArray()).toEqual([
+      0x7f / 255,
+      0x7f / 255,
+      0x7f / 255,
+      0x7f / 255,
+    ]);
     expect(chromeColorOf(meshes['hp_0_body__car00_high_chrome']).toArray()).toEqual([1, 1, 1, 1]);
     expect(meshes['hp_0_body__car00_matte'].material).toBe(shared);
     expect(meshes['hp_1_wheel__car00'].material).toBe(shared);
