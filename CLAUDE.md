@@ -178,7 +178,8 @@ When you do:
   and hold no specs (they are tested next to the GUI components using them). It has `TnfsCarMeshController` (and
   `TnfsSkylineMemorialCarMeshController`, the Japanese PSX cars' Gouraud colours; `createTnfsCarMeshController` picks one),
   `Nfs2CarMeshController`, `FceCarMeshController` (NFS3 / NFS4 paint in the fragment shader, by the paint mask's
-  alpha; NFS3 / NFS4 chrome), `Nfs6Ps2CarMeshController` (NFS HP2 PS2 cars), `Nfs6CarMeshController` (NFS HP2 PC
+  alpha; NFS3 / NFS4 chrome), `Nfs5CarMeshController` (NFS5 CRP cars as Porsche.exe draws them, its rules in
+  `nfs5-car-parts.ts`; NFS5 section), `Nfs6Ps2CarMeshController` (NFS HP2 PS2 cars), `Nfs6CarMeshController` (NFS HP2 PC
   cars), `scene-sky.ts` (a scene's sky cube and the sun of a gg-web-engine procedural sky, for car shaders lit by the
   scene; the `scene.userData` keys of NFS4's sky top colour and track light, `SCENE_SKY_TOP_COLOR` and
   `SCENE_TRACK_LIGHT`) and `setupNfs1Texture`; the other car mesh controllers (`*-car-mesh-controller.ts`) and the
@@ -646,9 +647,29 @@ When you do:
   `nfs5.prt` next to the opened file (`nfs5-files.ts`: `find_files` + `retrieve_value`) for names, and link to the
   other files (`.sim`, `.ais`, a car, a part) by opening them (`nfs5PendingSelection` picks the record shown; off
   with unsaved changes). Their derived values follow the field descriptions: keep the two in sync.
+- CRP cars (`CrpGeometrySerializer`, `serializers/misc/nfs5_car_model.py`; Porsche.exe R3DCar / R3DCarLOD, nfs-web
+  `decomp/nfs5/port-work/car-render/`): mesh names `<article>_a<article index>_LOD<lod>_ai<frame>[_<texture>]
+  [_damaged]` (the index: article names repeat). `nfs5Car` in the `.meta` and the OBJ's `_extra.json`
+  (`nfs5_car_model_info`): per article the base part's car data (geometry slot and value, draw order, wheel, pivot,
+  frames, animation, draw flags, glare light, in-car flags), its levels, `rt` transformations by level (16 floats,
+  CRP axes, row vectors) and light glares (effect type 5); the `.tpg` styles (slots, texture slots + 60), header keys
+  (driver camera, door axis, hood / trunk / headlight / moving spoiler extents), `[damagezones]`, pages (size,
+  format); `packages.ini` paint bands. GLB: the meshes of the first frame without damage carry the morph targets
+  `damaged` (the damaged `vt` offsets) and `frame<n>`, and the byte attribute `_NFS5_DAMAGE_ZONE` (the `zd` zone,
+  255 none); the OBJ keeps the frame and `_damaged` meshes and has `nfs5DamageZones` (zone per face corner). The
+  texture pages are the race's (`nfs5_race_slots`: style 1, driver 0, roof up, day, no race number; `frontend=0`,
+  `testdrive`, `night`, file order with a later image on top, `mirror` copies, the `global=` files of CarModel/);
+  their alpha stays the paint band code (`nfs5_paint_band`), `alpha_mode opaque` but on wheels and windows.
+  `Nfs5CarMeshController` (nfs-three-lib) draws a car by the race's rules: articles by slot, level and view, pivots,
+  animations, dents by zone, lights (glare quads), the paint tinted in the fragment shader. nfs-web reads the names,
+  `nfs5Car`, the targets and the attribute: keep them stable, bump `NFS5_CAR_MODEL_FORMAT_VERSION` when they change.
+  The race composes a page once per model from the style, the night flag and the parts' slots: a viewer switching
+  them keeps the default style's pages.
 - In the CRP, the track parts `DmiS` / `TmiS` (road spline slices and sections; a slice's lanes, lane bits and widths
   as the AI reads them), `esaB` (`CrpBasePart`: flags, bounds, object tag, levels of detail) and `fd` (vertex
   colours) are parsed.
+- CRP car parts: `zd` (`CrpDamageZonesPart`: the damage zone of each vertex of the `vt` part of the same index) and
+  the base part's car bytes (`CrpBasePartData` `tag` = slot, value, order, id; `car_*` fields, `light`).
 - CRP layout (`CrpGeometry`): 16-byte chunks (header, articles, common parts, parts; parts picked by identifier,
   `MagicDispatchBlock`), then the part data at each part's `offset` / `len`: 16-byte aligned, in no fixed order, some at
   4 KB boundaries, zeros between, the file padded to 4 KB. `write` lays the data out again in the order of the offsets

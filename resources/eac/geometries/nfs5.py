@@ -70,12 +70,66 @@ def crp_array_part_fields(child, count_name: str, count_description: str, data_d
     )
 
 
+class CrpDamageZone(DeclarativeCompoundBlock):
+    block_description = 'The vertices of one damage zone (Porsche.exe R3DCarLOD_Damage 0x43e390)'
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        zone = (
+            IntegerBlock(length=4),
+            {
+                'description': 'Damage zone (car+0x4e4[zone], 0..100): 0..7 the ring around the body (0 front left, '
+                "1 front, 2 front right, 3 right, 4 rear right, 5 rear, 6 rear left, 7 left; the left is the CRP's "
+                "+x, the driver's side: zone 7 holds `DecalDoorL`; Car_HitDamage 0x494df0 picks them), 8 the roof, "
+                '9 the underside'
+            },
+        )
+        num_vertices = (IntegerBlock(length=4), {'description': 'Number of vertices in the zone'})
+        first_index = (
+            IntegerBlock(length=4),
+            {'description': 'First of them in `vertex_indices` (the vertex counts of the zones before)'},
+        )
+
+
+class CrpDamageZonesData(DeclarativeCompoundBlock):
+    block_description = (
+        'The damage zone of every vertex of a `vt` part (each vertex in one zone). A damaged zone moves its vertices '
+        "by the damaged `vt` part's offsets x min(1, zone damage x 0.02) (Porsche.exe R3DCarLOD_Damage 0x43e390)"
+    )
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        num_zones = (IntegerBlock(length=4, programmatic_value=CountOf('zones')), {'description': 'Number of zones'})
+        zones = (ArrayBlock(child=CrpDamageZone(), length='num_zones'), {'description': 'The zones'})
+        vertex_indices = (
+            ArrayBlock(child=IntegerBlock(length=4), byte_length=REMAINING),
+            {'description': 'Vertex indices (of the `vt` part) of the zones, zone after zone'},
+        )
+
+
+class CrpDamageZonesPart(DeclarativeCompoundBlock):
+    block_description = (
+        'Part "zd" (cars): the damage zones of the vertices of the `vt` part with the same index '
+        '([CrpDamageZonesData](#crpdamagezonesdata)); Porsche.exe finds it by the `vt` part index (0x59f2a0)'
+    )
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        idx = (
+            IntegerBlock(length=2),
+            {'description': 'Index of the `vt` part (its `part_info`) whose vertices these are'},
+        )
+        identifier = (UTF8Block(length=2, value_validator=Eq('zd')), {'description': 'Identifier'})
+        unk0 = _PART_UNK0
+        len = (IntegerBlock(length=3, programmatic_value=SizeOf('data')), {'description': 'Data length in bytes'})
+        unk1 = (IntegerBlock(length=4), {'description': _CHUNK_COUNT_DESCRIPTION + ': the number of zones'})
+        offset = _PART_OFFSET
+        data = (CrpDamageZonesData(), {'usage': 'ui'})
+
+
 class UnkPart2(DeclarativeCompoundBlock):
     block_description = 'Unknown part with index and 2-chars identifier'
 
     class Fields(DeclarativeCompoundBlock.Fields):
         idx = (IntegerBlock(length=2), {'description': 'A part index of the same identifier (in the same article)'})
-        identifier = (UTF8Block(length=2, value_validator=Or(['zd', 'ns'])), {'description': 'Identifier'})
+        identifier = (UTF8Block(length=2, value_validator=Eq('ns')), {'description': 'Identifier'})
         unk0 = _PART_UNK0
         len = (IntegerBlock(length=3), {'description': 'Data length in bytes'})
         unk1 = (IntegerBlock(length=4), {'description': _CHUNK_COUNT_DESCRIPTION})
@@ -598,8 +652,20 @@ class TrianglePart(DeclarativeCompoundBlock):
 
 
 class EffectPartData(DeclarativeCompoundBlock):
+    block_description = (
+        'An effect of an article. Type 5 is a light glare of a car, drawn while its light is on (Porsche.exe '
+        "R3DCarLOD_DrawGlares 0x43d800, the sprite 0x43cdd0): the light is the article's `light` (base part, "
+        "[CrpBasePartData](#crpbasepartdata)), the glare follows the article's pivot"
+    )
+
     class Fields(DeclarativeCompoundBlock.Fields):
-        unk0 = (IntegerBlock(length=4), {'is_unknown': True})
+        unk0 = (
+            IntegerBlock(length=4),
+            {
+                'is_unknown': True,
+                'description': 'Effect type: 5 = a light glare (Porsche.exe 0x43d800 draws only these on cars)',
+            },
+        )
         unk1 = (IntegerBlock(length=4), {'is_unknown': True})
         position = (Point3D(child=DecimalBlock(length=4)), {'description': 'Position'})
         unk_scale = (DecimalBlock(length=4), {'is_unknown': True})
@@ -611,8 +677,28 @@ class EffectPartData(DeclarativeCompoundBlock):
         unk4 = (DecimalBlock(length=4), {'is_unknown': True})
         glow_color = (IntegerBlock(length=4), {'description': 'Color of glow (BGRA)'})
         source_color = (IntegerBlock(length=4), {'description': 'Color of source (BGRA)'})
-        mirror = (IntegerBlock(length=4), {'description': 'Mirror'})
-        info = (IntegerBlock(length=4), {'is_unknown': True, 'description': 'Information'})
+        mirror = (
+            IntegerBlock(length=4),
+            {
+                'description': 'Flags: bit 3 (8) = the glare is drawn a second time mirrored to the other side (x, '
+                'the width / height / depth x negated), for the light `mirror_light` (Porsche.exe 0x43d800)'
+            },
+        )
+        info_unk0 = (IntegerBlock(length=1), {'is_unknown': True})
+        info_unk1 = (IntegerBlock(length=1), {'is_unknown': True})
+        mirror_light = (
+            IntegerBlock(length=1),
+            {
+                'description': 'Light index of the mirrored copy (`mirror` bit 3; car lights: see `light` of the base part)'
+            },
+        )
+        night_flare = (
+            IntegerBlock(length=1),
+            {
+                'description': 'Not 0: in a race at night the glare also draws its flare on the road (Porsche.exe '
+                '0x43d4f0, while 0x628a28 > 0)'
+            },
+        )
 
 
 class EffectPart(DeclarativeCompoundBlock):
@@ -725,10 +811,77 @@ class CrpBasePartData(DeclarativeCompoundBlock):
                 'description': 'Object tag on tracks, 4 ASCII characters in memory order (`BUSH`, `SIGN`, `PILR`, '
                 '`GAS` + 0), zeros for none: the name of its `section:anim` definition in `animdefs.txt` (Porsche.exe '
                 '0x47ed90; an unknown tag gets the first definition), which gives a collidable article its '
-                'collision type (cylinder, box, smackable). Other values on cars'
+                'collision type (cylinder, box, smackable). On cars four bytes: the geometry slot (0..59), the slot '
+                'value that draws the article (a car level of detail lists the articles with car+0x56c[slot] == '
+                'value: R3DCarLOD_Build 0x43c1b0; the slots come from the `.tpg` style, the race and the parts: '
+                'R3DCar_SetBodyStyle 0x437b00, R3DCar_SetupGeometry 0x43ae50), the draw order (sorted ascending, '
+                '0x43c1b0) and a sequential article id'
             },
         )
-        unk4 = (BytesBlock(length=28), {'is_unknown': True, 'description': 'Zeros on tracks, data on cars'})
+        car_wheel = (
+            IntegerBlock(length=1, is_signed=True),
+            {
+                'description': 'Cars: the wheel (0 front left, 1 front right, 2 rear left, 3 rear right) whose '
+                'offset R3DCar+0x6d0 moves the article (R3DCarLOD_Draw 0x43c830; the offsets stay 0), -1 none'
+            },
+        )
+        car_unk0 = (IntegerBlock(length=1), {'is_unknown': True, 'description': 'Cars: 0, 0x80, 1 or 0xff'})
+        car_unk1 = (
+            IntegerBlock(length=1, is_signed=True),
+            {'is_unknown': True, 'description': 'Cars: 0, -3 (lights, decals), -2 (needles), -10, 1, 3, 5...'},
+        )
+        car_pivot = (
+            IntegerBlock(length=1),
+            {
+                'description': 'Cars: the pivot that turns the article about its origin (its `rt` part), 0 none; '
+                "three angles in turns, x, then y, then z in the article's axes (R3DCarLOD_Draw 0x43c830; set each "
+                'frame by R3DCar_UpdatePivots 0x438440): 1..4 the wheels (rotation, steering, camber), 5 the '
+                'steering wheel, 6 / 7 the doors (about the `.tpg` `dooraxis`), 8 the hood, 9 the trunk, 0xb the '
+                'rev counter needle, 0xc the speedometer needle, 0x10 the moving spoiler, 0x11 the pop-up '
+                'headlights, 0x12..0x15 the wheels without their rotation (wheel shadows, treads), 0x16 a '
+                'rotating light'
+            },
+        )
+        car_frames = (
+            IntegerBlock(length=1),
+            {'description': 'Cars: number of animation frames (`vt` parts of the level: animation index 0..n - 1)'},
+        )
+        car_animation = (
+            IntegerBlock(length=1),
+            {
+                'description': 'Cars: the animation that picks the frame, 0 none (R3DCarLOD_Build 0x43c1b0, the '
+                'frames blended by R3DCarLOD_Animate 0x43e120): 1 the convertible top, 2 the speed wing, 3 a wiper, '
+                "4 the right arm, 5 the left arm, 6 the driver's body, 7 the antenna"
+            },
+        )
+        car_draw_flags = (
+            IntegerBlock(length=1),
+            {
+                'description': 'Cars: the draw passes that draw the article (R3DCar_Draw 0x444e00 masks them): 0x10 '
+                'the body, 0x20 the wheels, 0x40 the steering wheel, 0x80 the driver; 0x08: dented by damage (its '
+                '`vt` parts have damaged copies and `zd` zones, R3DCarLOD_Damage 0x43e390); 0x01, 0x02, 0x04 not '
+                'known (0x01 on the interior, 0x02 on the outside)'
+            },
+        )
+        car_unk2 = (IntegerBlock(length=1), {'is_unknown': True, 'description': '0 in every car'})
+        light = (
+            IntegerBlock(length=1),
+            {
+                'description': 'Glare articles (flags 0x600, effect parts): the car light drawing the glare '
+                '(R3DCar+0x2d4 flags, +0x2d8 intensities, set by R3DCar_UpdateLights 0x439360): 0 / 1 headlights, '
+                '2 / 3 brake lights, 4 / 5 front indicators, 6 / 7 rear indicators, 8 reverse light, 9 off in '
+                'races, 10 / 11 brake lights (blinking with the indicators), 12 / 13 on (roof lights)'
+            },
+        )
+        car_cockpit = (
+            IntegerBlock(length=1),
+            {'description': 'Cars: not 0: drawn in the in-car view (R3DCar_Draw 0x444e00 with inside 1, 0x43c830)'},
+        )
+        car_inside_only = (
+            IntegerBlock(length=1),
+            {'description': "Cars: not 0: not drawn outside the in-car view (the driver's hands; 0x43c830)"},
+        )
+        unk4 = (BytesBlock(length=17), {'is_unknown': True, 'description': 'Zeros in every file'})
         lods = (
             ArrayBlock(child=CrpBaseLodRecord(), length='num_lods'),
             {'description': 'Levels of detail of the article'},
@@ -922,6 +1075,7 @@ def crp_part_block() -> MagicDispatchBlock:
             UVPart(),
             VertexPart(),
             UnkPart4(),
+            CrpDamageZonesPart(),
             UnkPart2(),
             CrpBasePart(),
             CrpVertexColorPart(),
@@ -1071,7 +1225,7 @@ class CrpGeometry(DeclarativeCompoundBlock):
                 '- [TextPart4](#textpart4) "emaN" - name of the mesh<br/>'
                 '- [CrpVertexColorPart](#crpvertexcolorpart) "fd" - vertex colours, tracks only<br/>'
                 '- [EffectPart](#effectpart) - ?<br/>'
-                '- "zd" - ?, cars only<br/>'
+                '- [CrpDamageZonesPart](#crpdamagezonespart) "zd" - damage zones of the vertices, cars only<br/>'
                 '- [NormalPart](#normalpart) - ?, cars only<br/>'
                 '- [TrianglePart](#trianglepart) - mesh indexes (faces)<br/>'
                 '- [TransformationPart](#transformationpart) - position/rotation of the mesh<br/>'

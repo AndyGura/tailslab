@@ -12,8 +12,6 @@ from PIL import Image
 
 from serializers.geometries import (
     compose_texture_page,
-    crp_car_default_style,
-    crp_car_is_image_used,
     crp_car_texture_page_sources,
     crp_image_atlas_position,
     crp_primitive_triangles,
@@ -30,6 +28,15 @@ from serializers.geometries import (
     texture_alpha_mode,
 )
 from serializers.common.three_d import SubMesh
+from serializers.misc.nfs5_car_model import (
+    crp_car_is_image_used,
+    nfs5_car_packages,
+    nfs5_car_tpg_info,
+    nfs5_damage_zones,
+    nfs5_paint_band,
+    nfs5_race_slots,
+    nfs5_style_slots,
+)
 from serializers.common.three_d.glb_morph_targets import (
     add_glb_morph_targets,
     add_glb_vertex_attributes,
@@ -800,45 +807,140 @@ class TestCrpCarStyle(unittest.TestCase):
         self.tpg = ConfigParser(strict=False, interpolation=None)
         self.tpg.read_string(
             """
+[header]
+numfiles=1
+numtpages=2
+movespoilerextent=-0.08
+dooraxis=0,1,0.5
+[tpage1.details]
+width=256
+height=256
+[tpage2.details]
+sourcetpage=1
+bpp=4444
+[file1.details]
+tpage=1
 [style2]
+name=S
+count=1
 geometry1=8
 type1=1
+stripe=1
 [style1]
+name=Base
+count=2
 geometry1=8
 type1=3
 texture2=4
 type2=1
 [file1.top]
+count=1
 geometry1=8
 type1=0
 [file1.top1]
+count=2
 geometry1=8
 type1=3
 geometry2=8
 type2=4
 [file1.dec]
+count=1
 texture1=4
 type1=1
 racedecal=1
 [file1.fro]
 frontend=0
+[file1.frf]
+frontend=1
+[file1.gnl]
+night=1
+[file1.fag]
+testdrive=1
 """
         )
 
-    def test_default_style_is_lowest_numbered(self):
-        self.assertEqual(crp_car_default_style(self.tpg), {('geometry', 8): 3, ('texture', 4): 1})
+    def test_style_slots(self):
+        # texture slots follow the 60 geometry slots; slot 10 shows the race number decals
+        self.assertEqual(nfs5_style_slots(self.tpg, 0), {8: 3, 64: 1, 10: 0})
+        self.assertEqual(nfs5_style_slots(self.tpg, 1, race_number=True), {8: 1, 10: 1})
+        self.assertEqual(nfs5_style_slots(ConfigParser(), 0), {})
 
-    def test_no_styles(self):
-        self.assertEqual(crp_car_default_style(ConfigParser()), {})
+    def test_race_slots(self):
+        tpg = ConfigParser(strict=False, interpolation=None)
+        tpg.read_string('[style1]\ncount=2\ngeometry1=37\ntype1=1\ngeometry2=42\ntype2=1\n')
+        slots = nfs5_race_slots(tpg, driver=5)
+        # the convertible top up (41 = 1), its animated top hidden, the driver's body, arms and hands
+        self.assertEqual(
+            {k: slots[k] for k in (9, 37, 41, 42, 43, 56, 58)}, {9: 8, 37: 0, 41: 1, 42: 0, 43: 4, 56: 2, 58: 0}
+        )
+        self.assertEqual(nfs5_race_slots(tpg, cabrio_down=True)[41], 2)
+        self.assertEqual(nfs5_race_slots(tpg, driver=None)[9], 0)
 
-    def test_image_selection(self):
-        style = crp_car_default_style(self.tpg)
-        self.assertFalse(crp_car_is_image_used(self.tpg, 1, 'top', style))
-        self.assertTrue(crp_car_is_image_used(self.tpg, 1, 'top1', style))
-        self.assertFalse(crp_car_is_image_used(self.tpg, 1, 'dec', style))
-        self.assertFalse(crp_car_is_image_used(self.tpg, 1, 'fro', style))
-        self.assertTrue(crp_car_is_image_used(self.tpg, 1, 'sid', style))
+    def test_image_selection_in_a_race(self):
+        slots = nfs5_style_slots(self.tpg, 0)
+        self.assertFalse(crp_car_is_image_used(self.tpg, 1, 'top', slots))
+        self.assertTrue(crp_car_is_image_used(self.tpg, 1, 'top1', slots))
+        # the race number decal is drawn (its articles show by slot 10)
+        self.assertTrue(crp_car_is_image_used(self.tpg, 1, 'dec', slots))
+        # the race's images, not the showroom's
+        self.assertTrue(crp_car_is_image_used(self.tpg, 1, 'fro', slots))
+        self.assertFalse(crp_car_is_image_used(self.tpg, 1, 'frf', slots))
+        self.assertTrue(crp_car_is_image_used(self.tpg, 1, 'sid', slots))
         self.assertTrue(crp_car_is_image_used(self.tpg, 1, 'top', {}))
+        # night images at night only; test drive images on the skid pad of a factory mission only
+        self.assertFalse(crp_car_is_image_used(self.tpg, 1, 'gnl', slots))
+        self.assertTrue(crp_car_is_image_used(self.tpg, 1, 'gnl', slots, night=1))
+        self.assertFalse(crp_car_is_image_used(self.tpg, 1, 'fag', slots))
+        self.assertTrue(crp_car_is_image_used(self.tpg, 1, 'fag', slots, skidpad=True, factory_mission=True))
+        self.assertFalse(crp_car_is_image_used(self.tpg, 1, 'fag', slots, skidpad=True))
+
+    def test_tpg_info(self):
+        info = nfs5_car_tpg_info(self.tpg)
+        self.assertEqual(
+            info['styles'],
+            [
+                {'name': 'Base', 'slots': [[8, 3], [64, 1]], 'stripe': False},
+                {'name': 'S', 'slots': [[8, 1]], 'stripe': True},
+            ],
+        )
+        self.assertEqual(info['header']['moveSpoilerExtent'], -0.08)
+        self.assertEqual(info['header']['doorAxis'], [0.0, 1.0, 0.5])
+        # the exe's defaults
+        self.assertEqual(info['header']['hoodExtent'], 0.15)
+        self.assertEqual(
+            info['pages'],
+            [
+                {'index': 0, 'width': 256, 'height': 256, 'format': 1555, 'file': 0},
+                {'index': 1, 'width': 0, 'height': 0, 'format': 4444, 'file': 0},
+            ],
+        )
+
+    def test_packages(self):
+        packages = ConfigParser(strict=False, interpolation=None)
+        packages.read_string('[header]\ncount=2\n[package1]\n[package2]\nband1=1\nband14=2\n')
+        result = nfs5_car_packages(packages)
+        self.assertEqual(result[0], [0] * 14 + [3, 3, 0, 0])
+        self.assertEqual(result[1][1], 1)
+        self.assertEqual(result[1][14:16], [2, 3])
+
+    def test_paint_bands(self):
+        # k = (A + 1) * 20 >> 8: 0, 10 and 20 untinted
+        self.assertIsNone(nfs5_paint_band(0))
+        self.assertIsNone(nfs5_paint_band(255))
+        self.assertIsNone(nfs5_paint_band(130))
+        self.assertEqual(nfs5_paint_band(13), 17)
+        self.assertEqual(nfs5_paint_band(140), 8)
+        self.assertEqual(nfs5_paint_band(250), 0)
+
+    def test_damage_zones(self):
+        data = {
+            'zones': [
+                {'zone': 3, 'num_vertices': 2, 'first_index': 0},
+                {'zone': 9, 'num_vertices': 1, 'first_index': 2},
+            ],
+            'vertex_indices': [5, 1, 0],
+        }
+        self.assertEqual(nfs5_damage_zones(data), {5: 3, 1: 3, 0: 9})
 
 
 class TestCrpPrimitives(unittest.TestCase):
@@ -900,21 +1002,59 @@ class TestCrpGeometrySerializer(unittest.TestCase):
                 re.findall(r'newmtl (\S+)', mtl),
                 ['page_0', 'page_1', 'page_2', 'page_3', 'page_3_alpha', 'page_4_alpha'],
             )
-            # only glass is translucent
+            # only glass is translucent; the other pages' alpha is the paint band (data for a shader)
             self.assertEqual(
-                re.findall(r'alpha_mode (\S+)', mtl), ['cutout', 'cutout', 'cutout', 'cutout', 'cutout', 'blend']
+                re.findall(r'alpha_mode (\S+)', mtl), ['opaque', 'opaque', 'opaque', 'opaque', 'cutout', 'blend']
             )
             with open(os.path.join(out, 'geometry.obj')) as f:
                 obj = f.read()
-            body_meshes = re.findall(r'\no (Body_LOD1_ai0[^\n]*)\n', obj)
-            self.assertIn('Body_LOD1_ai0_page_0', body_meshes)
-            self.assertIn('Body_LOD1_ai0_page_0_damaged', body_meshes)
+            body_meshes = re.findall(r'\no (Body_a\d+_LOD1_ai0[^\n]*)\n', obj)
+            self.assertIn('Body_a30_LOD1_ai0_page_0', body_meshes)
+            self.assertIn('Body_a30_LOD1_ai0_page_0_damaged', body_meshes)
             self.assertIn('usemtl page_0', obj)
             # triangle part without vertex index row (UV index row only)
-            self.assertIn('\no DecalDoorL_LOD6_ai0_page_0\n', obj)
+            self.assertIn('\no DecalDoorL_a6_LOD6_ai0_page_0\n', obj)
             # triangle parts without index rows
-            self.assertIn('\no Needle1_LOD1_ai0_', obj)
-            self.assertIn('\no InteriorDoorInGlass_LOD1_ai0_', obj)
+            self.assertIn('\no Needle1_a57_LOD1_ai0_', obj)
+            self.assertIn('\no InteriorDoorInGlass_a43_LOD1_ai0_', obj)
+
+    def test_car_model_data(self):
+        from library import require_resource_as
+        from library.utils.id import path_to_name
+        from resources.eac.geometries.nfs5 import CrpGeometry
+        from serializers import CrpGeometrySerializer
+        from serializers.common.three_d import Scene
+
+        serializer = CrpGeometrySerializer()
+        with tempfile.TemporaryDirectory() as out:
+            self._serialize('test/samples/356b.crp', out)
+            with open(os.path.join(out, 'geometry_extra.json')) as f:
+                extra = json.load(f)
+        articles = extra['nfs5Car']['articles']
+        body = articles[30]
+        self.assertEqual((body['name'], body['slot'], body['value'], body['drawFlags'] & 0x18), ('Body', 1, 0, 0x18))
+        wheels = [a for a in articles if a['name'].startswith('WheelFront')]
+        self.assertEqual(sorted(a['wheel'] for a in wheels), [0, 1])
+        self.assertEqual({a['pivot'] for a in wheels}, {1, 2})
+        self.assertIn('1', wheels[0]['transforms'])
+        # every vertex of the body's mesh in a zone, per face corner of the OBJ
+        zones = extra['nfs5DamageZones']['Body_a30_LOD1_ai0_page_0']
+        self.assertTrue(zones and all(0 <= z <= 9 for z in zones))
+        glares = [g for a in articles for g in a.get('glares', [])]
+        self.assertTrue(glares)
+        # morph targets of the GLB: the damaged copy and the animation frames, relative to the first frame
+        _, crp_block, crp_data = require_resource_as(path_to_name('test/samples/356b.crp'), CrpGeometry)
+        meshes = list(serializer._build_article_meshes(crp_data, crp_block, lambda m: None, True))
+        serializer._add_car_model_data(Scene(), crp_data, crp_block, meshes, None, None)
+        by_name = {sub_mesh.name: (sub_mesh, sources) for _, _, _, sub_mesh, sources in meshes}
+        body, sources = by_name['Body_a30_LOD1_ai0']
+        damaged, _ = by_name['Body_a30_LOD1_ai0_damaged']
+        self.assertEqual(len(body.morph_targets['damaged']), len(body.vertices))
+        self.assertAlmostEqual(body.vertices[5][0] + body.morph_targets['damaged'][5][0], damaged.vertices[5][0], 5)
+        self.assertEqual(len(body.vertex_byte_attributes['_NFS5_DAMAGE_ZONE']), len(body.vertices))
+        self.assertEqual(len(sources), len(body.vertices))
+        animated = [m for name, (m, _) in by_name.items() if name.startswith('DriverBody') and '_ai0' in name]
+        self.assertTrue(animated and all('frame1' in m.morph_targets for m in animated))
 
     def test_malformed_tpg_falls_back_to_default_layout(self):
         with tempfile.TemporaryDirectory() as tmp:
