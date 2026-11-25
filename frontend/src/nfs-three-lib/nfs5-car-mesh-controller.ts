@@ -252,6 +252,7 @@ export class Nfs5CarMeshController {
       }
     }
     this.setupGlares(root);
+    this.setupDrawOrder();
     this.setupPaint();
     this.applySlots();
     // the driver sits straight, the arms on a straight steering wheel
@@ -995,6 +996,49 @@ export class Nfs5CarMeshController {
       !!this.car.styles[this._bodyStyle]?.stripe,
     );
     this.bands.forEach((c, i) => this.bandUniforms.value[i].set((c >> 16) & 0xff, (c >> 8) & 0xff, c & 0xff));
+  }
+
+  /**
+   * R3DCarLOD_Build 0x43c1b0 sorts a level's articles by their draw order (the tag's third byte, ascending) and the
+   * game draws them so: an overlay (a lamp's lens, a decal, the license plate, the gauges) lies on the triangles of an
+   * article drawn before it (the body's lamp, the trunk, the dash) and covers them. three.js has no such rule for
+   * surfaces at the same depth: each mesh is drawn in its article's order (`renderOrder`) and the later orders of its
+   * group (outside < 0x80 <= inside) are pulled towards the camera by their rank (polygon offset), on copies of the
+   * materials
+   */
+  private setupDrawOrder() {
+    const orderOf = (entry: MeshEntry) => entry.article?.order ?? 0;
+    const ranks = new Map<number, number>();
+    for (const group of [0, 0x80]) {
+      [...new Set(this.entries.map(orderOf).filter(o => (o & 0x80) === group))]
+        .sort((a, b) => a - b)
+        .forEach((order, rank) => ranks.set(order, rank));
+    }
+    const copies = new Map<Material, Map<number, Material>>();
+    const offsetCopy = (material: Material, rank: number): Material => {
+      const byRank = copies.get(material) ?? copies.set(material, new Map()).get(material)!;
+      let copy = byRank.get(rank);
+      if (!copy) {
+        copy = material.clone();
+        copy.polygonOffset = true;
+        copy.polygonOffsetFactor = -rank;
+        copy.polygonOffsetUnits = -rank;
+        byRank.set(rank, copy);
+        this.ownMaterials.add(copy);
+      }
+      return copy;
+    };
+    for (const entry of this.entries) {
+      const order = orderOf(entry);
+      entry.mesh.renderOrder = order;
+      const rank = ranks.get(order) ?? 0;
+      if (rank > 0) {
+        const mesh = entry.mesh;
+        mesh.material = Array.isArray(mesh.material)
+          ? mesh.material.map(m => offsetCopy(m, rank))
+          : offsetCopy(mesh.material, rank);
+      }
+    }
   }
 
   private setupPaint() {

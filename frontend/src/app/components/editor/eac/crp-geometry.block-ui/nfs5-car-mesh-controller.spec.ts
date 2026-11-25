@@ -194,6 +194,35 @@ describe('Nfs5CarMeshController', () => {
     controller.dispose();
   });
 
+  it('draws the articles in their draw order, an overlay over the article under it', () => {
+    const data: Nfs5CarData = {
+      ...CAR,
+      articles: [
+        article(0, 'Body', { slot: 1, order: 0 }),
+        article(1, 'Light1', { slot: 19, order: 2 }),
+        article(2, 'Interior', { slot: 24, order: 129 }),
+        article(3, 'DecalGauge', { slot: 28, order: 131 }),
+      ],
+    };
+    const root = new Group();
+    const body = mesh('Body_a0_LOD1_ai0_page_0', 0, 0, 0.5, 1);
+    const light = mesh('Light1_a1_LOD1_ai0_page_0', 0, 0, 0.5, 1);
+    light.material = body.material;
+    const interior = mesh('Interior_a2_LOD1_ai0_page_2', 0, 0, 0.5, 0.8);
+    const gauge = mesh('DecalGauge_a3_LOD1_ai0_page_2', 0, 0, 0.5, 0.8);
+    root.add(body, light, interior, gauge);
+    const controller = new Nfs5CarMeshController(root, { car: data });
+    expect([body, light, interior, gauge].map(m => m.renderOrder)).toEqual([0, 2, 129, 131]);
+    // the first order of the outside and of the inside keeps its material; the next ones are pulled forward
+    const offset = (m: Mesh) => {
+      const material = m.material as MeshBasicMaterial;
+      return material.polygonOffset ? material.polygonOffsetFactor : 0;
+    };
+    expect([body, light, interior, gauge].map(offset)).toEqual([0, -1, 0, -1]);
+    expect(light.material).not.toBe(body.material);
+    controller.dispose();
+  });
+
   it('draws the in-car view and the levels of detail as the game does', () => {
     const { root } = car();
     const controller = new Nfs5CarMeshController(root, { car: CAR });
