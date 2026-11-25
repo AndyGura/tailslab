@@ -212,13 +212,14 @@ describe('Nfs5CarMeshController', () => {
     const gauge = mesh('DecalGauge_a3_LOD1_ai0_page_2', 0, 0, 0.5, 0.8);
     root.add(body, light, interior, gauge);
     const controller = new Nfs5CarMeshController(root, { car: data });
-    expect([body, light, interior, gauge].map(m => m.renderOrder)).toEqual([0, 2, 129, 131]);
+    // a signed byte: the inside (129, 131 = -127, -125) first
+    expect([body, light, interior, gauge].map(m => m.renderOrder)).toEqual([0, 2, -127, -125]);
     // the first order keeps its material; the next ones are pulled forward by their rank
     const offset = (m: Mesh) => {
       const material = m.material as MeshBasicMaterial;
       return material.polygonOffset ? material.polygonOffsetFactor : 0;
     };
-    expect([body, light, interior, gauge].map(offset)).toEqual([0, -1, -2, -3]);
+    expect([body, light, interior, gauge].map(offset)).toEqual([-2, -3, 0, -1]);
     expect(light.material).not.toBe(body.material);
     controller.dispose();
   });

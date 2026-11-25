@@ -814,8 +814,10 @@ class CrpBasePartData(DeclarativeCompoundBlock):
                 'collision type (cylinder, box, smackable). On cars four bytes: the geometry slot (0..59), the slot '
                 'value that draws the article (a car level of detail lists the articles with car+0x56c[slot] == '
                 'value: R3DCarLOD_Build 0x43c1b0; the slots come from the `.tpg` style, the race and the parts: '
-                'R3DCar_SetBodyStyle 0x437b00, R3DCar_SetupGeometry 0x43ae50), the draw order (sorted ascending, '
-                '0x43c1b0) and a sequential article id'
+                'R3DCar_SetBodyStyle 0x437b00, R3DCar_SetupGeometry 0x43ae50), the draw order (a signed byte, '
+                "sorted ascending by 0x43c1b0 with a signed compare, 0x43e910: the inside articles' 0x81.. = "
+                "-127.. are drawn first, a trunk lid's 0xF6 = -10 before the body's 0, lamps and decals 2 over "
+                'the body) and a sequential article id'
             },
         )
         car_wheel = (
