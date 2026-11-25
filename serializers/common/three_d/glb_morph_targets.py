@@ -9,7 +9,9 @@ corner of, matched with the sub-mesh polygons, when vertices with the same posit
 differently): Blender reorders and splits vertices, but the GLB positions are the OBJ ones, since the OBJ is imported
 with forward Y / up Z and exported without Y-up conversion. Each target becomes a glTF morph target with a POSITION
 accessor of relative deltas, named in `mesh.extras.targetNames` (three.js GLTFLoader reads them into
-`morphTargetDictionary`), with default weights 0.
+`morphTargetDictionary`), with default weights 0. The game's normals at a target (`morph_target_normals`) become the
+vertex attribute `_GAME_NORMAL_<TARGET>` of the same vertices (three.js `_game_normal_<target>`), and vertices with the
+same position and deltas but other normals there are told apart by their triangles too.
 """
 
 import itertools
@@ -155,8 +157,12 @@ def _vertices_near(sub_mesh: SubMesh, index: dict, position, tolerance: float) -
     ]
 
 
-def _same_deltas(sub_mesh: SubMesh, indices) -> bool:
-    return all(len({tuple(deltas[i]) for i in indices}) == 1 for deltas in sub_mesh.morph_targets.values())
+def _same_deltas(sub_mesh: SubMesh, indices, normals: bool = True) -> bool:
+    """Whether the vertices move alike: the same deltas of every morph target (`normals`: and the same normals at it)"""
+    return all(
+        len({tuple(values[i]) for i in indices}) == 1
+        for values in [*sub_mesh.morph_targets.values(), *(sub_mesh.morph_target_normals.values() if normals else ())]
+    )
 
 
 def _morph_candidates(sub_mesh: SubMesh, index: dict, position, uv, tolerance: float) -> List[int]:
@@ -241,7 +247,9 @@ def _match_vertices(sub_mesh: SubMesh, index: dict, positions, uvs, triangles, t
             unresolved.discard(g)
 
     def deltas_of(i):
-        return [tuple(deltas[i]) for deltas in sub_mesh.morph_targets.values()]
+        return [
+            tuple(values[i]) for values in [*sub_mesh.morph_targets.values(), *sub_mesh.morph_target_normals.values()]
+        ]
 
     taken = set()
     for triangle in triangles:
@@ -261,6 +269,14 @@ def _match_vertices(sub_mesh: SubMesh, index: dict, positions, uvs, triangles, t
             if matches[g] is None:
                 matches[g] = c
                 unresolved.discard(g)
+    for g in sorted(unresolved):
+        # moving alike, only their normals at the targets differ: the first one
+        if _same_deltas(sub_mesh, candidates[g], normals=False):
+            logging.warning(
+                f'Mesh "{sub_mesh.name}": vertices at {positions[g]} with other target normals, the first taken'
+            )
+            matches[g] = candidates[g][0]
+            unresolved.discard(g)
     if unresolved:
         g = min(unresolved)
         raise ValueError(f'Mesh "{sub_mesh.name}": vertices at {positions[g]} have different morph deltas')
@@ -268,7 +284,8 @@ def _match_vertices(sub_mesh: SubMesh, index: dict, positions, uvs, triangles, t
 
 
 def add_glb_morph_targets(glb_path: str, sub_meshes: List[SubMesh], tolerance: float = 1e-4):
-    """Adds the `morph_targets` of `sub_meshes` to the meshes of the nodes with their names in the GLB file"""
+    """Adds the `morph_targets` of `sub_meshes` to the meshes of the nodes with their names in the GLB file, and their
+    `morph_target_normals` as the vertex attributes `_GAME_NORMAL_<TARGET>` (float VEC3, the same vertices)"""
     sub_meshes = [sm for sm in sub_meshes if sm.morph_targets]
     if not sub_meshes:
         return
@@ -297,6 +314,11 @@ def add_glb_morph_targets(glb_path: str, sub_meshes: List[SubMesh], tolerance: f
                 }
                 for name in target_names
             ]
+            for name, normals in sorted(sub_mesh.morph_target_normals.items()):
+                if len(normals) == len(sub_mesh.vertices):
+                    primitive['attributes'][f'_GAME_NORMAL_{name.upper()}'] = _append_float_accessor(
+                        gltf, binary, [normals[i] for i in matches], 'VEC3'
+                    )
         mesh['weights'] = [0.0] * len(target_names)
         mesh.setdefault('extras', {})['targetNames'] = target_names
     gltf['buffers'][0]['byteLength'] = len(binary) + (-len(binary) % 4)
@@ -343,8 +365,13 @@ def add_glb_vertex_attributes(glb_path: str, sub_meshes: List[SubMesh], toleranc
     alpha; replacing one Blender wrote) and their `vertex_byte_attributes` as unsigned byte normalized attributes of
     their names (three.js: the name in lower case, value / 255; `_PSX_GOURAUD`). The GLB
     keeps Blender's NORMAL: the game normals are for code that follows the game's own shading (FCE chrome,
-    `FceCarMeshController`). Vertices are matched as for the morph targets"""
-    with_normals = {sm.name for sm in sub_meshes if len(sm.vertices) and len(sm.vertex_normals) == len(sm.vertices)}
+    `FceCarMeshController`). Sub-meshes with `glb_game_normals` off get no `_GAME_NORMAL`. Vertices are matched as for
+    the morph targets"""
+    with_normals = {
+        sm.name
+        for sm in sub_meshes
+        if sm.glb_game_normals and len(sm.vertices) and len(sm.vertex_normals) == len(sm.vertices)
+    }
     with_colors = {sm.name for sm in sub_meshes if len(sm.vertices) and len(sm.vertex_colors) == len(sm.vertices)}
     with_bytes = {
         sm.name

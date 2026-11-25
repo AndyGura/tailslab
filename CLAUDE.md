@@ -178,14 +178,15 @@ When you do:
   and hold no specs (they are tested next to the GUI components using them). It has `TnfsCarMeshController` (and
   `TnfsSkylineMemorialCarMeshController`, the Japanese PSX cars' Gouraud colours; `createTnfsCarMeshController` picks one),
   `Nfs2CarMeshController`, `FceCarMeshController` (NFS3 / NFS4 paint in the fragment shader, by the paint mask's
-  alpha; NFS3 chrome), `Nfs6Ps2CarMeshController` (NFS HP2 PS2 cars), `Nfs6CarMeshController` (NFS HP2 PC
+  alpha; NFS3 / NFS4 chrome), `Nfs6Ps2CarMeshController` (NFS HP2 PS2 cars), `Nfs6CarMeshController` (NFS HP2 PC
   cars), `scene-sky.ts` (a scene's sky cube and the sun of a gg-web-engine procedural sky, for car shaders lit by the
-  scene) and `setupNfs1Texture`; the other car mesh controllers (`*-car-mesh-controller.ts`) and the track props controllers
-  (`*track-props-controller.ts`) in `frontend/.../editor/eac/` are copied into nfs-web too, with their import paths
-  changed: keep them free of GUI services, depending on three.js, gg-web-engine and rxjs only. Meshes of the GUI's OBJ
-  models share a material per MTL material, nfs-web's GLB ones don't: code changing a material's shader must change
-  each material once. nfs-web loads the converter's gg-web-engine export with "Add props to obj" off, so a track's
-  props must reach it as dummies.
+  scene; the `scene.userData` keys of NFS4's sky top colour and track light, `SCENE_SKY_TOP_COLOR` and
+  `SCENE_TRACK_LIGHT`) and `setupNfs1Texture`; the other car mesh controllers (`*-car-mesh-controller.ts`) and the
+  track props controllers (`*track-props-controller.ts`) in `frontend/.../editor/eac/` are copied into nfs-web too,
+  with their import paths changed: keep them free of GUI services, depending on three.js, gg-web-engine and rxjs only.
+  Meshes of the GUI's OBJ models share a material per MTL material, nfs-web's GLB ones don't: code changing a
+  material's shader must change each material once. nfs-web loads the converter's gg-web-engine export with "Add props
+  to obj" off, so a track's props must reach it as dummies.
 - TNFS GLBs for nfs-web (chunked `*.TRI` terrain chunks and every ORIP model: cars, props) are exported without NORMAL / TANGENT
   (`Scene(export_normals=False)`, the exporter's `export_normals` / `export_tangents` options): nfs-web draws them unlit.
   Blender then splits vertices along texture coordinate seams only. An option that the loaded `exporter.py` does not
@@ -1114,7 +1115,7 @@ When you do:
   `fce3ChromeAdd`, verified in nfs3.exe and its Direct3D driver `D3DA.DLL`, nfs-web `decomp/nfs3/`). Its source:
   `chromeTexture` (a track's `SKY.FSH` `CHRD`, the sphere map the game uses for nothing else), else the sky of the
   scene (`scene.background` when it is a cube texture, e.g. gg-web-engine's baked sky: the camera's direction
-  reflected by the normal, alpha `fce3SkyChromeAlpha`), `chromeEnabled` off for none. The GUI uses the viewer's sky.
+  reflected by the normal, dimmed by `fce3SkyChromeAlpha` to what the tracks' `CHRD` textures add on average), `chromeEnabled` off for none. The GUI uses the viewer's sky.
   Wheels spin as nfs3.exe spins them (`fce3WheelSpinStep`: per 1/64 s tick, at most 8 turns per second; `handbrake`
   slows the rear ones). nfs-web reads the mesh names, extras and the attribute: keep them stable.
 - The OBJ has a `no_cull` triangle twice, the second reversed; Blender's OBJ import drops that copy (a face of the
@@ -1122,9 +1123,9 @@ When you do:
 
 ## NFS4 car models (`Data/Cars/<car>/car.viv`: `car.fce`, the upgrade levels `car1.fce`..`car3.fce`)
 
-- `Fce4GeometrySerializer`: `Fce3GeometrySerializer` through its hooks (`_vertex_tables`, `_window_class` /
-  `_window_class_extras`, `_morph_target_tables`, `_vertex_turns`, `export_part_positions`; FCE3 output stays as it
-  is), part roles by name (`fce4_part_lod_prefix`). Mesh names
+- `Fce4GeometrySerializer`: `Fce3GeometrySerializer` through its hooks (`_vertex_tables`, `_chrome_part`,
+  `_glb_game_normals`, `_window_class` / `_window_class_extras`, `_morph_target_tables`, `_vertex_turns`,
+  `export_part_positions`; FCE3 output stays as it is), part roles by name (`fce4_part_lod_prefix`). Mesh names
   `<lod>_<part>_<name>__<texture>[_translucent][_window[_front][_left][_back][_right][_breakaway]][_damaged]`: window
   triangles (flag bits 5..9, `fce4_window_class`, nfs4.exe Fce_BreakWindows 0x4ed0e0) split by their sides (bits
   6..9) and bit 10 (the glass breaks away), node extras `{"fceWindow": {"sides": [...], "breaksAway": bool}}`. A model
@@ -1135,6 +1136,19 @@ When you do:
   1 / 0 per face corner, in file order, as three.js OBJLoader makes its vertices). `fcePartPositions` (mesh name prefix
   `<lod>_<part>_<name>` -> part position [x, y, z] in the export axes) in the `.meta` and in `geometry_extra.json`.
   nfs-web reads the names, extras, target, attribute and keys: keep them stable.
+- Chrome (car models `car*.fce`, the parts nfs4.exe draws it over, `FCE4_CHROME_PARTS`: `:HB :MB :LB :OC :ODL :OLM
+  :ORM :OS :OT :OL`; Render_CarParts 0x50dd60, never `:TB`, the wheels, brakes or driver): their triangles split by
+  class as FCE3's, the suffix before the window class
+  (`<lod>_<part>_<name>__<texture>[_translucent][_matte|_high_chrome][_window...][_damaged]`, extras `fceChrome`
+  merged with `fceWindow`); their `normals` (the table the chrome pass reads, CarDraw_EnvMapUVs 0x4f09d0) as OBJ `vn` /
+  GLB `_GAME_NORMAL`, the `_damaged` copies' `vn` the `damaged_normals` (no `_GAME_NORMAL` in the GLB:
+  `SubMesh.glb_game_normals`), and on the meshes with the morph target `damaged` the GLB attribute
+  `_GAME_NORMAL_DAMAGED` (`SubMesh.morph_target_normals`, written by `add_glb_morph_targets` for the target's vertices;
+  three.js `_game_normal_damaged`): Fce_DamageVertices 0x4ed390 blends the normals as the positions. With `vn`,
+  Blender shares the vertices of the smooth parts (the GLB of a racer about a quarter smaller, its gzip about a tenth
+  larger). `FceCarMeshController` draws the pass with nfs4.exe's colours (`fce4ChromeColors`, Render_CarChrome
+  0x50d6f0: the track light under the wheels, the sky top colour, the paint, covered road slices; texel x colour,
+  alphas too, added with source alpha, one), `Fce4CarParts` blends the normals on hits.
 - `add_glb_morph_targets` matches the GLB vertices by position, then texture coordinates, then the glTF triangles
   they are corners of: 19 parts of the NFS4 cars have vertices at the same place and texture coordinates that move
   differently, a few of them whole triangles twice with vertices of their own, one copy damaged.
@@ -1220,7 +1234,8 @@ When you do:
   the polygon search (`BWorld_FindPolygonForks` 0x41f330). Byte 3 of a position record is the slice's music event
   (`SND_PathEvent`). FRD block `position`s are mean terrain vertices, off the centre line.
 - Vertex shading (`vertex_shading` of the blocks and the XOBJs, 0xAARRGGBB): nfs3.exe draws texel x colour (block
-  render 0x41cdc0 -> vertex transform 0x41a970, D3DA.DLL D3DTBLEND_MODULATE), each channel tinted at load by the day
+  render 0x41cdc0 -> vertex transform 0x41a970, D3DA.DLL D3DTBLEND_MODULATEALPHA, set with the device at 0x6000410c and
+  never changed: alpha included), each channel tinted at load by the day
   `3TR<nn>.HRZ` ambient light (0x419750 -> 0x419660: c * p / 100; 100 in every day HRZ). `FrdMapSerializer` gives
   the terrain (every exported level), POLYOBJ and XOBJ meshes these colours (`track_shading_colors`,
   `nfs3_ambient_percent`; RGB / 255, the alpha left out): OBJ `v` colours, GLB COLOR_0 float VEC3. The COL props have

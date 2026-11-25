@@ -442,9 +442,11 @@ class TestOripMorphDeltas(unittest.TestCase):
         mesh = SubMesh()
         mesh.vertices = [[1, 2, 3]]
         mesh.morph_targets = {'left_turn': [[0.1, 0.2, 0.3]]}
+        mesh.morph_target_normals = {'left_turn': [[0, 0.6, 0.8]]}
         mesh.change_axes(new_z='y', new_y='z')
         self.assertEqual(mesh.vertices, [[1, 3, 2]])
         self.assertEqual(mesh.morph_targets, {'left_turn': [[0.1, 0.3, 0.2]]})
+        self.assertEqual(mesh.morph_target_normals, {'left_turn': [[0, 0.8, 0.6]]})
 
 
 class TestAddGlbMorphTargets(unittest.TestCase):
@@ -526,6 +528,39 @@ class TestAddGlbMorphTargets(unittest.TestCase):
             read_accessor(gltf, binary, attributes['_GAME_NORMAL']), [(1, 0, 0), (0, 0, 1), (0, 1, 0), (0, 0, -1)]
         )
         self.assertEqual(gltf['buffers'][0]['byteLength'], len(binary))
+
+    def test_adds_target_normals_matched_as_the_targets(self):
+        mesh = SubMesh()
+        mesh.name = 'wheel'
+        mesh.vertices = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]]
+        mesh.vertex_uvs = [[0, 0], [1, 0], [1, 1], [0, 1]]
+        mesh.morph_targets = {'damaged': [[0, 0, 0], [0, 0, -1], [0, 0, 0], [0, 0, 0]]}
+        mesh.morph_target_normals = {'damaged': [[0, 0, 1], [1, 0, 0], [0, 1, 0], [0, 0, -1]]}
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, 'body.glb')
+            self._write_quad_glb(path)
+            add_glb_morph_targets(path, [mesh])
+            gltf, binary = read_glb(path)
+        attributes = gltf['meshes'][0]['primitives'][0]['attributes']
+        self.assertEqual(
+            read_accessor(gltf, binary, attributes['_GAME_NORMAL_DAMAGED']),
+            [(1, 0, 0), (0, 0, 1), (0, 1, 0), (0, 0, -1)],
+        )
+        self.assertEqual(gltf['buffers'][0]['byteLength'], len(binary))
+
+    def test_game_normals_left_out_of_the_glb(self):
+        mesh = SubMesh()
+        mesh.name = 'wheel'
+        mesh.vertices = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]]
+        mesh.vertex_uvs = [[0, 0], [1, 0], [1, 1], [0, 1]]
+        mesh.vertex_normals = [[0, 0, 1]] * 4
+        mesh.glb_game_normals = False
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, 'body.glb')
+            self._write_quad_glb(path)
+            add_glb_vertex_attributes(path, [mesh])
+            gltf, _ = read_glb(path)
+        self.assertNotIn('_GAME_NORMAL', gltf['meshes'][0]['primitives'][0]['attributes'])
 
     def test_adds_vertex_colors_as_they_are(self):
         mesh = SubMesh()
@@ -667,6 +702,24 @@ class TestAddGlbMorphTargets(unittest.TestCase):
         positions = [(0, 0, 0), (1, 0, 0), (0, 1, 0)] * 2
         deltas = self._targets_of(mesh, positions, [(0, 0), (1, 0), (0, 1)] * 2, [0, 1, 2, 3, 4, 5])
         self.assertEqual(sorted([deltas[:3], deltas[3:]]), [[(0, 0, 0)] * 3, [(0, 0, 1), (0, 0, 2), (0, 0, 3)]])
+
+    def test_vertices_moving_alike_with_other_target_normals_matched_by_their_triangles(self):
+        mesh = SubMesh()
+        mesh.name = 'body'
+        mesh.vertices = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 0], [-1, 0, 0], [0, -1, 0]]
+        mesh.vertex_uvs = [[0, 0]] * 6
+        mesh.polygons = [[0, 1, 2], [3, 4, 5]]
+        mesh.morph_targets = {'damaged': [[0, 0, 0]] * 6}
+        mesh.morph_target_normals = {'damaged': [[1, 0, 0]] + [[0, 0, 1]] * 2 + [[0, 1, 0]] + [[0, 0, 1]] * 2}
+        positions = [(0, 0, 0), (-1, 0, 0), (0, -1, 0), (0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, 'body.glb')
+            self._write_triangles_glb(path, positions, [(0, 0)] * 6, [3, 4, 5, 0, 1, 2])
+            add_glb_morph_targets(path, [mesh])
+            gltf, binary = read_glb(path)
+        normals = read_accessor(gltf, binary, gltf['meshes'][0]['primitives'][0]['attributes']['_GAME_NORMAL_DAMAGED'])
+        self.assertEqual(normals[0], (0, 1, 0))
+        self.assertEqual(normals[3], (1, 0, 0))
 
     def test_ambiguous_vertex_without_triangles_is_an_error(self):
         mesh = SubMesh()
@@ -1105,7 +1158,8 @@ FCE4_FLAG_BITS = {
 
 def build_fce4_model(parts):
     """FCE4 model of `parts`: dicts with `name`, `vertices` [(x, y, z)], `triangles` [(vertex indices, flags)] and
-    optional `position` (x, y, z), `damaged` (vertices), `animation_flags`, `uvs` (per triangle: u and v lists)"""
+    optional `position` (x, y, z), `damaged` (vertices), `normals`, `damaged_normals` (default (0, 1, 0)),
+    `animation_flags`, `uvs` (per triangle: u and v lists)"""
     from resources.eac.geometries.nfs4 import Fce4Geometry
 
     block = Fce4Geometry()
@@ -1113,7 +1167,7 @@ def build_fce4_model(parts):
     data['version'] = 0x00101014
     data['num_parts'] = len(parts)
     data['num_arts'] = 1
-    vertices, damaged, animation_flags, triangles = [], [], [], []
+    vertices, damaged, animation_flags, triangles, normals, damaged_normals = [], [], [], [], [], []
     for i, part in enumerate(parts):
         data['part_names'][i] = part['name']
         data['part_positions'][i] = dict(zip('xyz', map(float, part.get('position', (0, 0, 0)))))
@@ -1123,6 +1177,8 @@ def build_fce4_model(parts):
         data['part_num_triangles'][i] = len(part['triangles'])
         vertices += part['vertices']
         damaged += part.get('damaged', part['vertices'])
+        normals += part.get('normals', [(0, 1, 0)] * len(part['vertices']))
+        damaged_normals += part.get('damaged_normals', part.get('normals', [(0, 1, 0)] * len(part['vertices'])))
         animation_flags += part.get('animation_flags', [4] * len(part['vertices']))
         uvs = part.get('uvs', [([0.0, 0.5, 1.0], [0.25, 0.5, 0.75])] * len(part['triangles']))
         for (vertex_indices, flags), (u, v) in zip(part['triangles'], uvs):
@@ -1140,8 +1196,9 @@ def build_fce4_model(parts):
     data['vertices'] = points(vertices)
     data['undamaged_vertices'] = points(vertices)
     data['damaged_vertices'] = points(damaged)
-    for table in ('normals', 'undamaged_normals', 'damaged_normals'):
-        data[table] = points([(0, 1, 0)] * count)
+    data['normals'] = points(normals)
+    data['undamaged_normals'] = points(normals)
+    data['damaged_normals'] = points(damaged_normals)
     data['triangles'] = triangles
     data['reserve1'] = bytes(32 * count)
     data['reserve2'] = bytes(12 * count)
@@ -1299,7 +1356,8 @@ class TestFce4GeometrySerializer(unittest.TestCase):
             extra = json.load(f)
 
         def window(sides, breaks_away=False):
-            return {'fceWindow': {'sides': sides, 'breaksAway': breaks_away}}
+            # ":HB" has chrome: every class is the "normal" one
+            return {'fceChrome': 'normal', 'fceWindow': {'sides': sides, 'breaksAway': breaks_away}}
 
         self.assertEqual(
             extra['objects'],
@@ -1307,10 +1365,125 @@ class TestFce4GeometrySerializer(unittest.TestCase):
                 'hp_0_HB__car00_window_front': window(['front']),
                 'hp_0_HB__car00_window_front_breakaway': window(['front'], True),
                 'hp_0_HB__car00_window_left_back': window(['left', 'back']),
+                'hp_0_HB__car00': {'fceChrome': 'normal'},
                 'hp_0_HB__car00_window': window([]),
                 'hp_0_HB__car00_translucent_window_right': window(['right']),
             },
         )
+
+    def _chrome_model(self):
+        # ":HB": a normal, a high chrome window and a matte triangle, damaged normals a quarter turn off; ":OC" (the
+        # cockpit) has chrome, the wheel and the driver none
+        normals = [(0, 1, 0), (0, 1, 0), (0, 0.75, 0.5), (0, 1, 0)]
+        return build_fce4_model(
+            [
+                {
+                    'name': ':HB',
+                    'vertices': QUAD,
+                    'damaged': QUAD[:3] + [(0, 2, 0)],
+                    'normals': normals,
+                    'damaged_normals': [(1, 0, 0)] * 4,
+                    'triangles': [([0, 1, 2], 0), ([0, 2, 3], 0x62), ([1, 2, 3], 1)],
+                },
+                {'name': ':OC', 'vertices': QUAD[:3], 'normals': normals[:3], 'triangles': [([0, 1, 2], 2)]},
+                {'name': ':HLFW', 'vertices': QUAD[:3], 'triangles': [([0, 1, 2], 1)]},
+                {'name': ':OD', 'vertices': QUAD[:3], 'triangles': [([0, 1, 2], 0)]},
+            ]
+        )
+
+    def test_chrome_classes_of_the_chrome_parts(self):
+        scene, out_path = self._exported_scene(self._chrome_model)
+        names = [m.name for m in scene.sub_meshes]
+        self.assertEqual(
+            names,
+            [
+                'hp_0_HB__car00',
+                # the chrome class before the window class
+                'hp_0_HB__car00_high_chrome_window_front',
+                'hp_0_HB__car00_matte',
+                'hp_0_HB__car00_damaged',
+                'hp_0_HB__car00_high_chrome_window_front_damaged',
+                'hp_0_HB__car00_matte_damaged',
+                'hp_1_OC__car00_high_chrome',
+                'hp_1_OC__car00_high_chrome_damaged',
+                # no chrome on the wheels and the driver: one mesh, whatever the flags
+                'hp_2_HLFW__car00',
+                'hp_2_HLFW__car00_damaged',
+                'hp_3_OD__car00',
+                'hp_3_OD__car00_damaged',
+            ],
+        )
+        with open(os.path.join(out_path, 'geometry_extra.json')) as f:
+            objects = json.load(f)['objects']
+        self.assertEqual(
+            objects,
+            {
+                'hp_0_HB__car00': {'fceChrome': 'normal'},
+                'hp_0_HB__car00_high_chrome_window_front': {
+                    'fceChrome': 'high',
+                    'fceWindow': {'sides': ['front'], 'breaksAway': False},
+                },
+                'hp_0_HB__car00_matte': {'fceChrome': 'none'},
+                'hp_0_HB__car00_damaged': {'fceChrome': 'normal'},
+                'hp_0_HB__car00_high_chrome_window_front_damaged': {
+                    'fceChrome': 'high',
+                    'fceWindow': {'sides': ['front'], 'breaksAway': False},
+                },
+                'hp_0_HB__car00_matte_damaged': {'fceChrome': 'none'},
+                'hp_1_OC__car00_high_chrome': {'fceChrome': 'high'},
+                'hp_1_OC__car00_high_chrome_damaged': {'fceChrome': 'high'},
+            },
+        )
+
+    def test_game_normals_of_the_chrome_parts(self):
+        scene, out_path = self._exported_scene(self._chrome_model)
+        meshes = {m.name: m for m in scene.sub_meshes}
+        # FCE normals in the export axes (x, z, y)
+        body = meshes['hp_0_HB__car00']
+        self.assertEqual(body.vertex_normals, [[0.0, 0.0, 1.0], [0.0, 0.0, 1.0], [0.0, 0.5, 0.75]])
+        self.assertTrue(body.glb_game_normals)
+        # the damaged ones: the GLB attribute `_GAME_NORMAL_DAMAGED` of the undamaged mesh (the parts the game damages),
+        # `vn` of the "_damaged" copy, which leaves the GLB without them
+        self.assertEqual(body.morph_target_normals, {'damaged': [[1.0, 0.0, 0.0]] * 3})
+        copy = meshes['hp_0_HB__car00_damaged']
+        self.assertEqual(copy.vertex_normals, [[1.0, 0.0, 0.0]] * 3)
+        self.assertFalse(copy.glb_game_normals)
+        self.assertEqual(copy.morph_target_normals, {})
+        # ":OC" is not damaged by the game
+        self.assertEqual(meshes['hp_1_OC__car00_high_chrome'].morph_target_normals, {})
+        self.assertEqual(len(meshes['hp_1_OC__car00_high_chrome'].vertex_normals), 3)
+        for name in ('hp_2_HLFW__car00', 'hp_3_OD__car00', 'hp_3_OD__car00_damaged'):
+            self.assertEqual(meshes[name].vertex_normals, [], name)
+        with open(os.path.join(out_path, 'geometry.obj')) as f:
+            obj = f.read()
+        self.assertEqual(len(re.findall(r'^vn ', obj, re.MULTILINE)), 2 * (3 + 3 + 3) + 2 * 3)
+
+    def test_damaged_normals_in_glb(self):
+        scene, _ = self._exported_scene(self._chrome_model)
+        path = os.path.join(self.tmp_dir, 'body.glb')
+        write_glb_of_sub_meshes(path, scene.sub_meshes)
+        add_glb_morph_targets(path, [m for m in scene.sub_meshes if m.morph_targets])
+        add_glb_vertex_attributes(path, scene.sub_meshes)
+        gltf, binary = read_glb(path)
+        nodes = {node['name']: gltf['meshes'][node['mesh']] for node in gltf['nodes']}
+        attributes = nodes['hp_0_HB__car00']['primitives'][0]['attributes']
+        # GLB vertices in reversed order
+        self.assertEqual(
+            read_accessor(gltf, binary, attributes['_GAME_NORMAL']),
+            [(0.0, 0.5, 0.75), (0.0, 0.0, 1.0), (0.0, 0.0, 1.0)],
+        )
+        self.assertEqual(read_accessor(gltf, binary, attributes['_GAME_NORMAL_DAMAGED']), [(1.0, 0.0, 0.0)] * 3)
+        self.assertNotIn('_GAME_NORMAL', nodes['hp_0_HB__car00_damaged']['primitives'][0]['attributes'])
+        self.assertNotIn('_GAME_NORMAL_DAMAGED', nodes['hp_1_OC__car00_high_chrome']['primitives'][0]['attributes'])
+        self.assertIn('_GAME_NORMAL', nodes['hp_1_OC__car00_high_chrome']['primitives'][0]['attributes'])
+        self.assertEqual(set(nodes['hp_2_HLFW__car00']['primitives'][0]['attributes']), {'POSITION', 'TEXCOORD_0'})
+
+    def test_no_chrome_on_other_models(self):
+        out_path = self._serialize_car_viv(self._chrome_model, fce_name='dash.fce')
+        with open(os.path.join(out_path, 'geometry.obj')) as f:
+            obj = f.read()
+        self.assertEqual(re.findall(r'^vn ', obj, re.MULTILINE), [])
+        self.assertNotRegex(obj, r'_matte|_high_chrome')
 
     def test_window_class_of_flags(self):
         from serializers.geometries import fce4_window_class

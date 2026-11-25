@@ -82,9 +82,12 @@ class Fce3Triangle(DeclarativeCompoundBlock):
                 'has smaller index. nfs3.exe (0x49cfa0, 0x49dbf0): the body part (0) gets a second, environment '
                 'mapped pass with the sky texture (`SKY.FSH` `CHRD`, a 4444 texture), vertex color 0x7f7f7f7f, '
                 '"high_chrome" 0xffffffff, "matte" none, added to the framebuffer (Direct3D driver D3DA.DLL: '
-                'source alpha, one; texel times vertex color, the texel alpha); texture coordinates from the '
-                'vertex normals (0x49db70, a sphere map). "semi_transparent" triangles are drawn white with vertex '
-                'alpha 0x4f, others with the lighting and alpha 0x8f'
+                'source alpha, one; D3DTBLEND_MODULATEALPHA: texel times vertex color, alpha texel alpha times vertex '
+                'alpha); texture coordinates from the '
+                'vertex normals (0x49db70, a sphere map). In the race "semi_transparent" triangles are drawn white '
+                "with vertex alpha 0x4f (CarDraw_SetAlphas 0x49d720 from 0x4ba071; none of NFS3's own models has "
+                'one), the others with alpha 0xff, 0x8f when lit (the carlight option); every polygon is blended, '
+                'its alpha the texel alpha times the vertex alpha'
             },
         )
         u = (

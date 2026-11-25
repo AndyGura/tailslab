@@ -282,7 +282,8 @@ class FrdBlock(DeclarativeCompoundBlock):
                 'description': 'Per-vertex shading colour 0xAARRGGBB, one item per vertex (alpha 0xFF but for 206 '
                 'of the 414749 vertices of the NFS3 tracks). nfs3.exe draws texel x colour: the block render '
                 "0x41cdc0 passes the block's vertices (+0x70) and shading (+0x74) to the vertex transform 0x41a970 "
-                '(terrain and POLYOBJ objects), its Direct3D driver D3DA.DLL blends with D3DTBLEND_MODULATE. At load '
+                '(terrain and POLYOBJ objects), its Direct3D driver D3DA.DLL blends with D3DTBLEND_MODULATEALPHA '
+                '(0x6000410c, never changed: the alpha is texel alpha x shading alpha). At load '
                 "(0x419750 -> 0x419660) each channel c becomes c * p / 100 (integer division), p the day HRZ's ambient "
                 'light percentage of the channel (100 in every NFS3 day HRZ; 0x419870 greys it for software '
                 "rendering). The export's vertex colours (OBJ `v` colours, GLB COLOR_0: RGB / 255, not linearized)"

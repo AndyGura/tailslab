@@ -185,6 +185,53 @@ describe('Fce4CarParts', () => {
     c.dispose();
   });
 
+  it('blends the normals as the positions (OBJ: the normals of the damaged copy)', () => {
+    const car = new Group();
+    const body = mesh('hp_0_HB__car00', [0, 2, 0, 1, 2, 0, 0, -2, 0]);
+    body.geometry.setAttribute('normal', new BufferAttribute(Float32Array.from([0, 1, 0, 0, 1, 0, 0, 1, 0]), 3));
+    const damaged = mesh('hp_0_HB__car00_damaged', [0, 1, 0, 1, 1, 0, 0, -1, 0]);
+    damaged.geometry.setAttribute('normal', new BufferAttribute(Float32Array.from([1, 0, 0, 1, 0, 0, 1, 0, 0]), 3));
+    car.add(body, damaged);
+    const c = controller(car);
+    const shared = body.geometry;
+    c.parts!.hit({ x: 0, y: 2.5, z: 0 }, 0.5, 1.5);
+    const normal = body.geometry.getAttribute('normal');
+    // the game's blend, not normalized
+    expect([normal.getX(0), normal.getY(0), normal.getZ(0)]).toEqual([0.5, 0.5, 0]);
+    expect([normal.getX(2), normal.getY(2), normal.getZ(2)]).toEqual([0, 1, 0]);
+    expect(shared.getAttribute('normal').getX(0)).toBe(0);
+    c.parts!.repair();
+    expect(body.geometry.getAttribute('normal').getX(0)).toBe(0);
+    c.dispose();
+  });
+
+  it('blends the game normals with the GLB morph target (`_game_normal_damaged`)', () => {
+    const car = new Group();
+    const body = mesh('hp_0_HB__car00', [0, 2, 0, 1, 2, 0, 0, -2, 0]);
+    body.geometry.morphAttributes['position'] = [
+      new BufferAttribute(Float32Array.from([0, -1, 0, 0, -1, 0, 0, 1, 0]), 3),
+    ];
+    body.geometry.morphTargetsRelative = true;
+    body.updateMorphTargets();
+    body.morphTargetDictionary = { damaged: 0 };
+    const up = Float32Array.from([0, 0, 1, 0, 0, 1, 0, 0, 1]);
+    body.geometry.setAttribute('normal', new BufferAttribute(up.slice(), 3));
+    body.geometry.setAttribute('_game_normal', new BufferAttribute(up.slice(), 3));
+    body.geometry.setAttribute(
+      '_game_normal_damaged',
+      new BufferAttribute(Float32Array.from([0, 1, 0, 0, 1, 0, 0, -1, 0]), 3),
+    );
+    car.add(body);
+    const c = controller(car);
+    c.parts!.hit({ x: 0, y: -2.5, z: 0 }, 0.25, 1);
+    const gameNormal = body.geometry.getAttribute('_game_normal');
+    expect([gameNormal.getX(2), gameNormal.getY(2), gameNormal.getZ(2)]).toEqual([0, -0.25, 0.75]);
+    expect(gameNormal.getZ(0)).toBe(1);
+    // Blender's normals stay
+    expect(body.geometry.getAttribute('normal').getZ(2)).toBe(1);
+    c.dispose();
+  });
+
   it('cracks the windows of the hit side and breaks the glass away above half damage', () => {
     const car = new Group();
     const glass = new Texture();

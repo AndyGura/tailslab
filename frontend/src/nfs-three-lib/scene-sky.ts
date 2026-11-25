@@ -32,6 +32,37 @@ const CUBE_FLIP = new Matrix3().set(-1, 0, 0, 0, 1, 0, 0, 0, 1);
  */
 export const SCENE_SKY_CUBE = 'skyCube';
 
+/**
+ * `scene.userData` key of the top colour of the track's sky, a number 0xRRGGBB, set by the app's track loader: NFS4's
+ * Tr.ini [strip] `hrzSkyTopColor` (black when the track draws a black sky, `hrzShouldDrawBlack`), which nfs4.exe's car
+ * chrome colours start from (Render_CarChrome 0x50d6f0, fce4ChromeColors). Read by sceneSkyTopColor
+ */
+export const SCENE_SKY_TOP_COLOR = 'skyTopColor';
+
+/** The sky top colour of `scene` (SCENE_SKY_TOP_COLOR) as 0xRRGGBB, white (0xffffff) when it has none */
+export const sceneSkyTopColor = (scene: Scene | null | undefined): number => {
+  const color = scene?.userData[SCENE_SKY_TOP_COLOR];
+  return typeof color === 'number' ? color & 0xffffff : 0xffffff;
+};
+
+/**
+ * The track light at a world point (TailsLab's export axes: x, y forward, z up) as 0xRRGGBB, null off the road: NFS4's
+ * mean vertex shading of the drawn road polygon under the point (nfs4.exe 0x439880: the mean of its 4 vertex colours)
+ */
+export type SceneTrackLight = (x: number, y: number, z: number) => number | null;
+
+/**
+ * `scene.userData` key of the scene's SceneTrackLight, set by the app's track loader (NFS4: the road polygons' vertex
+ * shading). Read by sceneTrackLight; FceCarMeshController lights the FCE4 chrome by it (fce4CarTrackLight)
+ */
+export const SCENE_TRACK_LIGHT = 'trackLight';
+
+/** The SceneTrackLight of `scene` (SCENE_TRACK_LIGHT), null when it has none */
+export const sceneTrackLight = (scene: Scene | null | undefined): SceneTrackLight | null => {
+  const trackLight = scene?.userData[SCENE_TRACK_LIGHT];
+  return typeof trackLight === 'function' ? (trackLight as SceneTrackLight) : null;
+};
+
 const cubeTexture = (x: unknown): Texture | null => (x && (x as any).isCubeTexture ? (x as Texture) : null);
 
 /**

@@ -20,6 +20,13 @@ class BaseMesh(ABC):
         # `_GAME_NORMAL` (`add_glb_vertex_attributes`; three.js geometry attribute `_game_normal`): the game's own
         # normals, which Blender's may differ from. Only `change_axes` keeps them in sync with the vertices
         self.vertex_normals = []
+        # False: the `vertex_normals` go to the OBJ only, the GLB gets no `_GAME_NORMAL` of them
+        self.glb_game_normals = True
+        # morph target name -> the game's normal [x, y, z] per vertex at the target's position (parallel to
+        # `vertices`, absolute, not a delta): written by the gg-web-engine export to the GLB as the vertex attribute
+        # `_GAME_NORMAL_<TARGET>` (`add_glb_morph_targets`, the vertices matched as for the target; three.js
+        # `_game_normal_<target>`), not to the OBJ. Only `change_axes` keeps them in sync with the vertices
+        self.morph_target_normals = {}
         # [r, g, b, a] or [r, g, b] (0..1) per vertex (parallel to `vertices`) or empty: written to the OBJ as
         # `v x y z r g b` (the alpha left out; three.js OBJLoader reads them as the geometry attribute `color`, decoded
         # from sRGB) and by the gg-web-engine export to the GLB as the vertex attribute COLOR_0, float VEC4 or VEC3 as
@@ -90,6 +97,7 @@ class BaseMesh(ABC):
         self.vertices = convert(self.vertices)
         self.morph_targets = {name: convert(deltas) for name, deltas in self.morph_targets.items()}
         self.vertex_normals = convert(self.vertex_normals)
+        self.morph_target_normals = {name: convert(normals) for name, normals in self.morph_target_normals.items()}
         if pivot:
             self.pivot_offset = tuple(convert([self.pivot_offset])[0])
 

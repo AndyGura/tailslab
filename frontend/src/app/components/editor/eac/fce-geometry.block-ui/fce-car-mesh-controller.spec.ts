@@ -14,10 +14,13 @@ import {
   SRGBColorSpace,
   Texture,
   Vector3,
+  Vector4,
   WebGLRenderer,
 } from 'three';
 import {
   FceCarMeshController,
+  FCE3_TRANSLUCENT_ALPHA,
+  FCE4_DEFAULT_TRACK_LIGHT,
   fce3ChromeAdd,
   fce3ChromeEnvMatrix,
   fce3ChromeUv,
@@ -26,14 +29,20 @@ import {
   fce3HsbToRgb,
   fce3PaintColor,
   fce3TexelColor,
+  fce4CarTrackLight,
+  fce4ChromeAdd,
+  fce4ChromeColors,
   fce4NearestColorSet,
+  fce4RgbToHsb,
   fce4TexelColor,
+  fceChromeClassOf,
   FceColor,
   FceVersion,
   rgbToFceColor,
   fcePaintIndexOfAlpha,
   fcePaintMaskNextToTexture,
 } from '../../../../../nfs-three-lib/fce-car-mesh-controller';
+import { SCENE_SKY_TOP_COLOR, SCENE_TRACK_LIGHT } from '../../../../../nfs-three-lib/scene-sky';
 
 // texels of the test texture and alphas of its paint mask
 const TEXELS = [
@@ -65,6 +74,25 @@ function pixelCanvas([r, g, b]: number[]): HTMLCanvasElement {
   ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
   ctx.fillRect(0, 0, 1, 1);
   return canvas;
+}
+
+/** The vertex color uniform a chrome material's shader gets (its onBeforeCompile on an empty shader) */
+function chromeColorOf(mesh: Mesh): Vector4 {
+  const shader: any = { uniforms: {}, vertexShader: '', fragmentShader: '' };
+  (mesh.material as MeshBasicMaterial).onBeforeCompile(shader, null as any);
+  return shader.uniforms['fceChromeColor'].value;
+}
+
+/** A WebGL renderer drawing 1 x 1 pixel, null without WebGL */
+function pixelRenderer(): WebGLRenderer | null {
+  try {
+    const renderer = new WebGLRenderer({ canvas: document.createElement('canvas'), preserveDrawingBuffer: true });
+    renderer.setPixelRatio(1);
+    renderer.setSize(1, 1, false);
+    return renderer;
+  } catch {
+    return null;
+  }
 }
 
 function texture(): DataTexture {
@@ -204,10 +232,201 @@ describe('FceCarMeshController', () => {
     expect(fce3ChromeUv([0, -1, 0])[1]).toBeCloseTo(0, 5);
   });
 
-  it('adds the chrome texel at 4 bits, times the vertex color and the texel alpha', () => {
+  it('adds the chrome texel at 4 bits, times the vertex color, its alpha (the same grey) and the texel alpha', () => {
     expect(fce3ChromeAdd([255, 128, 15, 255], 1)).toEqual([255, 136, 0]);
     expect(fce3ChromeAdd([255, 255, 255, 136], 1)).toEqual([136, 136, 136]);
-    fce3ChromeAdd([240, 0, 0, 255], 0x7f / 255).forEach((c, i) => expect(c).toBeCloseTo([0x7f, 0, 0][i], 5));
+    // D3DTBLEND_MODULATEALPHA: 0x7f7f7f7f twice, colour and alpha
+    fce3ChromeAdd([240, 0, 0, 255], 0x7f / 255).forEach((c, i) =>
+      expect(c).toBeCloseTo([(0x7f * 0x7f) / 255, 0, 0][i], 5),
+    );
+  });
+
+  it('converts RGB to HSB with the integer math of nfs4.exe', () => {
+    expect(fce4RgbToHsb(0xff0000)).toEqual([0, 255, 255]);
+    expect(fce4RgbToHsb(0x00ff00)).toEqual([85, 255, 255]);
+    expect(fce4RgbToHsb(0x0000ff)).toEqual([171, 255, 255]);
+    // red the largest: (g - b) / delta = -1 sector, / 6 + 1 turn, x 256 rounded
+    expect(fce4RgbToHsb(0xff00ff)).toEqual([213, 255, 255]);
+    expect(fce4RgbToHsb(0x808080)).toEqual([0, 0, 128]);
+    expect(fce4RgbToHsb(0)).toEqual([0, 0, 0]);
+    // saturation 96 * 256 / 127 truncated, hue 32 / 96 sector as 16.16 truncated, / 6 truncated, x 256 rounded
+    expect(fce4RgbToHsb(0x7f3f1f)).toEqual([14, 193, 127]);
+  });
+
+  it("averages the track light under the car's wheels as nfs4.exe", () => {
+    expect(fce4CarTrackLight([0x102030, 0x405060, null])).toBe(0x535b63);
+    expect(fce4CarTrackLight([null, null, null, null])).toBe(FCE4_DEFAULT_TRACK_LIGHT);
+    // the mean floored: (3 x 255 + 254) >> 2
+    expect(fce4CarTrackLight([0xffffff, 0xffffff, 0xffffff, 0xfefefe])).toBe(0xfefefe);
+  });
+
+  it('computes the FCE4 chrome colors as nfs4.exe', () => {
+    // white sky, the default track light (brightness 127): (255 * 127 >> 9) + 0x80 = 191, the paint's 200 >> 2 off
+    expect(fce4ChromeColors(0x7f7f7f, 0xffffff, 200, 0)).toEqual({ normal: 0x8d8d8d8d, high: 0xbfbfbfbf });
+    // sky HSB (149, 170, 192): normal (149, 63, 164 - 63 = 101 clamped to 0x7f), high (149, 85, 164)
+    expect(fce4ChromeColors(0x606060, 0x4080c0, 255, 0)).toEqual({ normal: 0x7f5f6f7f, high: 0xa46d89a4 });
+    // covered, 3 slices: the sky 160 / 256 towards the track light, every byte x 208 >> 8
+    expect(fce4ChromeColors(0x204060, 0xc0e0ff, 100, 3)).toEqual({ normal: 0x70636970, high: 0x856f7a85 });
+    // 8 slices: the track light alone, halved
+    expect(fce4ChromeColors(0x808080, 0x0000ff, 0, 8)).toEqual({ normal: 0x50505050, high: 0x50505050 });
+    expect(fce4ChromeColors(0x808080, 0x0000ff, 0, 12)).toEqual(fce4ChromeColors(0x808080, 0x0000ff, 0, 8));
+    // brightness clamped to 0x7f..0xff
+    expect(fce4ChromeColors(0, 0, 255, 0)).toEqual({ normal: 0x7f7f7f7f, high: 0x80808080 });
+    expect(fce4ChromeColors(0xffffff, 0xffffff, 0, 0)).toEqual({ normal: 0xffffffff, high: 0xffffffff });
+  });
+
+  it('adds the FCE4 chrome texel times the vertex color and both alphas', () => {
+    expect(fce4ChromeAdd([255, 255, 255, 255], 0xffffffff)).toEqual([255, 255, 255]);
+    // texel 15 / 15, 8 / 15, 1 / 15 (4 bits) x color 0xff, 0x80, 0 / 255, x texel alpha 1 x color alpha 0x80 / 255
+    fce4ChromeAdd([240, 128, 16, 255], 0x80ff8000).forEach((c, i) =>
+      expect(c).toBeCloseTo([1, (8 / 15) * (0x80 / 255), 0][i] * (0x80 / 255) * 255, 5),
+    );
+    expect(fce4ChromeAdd([255, 255, 255, 0], 0xffffffff)).toEqual([0, 0, 0]);
+  });
+
+  it('reads the chrome class of a mesh, before the FCE4 window class', () => {
+    const mesh = (name: string, extras?: string) => {
+      const o = new Object3D();
+      o.name = name;
+      if (extras) {
+        o.userData['fceChrome'] = extras;
+      }
+      return o;
+    };
+    expect(fceChromeClassOf(mesh('hp_0_HB__car00'))).toBe('normal');
+    expect(fceChromeClassOf(mesh('hp_0_HB__car00_matte_damaged'))).toBe('none');
+    expect(fceChromeClassOf(mesh('hp_0_HB__car00_translucent_high_chrome_window_front_breakaway'))).toBe('high');
+    expect(fceChromeClassOf(mesh('hp_0_HB__car00_high_chrome_window_damaged'))).toBe('high');
+    expect(fceChromeClassOf(mesh('hp_0_HB__car00', 'none'))).toBe('none');
+  });
+
+  it('gives chrome to the FCE4 chrome parts but matte meshes, the classes their colors', () => {
+    const car = new Object3D();
+    const shared = new MeshBasicMaterial({ map: new Texture() });
+    const meshes: { [name: string]: Mesh } = {};
+    for (const name of [
+      'hp_0_HB__car00',
+      'hp_0_HB__car00_translucent_high_chrome_window_front',
+      'hp_0_HB__car00_matte',
+      'mp_5_MB__car00',
+      'lp_9_LB__car00',
+      'tp_12_TB__car00',
+      'hp_13_OC__car00',
+      'hp_14_OLM__car00_high_chrome',
+      'hp_15_OD__car00',
+      'hp_16_OLB__car00',
+      'hp_1_HLFW__car00',
+    ]) {
+      meshes[name] = new Mesh(new BoxGeometry(), shared);
+      meshes[name].name = name;
+      car.add(meshes[name]);
+    }
+    const controller = new FceCarMeshController(car, 4, [], [], () => null);
+    expect(controller.hasChrome).toBeTrue();
+    const chrome = (controller as any).chrome;
+    for (const name of ['hp_0_HB__car00', 'mp_5_MB__car00', 'lp_9_LB__car00', 'hp_13_OC__car00']) {
+      expect(meshes[name].material).withContext(name).not.toBe(shared);
+      expect(chromeColorOf(meshes[name])).withContext(name).toBe(chrome.colors.normal.value);
+    }
+    for (const name of ['hp_0_HB__car00_translucent_high_chrome_window_front', 'hp_14_OLM__car00_high_chrome']) {
+      expect(chromeColorOf(meshes[name])).withContext(name).toBe(chrome.colors.high.value);
+    }
+    for (const name of [
+      'hp_0_HB__car00_matte',
+      'tp_12_TB__car00',
+      'hp_15_OD__car00',
+      'hp_16_OLB__car00',
+      'hp_1_HLFW__car00',
+    ]) {
+      expect(meshes[name].material).withContext(name).toBe(shared);
+    }
+    controller.dispose();
+  });
+
+  it('draws the FCE4 chrome pass with the colors of the track light, the sky top and the paint', () => {
+    const renderer = pixelRenderer();
+    if (!renderer) {
+      pending('no WebGL');
+      return;
+    }
+    const black = new DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
+    black.needsUpdate = true;
+    const car = new Object3D();
+    const normal = new Vector3(0.3, -0.8, 0.5).normalize();
+    // two chrome meshes in view, the body and the cockpit behind it
+    for (const [name, z] of [
+      ['hp_0_HB__car00', 0],
+      ['hp_13_OC__car00', -0.01],
+    ] as const) {
+      const plane = new Mesh(new PlaneGeometry(2, 2), new MeshBasicMaterial({ map: black }));
+      plane.name = name;
+      plane.position.z = z;
+      const normals = new Float32Array(4 * 3).map((_, i) => normal.getComponent(i % 3));
+      plane.geometry.setAttribute('_game_normal', new BufferAttribute(normals, 3));
+      car.add(plane);
+    }
+    // the wheels, out of view (in their geometry, as TailsLab's meshes): front left, front right, rear left, rear right
+    for (const [name, x, y] of [
+      ['hp_1_HLFW__car00', -50, 50],
+      ['hp_2_HRFW__car00', 50, 50],
+      ['hp_3_HLRW__car00', -50, -50],
+      ['hp_4_HRRW__car00', 50, -50],
+    ] as const) {
+      const wheel = new Mesh(new BoxGeometry(0.5, 0.5, 0.5).translate(x, y, 0));
+      wheel.name = name;
+      car.add(wheel);
+    }
+    const scene = new Scene();
+    scene.add(car);
+    const lights: { [key: string]: number | null } = { '-50,50': 0x405060, '50,50': 0x203040, '-50,-50': null };
+    let lookups = 0;
+    scene.userData[SCENE_TRACK_LIGHT] = (x: number, y: number) => {
+      lookups++;
+      const key = `${Math.round(x)},${Math.round(y)}`;
+      return key in lights ? lights[key] : 0x102030;
+    };
+    scene.userData[SCENE_SKY_TOP_COLOR] = 0x4080c0;
+    const texels = [
+      [250, 30, 70, 255],
+      [20, 200, 90, 160],
+      [100, 100, 255, 255],
+      [180, 140, 10, 90],
+    ];
+    const chrome = new DataTexture(new Uint8Array(texels.flat()), 2, 2);
+    chrome.colorSpace = SRGBColorSpace;
+    chrome.magFilter = NearestFilter;
+    chrome.minFilter = NearestFilter;
+    chrome.needsUpdate = true;
+    const paint = { hue: 10, saturation: 200, brightness: 180, transparency: 127 };
+    const controller = new FceCarMeshController(car, 4, [], [paint], () => null);
+    controller.chromeTexture = chrome;
+    controller.chromeCoveredSlices = 2;
+    const camera = new Vector3(3, -5, 2);
+    const view = new OrthographicCamera(-0.1, 0.1, 0.1, -0.1, -100, 100);
+    view.position.copy(camera);
+    view.lookAt(0, 0, 0);
+    renderer.render(scene, view);
+    // the track light looked up once per frame for the car, not per chrome mesh
+    expect(lookups).toBe(4);
+    const pixel = new Uint8Array(4);
+    const gl = renderer.getContext();
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+    const e = fce3ChromeEnvMatrix([camera.x, camera.z, camera.y]);
+    const g = [normal.x, normal.z, normal.y];
+    const n = [0, 1, 2].map(c => g[0] * e[c] + g[1] * e[3 + c] + g[2] * e[6 + c]) as [number, number, number];
+    const [u, v] = fce3ChromeUv(n);
+    const texel = texels[Math.floor(v * 2) * 2 + Math.floor(u * 2)] as [number, number, number, number];
+    const trackLight = fce4CarTrackLight([0x405060, 0x203040, null, 0x102030]);
+    const brightness = fce4RgbToHsb(fce3HsbToRgb(paint).reduce((rgb, c) => (rgb << 8) | c, 0))[2];
+    const color = fce4ChromeColors(trackLight, 0x4080c0, brightness, 2).normal;
+    // the body in front of the cockpit: its pixel
+    const expected = fce4ChromeAdd(texel, color);
+    Array.from(pixel.slice(0, 3)).forEach((c, i) => expect(Math.abs(c - expected[i])).toBeLessThanOrEqual(1));
+    // a new frame looks the track light up again
+    renderer.render(scene, view);
+    expect(lookups).toBe(8);
+    controller.dispose();
+    renderer.dispose();
   });
 
   it('gives chrome to the FCE3 body but matte meshes, with materials of their own', () => {
@@ -227,12 +446,36 @@ describe('FceCarMeshController', () => {
     const controller = new FceCarMeshController(car, 3, [], [], () => null);
     expect(controller.hasChrome).toBeTrue();
     const key = (name: string) => (meshes[name].material as MeshBasicMaterial).customProgramCacheKey();
-    expect(key('hp_0_body__car00')).toContain(`fce-chrome-normal-${0x7f / 255}`);
-    expect(key('hp_0_body__car00_high_chrome')).toContain('fce-chrome-normal-1');
+    expect(key('hp_0_body__car00')).toContain('fce-chrome-normal');
+    // nfs3.exe's vertex colors, 0x7f7f7f7f and 0xffffffff
+    expect(chromeColorOf(meshes['hp_0_body__car00']).toArray()).toEqual([
+      0x7f / 255,
+      0x7f / 255,
+      0x7f / 255,
+      0x7f / 255,
+    ]);
+    expect(chromeColorOf(meshes['hp_0_body__car00_high_chrome']).toArray()).toEqual([1, 1, 1, 1]);
     expect(meshes['hp_0_body__car00_matte'].material).toBe(shared);
     expect(meshes['hp_1_wheel__car00'].material).toBe(shared);
     expect(meshes['hp_0_body__car00'].material).not.toBe(shared);
     expect(new FceCarMeshController(car.clone(), 4, [], [], () => null).hasChrome).toBeFalse();
+    controller.dispose();
+  });
+
+  it('draws FCE3 translucent polygons at the race vertex alpha 0x4f, the chrome copy too', () => {
+    const car = new Object3D();
+    const meshes: { [name: string]: Mesh } = {};
+    for (const name of ['hp_0_body__car00_translucent_high_chrome', 'hp_0_body__car00']) {
+      meshes[name] = new Mesh(new BoxGeometry(), new MeshBasicMaterial({ map: new Texture(), transparent: true }));
+      meshes[name].name = name;
+      car.add(meshes[name]);
+    }
+    const controller = new FceCarMeshController(car, 3, [], [], () => null);
+    expect(FCE3_TRANSLUCENT_ALPHA).toBe(0x4f / 255);
+    expect((meshes['hp_0_body__car00_translucent_high_chrome'].material as MeshBasicMaterial).opacity).toBe(
+      FCE3_TRANSLUCENT_ALPHA,
+    );
+    expect((meshes['hp_0_body__car00'].material as MeshBasicMaterial).opacity).toBe(1);
     controller.dispose();
   });
 
@@ -307,7 +550,8 @@ describe('FceCarMeshController', () => {
     black.needsUpdate = true;
     const plane = new Mesh(new PlaneGeometry(2, 2), new MeshBasicMaterial({ map: black }));
     plane.name = 'hp_0_body__car00';
-    const normal = new Vector3(0.3, -0.8, 0.5).normalize();
+    // turned up in the environment matrix space (y 0.83): the sky adds about half of itself (fce3SkyChromeAlpha)
+    const normal = new Vector3(0.2, -0.3, 0.93).normalize();
     const normals = new Float32Array(4 * 3).map((_, i) => normal.getComponent(i % 3));
     plane.geometry.setAttribute('_game_normal', new BufferAttribute(normals, 3));
     const scene = new Scene();
@@ -344,11 +588,15 @@ describe('FceCarMeshController', () => {
       .clone()
       .multiplyScalar(2 * normal.dot(eye))
       .sub(eye);
-    expect(r.z).toBeGreaterThan(0.1);
     const lookup = [-r.x, r.y, r.z];
     const axis = [0, 1, 2].reduce((a, c) => (Math.abs(lookup[c]) > Math.abs(lookup[a]) ? c : a), 0);
     const face = faces[axis * 2 + (lookup[axis] < 0 ? 1 : 0)];
-    const expected = fce3ChromeAdd([...face, fce3SkyChromeAlpha(r.z) * 255] as any, 0x7f / 255);
+    // the normal's y in the environment matrix space (game axes: x, z up as y, y as z)
+    const e = fce3ChromeEnvMatrix([camera.x, camera.z, camera.y]);
+    const up = normal.x * e[1] + normal.z * e[4] + normal.y * e[7];
+    expect(up).toBeCloseTo(0.832, 2);
+    const expected = fce3ChromeAdd([...face, fce3SkyChromeAlpha(up) * 255] as any, 0x7f / 255);
+    expect(Math.max(...expected)).toBeGreaterThan(20);
     Array.from(pixel.slice(0, 3)).forEach((c, i) => expect(Math.abs(c - expected[i])).toBeLessThanOrEqual(1));
     // no chrome without the option, or without a sky
     controller.chromeEnabled = false;
@@ -365,11 +613,13 @@ describe('FceCarMeshController', () => {
     renderer.dispose();
   });
 
-  it('gives the sky chrome the alpha the game gives the sky, none to the ground', () => {
-    expect(fce3SkyChromeAlpha(1)).toBe(0.6);
-    expect(fce3SkyChromeAlpha(0.1)).toBe(0.6);
-    expect(fce3SkyChromeAlpha(0)).toBeCloseTo(0.3, 6);
-    expect(fce3SkyChromeAlpha(-0.1)).toBe(0);
+  it('dims the sky chrome to what the CHRD textures of the tracks add: sky for normals turned up, little elsewhere', () => {
+    expect(fce3SkyChromeAlpha(1)).toBeCloseTo(0.55, 6);
+    expect(fce3SkyChromeAlpha(0.65)).toBeCloseTo(0.275, 6);
+    expect(fce3SkyChromeAlpha(0.3)).toBeCloseTo(0.07, 6);
+    expect(fce3SkyChromeAlpha(0)).toBeCloseTo(0.07, 6);
+    expect(fce3SkyChromeAlpha(-0.15)).toBeCloseTo(0.035, 6);
+    expect(fce3SkyChromeAlpha(-0.3)).toBe(0);
     expect(fce3SkyChromeAlpha(-1)).toBe(0);
   });
 

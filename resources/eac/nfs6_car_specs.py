@@ -55,9 +55,13 @@ _CAR_BASIC_KEYS = [
         'Mass',
         IniFloat(unit='kg'),
         f'Car mass, kg. {_BASIC} -> HCVehicle +0x208; +0x20c (unsprung mass) = Mass x 0.1. Each brake section adds 8 kg '
-        'and each tyre section 12 kg to both (0x422bd0, 0x4222c0), so the simulated mass is Mass + 40 kg. Used for the '
-        'wheel loads (Mass / 4 per wheel, HCVehicle_SetupWheels 0x414a50; axle loads 0x419a40), the roll terms of the '
-        'sprung mass (Mass - unsprung, 0x415a30, 0x4271a0) and the automatic gearbox (0x415780).' + _REQ,
+        'and each tyre section 12 kg to both (0x422bd0, 0x4222c0), so the simulated mass is Mass + 40 kg, the rigid '
+        "body's mass (HCVehicle_SetupBody 0x414550 -> RigidBody_Setup 0x4439c0: body +0x20, 1 / mass at +0x24): the "
+        'acceleration is (the four tyre forces + air drag) / (Mass + 40) (HCVehicle_TyreForces 0x426600), so is the '
+        "downforce's (0x4241f0), and the inertia is of Mass + 40 (HCVehicle_SetupInertia 0x415570). Mass + 40 also "
+        'gives the wheel loads ((Mass + 40) / 4 per wheel, HCVehicle_SetupWheels 0x414a50; axle loads 0x419a40) and '
+        'the automatic gearbox (0x415780). The roll terms take the sprung mass (+0x208 - +0x20c, 0x415a30, 0x4271a0), '
+        'Mass x 0.9: the 40 kg are unsprung.' + _REQ,
     ),
     _not_read('PercentUnsprungMass', IniFloat()),
     _k(
@@ -247,13 +251,16 @@ _CAR_BASIC_KEYS = [
     _k(
         'FrontAntiRoll',
         IniFloat(default=0.0),
-        f'{_BASIC} -> +0x270 (over AntiDive); missing: 0. 0x42a310 takes 1 - value (clamped 0..1) as the body pitch '
-        'factor while +0xc54 (the pitch rate) is negative: it acts as anti-dive.',
+        f'{_BASIC} -> +0x270 (over AntiDive); missing: 0. HCVehicle_PitchFactor 0x42a310 takes 1 - value (clamped '
+        '0..1) as the pitch factor while +0xc54 (the forward acceleration, HCVehicle_TyreForces 0x426600) is '
+        "negative: it acts as anti-dive. The factor scales the tyre forces' pitch torque (HCVehicle_TyreTorques "
+        "0x4280d0), which reaches the body's spin only while the global 0x7221ed is set (0x426600).",
     ),
     _k(
         'RearAntiRoll',
         IniFloat(default=0.0),
-        f'{_BASIC} -> +0x274 (over AntiSquat); missing: 0. 0x42a310: 1 - value while +0xc54 is positive (anti-squat).',
+        f'{_BASIC} -> +0x274 (over AntiSquat); missing: 0. 0x42a310: 1 - value while +0xc54 (the forward '
+        'acceleration) is positive (anti-squat), as FrontAntiRoll.',
     ),
     _k(
         'Damper',
