@@ -15,9 +15,12 @@ nfs-three-lib's `Nfs5CarMeshController`).
   `[fileN.<alias>]` section passes (R3DCar_IsImageUsed 0x439c60, `crp_car_is_image_used`), with `mirror=1` a second
   copy at (`mirroroffsetx`, `mirroroffsety`) (0x443f60); the file is the CRP's FSH part or, with `global=k`, the global
   file k of `NFS5_CAR_GLOBAL_FILES`. The paint tints the band coded texels as they are drawn (0x444130,
-  `nfs5_paint_band`)."""
+  `nfs5_paint_band`).
+- The materials (`tm` parts) draw with the render methods of the CRP (`htMR` parts, `nfs5_render_method`); the car
+  reflections are two of their layers, by a parameter of the material (`nfs5_car_material`)."""
 
 import re
+import struct
 from configparser import ConfigParser
 from typing import Dict, List, Optional, Tuple
 
@@ -27,7 +30,17 @@ NFS5_CAR_GLOBAL_FILES = ['shadow.fsh', 'intglass.fsh', 'suit.fsh', 'head.fsh', '
 # `[tpageN.details] bpp` (decimal, default 1555): the page's texel format (0x442790)
 NFS5_PAGE_FORMATS = {32: 32, 1555: 1555, 4444: 4444}
 
-NFS5_CAR_MODEL_FORMAT_VERSION = 1
+NFS5_CAR_MODEL_FORMAT_VERSION = 2
+
+# EAGL layer types of Porsche.exe's car render methods (the layer factory 0x449b70): R3DSpecularTextureLayer
+# (0x445520: the specular texture of carcmn.fsh, sphere mapped by the view-space normal), R3DSkyMapTextureLayer
+# (0x445b10: the track's `.env` texture projected from above, per road section of the track's `.map`)
+NFS5_LAYER_SPECULAR_TEXTURE = 0x8100
+NFS5_LAYER_SKY_MAP = 0x8101
+
+# the specular textures of carcmn.fsh by level (nfs5_specular_level): a race's (0x441a10 at 0x441aa1: SPC1, SPC2,
+# SPC3 into R3DCar+0x3b8 by 0x440940) and the front end's (FEDU, "FE  ", FESH)
+NFS5_SPECULAR_TEXTURES = {'race': ['SPC1', 'SPC2', 'SPC3'], 'frontEnd': ['FEDU', 'FE  ', 'FESH']}
 
 
 def nfs5_paint_band(alpha: int) -> Optional[int]:
@@ -316,11 +329,91 @@ def nfs5_car_article_info(index: int, name: str, parts: List[Tuple[str, dict]]) 
     return info
 
 
-def nfs5_car_model_info(articles: List[dict], tpg: Optional[ConfigParser], packages: Optional[ConfigParser]) -> dict:
+def nfs5_render_method(data: bytes) -> dict:
+    """An EAGL render method of a CRP (an `htMR` common part, registered by name by MaterialTable_Load 0x44a770,
+    compiled per material by 0x44bf70 for the render caps): the name (16 bytes), then the counts of groups, layers
+    and constant data blocks (+0x10, +0x14, +0x18), the groups (16 bytes each from +0x1c: first layer, layer count,
+    caps mask, a pass kind), the layers (16 bytes each: key = tag << 16 | group, layer type, binding, stream mask),
+    the data blocks (16 bytes each: key, offset, size) and their data. A group is compiled when its caps mask is 0 or
+    shares a bit with the render caps (`nfs5_render_caps`). `keys`: the layers' keys, sorted, once each: a material's
+    texture layers and parameters name their layer by its position in it (0x44a220)"""
+    name = data[:16].split(b'\0')[0].decode('latin-1')
+    num_groups, num_layers, num_blocks = struct.unpack_from('<3I', data, 0x10)
+    groups = []
+    for i in range(num_groups):
+        start, count, caps, kind = struct.unpack_from('<4I', data, 0x1C + 16 * i)
+        groups.append({'start': start, 'count': count, 'caps': caps, 'kind': kind})
+    layers_at = 0x1C + 16 * num_groups
+    layers = []
+    for i in range(num_layers):
+        key, layer_type, binding, mask = struct.unpack_from('<4I', data, layers_at + 16 * i)
+        group = next((g for g in groups if g['start'] <= i < g['start'] + g['count']), None)
+        layers.append(
+            {'key': key, 'type': layer_type, 'binding': binding, 'mask': mask, 'caps': group and group['caps']}
+        )
+    return {'name': name, 'groups': groups, 'layers': layers, 'keys': sorted({x['key'] for x in layers})}
+
+
+def nfs5_material_parameters(data: bytes) -> Dict[int, bytes]:
+    """The parameters of a `tm` material (`MaterialPartData`, 312 bytes): +8 the counts (low 16 bits the texture
+    layers, 0x2c bytes each from +0x20, high 16 bits the parameters, 16 bytes each after them: key, offset, size),
+    the parameter data after those (MaterialTable_Load 0x44a770). Key (the position in the render method's `keys`) ->
+    data"""
+    counts = struct.unpack_from('<I', data, 8)[0]
+    num_textures, num_parameters = counts & 0xFFFF, counts >> 16
+    at = 0x20 + num_textures * 0x2C
+    data_at = at + num_parameters * 16
+    parameters = {}
+    for i in range(num_parameters):
+        key, offset, size = struct.unpack_from('<3I', data, at + 16 * i)
+        parameters[key] = data[data_at + offset : data_at + offset + size]
+    return parameters
+
+
+def nfs5_car_material(index: int, data: bytes, methods: Dict[str, dict]) -> dict:
+    """A `tm` material's entry of `nfs5Car.materials`: its render method (`desc`), texture page (`tex_page_index`)
+    and the reflection layers of its method, `specular` (R3DSpecularTextureLayer) and `skyMap`
+    (R3DSkyMapTextureLayer), each {`param`: the float the material binds to the layer (0x445520 / 0x445b10 pick the
+    texture of level `nfs5_specular_level(param)` by it; 0 when unbound), `passes`: the caps mask of each group the
+    layer is in}, None when the method has no such layer"""
+    method_name = data[0x10:0x20].split(b'\0')[0].decode('latin-1')
+    method = methods.get(method_name)
+    parameters = nfs5_material_parameters(data)
+
+    def layer(layer_type: int) -> Optional[dict]:
+        if method is None:
+            return None
+        found = [x for x in method['layers'] if x['type'] == layer_type]
+        if not found:
+            return None
+        param = 0.0
+        for x in found:
+            value = parameters.get(method['keys'].index(x['key']))
+            if value is not None and len(value) == 4:
+                param = struct.unpack('<f', value)[0]
+                break
+        return {'param': round(param, 6), 'passes': sorted({x['caps'] or 0 for x in found})}
+
+    return {
+        'index': index,
+        'method': method_name,
+        'page': struct.unpack_from('<I', data, 0x28)[0],
+        'specular': layer(NFS5_LAYER_SPECULAR_TEXTURE),
+        'skyMap': layer(NFS5_LAYER_SKY_MAP),
+    }
+
+
+def nfs5_car_model_info(
+    articles: List[dict],
+    tpg: Optional[ConfigParser],
+    packages: Optional[ConfigParser],
+    materials: Optional[List[dict]] = None,
+) -> dict:
     """The `nfs5Car` key of a car export (`.meta` and the OBJ's `_extra.json`)"""
     return {
         'formatVersion': NFS5_CAR_MODEL_FORMAT_VERSION,
         'articles': articles,
         **nfs5_car_tpg_info(tpg),
         'packages': nfs5_car_packages(packages),
+        'materials': materials or [],
     }

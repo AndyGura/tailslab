@@ -181,13 +181,32 @@ class MaterialPartData(DeclarativeCompoundBlock):
         texture_flags = (
             IntegerBlock(length=4),
             {
-                'is_unknown': True,
-                'description': 'When the low 16 bits are 0, Porsche.exe 0x44a770 uses the 4-char name "XETN" '
-                'instead of `tex_page_index` (no game file has such a material). 0x60003 in every car material',
+                'description': 'Counts (Porsche.exe MaterialTable_Load 0x44a770): the low 16 bits the texture layers '
+                '(0x2c bytes each from +0x20: the key of the layer, its texture (the first one `tex_page_index`), '
+                'sampler settings), the high 16 bits the parameters after them (16 bytes each: key, offset, size; '
+                "their data follows: a render state block, the floats of the reflection layers, the light layer's). "
+                "A key < 0x10000 is a position in the render method's sorted layer keys (0x44a220; TailsLab "
+                '`nfs5_material_parameters`, `nfs5_car_material`). When the low 16 bits are 0 the exe uses the 4-char '
+                'name "XETN" instead of `tex_page_index` (no game file has such a material). 0x60003 in every car '
+                'material',
             },
         )
-        unk3 = (BytesBlock(length=4), {'is_unknown': True})
-        desc = (UTF8Block(length=16), {'description': 'Description'})
+        unk3 = (
+            BytesBlock(length=4),
+            {
+                'is_unknown': True,
+                'description': "Stream mask (uint32): the render method's layers with a stream mask are built only "
+                'when it shares a bit with this (RenderMethod_Build 0x44bf70); 0x30000, 0x30020, 0x20021, 0x23 in '
+                'the cars',
+            },
+        )
+        desc = (
+            UTF8Block(length=16),
+            {
+                'description': 'The render method: the `htMR` common part of that name (EAGL, RenderMethod_Find '
+                '0x44bb70; cars: CarExtEnv, CarExtEnvNS, CarExt, CarWindow, CarWheel, CarInt, CarIntShd)'
+            },
+        )
         unk1 = (BytesBlock(length=8), {'is_unknown': True})
         tex_page_index = (
             IntegerBlock(length=4),
@@ -1202,7 +1221,8 @@ class CrpGeometry(DeclarativeCompoundBlock):
                 + '- "PdnB" - ?, cars only<br/>'
                 '- "nAmC" - camera animations? tracks only<br/>'
                 '- [TextPart4](#textpart4) "cseD" - seems to be a path to original development source file, tracks only<br/>'
-                '- "htMR" - ?<br/>'
+                '- "htMR" - an EAGL render method (Porsche.exe RenderMethod_Build 0x44bf70): name, groups (passes '
+                'by render caps), layers, constant data; materials name it by `desc` (TailsLab `nfs5_render_method`)<br/>'
                 '- "odnW" - ?, cars only<br/>'
                 '- [CrpSimDPart](#crpsimdpart) "DmiS" - the road spline, tracks only<br/>'
                 '- [CrpSimTPart](#crpsimtpart) "TmiS" - the sections of the road spline, tracks only<br/>'

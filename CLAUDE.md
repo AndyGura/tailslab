@@ -178,8 +178,8 @@ When you do:
   and hold no specs (they are tested next to the GUI components using them). It has `TnfsCarMeshController` (and
   `TnfsSkylineMemorialCarMeshController`, the Japanese PSX cars' Gouraud colours; `createTnfsCarMeshController` picks one),
   `Nfs2CarMeshController`, `FceCarMeshController` (NFS3 / NFS4 paint in the fragment shader, by the paint mask's
-  alpha; NFS3 / NFS4 chrome), `Nfs5CarMeshController` (NFS5 CRP cars as Porsche.exe draws them, its rules in
-  `nfs5-car-parts.ts`; NFS5 section), `Nfs6Ps2CarMeshController` (NFS HP2 PS2 cars), `Nfs6CarMeshController` (NFS HP2 PC
+  alpha; NFS3 / NFS4 chrome), `Nfs5CarMeshController` (NFS5 CRP cars as Porsche.exe draws them, its specular pass
+  included, its rules in `nfs5-car-parts.ts`; NFS5 section), `Nfs6Ps2CarMeshController` (NFS HP2 PS2 cars), `Nfs6CarMeshController` (NFS HP2 PC
   cars), `scene-sky.ts` (a scene's sky cube and the sun of a gg-web-engine procedural sky, for car shaders lit by the
   scene; the `scene.userData` keys of NFS4's sky top colour and track light, `SCENE_SKY_TOP_COLOR` and
   `SCENE_TRACK_LIGHT`) and `setupNfs1Texture`; the other car mesh controllers (`*-car-mesh-controller.ts`) and the
@@ -656,12 +656,21 @@ When you do:
   (driver camera, door axis, hood / trunk / headlight / moving spoiler extents), `[damagezones]`, pages (size,
   format); `packages.ini` paint bands. GLB: the meshes of the first frame without damage carry the morph targets
   `damaged` (the damaged `vt` offsets) and `frame<n>`, and the byte attribute `_NFS5_DAMAGE_ZONE` (the `zd` zone,
-  255 none); the OBJ keeps the frame and `_damaged` meshes and has `nfs5DamageZones` (zone per face corner). The
+  255 none); the OBJ keeps the frame and `_damaged` meshes and has `nfs5DamageZones` (zone per face corner). Every
+  car mesh has the game's normals (the `mn` part of the level's first frame, turned by `rt`: OBJ `vn`, GLB
+  `_GAME_NORMAL`) and the byte attribute `_NFS5_MATERIAL` (the `tm` index; the corners of two materials are vertices
+  of their own, told apart in the GLB by its triangles; OBJ `nfs5Materials` per face corner); `nfs5Car.materials`
+  (format 2) holds each material's render method (`desc`, the `htMR` part: `nfs5_render_method`) and its reflection
+  layers (`nfs5_car_material`: the specular texture and sky map layers' parameter and pass caps masks). The export
+  copies `carcmn.fsh`'s specular textures next to it (`textures/specular/`, `_extra.json` `nfs5SpecularTextures`) for
+  the preview's game reflections. The
   texture pages are the race's (`nfs5_race_slots`: style 1, driver 0, roof up, day, no race number; `frontend=0`,
   `testdrive`, `night`, file order with a later image on top, `mirror` copies, the `global=` files of CarModel/);
   their alpha stays the paint band code (`nfs5_paint_band`), `alpha_mode opaque` but on wheels and windows.
   `Nfs5CarMeshController` (nfs-three-lib) draws a car by the race's rules: articles by slot, level and view, pivots,
-  animations, dents by zone, lights (glare quads), the paint tinted in the fragment shader. nfs-web reads the names,
+  animations, dents by zone, lights (glare quads), the paint tinted in the fragment shader, the specular pass
+  (`reflectionTextures`: carcmn.fsh SPC1..3 sphere mapped by the view-space game normal; none: the scene's sky
+  dimmed to the game's, `nfs5SkySpecularAlpha`; `carChrome`; the rules in `nfs5-car-parts.ts`). nfs-web reads the names,
   `nfs5Car`, the targets and the attribute: keep them stable, bump `NFS5_CAR_MODEL_FORMAT_VERSION` when they change.
   The race composes a page once per model from the style, the night flag and the parts' slots: a viewer switching
   them keeps the default style's pages.

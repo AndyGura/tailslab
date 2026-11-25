@@ -23,7 +23,30 @@ export type Nfs5CarData = {
   pages: Nfs5CarPage[];
   /** per `packages.ini` package the colour index (0 body, 1 / 2 accents, 3 interior) of each of the 18 bands */
   packages: number[][];
+  /** the CRP's `tm` materials (format 2): the meshes' `_nfs5_material` (the OBJ's `nfs5Materials`) index them */
+  materials?: Nfs5CarMaterial[];
 };
+
+/**
+ * A CRP `tm` material (TailsLab's `nfs5_car_material`): its render method (the CRP's `htMR` part of that name, EAGL:
+ * CarExtEnv, CarExtEnvNS, CarExt, CarWindow, CarWheel, CarInt, CarIntShd in every car), its texture page and the
+ * reflection layers of the method
+ */
+export type Nfs5CarMaterial = {
+  index: number;
+  method: string;
+  page: number;
+  /** R3DSpecularTextureLayer (0x445520): carcmn.fsh's specular texture, sphere mapped by the view-space normal */
+  specular: Nfs5CarMaterialLayer | null;
+  /** R3DSkyMapTextureLayer (0x445b10): the track's `.env` texture projected from above (not drawn by the controller) */
+  skyMap: Nfs5CarMaterialLayer | null;
+};
+
+/**
+ * A reflection layer of a material: `param` the float the material binds to it (nfs5SpecularLevel picks the texture
+ * by it), `passes` the caps mask of each group (pass) of the render method holding the layer (nfs5LayerDrawn)
+ */
+export type Nfs5CarMaterialLayer = { param: number; passes: number[] };
 
 /** An article (by its CRP index) and its base part's car data (CRP `CrpBasePartData`) */
 export type Nfs5CarArticle = {
@@ -396,3 +419,95 @@ export function nfs5NeedleTurns(
     speedometer: calibration.speedoScale * speed * 0.144 + calibration.speedo0,
   };
 }
+
+/**
+ * The render caps of the game's car chrome option `Graphics.CarChrome` (CARCHROME, 0x657d60: 0 off, 1, 2) as
+ * 0x44ed10 sets them (0x6197f8, the key 0x44bb70 compiles a material's render method with, 0x44bf70): 0 -> 1, 1 or 2
+ * -> 3. Level 2 also sets 0x6197cb (the sky map textures, 0x43a560) and 0x6197ca (the track shadow map). SKIPPED: the
+ * caps 4 of hardware flag 0x6197a8 (one multi-texture pass, the same textures: groups of caps mask 4)
+ */
+export function nfs5RenderCaps(carChrome: number): number {
+  return carChrome <= 0 ? 1 : 3;
+}
+
+/**
+ * Whether a reflection layer is drawn with the render caps: a render method group is compiled when its caps mask is
+ * 0 or shares a bit with the caps (0x44bf70). CarExtEnv's specular and sky map passes have the mask 2 (car chrome 1
+ * and 2), CarWindow's 0 (always)
+ */
+export function nfs5LayerDrawn(layer: Nfs5CarMaterialLayer | null | undefined, caps: number): boolean {
+  return !!layer && layer.passes.some(mask => mask === 0 || (mask & caps) !== 0);
+}
+
+/**
+ * The texture level of a reflection layer's parameter (R3DSpecularTextureLayer 0x445520, R3DSkyMapTextureLayer
+ * 0x445b10): below 0.05 (0x5b38b0) 0, below 0.95 (0x5b38b4) 1, else 2. The game's materials bind 0, 0.5 or 1
+ */
+export function nfs5SpecularLevel(param: number): number {
+  return param < 0.05 ? 0 : param < 0.95 ? 1 : 2;
+}
+
+/**
+ * The specular textures of `CarModel/carcmn.fsh` by level (CarTex_LoadGlobals 0x443760 loads the file; 0x441a10 puts
+ * them into R3DCar+0x3b8 by 0x440940): a race's SPC1 (empty: alpha 0), SPC2, SPC3, the front end's FEDU (empty), "FE  ",
+ * FESH. A level without a texture draws nothing (0x445520)
+ */
+export const NFS5_SPECULAR_TEXTURES = { race: ['SPC1', 'SPC2', 'SPC3'], frontEnd: ['FEDU', 'FE  ', 'FESH'] };
+
+/**
+ * The specular texture coordinates of a view-space normal `n` (x right, y up, z towards the camera; three.js's view
+ * space) as R3DSpecularTextureLayer 0x445520 computes them per vertex from the game's normals (the `mn` part, layer
+ * `nm`) turned by the model-view rotation: u = 0.5 + x f, v = 0.5 + y f, f = 0.5 / sqrt(|z| + 1) (a fast inverse
+ * square root with 1.47 / 0.47 Newton constants, 0x5b38d8 / 0x5b38e0), Direct3D's v (0 the top row). A sphere map with
+ * the front and back alike; the textures' lights are at the bottom: normals turned up reflect them. GUESS: EAGL's view
+ * space has y up (as nfs3.exe's sphere maps, the sky at the bottom), not checked in the camera code
+ */
+export function nfs5SpecularUv(n: [number, number, number]): [number, number] {
+  const f = 0.5 / Math.sqrt(Math.abs(n[2]) + 1);
+  return [0.5 + n[0] * f, 0.5 + n[1] * f];
+}
+
+/**
+ * The specular pass's colour over the car's (0..1 display values): the pass (a group of its own) sets its render
+ * state block (1, 2, 0, 1, 0, -1) (EAGL 0x540660: THRASH states 6, 0xa, 0x38, 2, 0x18): state 0xa = 2 blends
+ * (D3DRENDERSTATE_ALPHABLENDENABLE, dx7z.dll THRASH_setstate 0x60003f23), state 0x38 = 0 with source alpha and inverse
+ * source alpha (0x600046d2), and draws the texel times the vertex colour over the framebuffer. The vertex colour is the
+ * base pass's lighting (R3DLightLayer 0x446530 writes it, alpha 0xff): `light` (1 in the controller, which has no game
+ * lighting). GUESS: texture stage 0 modulates colour and alpha by the vertex colour (THRASH state 0x29's stage 0 case,
+ * dx7z.dll 0x600041aa); the value the game leaves in state 0x29 is not traced
+ */
+export function nfs5SpecularBlend(
+  base: [number, number, number],
+  texel: [number, number, number, number],
+  light: [number, number, number] = [1, 1, 1],
+): [number, number, number] {
+  const a = texel[3];
+  return [0, 1, 2].map(c => base[c] * (1 - a) + texel[c] * light[c] * a) as [number, number, number];
+}
+
+/**
+ * The alpha of the scene's sky drawn as the specular pass of `level` (for a scene with no game texture), by `up`, the y
+ * of the view-space normal: what the race's texture of the level adds on average with the pass's blend
+ * (nfs5SpecularBlend), mean texel alpha x luminance over the normals of each band of `up` (normals uniform over the
+ * sphere, mapped by nfs5SpecularUv; decomp/nfs5/port-work/car-render/probes/specular_strength.py), over the
+ * brightness of a usual sky, 0.68 (the one fce3SkyChromeAlpha assumes): SPC2 and SPC3 reflect up-facing normals only
+ * (bands of 0.2 from -1: SPC2 0, 0.001, 0.005, 0.005, 0.007, 0.031, 0.082, 0.261, 0.338, 0.260; SPC3 0 up to 0.2,
+ * then 0.028, 0.153, 0.357, 0.308), mean alpha 0.077 / 0.065 over all normals, their lights' grey about 0.85. Linear
+ * between the bands' middles; level 0 (SPC1, empty) none
+ */
+export function nfs5SkySpecularAlpha(level: number, up: number): number {
+  const table = NFS5_SKY_SPECULAR_ALPHA[level];
+  if (!table) {
+    return 0;
+  }
+  const x = Math.max(0, Math.min(table.length - 1, (up + 0.9) / 0.2));
+  const i = Math.min(table.length - 2, Math.floor(x));
+  return table[i] + (table[i + 1] - table[i]) * (x - i);
+}
+
+/** nfs5SkySpecularAlpha's bands (up -0.9, -0.7 .. 0.9) by level */
+export const NFS5_SKY_SPECULAR_ALPHA: number[][] = [
+  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  [0, 0.001, 0.005, 0.005, 0.007, 0.031, 0.082, 0.261, 0.338, 0.26],
+  [0, 0, 0, 0, 0, 0, 0.028, 0.153, 0.357, 0.308],
+];

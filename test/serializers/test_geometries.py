@@ -615,6 +615,26 @@ class TestAddGlbMorphTargets(unittest.TestCase):
         # the GLB has the vertices in reversed order
         self.assertEqual(colors, [(0.0, 0.0, 0.0), (1.0, 0.0, 0.5), (0.25, 0.5, 1.0)])
 
+    def test_byte_attributes_of_corners_at_one_place_told_apart_by_the_triangles(self):
+        # two triangles of other materials (NFS5's _NFS5_MATERIAL) sharing an edge: vertices of their own at the
+        # same positions and texture coordinates
+        mesh = SubMesh()
+        mesh.name = 'body'
+        mesh.vertices = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]]
+        mesh.vertex_uvs = [[0, 0], [1, 0], [0, 1], [1, 0], [1, 1], [0, 1]]
+        mesh.polygons = [[0, 1, 2], [3, 4, 5]]
+        mesh.vertex_byte_attributes = {'_NFS5_MATERIAL': [[3]] * 3 + [[7]] * 3}
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, 'body.glb')
+            write_glb_of_sub_meshes(path, [mesh])
+            with self.assertNoLogs(level='WARNING'):
+                add_glb_vertex_attributes(path, [mesh])
+            gltf, binary = read_glb(path)
+        primitive = gltf['meshes'][0]['primitives'][0]
+        values = [v[0] for v in read_accessor(gltf, binary, primitive['attributes']['_NFS5_MATERIAL'])]
+        indices = [x[0] for x in read_accessor(gltf, binary, primitive['indices'])]
+        self.assertEqual([[values[i] for i in indices[k : k + 3]] for k in (0, 3)], [[3, 3, 3], [7, 7, 7]])
+
     def test_adds_byte_attributes_matched_by_position(self):
         mesh = SubMesh()
         mesh.name = 'wheel'
@@ -943,6 +963,46 @@ testdrive=1
         self.assertEqual(nfs5_damage_zones(data), {5: 3, 1: 3, 0: 9})
 
 
+class TestNfs5RenderMethods(unittest.TestCase):
+    @staticmethod
+    def _method():
+        """A render method as the cars' CarWindow: a base group and a specular group of caps mask 2"""
+        name = b'CarTest'.ljust(16, b'\0')
+        groups = [(0, 2, 0, 1), (2, 2, 2, 4)]
+        layers = [(0x54780001, 4, 0xE, 0), (0x00000001, 0, 0, 0), (0x52730004, 8, 0, 0), (0x43740004, 0x8100, 0xE, 0)]
+        data = name + struct.pack('<4I', len(groups), len(layers), 0, 0)[:12]
+        data += b''.join(struct.pack('<4I', *g) for g in groups) + b''.join(struct.pack('<4I', *x) for x in layers)
+        return data
+
+    def test_render_method_and_material_reflections(self):
+        from serializers.misc.nfs5_car_model import nfs5_car_material, nfs5_render_method
+
+        method = nfs5_render_method(self._method())
+        self.assertEqual(method['name'], 'CarTest')
+        self.assertEqual([g['caps'] for g in method['groups']], [0, 2])
+        self.assertEqual(method['keys'], [0x00000001, 0x43740004, 0x52730004, 0x54780001])
+        # a material: one texture layer (the page), one parameter: 0.5 for the key at position 1 (the specular layer)
+        material = struct.pack('<4I', 0, 0, (1 << 16) | 1, 0) + b'CarTest'.ljust(16, b'\0')
+        material += struct.pack('<11I', 3, 0, 4, *([0] * 8))
+        material += struct.pack('<4I', 1, 0, 4, 0) + struct.pack('<f', 0.5)
+        material = material.ljust(312, b'\0')
+        info = nfs5_car_material(9, material, {'CarTest': method})
+        self.assertEqual(
+            info,
+            {'index': 9, 'method': 'CarTest', 'page': 4, 'specular': {'param': 0.5, 'passes': [2]}, 'skyMap': None},
+        )
+        # an unknown method: no reflection layers
+        self.assertIsNone(nfs5_car_material(9, material, {})['specular'])
+
+    def test_normals_turned_by_the_article_transformation(self):
+        from serializers.geometries import crp_transform_normals
+
+        # a quarter turn about y (x' = z, z' = -x) and a scale of 2: unit normals turned alike
+        m = [0, 0, -2, 0, 0, 2, 0, 0, 2, 0, 0, 0, 5, 6, 7, 1]
+        turned = crp_transform_normals([[1, 0, 0], [0, 1, 0]], m)
+        self.assertEqual([[round(x, 6) + 0 for x in n] for n in turned], [[0, 0, -1], [0, 1, 0]])
+
+
 class TestCrpPrimitives(unittest.TestCase):
     def test_triangle_list(self):
         self.assertEqual(crp_primitive_triangles(3, 7), [(0, 1, 2), (3, 4, 5)])
@@ -1055,6 +1115,24 @@ class TestCrpGeometrySerializer(unittest.TestCase):
         self.assertEqual(len(sources), len(body.vertices))
         animated = [m for name, (m, _) in by_name.items() if name.startswith('DriverBody') and '_ai0' in name]
         self.assertTrue(animated and all('frame1' in m.morph_targets for m in animated))
+        # the game's normals and the materials of the vertices; the render methods' reflection layers
+        materials = extra['nfs5Car']['materials']
+        self.assertEqual(extra['nfs5Car']['formatVersion'], 2)
+        by_method = {m['method']: m for m in materials}
+        self.assertEqual(by_method['CarExtEnv']['specular']['passes'], [2, 4])
+        self.assertEqual(by_method['CarWindow']['specular']['passes'], [0])
+        self.assertIsNone(by_method['CarExt']['specular'])
+        self.assertTrue({m['specular']['param'] for m in materials if m['specular']} <= {0.0, 0.5, 1.0})
+        meshes = list(serializer._build_article_meshes(crp_data, crp_block, lambda m: None, True, car=True))
+        body = next(sub_mesh for _, _, _, sub_mesh, _ in meshes if sub_mesh.name == 'Body_a30_LOD1_ai0')
+        self.assertEqual(len(body.vertex_normals), len(body.vertices))
+        self.assertAlmostEqual(sum(x * x for x in body.vertex_normals[0]), 1, 4)
+        corner_materials = body.vertex_byte_attributes['_NFS5_MATERIAL']
+        self.assertEqual(len(corner_materials), len(body.vertices))
+        self.assertTrue(all(len({corner_materials[v][0] for v in polygon}) == 1 for polygon in body.polygons))
+        self.assertTrue({v[0] for v in corner_materials} <= {m['index'] for m in materials})
+        corners = extra['nfs5Materials']['Body_a30_LOD1_ai0_page_0']
+        self.assertEqual(len(corners), len(extra['nfs5DamageZones']['Body_a30_LOD1_ai0_page_0']))
 
     def test_malformed_tpg_falls_back_to_default_layout(self):
         with tempfile.TemporaryDirectory() as tmp:

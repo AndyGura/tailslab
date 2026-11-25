@@ -16,7 +16,7 @@ import {
   ObjViewerComponent,
 } from '../../common/obj-viewer/obj-viewer.component';
 import { steeringControl, wheelSpeedControl } from '../../common/obj-viewer/car-preview-controls';
-import { Object3D, Vector3 } from 'three';
+import { Object3D, SRGBColorSpace, Texture, TextureLoader, Vector3 } from 'three';
 import {
   NFS5_ANIMATIONS,
   NFS5_ZONE_NAMES,
@@ -62,6 +62,15 @@ const HITS: [string, Vector3][] = [
 
 const DETAILS = ['Low', 'Medium', 'High'];
 
+// the game's car chrome option (CARCHROME, Nfs5CarMeshController.carChrome)
+const CAR_CHROME = ['0 (windows only)', '1', '2'];
+
+// the specular pass's source: the game's textures (the export's copies of carcmn.fsh) or the viewer's sky
+const REFLECTIONS_OFF = 'Off';
+const REFLECTIONS_RACE = "Game's (race: SPC1..3)";
+const REFLECTIONS_FRONT_END = "Game's (front end: FEDU, FE, FESH)";
+const REFLECTIONS_SKY = 'Sky (dimmed to the game)';
+
 // NFS5 CRP geometry: cars open in the 3D model viewer, tracks ("karT") in the shared track viewer
 @Component({
   selector: 'app-crp-geometry-block-ui',
@@ -81,6 +90,11 @@ export class CrpGeometryBlockUiComponent extends GuiComponent implements AfterVi
   private meshController: Nfs5CarMeshController | null = null;
 
   private extraPath: string | null = null;
+
+  // the export's specular textures (`nfs5SpecularTextures`), by level
+  private specularTextures: { race: (Texture | null)[]; frontEnd: (Texture | null)[] } | null = null;
+
+  private reflections = REFLECTIONS_RACE;
 
   private readonly destroyed$: Subject<void> = new Subject<void>();
 
@@ -124,8 +138,24 @@ export class CrpGeometryBlockUiComponent extends GuiComponent implements AfterVi
         }
       }
       const car: Nfs5CarData | null = extra.nfs5Car ?? null;
-      const controller = new Nfs5CarMeshController(obj, { car, damageZones: extra.nfs5DamageZones ?? null });
+      const controller = new Nfs5CarMeshController(obj, {
+        car,
+        damageZones: extra.nfs5DamageZones ?? null,
+        faceMaterials: extra.nfs5Materials ?? null,
+      });
       this.meshController = controller;
+      this.disposeSpecularTextures();
+      const specularTextures = await this.loadSpecularTextures(extra.nfs5SpecularTextures);
+      if (this.meshController !== controller) {
+        // another model loaded meanwhile
+        [...(specularTextures?.race ?? []), ...(specularTextures?.frontEnd ?? [])].forEach(t => t?.dispose());
+        return;
+      }
+      this.specularTextures = specularTextures;
+      if (this.reflections !== REFLECTIONS_OFF && !specularTextures) {
+        this.reflections = REFLECTIONS_SKY;
+      }
+      this.applyReflections(controller);
       this.state = { tach: 0, speedo: 0, lateral: 0, longitudinal: 0, reverse: false, hitSpeed: 100 };
       this.customControls = this.controls(controller);
       this.cdr.markForCheck();
@@ -135,6 +165,49 @@ export class CrpGeometryBlockUiComponent extends GuiComponent implements AfterVi
   }
 
   private state = { tach: 0, speedo: 0, lateral: 0, longitudinal: 0, reverse: false, hitSpeed: 100 };
+
+  /** The export's copies of the game's specular textures (paths relative to the `_extra.json`), null without */
+  private async loadSpecularTextures(paths: { race?: (string | null)[]; frontEnd?: (string | null)[] } | undefined) {
+    if (!paths || !this.extraPath) {
+      return null;
+    }
+    const base = new URL(this.extraPath, location.href);
+    const loader = new TextureLoader();
+    const load = async (path: string | null | undefined): Promise<Texture | null> => {
+      if (!path) {
+        return null;
+      }
+      try {
+        const texture = await loader.loadAsync(new URL(path, base).href);
+        texture.colorSpace = SRGBColorSpace;
+        return texture;
+      } catch (err) {
+        console.warn('Cannot load the NFS5 specular texture', path, err);
+        return null;
+      }
+    };
+    const race = await Promise.all([0, 1, 2].map(i => load(paths.race?.[i])));
+    const frontEnd = await Promise.all([0, 1, 2].map(i => load(paths.frontEnd?.[i])));
+    return race.some(t => t) || frontEnd.some(t => t) ? { race, frontEnd } : null;
+  }
+
+  private disposeSpecularTextures() {
+    for (const texture of [...(this.specularTextures?.race ?? []), ...(this.specularTextures?.frontEnd ?? [])]) {
+      texture?.dispose();
+    }
+    this.specularTextures = null;
+  }
+
+  /** The specular pass's source picked in `reflections` */
+  private applyReflections(c: Nfs5CarMeshController) {
+    c.reflectionsEnabled = this.reflections !== REFLECTIONS_OFF;
+    c.reflectionTextures =
+      this.reflections === REFLECTIONS_RACE
+        ? (this.specularTextures?.race ?? [null, null, null])
+        : this.reflections === REFLECTIONS_FRONT_END
+          ? (this.specularTextures?.frontEnd ?? [null, null, null])
+          : [null, null, null];
+  }
 
   private refreshControls(c: Nfs5CarMeshController) {
     this.customControls = this.controls(c);
@@ -322,12 +395,42 @@ export class CrpGeometryBlockUiComponent extends GuiComponent implements AfterVi
       lights.push(checkbox('Show glares', c.showGlares, v => (c.showGlares = v)));
     }
 
+    // the specular pass (Porsche.exe R3DSpecularTextureLayer): the game's textures when the export has them, else
+    // the viewer's sky
+    const sources = [
+      REFLECTIONS_OFF,
+      ...(this.specularTextures ? [REFLECTIONS_RACE, REFLECTIONS_FRONT_END] : []),
+      REFLECTIONS_SKY,
+    ];
+    const reflections: ObjViewerControl[] = [
+      {
+        label: 'Reflections',
+        type: 'radio',
+        options: sources,
+        value: sources.includes(this.reflections) ? this.reflections : REFLECTIONS_SKY,
+        change: v => {
+          this.reflections = v;
+          this.applyReflections(c);
+        },
+      },
+      {
+        label: 'Car chrome (game option)',
+        type: 'radio',
+        options: CAR_CHROME,
+        value: CAR_CHROME[c.carChrome],
+        change: v => (c.carChrome = Math.max(0, CAR_CHROME.indexOf(v))),
+      },
+    ];
+
     const result: ObjViewerCustomControl[] = [
       { title: 'NFS5 car', controls: car },
       { title: 'NFS5 driving', controls: driving },
       { title: 'NFS5 parts', controls: parts },
       { title: 'NFS5 lights', controls: lights },
     ];
+    if (c.hasReflections) {
+      result.push({ title: 'NFS5 reflections', controls: reflections });
+    }
     if (c.isPaintable) {
       // the record's _COLORCONFIG: body, accent 1, accent 2, interior
       const colors = [0xb00000, 0xffffff, 0x202020, 0x505050];
@@ -438,6 +541,7 @@ export class CrpGeometryBlockUiComponent extends GuiComponent implements AfterVi
 
   ngOnDestroy(): void {
     this.meshController?.dispose();
+    this.disposeSpecularTextures();
     this.destroyed$.next();
     this.destroyed$.complete();
   }

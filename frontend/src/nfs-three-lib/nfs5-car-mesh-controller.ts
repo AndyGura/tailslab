@@ -7,14 +7,20 @@ import {
   DoubleSide,
   LinearFilter,
   Material,
+  Matrix3,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
   NearestFilter,
   Object3D,
   RGBAFormat,
+  Scene,
+  SRGBColorSpace,
+  Texture,
   Vector3,
+  WebGLRenderer,
 } from 'three';
+import { sceneSkyCube } from './scene-sky';
 import {
   Nfs5CarData,
   Nfs5CarArticle,
@@ -31,13 +37,17 @@ import {
   NFS5_DRAW_WHEELS,
   NFS5_OUTSIDE_DRIVER_LOD,
   NFS5_PIVOT_COUNT,
+  NFS5_SKY_SPECULAR_ALPHA,
   NFS5_STEERING_WHEEL_LIMIT,
   NFS5_WHEEL_LODS,
   NFS5_ZONES,
   nfs5Bands,
   nfs5HitZones,
+  nfs5LayerDrawn,
   nfs5Lights,
   nfs5RaceSlots,
+  nfs5RenderCaps,
+  nfs5SpecularLevel,
   nfs5ZoneDamageAfterHit,
 } from './nfs5-car-parts';
 
@@ -84,6 +94,8 @@ export type Nfs5CarMeshControllerOptions = {
   car?: Nfs5CarData | null;
   /** the OBJ's `nfs5DamageZones` (mesh name -> zone per face corner); the GLB has `_nfs5_damage_zone` */
   damageZones?: { [mesh: string]: number[] } | null;
+  /** the OBJ's `nfs5Materials` (mesh name -> CRP material per face corner); the GLB has `_nfs5_material` */
+  faceMaterials?: { [mesh: string]: number[] } | null;
   /** the body style (0-based `.tpg` `[style<n + 1>]`), default 0 */
   bodyStyle?: number;
   /** the game's car detail (0x6197c4: 0 low, 1 medium, 2 high), default 2 */
@@ -126,6 +138,21 @@ type GlareMesh = {
 };
 
 type Animation = { frame: number; next: number; fraction: number; max: number };
+
+type ReflectionMesh = {
+  mesh: Mesh;
+  /** the CRP material of each vertex, 255 none */
+  materials: Uint8Array;
+  /** `nfs5SpecularLevel`: the specular texture level + 1 of each vertex, 0 none */
+  levels: BufferAttribute;
+};
+
+/** Specular pass sources: none, the game's textures (carcmn.fsh), the scene's sky (a cube texture) */
+const enum ReflectionMode {
+  OFF = 0,
+  TEXTURE = 1,
+  SKY = 2,
+}
 
 /**
  * An NFS5 (Porsche Unleashed) car model (*.crp) as Porsche.exe draws it in a race (nfs-web
@@ -186,6 +213,10 @@ export class Nfs5CarMeshController {
   private bands: number[] = new Array(18).fill(0xffffff);
   private readonly bandUniforms = { value: Array.from({ length: 18 }, () => new Vector3(255, 255, 255)) };
   private readonly paintEnabledUniform = { value: 0 };
+  private readonly reflection = new ReflectionUniforms();
+  private readonly reflectionMeshes: ReflectionMesh[] = [];
+  private readonly reflectionMaterials = new Set<Material>();
+  private reflectionFrame: { renderer: WebGLRenderer; frame: number; scene: Scene } | null = null;
 
   constructor(root: Object3D, options: Nfs5CarMeshControllerOptions | boolean = {}) {
     const opts: Nfs5CarMeshControllerOptions = typeof options === 'boolean' ? { turnToYForward: options } : options;
@@ -254,6 +285,7 @@ export class Nfs5CarMeshController {
     this.setupGlares(root);
     this.setupDrawOrder();
     this.setupPaint();
+    this.setupReflections(opts.faceMaterials ?? null);
     this.applySlots();
     // the driver sits straight, the arms on a straight steering wheel
     this.updateAnimations();
@@ -1054,13 +1086,144 @@ export class Nfs5CarMeshController {
     this.applyPaint();
   }
 
+  // ---- reflections
+
+  /**
+   * Whether the specular pass is drawn at all (the game always draws the windows' one; carChrome picks the others).
+   * Read by updateReflections
+   */
+  reflectionsEnabled = true;
+
+  /**
+   * The specular textures by level (0..2: `NFS5_SPECULAR_TEXTURES`, a race's carcmn.fsh SPC1, SPC2, SPC3), not owned;
+   * a level without one draws nothing. None at all: the specular pass reflects the sky of the scene drawing the car
+   * (`sceneSkyCube`), dimmed to what the game's textures add (nfs5SkySpecularAlpha), no pass without one
+   */
+  reflectionTextures: (Texture | null)[] = [null, null, null];
+
+  private _carChrome = 2;
+
+  /** The game's car chrome option (CARCHROME 0..2, nfs5RenderCaps): which materials' specular passes are compiled */
+  get carChrome(): number {
+    return this._carChrome;
+  }
+
+  set carChrome(value: number) {
+    this._carChrome = value;
+    this.applyReflectionLevels();
+  }
+
+  /** Whether a mesh of the model has a specular pass at the highest car chrome level */
+  get hasReflections(): boolean {
+    const caps = nfs5RenderCaps(2);
+    return (this.car?.materials ?? []).some(m => nfs5LayerDrawn(m.specular, caps)) && this.reflectionMeshes.length > 0;
+  }
+
+  /**
+   * The specular pass of Porsche.exe's car render methods (R3DSpecularTextureLayer 0x445520, the groups of
+   * CarExtEnv, CarExtEnvNS and CarWindow holding it; nfs5LayerDrawn) on the meshes with materials (`_nfs5_material`,
+   * the OBJ's `faceMaterials`): per vertex the level of its material's parameter (nfs5SpecularLevel, attribute
+   * `nfs5SpecularLevel`) and the game's normal (`_game_normal`, else `normal`: the OBJ's are the game's), drawn in the
+   * fragment shader of every material of those meshes (reflectionInShader). SKIPPED: the sky map pass
+   * (R3DSkyMapTextureLayer 0x445b10: the track's `.env` textures projected from above per road section of its `.map`,
+   * car chrome 2 only) and the track shadow map pass
+   */
+  private setupReflections(objMaterials: { [mesh: string]: number[] } | null) {
+    if (!this.car?.materials?.some(m => m.specular)) {
+      return;
+    }
+    for (const entry of this.entries) {
+      const mesh = entry.mesh;
+      const geometry = mesh.geometry;
+      const count = geometry.getAttribute('position').count;
+      const attribute = geometry.getAttribute('_nfs5_material');
+      const corners = objMaterials?.[mesh.name];
+      const materials = new Uint8Array(count).fill(255);
+      if (attribute && attribute.count === count) {
+        for (let i = 0; i < count; i++) {
+          materials[i] = Math.round(attribute.getX(i) * (attribute.normalized ? 255 : 1));
+        }
+      } else if (corners && corners.length === count) {
+        materials.set(corners);
+      } else {
+        continue;
+      }
+      const normal = geometry.getAttribute('_game_normal') ?? geometry.getAttribute('normal');
+      if (!normal) {
+        continue;
+      }
+      geometry.setAttribute('nfs5ReflectionNormal', normal);
+      const levels = new BufferAttribute(new Float32Array(count), 1);
+      geometry.setAttribute('nfs5SpecularLevel', levels);
+      this.reflectionMeshes.push({ mesh, materials, levels });
+      for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+        if (!this.reflectionMaterials.has(material)) {
+          this.reflectionMaterials.add(material);
+          reflectionInShader(material, this.reflection);
+        }
+      }
+      const previous = mesh.onBeforeRender;
+      mesh.onBeforeRender = (renderer, scene, camera, ...rest) => {
+        previous.call(mesh, renderer, scene, camera, ...rest);
+        // once per frame and scene of a renderer
+        const frame = renderer.info.render.frame;
+        const last = this.reflectionFrame;
+        if (!this.disposed && (last?.renderer !== renderer || last.frame !== frame || last.scene !== scene)) {
+          this.reflectionFrame = { renderer, frame, scene };
+          this.updateReflections(scene);
+        }
+      };
+    }
+    this.applyReflectionLevels();
+  }
+
+  private applyReflectionLevels() {
+    const caps = nfs5RenderCaps(this._carChrome);
+    const levels = new Map<number, number>();
+    for (const m of this.car?.materials ?? []) {
+      levels.set(m.index, nfs5LayerDrawn(m.specular, caps) ? nfs5SpecularLevel(m.specular!.param) + 1 : 0);
+    }
+    for (const r of this.reflectionMeshes) {
+      const array = r.levels.array as Float32Array;
+      for (let i = 0; i < r.materials.length; i++) {
+        array[i] = levels.get(r.materials[i]) ?? 0;
+      }
+      r.levels.needsUpdate = true;
+    }
+  }
+
+  /**
+   * Picks the specular pass's source (reflectionTextures, else the sky of `scene`) and turns the sky to the scene's
+   * background rotation. Called before each mesh with the pass is drawn; the texture coordinates come from the
+   * camera drawing it (its view-space normals)
+   */
+  updateReflections(scene?: Scene | null) {
+    const r = this.reflection;
+    const maps = this.reflectionTextures;
+    for (let i = 0; i < 3; i++) {
+      r.maps[i].value = maps[i] ?? null;
+    }
+    const sky = sceneSkyCube(scene, r.cubeMatrix.value);
+    r.cube.value = sky;
+    r.mode.value = !this.reflectionsEnabled
+      ? ReflectionMode.OFF
+      : maps.some(m => !!m)
+        ? ReflectionMode.TEXTURE
+        : sky
+          ? ReflectionMode.SKY
+          : ReflectionMode.OFF;
+  }
+
   // ---- setup
 
   private turnGeometry(mesh: Mesh) {
     const geometry = mesh.geometry;
     geometry.rotateZ(Math.PI);
     // three.js turns the positions and normals only
-    for (const target of geometry.morphAttributes['position'] ?? []) {
+    for (const target of [...(geometry.morphAttributes['position'] ?? []), geometry.getAttribute('_game_normal')]) {
+      if (!target) {
+        continue;
+      }
       for (let i = 0; i < target.count; i++) {
         target.setXY(i, -target.getX(i), -target.getY(i));
       }
@@ -1473,5 +1636,154 @@ function paintInShader(material: Material, format: number, bands: { value: Vecto
       );
   };
   material.customProgramCacheKey = () => `${previousKey.call(material)}|nfs5-paint-${format}`;
+  material.needsUpdate = true;
+}
+
+/** Uniforms of the specular pass of one car, shared by its materials */
+class ReflectionUniforms {
+  readonly maps: { value: Texture | null }[] = [{ value: null }, { value: null }, { value: null }];
+  readonly cube: { value: Texture | null } = { value: null };
+  readonly mode = { value: ReflectionMode.OFF };
+  // world direction to the direction to look up in the cube texture, as three.js draws it as a background
+  readonly cubeMatrix = { value: new Matrix3() };
+}
+
+const glslFloats = (values: number[]) => values.map(x => (Number.isInteger(x) ? `${x}.0` : `${x}`)).join(', ');
+
+/**
+ * The specular pass (R3DSpecularTextureLayer 0x445520, nfs5SpecularBlend) drawn in the fragment shader of a material
+ * over its own colour, in the output colour space (the game blends in the framebuffer's): per vertex of a level
+ * (`nfs5SpecularLevel` level + 1, 0 none) the texture coordinates of the view-space game normal (`nfs5ReflectionNormal`,
+ * nfs5SpecularUv); the texel of the level's map (none: nothing) blended with its alpha (source alpha, inverse source
+ * alpha), unlit. Sky mode (ReflectionMode.SKY): the texel is the scene's sky cube texture in the direction the
+ * normal reflects the camera's direction to (per vertex, interpolated), its alpha nfs5SkySpecularAlpha of the
+ * view-space normal's y. A blended material (a window) gets the pass's alpha too: the colour the framebuffer would
+ * hold after both passes
+ */
+function reflectionInShader(material: Material, uniforms: ReflectionUniforms) {
+  const previous = material.onBeforeCompile;
+  const previousKey = material.customProgramCacheKey;
+  const [level1, level2] = [NFS5_SKY_SPECULAR_ALPHA[1], NFS5_SKY_SPECULAR_ALPHA[2]];
+  material.onBeforeCompile = (shader, renderer) => {
+    previous.call(material, shader, renderer);
+    uniforms.maps.forEach((map, i) => (shader.uniforms[`nfs5SpecMap${i}`] = map));
+    shader.uniforms['nfs5SpecCube'] = uniforms.cube;
+    shader.uniforms['nfs5SpecCubeMatrix'] = uniforms.cubeMatrix;
+    shader.uniforms['nfs5SpecMode'] = uniforms.mode;
+    shader.uniforms['nfs5SpecFlipY'] = {
+      get value() {
+        return uniforms.maps.find(m => m.value)?.value?.flipY ? 1 : 0;
+      },
+    };
+    shader.uniforms['nfs5SpecSrgb'] = {
+      get value() {
+        return new Vector3(...uniforms.maps.map(m => (m.value?.colorSpace === SRGBColorSpace ? 1 : 0)));
+      },
+    };
+    shader.uniforms['nfs5SpecHas'] = {
+      get value() {
+        return new Vector3(...uniforms.maps.map(m => (m.value ? 1 : 0)));
+      },
+    };
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <fog_pars_vertex>',
+        `#include <fog_pars_vertex>
+        attribute vec3 nfs5ReflectionNormal;
+        attribute float nfs5SpecularLevel;
+        uniform float nfs5SpecFlipY;
+        varying float vNfs5SpecLevel;
+        varying vec2 vNfs5SpecUv;
+        varying float vNfs5SpecUp;
+        varying vec3 vNfs5SpecReflect;`,
+      )
+      .replace(
+        '#include <fog_vertex>',
+        `#include <fog_vertex>
+        vNfs5SpecLevel = nfs5SpecularLevel;
+        vNfs5SpecUv = vec2( 0.5 );
+        vNfs5SpecUp = 0.0;
+        vNfs5SpecReflect = vec3( 0.0, 0.0, 1.0 );
+        if ( nfs5SpecularLevel > 0.5 ) {
+          vec3 nfs5N = normalize( normalMatrix * nfs5ReflectionNormal );
+          float nfs5F = 0.5 / sqrt( abs( nfs5N.z ) + 1.0 );
+          vNfs5SpecUv = 0.5 + nfs5N.xy * nfs5F;
+          // Direct3D's v: 0 is the top row
+          if ( nfs5SpecFlipY > 0.5 ) {
+            vNfs5SpecUv.y = 1.0 - vNfs5SpecUv.y;
+          }
+          vNfs5SpecUp = nfs5N.y;
+          vec4 nfs5World = modelMatrix * vec4( transformed, 1.0 );
+          vNfs5SpecReflect = reflect(
+            nfs5World.xyz - cameraPosition, normalize( mat3( modelMatrix ) * nfs5ReflectionNormal ) );
+        }`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <fog_pars_fragment>',
+        `#include <fog_pars_fragment>
+        uniform sampler2D nfs5SpecMap0;
+        uniform sampler2D nfs5SpecMap1;
+        uniform sampler2D nfs5SpecMap2;
+        uniform vec3 nfs5SpecHas;
+        uniform vec3 nfs5SpecSrgb;
+        uniform samplerCube nfs5SpecCube;
+        uniform mat3 nfs5SpecCubeMatrix;
+        uniform float nfs5SpecMode;
+        varying float vNfs5SpecLevel;
+        varying vec2 vNfs5SpecUv;
+        varying float vNfs5SpecUp;
+        varying vec3 vNfs5SpecReflect;
+        // nfs5SkySpecularAlpha
+        const float nfs5SkyAlpha1[ 10 ] = float[ 10 ]( ${glslFloats(level1)} );
+        const float nfs5SkyAlpha2[ 10 ] = float[ 10 ]( ${glslFloats(level2)} );
+        float nfs5SkySpecularAlpha( float level, float up ) {
+          float x = clamp( ( up + 0.9 ) / 0.2, 0.0, 9.0 );
+          int i = int( min( floor( x ), 8.0 ) );
+          float t = x - float( i );
+          return level < 1.5
+            ? mix( nfs5SkyAlpha1[ i ], nfs5SkyAlpha1[ i + 1 ], t )
+            : mix( nfs5SkyAlpha2[ i ], nfs5SkyAlpha2[ i + 1 ], t );
+        }`,
+      )
+      .replace(
+        '#include <premultiplied_alpha_fragment>',
+        `#include <premultiplied_alpha_fragment>
+        float nfs5Level = floor( vNfs5SpecLevel + 0.5 ) - 1.0;
+        if ( nfs5SpecMode > 0.5 && nfs5Level >= 0.0 ) {
+          vec4 nfs5Env = vec4( 0.0 );
+          if ( nfs5SpecMode < 1.5 ) {
+            float nfs5Srgb = 0.0;
+            if ( nfs5Level < 0.5 ) {
+              if ( nfs5SpecHas.x > 0.5 ) nfs5Env = texture2D( nfs5SpecMap0, vNfs5SpecUv );
+              nfs5Srgb = nfs5SpecSrgb.x;
+            } else if ( nfs5Level < 1.5 ) {
+              if ( nfs5SpecHas.y > 0.5 ) nfs5Env = texture2D( nfs5SpecMap1, vNfs5SpecUv );
+              nfs5Srgb = nfs5SpecSrgb.y;
+            } else {
+              if ( nfs5SpecHas.z > 0.5 ) nfs5Env = texture2D( nfs5SpecMap2, vNfs5SpecUv );
+              nfs5Srgb = nfs5SpecSrgb.z;
+            }
+            if ( nfs5Srgb > 0.5 ) {
+              nfs5Env = vec4( sRGBTransferOETF( nfs5Env ).rgb, nfs5Env.a );
+            }
+          } else if ( nfs5Level > 0.5 ) {
+            vec3 nfs5Sky = textureCube( nfs5SpecCube, nfs5SpecCubeMatrix * normalize( vNfs5SpecReflect ) ).rgb;
+            nfs5Env = vec4(
+              sRGBTransferOETF( vec4( nfs5Sky, 1.0 ) ).rgb, nfs5SkySpecularAlpha( nfs5Level, vNfs5SpecUp ) );
+          }
+          float nfs5A = clamp( nfs5Env.a, 0.0, 1.0 );
+          float nfs5OutA = gl_FragColor.a + nfs5A - gl_FragColor.a * nfs5A;
+          #ifdef PREMULTIPLIED_ALPHA
+          gl_FragColor.rgb = gl_FragColor.rgb * ( 1.0 - nfs5A ) + nfs5Env.rgb * nfs5A;
+          #else
+          gl_FragColor.rgb = ( gl_FragColor.rgb * gl_FragColor.a * ( 1.0 - nfs5A ) + nfs5Env.rgb * nfs5A )
+            / max( nfs5OutA, 1.0 / 255.0 );
+          #endif
+          gl_FragColor.a = nfs5OutA;
+        }`,
+      );
+  };
+  material.customProgramCacheKey = () => `${previousKey.call(material)}|nfs5-specular`;
   material.needsUpdate = true;
 }

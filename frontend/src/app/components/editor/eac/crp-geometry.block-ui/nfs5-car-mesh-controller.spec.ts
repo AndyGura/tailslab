@@ -1,13 +1,20 @@
-import { BoxGeometry, Group, Mesh, MeshBasicMaterial, Vector3 } from 'three';
+import { BoxGeometry, BufferAttribute, Group, Mesh, MeshBasicMaterial, Scene, Texture, Vector3 } from 'three';
 import {
   Nfs5CarArticle,
   Nfs5CarData,
+  Nfs5CarMaterial,
   Nfs5CarMeshController,
   nfs5Bands,
   nfs5HitZones,
+  nfs5LayerDrawn,
   nfs5Lights,
   nfs5PaintBand,
   nfs5RaceSlots,
+  nfs5RenderCaps,
+  nfs5SkySpecularAlpha,
+  nfs5SpecularBlend,
+  nfs5SpecularLevel,
+  nfs5SpecularUv,
   nfs5ZoneDamageAfterHit,
   NFS5_DRAW_BODY,
   NFS5_DRAW_DAMAGE,
@@ -329,5 +336,86 @@ describe('Nfs5CarMeshController', () => {
     expect(nfs5PaintBand(255)).toBeNull();
     const bands = nfs5Bands([0xff0000, 0x00ff00, 0x0000ff, 0x808080], null, true);
     expect([bands[0], bands[6], bands[14]]).toEqual([0xff0000, 0x00ff00, 0x808080]);
+  });
+
+  it('keeps the rules of the specular pass', () => {
+    // car chrome 0 compiles the groups of caps mask 0 only (the windows), 1 and 2 those of mask 2 too (the body)
+    expect([0, 1, 2].map(nfs5RenderCaps)).toEqual([1, 3, 3]);
+    const body = { param: 0.5, passes: [2, 4] };
+    const window = { param: 1, passes: [0] };
+    expect([nfs5LayerDrawn(body, 1), nfs5LayerDrawn(body, 3), nfs5LayerDrawn(window, 1)]).toEqual([false, true, true]);
+    expect(nfs5LayerDrawn(null, 3)).toBeFalse();
+    // the materials' parameters 0, 0.5, 1 pick SPC1, SPC2, SPC3
+    expect([0, 0.04, 0.05, 0.5, 0.94, 0.95, 1].map(nfs5SpecularLevel)).toEqual([0, 0, 1, 1, 1, 2, 2]);
+    // facing the camera: the middle; turned up: the bottom half (Direct3D's v); at the silhouette: the edge
+    expect(nfs5SpecularUv([0, 0, 1])).toEqual([0.5, 0.5]);
+    const up = nfs5SpecularUv([0, Math.SQRT1_2, Math.SQRT1_2]);
+    expect(up[0]).toBe(0.5);
+    expect(up[1]).toBeGreaterThan(0.75);
+    expect(nfs5SpecularUv([1, 0, 0])).toEqual([1, 0.5]);
+    // the texel over the car by its alpha, times the light
+    const blended = nfs5SpecularBlend([0.2, 0.4, 0.6], [1, 1, 1, 0.5], [0.5, 1, 1]);
+    expect(blended.map(x => +x.toFixed(4))).toEqual([0.35, 0.7, 0.8]);
+    // the sky: up-facing normals only, level 0 none
+    expect(nfs5SkySpecularAlpha(0, 0.9)).toBe(0);
+    expect(nfs5SkySpecularAlpha(1, -0.9)).toBe(0);
+    expect(nfs5SkySpecularAlpha(1, 0.7)).toBeCloseTo(0.338);
+    expect(nfs5SkySpecularAlpha(2, 0.6)).toBeCloseTo((0.153 + 0.357) / 2);
+    expect(nfs5SkySpecularAlpha(2, 1)).toBeCloseTo(0.308);
+  });
+
+  it('gives the vertices the specular level of their materials and picks the source', () => {
+    const { root } = car();
+    const body = root.getObjectByName('Body_a0_LOD1_ai0_page_0') as Mesh;
+    const count = body.geometry.getAttribute('position').count;
+    // the GLB's _NFS5_MATERIAL (normalized bytes): the first half material 1 (a body at 0.5), the rest 2 (none)
+    body.geometry.setAttribute(
+      '_nfs5_material',
+      new BufferAttribute(
+        Uint8Array.from({ length: count }, (_, i) => (i < count / 2 ? 1 : 2)),
+        1,
+        true,
+      ),
+    );
+    const steer = root.getObjectByName('Steer_a3_LOD1_ai0_page_2') as Mesh;
+    const material = (index: number, method: string, param: number | null, passes: number[]): Nfs5CarMaterial => ({
+      index,
+      method,
+      page: 0,
+      specular: param === null ? null : { param, passes },
+      skyMap: null,
+    });
+    const materials = [
+      material(0, 'CarWindow', 1, [0]),
+      material(1, 'CarExtEnv', 0.5, [2, 4]),
+      material(2, 'CarExt', null, []),
+    ];
+    const steerCorners = steer.geometry.getAttribute('position').count;
+    const c = new Nfs5CarMeshController(root, {
+      car: { ...CAR, formatVersion: 2, materials },
+      // the OBJ's per corner materials: the window
+      faceMaterials: { [steer.name]: new Array(steerCorners).fill(0) },
+    });
+    expect(c.hasReflections).toBeTrue();
+    const levels = (mesh: Mesh) => Array.from(mesh.geometry.getAttribute('nfs5SpecularLevel').array as Float32Array);
+    // level + 1, 0 none
+    expect(levels(body)[0]).toBe(2);
+    expect(levels(body)[count - 1]).toBe(0);
+    expect(new Set(levels(steer))).toEqual(new Set([3]));
+    // car chrome 0: the windows only
+    c.carChrome = 0;
+    expect(levels(body)[0]).toBe(0);
+    expect(levels(steer)[0]).toBe(3);
+    // the game's textures when given, else the scene's sky cube
+    const uniforms = (c as any).reflection;
+    c.updateReflections(new Scene());
+    expect(uniforms.mode.value).toBe(0);
+    c.reflectionTextures = [null, new Texture(), null];
+    c.updateReflections(null);
+    expect(uniforms.mode.value).toBe(1);
+    c.reflectionsEnabled = false;
+    c.updateReflections(null);
+    expect(uniforms.mode.value).toBe(0);
+    c.dispose();
   });
 });
