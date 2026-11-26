@@ -887,7 +887,8 @@ class Nfs2CarPhysics(DeclarativeCompoundBlock):
                 "divided by the car tuning's gear ratio at load (game setup +0x2c), engine rpm = speed * ratio "
                 '(0x456f80). Arcade: the wheels never turn faster than the redline in the gear (0x454210); the arcade '
                 "steering scales slides by the speed over the 3rd gear's top speed (0x4539e0); a wall hit sets the "
-                'rpm from the speed (0x457a40)'
+                'rpm from the speed (0x457a40). The tables derived from it (see `gear_efficiency`) are used only below '
+                '`num_gears`: entries at or past it are unused'
             },
         )
         gear_efficiency = (
@@ -895,7 +896,10 @@ class Nfs2CarPhysics(DeclarativeCompoundBlock):
             {
                 'description': 'Gear efficiency per gear: reverse, neutral, 1st to 6th (0.4 to 1.75); a factor of the '
                 'drive acceleration of the gear (see `mass`), read only by `Physics_DeriveHumanSpecs` (0x459560): the arcade '
-                'and simulation drive both use that product'
+                'and simulation drive both use that product. The three 8-entry per gear tables derived into the specs '
+                '(ratios at specs+0x168 and +0x188 from `velocity_to_rpm_ratio`, the drive at +0x1a8 from this) are '
+                'used only for gear indexes below `num_gears` (reverse and neutral included): entries at or past it '
+                'are unused'
             },
         )
         torque_curve = (

@@ -358,12 +358,43 @@ def _match_values(
     return list(values[candidates[0]])
 
 
+def _match_byte_values(sub_mesh: SubMesh, values: List[list], index: dict, positions, uvs, triangles, tolerance):
+    """Values (parallel to the sub-mesh vertices) of the glTF vertices as `_match_values` gives them; where the
+    vertices at a glTF vertex's place (position and texture coordinates) differ in their values (corners of polygons
+    of their own, e.g. NFS5's `_NFS5_MATERIAL` at the edge of two materials), the value of the vertex the glTF
+    triangles give (`_triangle_corner_vertices`), else the first one with a warning"""
+    result = []
+    ambiguous = set()
+    candidates = []
+    for g, (p, uv) in enumerate(zip(positions, uvs)):
+        near = index.get(tuple(round(x, 3) for x in p)) or _vertices_near(sub_mesh, index, p, tolerance)
+        if not near:
+            raise ValueError(f'Mesh "{sub_mesh.name}": no vertex at {p} for the vertex attributes')
+        candidates.append(near)
+        same_place = [i for i in near if uv is None or _close(sub_mesh.vertex_uvs[i], uv, tolerance)] or near
+        if len({tuple(values[i]) for i in same_place}) > 1:
+            ambiguous.add(g)
+        result.append(list(values[same_place[0]]))
+    if ambiguous:
+        polygons_of = _polygons_by_vertex(sub_mesh)
+        for g, vertices in _triangle_corner_vertices(sub_mesh, polygons_of, candidates, triangles, ambiguous).items():
+            if len({tuple(values[i]) for i in vertices}) == 1:
+                result[g] = list(values[min(vertices)])
+                ambiguous.discard(g)
+        for g in sorted(ambiguous):
+            logging.warning(
+                f'Mesh "{sub_mesh.name}": vertices at {positions[g]} with other vertex attributes, the first taken'
+            )
+    return result
+
+
 def add_glb_vertex_attributes(glb_path: str, sub_meshes: List[SubMesh], tolerance: float = 1e-4):
     """Adds the `vertex_normals` of `sub_meshes` to the meshes of the nodes with their names in the GLB file, as the
     vertex attribute `_GAME_NORMAL` (an application-specific glTF attribute; three.js GLTFLoader reads it as the
     geometry attribute `_game_normal`), their `vertex_colors` as COLOR_0 (float VEC4, or VEC3 for colours without
     alpha; replacing one Blender wrote) and their `vertex_byte_attributes` as unsigned byte normalized attributes of
-    their names (three.js: the name in lower case, value / 255; `_PSX_GOURAUD`). The GLB
+    their names (three.js: the name in lower case, value / 255; `_PSX_GOURAUD`; vertices at one place with other
+    values told apart by the glTF triangles, `_match_byte_values`). The GLB
     keeps Blender's NORMAL: the game normals are for code that follows the game's own shading (FCE chrome,
     `FceCarMeshController`). Sub-meshes with `glb_game_normals` off get no `_GAME_NORMAL`. Vertices are matched as for
     the morph targets"""
@@ -412,16 +443,14 @@ def add_glb_vertex_attributes(glb_path: str, sub_meshes: List[SubMesh], toleranc
                     gltf, binary, colors, f'VEC{len(colors[0]) if colors else 4}'
                 )
             if sub_mesh.name in with_bytes:
+                triangles = None
                 for name, values in sorted(sub_mesh.vertex_byte_attributes.items()):
                     if len(values) != len(sub_mesh.vertices):
                         continue
+                    if triangles is None:
+                        triangles = _primitive_triangles(gltf, binary, primitive, len(positions))
                     attributes[name] = _append_byte_accessor(
-                        gltf,
-                        binary,
-                        [
-                            _match_values(sub_mesh, values, index, p, uv, tolerance, 'vertex attributes')
-                            for p, uv in zip(positions, uvs)
-                        ],
+                        gltf, binary, _match_byte_values(sub_mesh, values, index, positions, uvs, triangles, tolerance)
                     )
     gltf['buffers'][0]['byteLength'] = len(binary) + (-len(binary) % 4)
     write_glb(glb_path, gltf, bytes(binary))

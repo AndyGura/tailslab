@@ -56,10 +56,11 @@ class GeoPolygon(DeclarativeCompoundBlock):
                 'description': 'Polygon properties. Bit 0 "is_triangle": a triangle, the 4th vertex is not used '
                 '(verified). Bit 1 "uv_flip": changes the texture coordinates (as the converter maps them, which '
                 'looks right); the renderer does not read it, `R3DCar_LoadGeo` checks it only on the first polygon '
-                'of the rear wheel parts 16 and 18 before moving that quad 5/256 m outwards ("Fixing Wheels"; set '
-                'there in every race car). The vertex normals of nfs2sea.exe (3Dfx, `R3DCar_ComputeVoodooNormals` '
-                '0x46ed80) take the polygon as 4 vertices when bit 1 is set, as 3 when clear (verified): a quirk, '
-                'the renderer goes by bit 0; in every NFS2 / NFS2 SE GEO bit 1 is set exactly on the quads, so both '
+                'of the rear wheel parts 16 and 18 before moving that quad 5/256 m outwards ("Fixing Wheels", see '
+                '`GeoGeometry`; set there in every race car). The vertex normals of nfs2sea.exe (3Dfx, '
+                '`R3DCar_ComputeVoodooNormals` 0x46ed80) take the polygon as 4 vertices when bit 1 is set, as 3 when '
+                'clear (verified): a quirk, the renderer goes by bit 0; in every NFS2 / NFS2 SE GEO bit 1 is set '
+                'exactly on the quads, so both '
                 'agree. Bit 2 "flip_normal": the game takes the vertices in reverse order, quad '
                 '0, 3, 2, 1, triangle 2, 1, 0 (verified, `Transfmr_AddMeshPolys`); the normals of nfs2sea.exe are '
                 'negated (verified). Bit 3 "color_keyed": the '
@@ -169,7 +170,17 @@ class GeoGeometry(DeclarativeCompoundBlock):
         'bit 2. Vertex normal: the sum of the normals of the first 8 polygons of its part using it, plus, for parts '
         '0..19 but 2, 9 and 10, those of the polygons of the other parts 0..19 (but 0, 2, 9, 10, 11) with a vertex '
         'within 12/256 m of it on every axis (part positions not applied), normalized, x set to 0 for a vertex at '
-        'x = 0; (0, 0, 0) for a vertex of no polygon (the game draws it without the reflection)'
+        'x = 0; (0, 0, 0) for a vertex of no polygon (the game draws it without the reflection). "Fixing Wheels": '
+        "the game's loader `R3DCar_LoadGeo` (0x45b860) moves the 4 vertices of the first polygon (the indexes at "
+        'its bytes +4..+7, a duplicated index moving twice) of parts 12 and 14 (front right / left wheel) of model 4 '
+        '(IDGO), and of parts 16 and 18 (rear right / left) of every race car (model below 15) whose first polygon '
+        'has flag bit 1 ("uv_flip", 0x02; the front wheels are moved without a check): x + 5 in parts 12 and 16, '
+        "x - 5 in parts 14 and 18 (1/256 m), 2 cm outward. The model is the car type, the index of the GEO's name in "
+        "the exe's model names (0x4c5fe0: 0 "
+        'MCF1 .. 14 FUTR). The game draws the moved vertices and measures the collision box from them (0x45a9b0). '
+        'The converter exports the vertices of the file: the GUI viewer and nfs-web move those tyre quads at draw '
+        'time (`Nfs2CarMeshController`, by the model of the file name), each of the wheel parts being that one '
+        'quad of 4 vertices in every race car of NFS2 SE (verified, CARDATA.VIV)'
     )
     serializer = 'GeoGeometrySerializer'
 

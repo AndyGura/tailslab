@@ -77,6 +77,7 @@ const iconMap: Record<string, string> = {
   IniFile: 'tune',
 
   TnfsReplay: 'replay',
+  Nfs2Replay: 'replay',
   TnfsConfigDat: 'settings',
   EaFieldDescriptions: 'description',
 };

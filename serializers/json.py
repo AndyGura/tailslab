@@ -131,3 +131,14 @@ class CarFeDataSerializer(ReversibleJsonSerializer):
     parsed. The JSON imports back to the same bytes"""
 
     with_bin = True
+
+
+class Nfs2ReplaySerializer(JsonSerializer):
+    """NFS2 SE `replay.rpy` (`Nfs2Replay`): its fields as `<name>.json` (the chunks' planes as stored), plus `packets`:
+    every control packet as the game plays it back (`nfs2_replay_packets`: steer, gas, brake, buttons), in stream
+    order"""
+
+    def json_value(self, data, block):
+        from resources.eac.replays import nfs2_replay_packets
+
+        return {**super().json_value(data, block), 'packets': nfs2_replay_packets(data['stream']['chunks'])}

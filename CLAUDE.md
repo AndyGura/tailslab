@@ -49,7 +49,7 @@ docs and a working GUI editor for free.
 | `library/changes_service.py` | Tracks unsaved GUI edits against the loaded data tree. |
 | `library/spatial_edit.py` | Spatial edits: blocks declaring `spatial_edit` kinds in their schema (`SpatialEditable`) take "moved handle X to position / rotation" events from a 3D viewer, return the native values to change, and the handle is read back as stored (one undoable change). Skill `read-block-framework`. |
 | `library/utils/asm_runner.py` | 32-bit x86 snippet interpreter (IDA syntax) used to execute and progressively port disassembled game routines; production code never uses it, the ASM-driven decompressor twins in `test/resources/eac/archives/test_compressed_block.py` do. |
-| `resources/eac/` | EA Canada format definitions built from `read_blocks` primitives (bitmaps, archives, fonts, audio, geometries, maps, car specs, TNFS replays). Shared across many NFS titles. `compressions/` holds the pure-Python decompressors and compressors (RefPack, QFS2, QFS3, NFSU's JDLZ, NFSU2's HUFF = QFS3 behind a 16-byte header, NFS HP2 PS2's COMP) behind `EacCompressedBlock`, which writes a resource back with the algorithm it was read with (`compression_flags` in its data, new data gets RefPack); a format of one algorithm passes it as `compression` with its own `possible_blocks` (`NfsuJdlzCompressedBlock`, `Nfs6Ps2CompressedBlock`). Formats, game addresses and compressor notes: `resources/eac_compressions.md`. Compressor output is checked with the games' ASM decoders in `test_compressed_block.py`. |
+| `resources/eac/` | EA Canada format definitions built from `read_blocks` primitives (bitmaps, archives, fonts, audio, geometries, maps, car specs, TNFS and NFS2 SE replays). Shared across many NFS titles. `compressions/` holds the pure-Python decompressors and compressors (RefPack, QFS2, QFS3, NFSU's JDLZ, NFSU2's HUFF = QFS3 behind a 16-byte header, NFS HP2 PS2's COMP) behind `EacCompressedBlock`, which writes a resource back with the algorithm it was read with (`compression_flags` in its data, new data gets RefPack); a format of one algorithm passes it as `compression` with its own `possible_blocks` (`NfsuJdlzCompressedBlock`, `Nfs6Ps2CompressedBlock`). Formats, game addresses and compressor notes: `resources/eac_compressions.md`. Compressor output is checked with the games' ASM decoders in `test_compressed_block.py`. |
 | `resources/eac/maps/`, `resources/eac/geometries/` | Per-game specializations (`tnfs.py`, `nfs2.py`, `nfs3.py`, `nfs5.py`, ...). |
 | `resources/common/` | Vendor-neutral formats: Targa image (also a fallback), PCX image, Sega Saturn sound driver tone banks. |
 | `resources/blackbox/` | Blackbox-studio (later NFS titles) formats, NFS Underground 1, 2 and Most Wanted, NFS Hot Pursuit 2 PS2 (`nfs6_ps2.py` modules, see its section below): `chunks.py` (the chunk kit: `ChunkBlock`, chunk walks and peeks, dispatch by chunk id; skill `nfs-resource-formats`), `geometries/` (car and world geometry packs), `bitmaps/` (texture packs, TPK), `maps/` (chunk bundles, scenery, streaming sections; `NfsuTrackBundle` is a race's `TRACKBnnnn.lzc` or an NFSU2/NFSMW location bundle `LxRA.BUN`), `audios/` (NFS HP2 PS2 music `JUKEBOXM.JBC`), `archives.py` (JDLZ-compressed files). |
@@ -178,7 +178,8 @@ When you do:
   and hold no specs (they are tested next to the GUI components using them). It has `TnfsCarMeshController` (and
   `TnfsSkylineMemorialCarMeshController`, the Japanese PSX cars' Gouraud colours; `createTnfsCarMeshController` picks one),
   `Nfs2CarMeshController`, `FceCarMeshController` (NFS3 / NFS4 paint in the fragment shader, by the paint mask's
-  alpha; NFS3 / NFS4 chrome), `Nfs6Ps2CarMeshController` (NFS HP2 PS2 cars), `Nfs6CarMeshController` (NFS HP2 PC
+  alpha; NFS3 / NFS4 chrome), `Nfs5CarMeshController` (NFS5 CRP cars as Porsche.exe draws them, its specular pass
+  included, its rules in `nfs5-car-parts.ts`; NFS5 section), `Nfs6Ps2CarMeshController` (NFS HP2 PS2 cars), `Nfs6CarMeshController` (NFS HP2 PC
   cars), `scene-sky.ts` (a scene's sky cube and the sun of a gg-web-engine procedural sky, for car shaders lit by the
   scene; the `scene.userData` keys of NFS4's sky top colour and track light, `SCENE_SKY_TOP_COLOR` and
   `SCENE_TRACK_LIGHT`) and `setupNfs1Texture`; the other car mesh controllers (`*-car-mesh-controller.ts`) and the
@@ -646,9 +647,38 @@ When you do:
   `nfs5.prt` next to the opened file (`nfs5-files.ts`: `find_files` + `retrieve_value`) for names, and link to the
   other files (`.sim`, `.ais`, a car, a part) by opening them (`nfs5PendingSelection` picks the record shown; off
   with unsaved changes). Their derived values follow the field descriptions: keep the two in sync.
+- CRP cars (`CrpGeometrySerializer`, `serializers/misc/nfs5_car_model.py`; Porsche.exe R3DCar / R3DCarLOD, nfs-web
+  `decomp/nfs5/port-work/car-render/`): mesh names `<article>_a<article index>_LOD<lod>_ai<frame>[_<texture>]
+  [_damaged]` (the index: article names repeat). `nfs5Car` in the `.meta` and the OBJ's `_extra.json`
+  (`nfs5_car_model_info`): per article the base part's car data (geometry slot and value, draw order, wheel, pivot,
+  frames, animation, draw flags, glare light, in-car flags), its levels, `rt` transformations by level (16 floats,
+  CRP axes, row vectors) and light glares (effect type 5); the `.tpg` styles (slots, texture slots + 60), header keys
+  (driver camera, door axis, hood / trunk / headlight / moving spoiler extents), `[damagezones]`, pages (size,
+  format); `packages.ini` paint bands. GLB: the meshes of the first frame without damage carry the morph targets
+  `damaged` (the damaged `vt` offsets) and `frame<n>`, and the byte attribute `_NFS5_DAMAGE_ZONE` (the `zd` zone,
+  255 none); the OBJ keeps the frame and `_damaged` meshes and has `nfs5DamageZones` (zone per face corner). Every
+  car mesh has the game's normals (the `mn` part of the level's first frame, turned by `rt`: OBJ `vn`, GLB
+  `_GAME_NORMAL`) and the byte attribute `_NFS5_MATERIAL` (the `tm` index; the corners of two materials are vertices
+  of their own, told apart in the GLB by its triangles; OBJ `nfs5Materials` per face corner); `nfs5Car.materials`
+  (format 2) holds each material's render method (`desc`, the `htMR` part: `nfs5_render_method`) and its reflection
+  layers (`nfs5_car_material`: the specular texture and sky map layers' parameter and pass caps masks). The export
+  copies `carcmn.fsh`'s specular textures next to it (`textures/specular/`, `_extra.json` `nfs5SpecularTextures`) for
+  the preview's game reflections. The
+  texture pages are the race's (`nfs5_race_slots`: style 1, driver 0, roof up, day, no race number; `frontend=0`,
+  `testdrive`, `night`, file order with a later image on top, `mirror` copies, the `global=` files of CarModel/);
+  their alpha stays the paint band code (`nfs5_paint_band`), `alpha_mode opaque` but on wheels and windows.
+  `Nfs5CarMeshController` (nfs-three-lib) draws a car by the race's rules: articles by slot, level and view, pivots,
+  animations, dents by zone, lights (glare quads), the paint tinted in the fragment shader, the specular pass
+  (`reflectionTextures`: carcmn.fsh SPC1..3 sphere mapped by the view-space game normal; none: the scene's sky
+  dimmed to the game's, `nfs5SkySpecularAlpha`; `carChrome`; the rules in `nfs5-car-parts.ts`). nfs-web reads the names,
+  `nfs5Car`, the targets and the attribute: keep them stable, bump `NFS5_CAR_MODEL_FORMAT_VERSION` when they change.
+  The race composes a page once per model from the style, the night flag and the parts' slots: a viewer switching
+  them keeps the default style's pages.
 - In the CRP, the track parts `DmiS` / `TmiS` (road spline slices and sections; a slice's lanes, lane bits and widths
   as the AI reads them), `esaB` (`CrpBasePart`: flags, bounds, object tag, levels of detail) and `fd` (vertex
   colours) are parsed.
+- CRP car parts: `zd` (`CrpDamageZonesPart`: the damage zone of each vertex of the `vt` part of the same index) and
+  the base part's car bytes (`CrpBasePartData` `tag` = slot, value, order, id; `car_*` fields, `light`).
 - CRP layout (`CrpGeometry`): 16-byte chunks (header, articles, common parts, parts; parts picked by identifier,
   `MagicDispatchBlock`), then the part data at each part's `offset` / `len`: 16-byte aligned, in no fixed order, some at
   4 KB boundaries, zeros between, the file padded to 4 KB. `write` lays the data out again in the order of the offsets
@@ -832,8 +862,9 @@ When you do:
   (nfs-web's `TnfsCarMeshController` works unchanged): textures from the car's `CARS/<car>.ALL` bank (high: first,
   low: second), `frntires` / `rertires` get `tyr4`, wheel labels renamed by their polygon's position
   (`tnfs_wheel_labels_by_position`: the PGC10 labels its left front wheel `rt_frnt`). `car_colors.json`
-  (`serializers/misc/tnfs_saturn_car_colors.py`): pure green (green >= 29) colours drawn = brake light marker (5 cars,
-  colour 0 of the rear light texture; colour 0 of a cut-out texture is not drawn and not counted), off / on colours of the PSX game; not verified in the Saturn code.
+  (`serializers/misc/tnfs_saturn_car_colors.py`, high-poly bank only): colour 0 of the bank's texture 0 is the brake
+  light, whatever its colour (green in 5 cars, red in the 300ZX, Silvia, 240ZG; the 300ZX's is J015, not its `bkll`
+  texture), off / on 0x8006 / 0x803F: the Saturn code's (0x06041720 at load, the car draw 0x060333bc per frame).
 - `0` (`TnfsSaturnGtrExecutable`): the in-car view's 9 cockpit records by car model id (`TnfsSaturnCockpitRecord`,
   0x715b0: needle colour, lengths, centres, angle scale / offset, the steering wheel's place and pivot) and the 8
   speedometer tops (0x71864), model pointers, 9 car AI records (`TnfsSaturnCarAiAndCrashBody`: PDN big-endian, top
@@ -1032,6 +1063,10 @@ When you do:
   vertices; written as OBJ `vn` and GLB `_GAME_NORMAL` (`add_glb_vertex_attributes`) on the parts the exe gives them
   (polygons, < 126 vertices, < 66 polygons), none on the others. A vertex of no polygon keeps (0, 0, 0). nfs-web's
   `Nfs2CarMeshController` draws the 3Dfx reflections from them.
+- "Fixing Wheels" (nfs2sen.exe `R3DCar_LoadGeo` 0x45b860: the tyre quads of IDGO's front wheels and of every race
+  car's rear wheels 5/256 m outward, rules in `GeoGeometry`'s description) is not applied by the export: the GEO's
+  vertices are exported as stored, `Nfs2CarMeshController` (GUI viewer, nfs-web) moves those wheel parts at draw time
+  by the model of the file name. Applying it in the export too would move them twice.
 
 ## NFS2 SE car physics and AI (GAMEDATA/SIM/CARDATA/P*.DAT, GAMEDATA/SIM/AI/*.DAT, their copies in CARDATA.VIV)
 
@@ -1090,6 +1125,15 @@ When you do:
   inside `EacCompressedBlock`, converted to `<name>.QAS__data.json`. Picked by name (`nfs2_ai_track_file_kind`: the
   raw extensions, or a packed one's `__uncompressed` data). The raw files are the packed ones' bytes but TR04's and
   TR04B's (other data; most backward ones have no raw copy). JsonSerializer.
+- `Nfs2Replay` (`resources/eac/replays.py`): `replay.rpy`, 124340 bytes, saved by nfs2sen.exe 0x45cf70, loaded by
+  0x45cf00 / `Replay_InitReplay` 0x45d6e0. The GameSetup copy (`Nfs2GameSetup`, 0x5b0 bytes = GameSetup_gData
+  0x4df518, 16 `Nfs2GameSetupCar`s), the tick count, the packet stream (`Nfs2ReplayStream`, 0x1e000 bytes): chunks of
+  32 control packets, 4 packed plane records each (`Nfs2ReplayPlane`, an `ArrayBlock` of the 32 unpacked values that
+  reads / writes the game's RLE, `nfs2_replay_pack` / `nfs2_replay_unpack`; a record not packed as the game packs it
+  is refused, so the stream writes back byte-exact and its size follows from the values), up to a record length 0,
+  then `unused` (fitted to the rest of the 0x1e000 bytes). Picked by the `.rpy` extension. `Nfs2ReplaySerializer`
+  (JsonSerializer + `packets`: every packet as the game plays it back, `nfs2_replay_packets`). Sample
+  `test/samples/NFS2SE_replay.rpy` (recorded by the exe's own code in nfs-web's lockstep emulator).
 - The developers' `.DES` files (`P*.DES`, `SIMTUNE.DES`, `MCF1.DES`, `TRAFCFG.DES`, `PRSONAL.DES`, the smackables'
   `TRACKS/DATA/PC/SM*.DES`; NFS5 `TRAFCFG.DES` too) = `EaFieldDescriptions` (`resources/eac/field_descriptions.py`,
   module docstring has the layout): a body (94 bytes of garbage, int data size, int records size, a copy of the data,

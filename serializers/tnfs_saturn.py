@@ -40,9 +40,9 @@ def tnfs_saturn_bank_textures(bank: dict) -> Dict[str, tuple]:
     return result
 
 
-def export_tnfs_saturn_texture_bank(bank: dict, path: str) -> List[str]:
-    """PNGs of every texture of a bank (indexed, colour 0 transparent where the draw mode says so) and
-    `car_colors.json` (`tnfs_saturn_car_colors`) when it finds colours, in folder `path`"""
+def export_tnfs_saturn_texture_bank(bank: dict, path: str, high_poly: bool) -> List[str]:
+    """PNGs of every texture of a bank (indexed, colour 0 transparent where the draw mode says so) and, for the
+    high-poly bank, `car_colors.json` (`tnfs_saturn_car_colors`), in folder `path`"""
     from serializers.misc.tnfs_saturn_car_colors import tnfs_saturn_car_colors
 
     os.makedirs(path, exist_ok=True)
@@ -52,7 +52,9 @@ def export_tnfs_saturn_texture_bank(bank: dict, path: str) -> List[str]:
         file_path = path_join(path, f'{name}.png')
         image.save(file_path, 'PNG')
         output.append(file_path)
-    car_colors = tnfs_saturn_car_colors([(name, colors, used) for name, (_, colors, used) in textures.items()])
+    car_colors = tnfs_saturn_car_colors(
+        [(name, colors, used) for name, (_, colors, used) in textures.items()], high_poly
+    )
     if car_colors:
         file_path = path_join(path, 'car_colors.json')
         with open(file_path, 'w') as file:
@@ -83,8 +85,10 @@ class TnfsSaturnCarBundleSerializer(BaseFileSerializer):
 
         super().serialize(data, path)
         output = [_write_json(path_join(path, 'physics.PBS'), block.field_blocks_map['physics'], data['physics'])]
-        output += export_tnfs_saturn_texture_bank(data['textures'], path_join(path, 'textures'))
-        output += export_tnfs_saturn_texture_bank(data['low_poly_textures'], path_join(path, 'low_poly_textures'))
+        output += export_tnfs_saturn_texture_bank(data['textures'], path_join(path, 'textures'), True)
+        output += export_tnfs_saturn_texture_bank(
+            data['low_poly_textures'], path_join(path, 'low_poly_textures'), False
+        )
         if data.get('cockpit'):
             for name in ('dashboard', 'steering_wheel'):
                 file_path = path_join(path, f'{name}.png')

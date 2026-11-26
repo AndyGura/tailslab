@@ -2,6 +2,7 @@ import logging
 import math
 import os
 import re
+import struct
 import traceback
 from collections import defaultdict
 from configparser import ConfigParser, Error as ConfigParserError
@@ -20,6 +21,18 @@ from resources.eac.bitmaps import EacImage
 from serializers import BaseFileSerializer
 from serializers.base import UiSerialization, current_resource
 from serializers.common.three_d import SubMesh, Mesh, export_scenes, Scene, terrain_chunk_scene
+from serializers.misc.nfs5_car_model import (
+    NFS5_CAR_GLOBAL_FILES,
+    NFS5_SPECULAR_TEXTURES,
+    crp_car_is_image_used,
+    nfs5_car_article_info,
+    nfs5_car_file_details,
+    nfs5_car_material,
+    nfs5_car_model_info,
+    nfs5_damage_zones,
+    nfs5_race_slots,
+    nfs5_render_method,
+)
 from serializers.misc.nfs5_road_network import nfs5_track_roads
 from serializers.misc.path_utils import escape_chars
 
@@ -1163,48 +1176,35 @@ def crp_car_texture_page_sources(fsh_indices: List[int], tpg: ConfigParser = Non
     return res
 
 
-def crp_car_default_style(tpg: ConfigParser) -> Dict[Tuple[str, int], int]:
-    """Variant selection of car's default style (the lowest-numbered [styleN] section of .tpg): maps
-    (slot kind, slot index) to variant type, e.g. ('geometry', 8) -> 3. Slots, not listed in the style, use type 0"""
-    styles = sorted(int(m.group(1)) for m in (re.fullmatch(r'style(\d+)', x) for x in tpg.sections()) if m is not None)
-    if not styles:
-        return {}
-    return dict(_crp_tpg_variant_entries(tpg, f'style{styles[0]}'))
-
-
-def _crp_tpg_variant_entries(tpg: ConfigParser, section: str) -> List[Tuple[Tuple[str, int], int]]:
-    """Reads (slot, type) entries of .tpg section, like "geometry1=5 type1=0" -> (('geometry', 5), 0)"""
-    res = []
-    for key, value in tpg.items(section):
-        match = re.fullmatch(r'(geometry|texture)(\d+)', key)
-        if match is None or not tpg.has_option(section, f'type{match.group(2)}'):
-            continue
-        res.append(((match.group(1), int(value)), tpg.getint(section, f'type{match.group(2)}')))
-    return res
-
-
-def crp_car_is_image_used(tpg: ConfigParser, file_index: int, alias: str, style: Dict[Tuple[str, int], int]) -> bool:
-    """Whether the image of car's FSH file (1-based .tpg file index) is drawn on the texture page for given style.
-    Images, described in .tpg section [file<N>.<alias>], are alternative variants: an image is used if any of its
-    (slot, type) entries is selected by the style. Showroom (frontend=1) variants are preferred over in-race ones,
-    race decals are skipped"""
-    section = f'file{file_index}.{alias.strip()}'
-    if not tpg.has_section(section):
-        return True
-    if tpg.has_option(section, 'frontend') and tpg.getint(section, 'frontend') != 1:
-        return False
-    if tpg.has_option(section, 'testdrive') and tpg.getint(section, 'testdrive') != 0:
-        return False
-    if tpg.has_option(section, 'racedecal') and tpg.getint(section, 'racedecal') != 0:
-        return False
-    entries = _crp_tpg_variant_entries(tpg, section)
-    if not entries:
-        return True
-    return any(style.get(slot, 0) == variant for slot, variant in entries)
-
-
 def _find_sibling_file(file_path: str, file_name: str) -> Optional[str]:
     return find_file_case_insensitive(path_join(os.path.dirname(file_path) or '.', file_name))
+
+
+def _point_list(p: dict) -> List[float]:
+    return [p['x'], p['y'], p['z']]
+
+
+def crp_transform_normals(normals: List[List[float]], m: List[float]) -> List[List[float]]:
+    """Normals turned by a CRP `rt` transformation (16 floats, row vectors: x' = m0 x + m4 y + m8 z + m12, as
+    `Mesh.apply_transform_matrix` takes it): by the inverse transpose of its 3x3 part, unit length"""
+    a = [[m[0], m[4], m[8]], [m[1], m[5], m[9]], [m[2], m[6], m[10]]]
+    # cofactor matrix = det x inverse transpose; the determinant's sign keeps the sides
+    cof = [
+        [
+            a[(r + 1) % 3][(c + 1) % 3] * a[(r + 2) % 3][(c + 2) % 3]
+            - a[(r + 1) % 3][(c + 2) % 3] * a[(r + 2) % 3][(c + 1) % 3]
+            for c in range(3)
+        ]
+        for r in range(3)
+    ]
+    det = sum(a[0][c] * cof[0][c] for c in range(3))
+    sign = -1 if det < 0 else 1
+    result = []
+    for n in normals:
+        t = [sign * sum(cof[r][c] * n[c] for c in range(3)) for r in range(3)]
+        length = math.sqrt(sum(x * x for x in t)) or 1
+        result.append([x / length for x in t])
+    return result
 
 
 def crp_primitive_triangles(primitive_type: int, count: int) -> List[Tuple[int, int, int]]:
@@ -1245,28 +1245,46 @@ class CrpGeometrySerializer(BaseFileSerializer):
     def __init__(self):
         super().__init__(is_dir=True)
 
-    def _load_car_textures(self, data, path, id, block) -> Dict[int, Tuple[list, Optional[int], Optional[int]]]:
-        """Exports textures from FSH parts and prepares texture pages. Returns texture page index ->
-        (images with positions, page width, page height)"""
-        from library.loader import id_to_path
-        from serializers import ShpiArchiveSerializer, ImageSerializer
+    @staticmethod
+    def _read_ini(file_path: Optional[str]) -> Optional[ConfigParser]:
+        if not file_path:
+            return None
+        ini = ConfigParser(strict=False, interpolation=None)
+        try:
+            ini.read(file_path)
+        except ConfigParserError, UnicodeDecodeError:
+            return None
+        return ini
 
-        tpg = None
-        if id:
-            tpg_path = _find_sibling_file(
-                id_to_path(id), os.path.splitext(os.path.basename(id_to_path(id)))[0] + '.tpg'
-            )
-            if tpg_path:
-                tpg = ConfigParser(strict=False, interpolation=None)
-                try:
-                    tpg.read(tpg_path)
-                except Exception:
-                    tpg = None
+    def _car_files(self, id) -> Tuple[Optional[ConfigParser], Optional[ConfigParser], Optional[str]]:
+        """The car's `.tpg` and the game's `packages.ini` next to the CRP, and the CRP's folder"""
+        from library.loader import id_to_path
+
+        if not id:
+            return None, None, None
+        crp_path = id_to_path(id)
+        tpg = self._read_ini(_find_sibling_file(crp_path, os.path.splitext(os.path.basename(crp_path))[0] + '.tpg'))
+        packages = self._read_ini(_find_sibling_file(crp_path, 'packages.ini'))
+        return tpg, packages, os.path.dirname(crp_path) or '.'
+
+    def _load_car_textures(
+        self, data, path, id, block, tpg: Optional[ConfigParser], car_dir: Optional[str]
+    ) -> Dict[int, Tuple[list, Optional[int], Optional[int]]]:
+        """Exports textures from FSH parts and prepares texture pages. Returns texture page index ->
+        (images with positions, page width, page height). The images are in drawing order (`compose_texture_page`:
+        the first one wins): with the car's `.tpg` the pages a race draws for the first body style (Porsche.exe
+        R3DObject_BuildTexturePages 0x442790, R3DCar_DrawFileImages 0x443f60: each image of the page's file in file order,
+        a later one over an earlier one, each `crp_car_is_image_used` by `nfs5_race_slots` (driver 0, the roof up) on a
+        day track; `mirror=1`
+        a second copy at the mirror offset; `global=k` files from the game's CarModel folder); without it the
+        layout all NFS5 cars share, every image. The paint is not applied: the band codes stay in the alpha"""
+        from library.loader import path_to_name
+        from serializers import ShpiArchiveSerializer, ImageSerializer
 
         misc_choice = block.field_blocks_map['common_parts'].child
         fsh_choice_index = misc_choice.get_choice_index_by_class_name('FSHPart')
         shpi_block = ShpiBlock()
-        # FSH part index -> (alias, image, x, y) of every image
+        # FSH part index -> (alias, image, x, y) of every image, in file order
         fsh_images = {}
         for i, x in enumerate(data['common_parts']):
             if x['choice_index'] != fsh_choice_index:
@@ -1299,29 +1317,80 @@ class CrpGeometrySerializer(BaseFileSerializer):
                 images.append((child['alias'], image, *crp_image_atlas_position(child['item']['data'])))
             fsh_images[fsh_part['idx']] = images
 
-        def build_pages(tpg):
-            style = crp_car_default_style(tpg) if tpg is not None else {}
+        global_images = {}
+
+        def file_images(file_index: int, details: dict) -> list:
+            """(alias, image, x, y) of a file (0-based): its CRP FSH part or the global file of `global`"""
+            if not details['global']:
+                return fsh_images.get(file_index, [])
+            k = details['global']
+            if k not in global_images:
+                global_images[k] = []
+                fsh_path = (
+                    _find_sibling_file(path_join(car_dir, 'x'), NFS5_CAR_GLOBAL_FILES[k - 1])
+                    if car_dir and 0 < k <= len(NFS5_CAR_GLOBAL_FILES)
+                    else None
+                )
+                shpi = require_resource_as(path_to_name(fsh_path), ShpiBlock) if fsh_path else None
+                if shpi is not None:
+                    fsh_id, global_block, global_data = shpi
+                    for _, child, item_block, _ in global_block.items(global_data, EacImage):
+                        try:
+                            image = ImageSerializer().to_image(
+                                child['item']['data'],
+                                item_block,
+                                join_id(fsh_id, 'children', child['alias'], 'item', 'data'),
+                            )
+                        except Exception:
+                            traceback.print_exc()
+                            continue
+                        global_images[k].append(
+                            (child['alias'], image, *crp_image_atlas_position(child['item']['data']))
+                        )
+            return global_images[k]
+
+        def race_pages(tpg):
+            slots = nfs5_race_slots(tpg)
             pages = {}
-            for page_idx, fsh_idx in crp_car_texture_page_sources(list(fsh_images.keys()), tpg).items():
-                width = height = None
-                section = f'tpage{page_idx + 1}.details'
-                if tpg is not None and tpg.has_option(section, 'width') and tpg.has_option(section, 'height'):
-                    width, height = tpg.getint(section, 'width'), tpg.getint(section, 'height')
-                images = [
-                    (image, x, y)
-                    for alias, image, x, y in fsh_images[fsh_idx]
-                    if tpg is None or crp_car_is_image_used(tpg, fsh_idx + 1, alias, style)
-                ]
-                pages[page_idx] = (images, width, height)
+            for page in range(tpg.getint('header', 'numtpages', fallback=0)):
+                source = tpg.getint(f'tpage{page + 1}.details', 'sourcetpage', fallback=page + 1)
+                file_index = next(
+                    (
+                        f
+                        for f in range(tpg.getint('header', 'numfiles', fallback=0))
+                        if nfs5_car_file_details(tpg, f + 1)['tpage'] == source
+                    ),
+                    None,
+                )
+                if file_index is None:
+                    continue
+                details = nfs5_car_file_details(tpg, file_index + 1)
+                drawn = []
+                for alias, image, x, y in file_images(file_index, details):
+                    if not crp_car_is_image_used(tpg, file_index + 1, alias, slots):
+                        continue
+                    drawn.append((image, x, y))
+                    if details['mirror']:
+                        drawn.append((image, x + details['mirrorOffset'][0], y + details['mirrorOffset'][1]))
+                section = f'tpage{page + 1}.details'
+                width = tpg.getint(section, 'width', fallback=0) or None
+                height = tpg.getint(section, 'height', fallback=0) or None
+                # the last image drawn wins: compose_texture_page keeps the first of overlapping ones
+                pages[page] = (drawn[::-1], width, height)
             return pages
 
         if tpg is not None:
             try:
-                return build_pages(tpg)
+                pages = race_pages(tpg)
+                if pages:
+                    return pages
             except ValueError, ConfigParserError:
                 # malformed .tpg: use the default layout
                 traceback.print_exc()
-        return build_pages(None)
+        pages = {}
+        for page_idx, fsh_idx in crp_car_texture_page_sources(list(fsh_images.keys())).items():
+            pages[page_idx] = ([(image, x, y) for _, image, x, y in fsh_images[fsh_idx]], None, None)
+        return pages
 
     def _load_track_textures(self, data, path, id, block, tags) -> Tuple[Dict[int, str], Dict[str, str]]:
         """Exports textures, referenced by materials, from FSH file(s) next to the track CRP. Returns material
@@ -1403,7 +1472,8 @@ class CrpGeometrySerializer(BaseFileSerializer):
                 return textures.get(material['tex_page_index']) if material else None
 
         else:
-            pages = self._load_car_textures(data, path, id, block)
+            tpg, packages, car_dir = self._car_files(id)
+            pages = self._load_car_textures(data, path, id, block, tpg, car_dir)
             textures = {}
             alpha_modes = {}
 
@@ -1413,16 +1483,16 @@ class CrpGeometrySerializer(BaseFileSerializer):
                     return None
                 page_idx = material['tex_page_index']
                 # alpha channel of car textures means transparency only for wheels and windows. For other
-                # materials it is something else (probably a paint/reflection mask), so their page is drawn opaque
+                # materials it is the paint band (Porsche.exe 0x444130), data for a shader: "opaque"
                 desc = material['desc'].split('\x00')[0]
                 keep_alpha = any(x in desc for x in ('Wheel', 'Window'))
                 name = f'page_{page_idx}' + ('_alpha' if keep_alpha else '')
                 if (page_idx, keep_alpha) not in textures:
                     images, width, height = pages[page_idx]
-                    page = compose_texture_page(images, width, height, keep_alpha=keep_alpha)
+                    page = compose_texture_page(images, width, height)
                     page.save(path_join(path, f'textures/{name}.png'))
                     textures[(page_idx, keep_alpha)] = name
-                    alpha_modes[name] = texture_alpha_mode(page) if keep_alpha else 'cutout'
+                    alpha_modes[name] = texture_alpha_mode(page) if keep_alpha else 'opaque'
                 if 'Window' in desc:
                     # glass is translucent, even when it takes a small part of the page
                     alpha_modes[name] = 'blend'
@@ -1434,7 +1504,12 @@ class CrpGeometrySerializer(BaseFileSerializer):
         scene.sub_meshes = []
         scene.mtl_texture_path_func = lambda name: f'textures/{name}.png'
         is_track = data['resource_id'] == 'karT'
-        for _, _, part_info, sub_mesh in self._build_article_meshes(data, block, material_texture):
+        meshes = list(
+            self._build_article_meshes(
+                data, block, material_texture, article_index_in_names=not is_track, car=not is_track
+            )
+        )
+        for _, _, part_info, sub_mesh, _ in meshes:
             # a track's lower levels of detail only with maps__save_all_lods (mesh names have "_LOD<level>_")
             if is_track and part_info['lod'] != 0 and not self.settings.maps__save_all_lods:
                 continue
@@ -1442,19 +1517,170 @@ class CrpGeometrySerializer(BaseFileSerializer):
             # the track viewer's chunks
             if is_track and part_info['animation_index'] != 0:
                 continue
-            sub_mesh.change_axes(new_y='z', new_z='y')
             scene.sub_meshes.append(sub_mesh)
+        if not is_track:
+            self._add_car_model_data(scene, data, block, meshes, tpg, packages)
+            self._export_car_specular_textures(scene, path, car_dir)
+        for sub_mesh in scene.sub_meshes:
+            sub_mesh.change_axes(new_y='z', new_z='y')
 
         scene.mtl_texture_names = sorted({m.texture_id for m in scene.sub_meshes if m.texture_id != 'untextured'})
         scene.mtl_texture_alpha_modes = alpha_modes
         return export_scenes([scene], path, self.settings)
 
-    def _build_article_meshes(self, data, block, material_texture):
-        """Yields (article index, article name, vertex part info, sub-mesh) of every vertex part and texture of each
-        article. Sub-mesh is in CRP coordinates (Y up), with the article transformation applied"""
+    def _add_car_model_data(self, scene: Scene, data, block, meshes, tpg, packages):
+        """What a viewer needs to draw a car as Porsche.exe does (nfs-three-lib `Nfs5CarMeshController`):
+        - `nfs5Car` (`.meta` and the OBJ's `_extra.json`): `nfs5_car_model_info`, the articles by index (mesh names
+          carry it: "<article>_a<index>_LOD<lod>_ai<frame>...").
+        - On the meshes of the first animation frame without damage (GLB): the morph target "damaged" (the offsets of
+          the damaged `vt` part, the "_damaged" copy minus the mesh), "frame<n>" (animation frame n minus frame 0),
+          and the vertex attribute `_NFS5_DAMAGE_ZONE` (the vertex's `zd` zone, 255 none; three.js
+          `_nfs5_damage_zone` x 255). The OBJ has the copies; its zones are `nfs5DamageZones` (mesh name -> zone per
+          face corner, in file order, as three.js OBJLoader makes its vertices).
+        - `nfs5Car.materials`: the `tm` materials with their reflection layers (`nfs5_car_material`); the meshes'
+          `_NFS5_MATERIAL` (`_build_article_meshes`), in the OBJ `nfs5Materials` (mesh name -> material per face
+          corner, as `nfs5DamageZones`)."""
+        choice = block.field_blocks_map['parts'].child
+        names = {i: b.__class__.__name__ for i, b in enumerate(choice.possible_blocks)}
+        articles = []
+        zones_of = {}
+        for i, article in enumerate(data['articles']):
+            parts = [(names[x['choice_index']], x['data']) for x in article['parts']]
+            name = next((d['data'] for n, d in parts if n == 'TextPart4' and d['identifier'] == 'emaN'), f'article_{i}')
+            articles.append(nfs5_car_article_info(i, name, parts))
+            for n, d in parts:
+                if n == 'CrpDamageZonesPart':
+                    zones_of[(i, d['idx'])] = nfs5_damage_zones(d['data'])
+        materials = self._car_materials(data, block)
+        try:
+            info = nfs5_car_model_info(articles, tpg, packages, materials)
+        except ValueError:
+            # malformed .tpg or packages.ini
+            traceback.print_exc()
+            info = nfs5_car_model_info(articles, None, None, materials)
+        scene.meta_extras['nfs5Car'] = scene.extras['nfs5Car'] = info
+        obj_materials = {}
+        for _, _, _, sub_mesh, _ in meshes:
+            corner_materials = sub_mesh.vertex_byte_attributes.get('_NFS5_MATERIAL')
+            if corner_materials and len(corner_materials) == len(sub_mesh.vertices):
+                obj_materials[sub_mesh.name] = [
+                    corner_materials[v][0] for polygon in sub_mesh.polygons for v in polygon
+                ]
+        if obj_materials:
+            scene.extras['nfs5Materials'] = obj_materials
+
+        # sub-meshes by article, level, texture: frame -> undamaged, damaged
+        groups = defaultdict(dict)
+        for i, _, part_info, sub_mesh, sources in meshes:
+            key = (i, part_info['lod'], sub_mesh.texture_id)
+            groups[key][(part_info['animation_index'], part_info['damage'])] = (sub_mesh, sources)
+        obj_zones = {}
+        for (i, lod, _), variants in groups.items():
+            if (0, 0) not in variants:
+                continue
+            base, sources = variants[(0, 0)]
+
+            def delta(other):
+                return [[o[k] - b[k] for k in range(3)] for o, b in zip(other.vertices, base.vertices)]
+
+            for (frame, damage), (other, _) in sorted(variants.items()):
+                if (frame, damage) == (0, 0) or len(other.vertices) != len(base.vertices):
+                    continue
+                if frame == 0 and damage == 8:
+                    base.morph_targets['damaged'] = delta(other)
+                elif damage == 0:
+                    base.morph_targets[f'frame{frame}'] = delta(other)
+            # the `zd` part of the level's `vt` part (index = the level for the first frame)
+            zones = zones_of.get((i, lod))
+            if zones:
+                vertex_zones = [zones.get(v, 255) for v in sources]
+                base.vertex_byte_attributes['_NFS5_DAMAGE_ZONE'] = [[z] for z in vertex_zones]
+                corner_zones = [vertex_zones[v] for polygon in base.polygons for v in polygon]
+                obj_zones[base.name] = corner_zones
+                damaged = variants.get((0, 8))
+                if damaged:
+                    obj_zones[damaged[0].name] = corner_zones
+        if obj_zones:
+            scene.extras['nfs5DamageZones'] = obj_zones
+
+    @staticmethod
+    def _car_materials(data, block) -> List[dict]:
+        """`nfs5Car.materials`: every `tm` material (`nfs5_car_material`) by the CRP's render methods (`htMR`)"""
+        misc_choice = block.field_blocks_map['common_parts'].child
+        material_block = misc_choice.possible_blocks[misc_choice.get_choice_index_by_class_name('MaterialPart')]
+        methods = {}
+        materials = []
+        for part in data['common_parts']:
+            part_data = part['data']
+            if part_data.get('identifier') == 'htMR':
+                try:
+                    method = nfs5_render_method(bytes(part_data['data']))
+                except struct.error:
+                    traceback.print_exc()
+                    continue
+                methods.setdefault(method['name'], method)
+        for part in data['common_parts']:
+            part_data = part['data']
+            if part_data.get('identifier') != 'tm':
+                continue
+            raw = material_block.field_blocks_map['data'].pack(part_data['data'])
+            try:
+                materials.append(nfs5_car_material(part_data['idx'], raw, methods))
+            except struct.error:
+                traceback.print_exc()
+        return sorted(materials, key=lambda m: m['index'])
+
+    def _export_car_specular_textures(self, scene: Scene, path: str, car_dir: Optional[str]):
+        """The specular textures of the game's `carcmn.fsh` next to the car (Porsche.exe 0x441a10:
+        `NFS5_SPECULAR_TEXTURES`) as `textures/specular/<alias>.png`, listed in the OBJ's `_extra.json` as
+        `nfs5SpecularTextures` ({"race": [3 paths], "frontEnd": [3 paths]}, relative to the export folder, null for a
+        missing image): for viewers of the car alone (TailsLab's preview); a game loads the shared file once"""
+        from library.loader import path_to_name
+        from serializers import ImageSerializer
+
+        fsh_path = _find_sibling_file(path_join(car_dir, 'x'), 'carcmn.fsh') if car_dir else None
+        shpi = require_resource_as(path_to_name(fsh_path), ShpiBlock) if fsh_path else None
+        if shpi is None:
+            return
+        fsh_id, fsh_block, fsh_data = shpi
+        written = {}
+        for _, child, item_block, _ in fsh_block.items(fsh_data, EacImage):
+            alias = child['alias']
+            if alias in written or not any(alias in names for names in NFS5_SPECULAR_TEXTURES.values()):
+                continue
+            try:
+                image = ImageSerializer().to_image(
+                    child['item']['data'], item_block, join_id(fsh_id, 'children', alias, 'item', 'data')
+                )
+            except Exception:
+                traceback.print_exc()
+                continue
+            relative = f'textures/specular/{alias.strip() or "_"}.png'
+            os.makedirs(path_join(path, 'textures/specular'), exist_ok=True)
+            image.save(path_join(path, relative))
+            written[alias] = relative
+        if written:
+            scene.extras['nfs5SpecularTextures'] = {
+                kind: [written.get(alias) for alias in names] for kind, names in NFS5_SPECULAR_TEXTURES.items()
+            }
+
+    def _build_article_meshes(
+        self, data, block, material_texture, article_index_in_names: bool = False, car: bool = False
+    ):
+        """Yields (article index, article name, vertex part info, sub-mesh, vertex sources) of every vertex part and
+        texture of each article: the sub-mesh is in CRP coordinates (Y up), with the article transformation applied;
+        the sources are the `vt` part's vertex index of each of its vertices. Mesh names
+        "<article>[_a<article index>]_LOD<lod>_ai<animation frame>[_<texture>][_damaged]" (cars: with the index, the
+        names repeat: two "DoorOut", "WheelFront"...).
+        `car`: the sub-meshes get the game's vertex normals (the `mn` part of the level's first frame, one per `vt`
+        vertex: the normals Porsche.exe lights and maps the specular texture by, the layer `nm` of its render
+        methods), turned by the article transformation, and the vertex byte attribute `_NFS5_MATERIAL` (the CRP `tm`
+        index of the vertex's triangles, 255 above 254): the corners of triangles of different materials are vertices
+        of their own"""
         # Identify choice indexes for part types
         choice = block.field_blocks_map['parts'].child
         vertex_choice_index = choice.get_choice_index_by_class_name('VertexPart')
+        normal_choice_index = choice.get_choice_index_by_class_name('NormalPart')
         uv_choice_index = choice.get_choice_index_by_class_name('UVPart')
         triangle_choice_index = choice.get_choice_index_by_class_name('TrianglePart')
         transform_choice_index = choice.get_choice_index_by_class_name('TransformationPart')
@@ -1501,6 +1727,7 @@ class CrpGeometrySerializer(BaseFileSerializer):
             uv = [x['data'] for x in article['parts'] if x['choice_index'] == uv_choice_index]
             tri = [x['data'] for x in article['parts'] if x['choice_index'] == triangle_choice_index]
             t = [x['data'] for x in article['parts'] if x['choice_index'] == transform_choice_index]
+            normal_parts = [x['data'] for x in article['parts'] if x['choice_index'] == normal_choice_index]
 
             for vx in v:
                 lod_level = vx['part_info']['lod']
@@ -1509,7 +1736,8 @@ class CrpGeometrySerializer(BaseFileSerializer):
                 except StopIteration:
                     transform_matrix = None
 
-                mesh_name = f'{name}_LOD{lod_level}_ai{vx["part_info"]["animation_index"]}'
+                article_part = f'{name}_a{i}' if article_index_in_names else name
+                mesh_name = f'{article_part}_LOD{lod_level}_ai{vx["part_info"]["animation_index"]}'
                 vertices = extract_vertices(vx)
                 if vx['part_info']['damage'] == 8:
                     fix_vertex_pos = next(
@@ -1528,33 +1756,64 @@ class CrpGeometrySerializer(BaseFileSerializer):
                     uvs = [[u['u'], u['v']] for u in next(x for x in uv if x['part_info']['lod'] == lod_level)['data']]
                 except StopIteration:
                     uvs = []
+                # the game's normals: of the level's first frame without damage (no other frame has any)
+                normals = None
+                if car:
+                    normal_part = next(
+                        (
+                            x
+                            for x in normal_parts
+                            if x['part_info']['lod'] == lod_level
+                            and x['part_info']['animation_index'] == 0
+                            and x['part_info']['damage'] == 0
+                        ),
+                        None,
+                    )
+                    if normal_part is not None and len(normal_part['data']) == len(vertices):
+                        normals = [_point_list(n['normal']) for n in normal_part['data']]
+                        if transform_matrix is not None:
+                            normals = crp_transform_normals(normals, transform_matrix)
 
                 # one sub-mesh per texture
                 mesh = Mesh()
                 mesh.name = mesh_name
                 corner_map = {}
+                # the `vt` vertex and (cars) the material of each mesh vertex
+                corner_vertices = []
+                corner_materials = []
                 for trix in (x for x in tri if x['part_info']['lod'] == lod_level):
+                    material_index = trix['data']['material_index']
                     # explicit material for untextured polygons, otherwise OBJ readers keep using the previous
                     # mesh's material
-                    texture_id = material_texture(trix['data']['material_index']) or 'untextured'
+                    texture_id = material_texture(material_index) or 'untextured'
                     for triangle in extract_triangles(trix):
                         if any(vi >= len(vertices) for vi, _ in triangle):
                             continue
-                        for corner in triangle:
-                            if corner not in corner_map:
-                                vi, uvi = corner
-                                corner_map[corner] = len(mesh.vertices)
+                        for vi, uvi in triangle:
+                            key = (vi, uvi, material_index) if car else (vi, uvi)
+                            if key not in corner_map:
+                                corner_map[key] = len(mesh.vertices)
+                                corner_vertices.append(vi)
+                                corner_materials.append(material_index)
                                 mesh.vertices.append(list(vertices[vi]))
                                 mesh.vertex_uvs.append(uvs[uvi] if uvi is not None and uvi < len(uvs) else [0, 0])
-                        mesh.polygons.append([corner_map[corner] for corner in triangle])
+                                if normals is not None:
+                                    mesh.vertex_normals.append(list(normals[vi]))
+                        mesh.polygons.append(
+                            [corner_map[(vi, uvi, material_index) if car else (vi, uvi)] for vi, uvi in triangle]
+                        )
                         mesh.texture_ids.append(texture_id)
                 if not mesh.polygons:
                     continue
 
-                for sub_mesh in mesh.sub_meshes():
+                for sub_mesh, vertex_indices, _ in mesh.split_by_texture_ids():
                     sub_mesh.name = mesh_name + (
                         f'_{sub_mesh.texture_id}' if sub_mesh.texture_id != 'untextured' else ''
                     )
+                    if car:
+                        sub_mesh.vertex_byte_attributes['_NFS5_MATERIAL'] = [
+                            [min(corner_materials[v], 255)] for v in vertex_indices
+                        ]
                     if vx['part_info']['damage'] == 8:
                         sub_mesh.name += '_damaged'
                     if transform_matrix is not None:
@@ -1566,7 +1825,7 @@ class CrpGeometrySerializer(BaseFileSerializer):
                                 [transform_matrix[3], transform_matrix[7], transform_matrix[11], transform_matrix[15]],
                             ]
                         )
-                    yield i, name, vx['part_info'], sub_mesh
+                    yield i, name, vx['part_info'], sub_mesh, [corner_vertices[v] for v in vertex_indices]
 
     # track article name: <RD|CNK|OBJ><4-digit road piece number><L|C|R> (<section> <description>)
     _TRACK_ARTICLE_NAME_REGEX = re.compile(r'^(RD|CNK|OBJ)(\d{4})[LCR]\s*\((\d+)\s')
@@ -1587,7 +1846,7 @@ class CrpGeometrySerializer(BaseFileSerializer):
         names = {}
         # sub-mesh -> its level of detail
         mesh_lods = {}
-        for article_index, name, part_info, sub_mesh in self._build_article_meshes(data, block, material_texture):
+        for article_index, name, part_info, sub_mesh, _ in self._build_article_meshes(data, block, material_texture):
             if part_info['animation_index'] != 0 or part_info['damage'] != 0:
                 continue
             if part_info['lod'] != 0 and not all_lods:
@@ -3430,13 +3689,72 @@ def tnfs_wheel_labels_by_position(data: dict) -> Tuple[dict, List[Tuple[int, str
     return {**data, 'labels': labels}, renamed
 
 
+def subdivide_bilinear_quads(sub_model: SubMesh, texture_size: Tuple[int, int], max_texel_error=0.5, max_steps=8):
+    """Lays the quads of a sub-mesh out as the Sega Saturn's VDP1 draws a distorted sprite: the whole texture mapped
+    bilinearly onto the 4 corners (texture row v on the line from lerp(corner 0, corner 3, v) to lerp(corner 1,
+    corner 2, v), texel u along it), not as two triangles split along the 0-2 diagonal, which shear the texture of a
+    quad that is not a parallelogram (the windows' trapezoids). Such a quad becomes a grid of n x n quads on its
+    bilinear patch, positions, UVs, morph deltas and vertex attributes interpolated alike; n is the fewest steps that
+    keep the split's texture error under `max_texel_error` texels (it falls with n squared), at most `max_steps`.
+    Parallelograms (a bilinear mapping of one is affine) and triangles stay as they are"""
+
+    def lerp4(values, s, t):
+        a, b, c, d = values
+        return [
+            (1 - s) * (1 - t) * a[k] + s * (1 - t) * b[k] + s * t * c[k] + (1 - s) * t * d[k] for k in range(len(a))
+        ]
+
+    def length(v):
+        return math.sqrt(sum(x * x for x in v))
+
+    # (values per vertex, whole numbers: the byte attributes)
+    per_vertex_lists = [(sub_model.vertices, False), (sub_model.vertex_uvs, False)]
+    per_vertex_lists += [(x, False) for x in sub_model.morph_targets.values()]
+    per_vertex_lists += [(x, False) for x in sub_model.morph_target_normals.values()]
+    per_vertex_lists += [(x, True) for x in sub_model.vertex_byte_attributes.values()]
+    for values in (sub_model.vertex_colors, sub_model.vertex_normals):
+        if len(values) == len(sub_model.vertices):
+            per_vertex_lists.append((values, False))
+    polygons = []
+    for polygon in sub_model.polygons:
+        if len(polygon) != 4:
+            polygons.append(polygon)
+            continue
+        a, b, c, d = (sub_model.vertices[i] for i in polygon)
+        # the bilinear term (zero for a parallelogram) against the mean edge length
+        twist = length([a[k] - b[k] + c[k] - d[k] for k in range(3)])
+        mean_edge = sum(length([q[k] - p[k] for k in range(3)]) for p, q in ((a, b), (b, c), (c, d), (d, a))) / 4
+        if mean_edge == 0:
+            polygons.append(polygon)
+            continue
+        # the two triangles' texture error at the quad's middle, about an eighth of the relative twist in texels
+        texel_error = twist / mean_edge * max(texture_size) / 8
+        steps = min(max_steps, max(1, math.ceil(math.sqrt(texel_error / max_texel_error))))
+        if steps == 1:
+            polygons.append(polygon)
+            continue
+        grid = {(0, 0): polygon[0], (steps, 0): polygon[1], (steps, steps): polygon[2], (0, steps): polygon[3]}
+        for j in range(steps + 1):
+            for i in range(steps + 1):
+                if (i, j) in grid:
+                    continue
+                for values, whole in per_vertex_lists:
+                    point = lerp4([values[x] for x in polygon], i / steps, j / steps)
+                    values.append([round(x) for x in point] if whole else point)
+                grid[(i, j)] = len(sub_model.vertices) - 1
+        for j in range(steps):
+            for i in range(steps):
+                polygons.append([grid[(i, j)], grid[(i + 1, j)], grid[(i + 1, j + 1)], grid[(i, j + 1)]])
+    sub_model.polygons = polygons
+
+
 class TnfsSaturnOrixGeometrySerializer(OrixGeometrySerializer):
     """Sega Saturn TNFS (Over Drivin' GT-R) car model (`TnfsSaturnOrixGeometry`, `MODELS/<car>/high.orix` /
     `low.orix`), exported like the PC and PSX models (mesh names by label, texture and partition, fx dummies, steering
     morphs, no normals), so nfs-web's TnfsCarMeshController takes it as a PC car: textures from the first (high-poly) or
     second (low-poly) texture bank of `CARS/<car>.ALL`, the tyre textures named `tyr1`..`tyr4`, wheel labels named by
     the position of their polygons (`tnfs_wheel_labels_by_position`: the PGC10 labels its left front wheel `rt_frnt`),
-    `car_colors.json` with the brake light marker next to the PNGs in `assets/`"""
+    `car_colors.json` with the brake light colour next to the PNGs in `assets/` (high-poly)"""
 
     def require_shpi(self, id):
         """(bank id, texture bank block, {'children': [{'alias': exported name, 'item': {'data': {width, height}}}]})
@@ -3454,6 +3772,7 @@ class TnfsSaturnOrixGeometrySerializer(OrixGeometrySerializer):
         bank_name = 'low_poly_textures' if os.path.basename(orix_path).lower().startswith('low') else 'textures'
         bank = bundle_data[bank_name]
         self.texture_bank = bank
+        self.texture_bank_high_poly = bank_name == 'textures'
         children = [
             {
                 'alias': tnfs_saturn_texture_file_name(tnfs_saturn_texture_name(entry)),
@@ -3480,6 +3799,12 @@ class TnfsSaturnOrixGeometrySerializer(OrixGeometrySerializer):
         for polygon, old, new in renamed:
             logging.info(f'{id}: wheel label "{old}" of polygon {polygon} exported as "{new}" (its position)')
         bank_id, bank_block, bank_data, sub_models = self.build_mesh(data, id)
+        # the game draws every polygon as a VDP1 distorted sprite (`TnfsSaturnOrixPolygon`): the texture bilinear
+        texture_sizes = {c['alias']: self._texture_size(c['item']['data']) for c in bank_data['children']}
+        for sub_model in sub_models.values():
+            texture_size = texture_sizes.get(orip_material_texture(sub_model.texture_id or ''))
+            if texture_size:
+                subdivide_bilinear_quads(sub_model, texture_size)
 
         scene = Scene()
         scene.sub_meshes = [sm for sm in sub_models.values()]
@@ -3498,5 +3823,5 @@ class TnfsSaturnOrixGeometrySerializer(OrixGeometrySerializer):
                 scene.mtl_flat_colors[sub_model.texture_id] = (0, 0, 0)
         # as the PC models: nfs-web draws TNFS models unlit
         scene.export_normals = False
-        export_tnfs_saturn_texture_bank(self.texture_bank, path_join(path, 'assets'))
+        export_tnfs_saturn_texture_bank(self.texture_bank, path_join(path, 'assets'), self.texture_bank_high_poly)
         return export_scenes([scene], path, self.settings)

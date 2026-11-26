@@ -50,6 +50,9 @@ const WHEEL_BIAS_MARGIN = 0.02;
 const WHEEL_STEER_ROTATION_GAP = 0.2;
 // the inside parts lose against the body where they meet it
 const INSIDE_POLYGON_OFFSET = 2;
+// the outside parts but the wheels (the Japanese versions' number plates, wings, lights: the R390's brake lights lie on
+// its body's faces) win against the body where they meet it
+const OUTSIDE_POLYGON_OFFSET = -2;
 
 // gfx_car_steer_wheel_morphs (DOS 0x73f7f, SE 0x458818): the front wheels (and their inner circ quads) are morphed
 // toward left_turn / right_turn with weight -steer_angle / 0x200000 (both morphs turn their wheel left at a positive
@@ -439,6 +442,8 @@ export class TnfsCarMeshController {
   }
 
   private readonly cameraPosition = new Vector3();
+  // the outside parts' own materials, see OUTSIDE_POLYGON_OFFSET
+  private readonly outsideMaterials: Material[] = [];
 
   constructor(
     private readonly mesh: Object3D,
@@ -461,6 +466,8 @@ export class TnfsCarMeshController {
     // moves its vertices sideways
     let bodyHalfWidth = 0;
     const wheelInnerX = [Infinity, Infinity, Infinity, Infinity];
+    // the outside parts' materials (see OUTSIDE_POLYGON_OFFSET) by the material they copy
+    const outsideCopies = new Map<Material, Material>();
     mesh.traverse(o => {
       if (!(o instanceof Mesh)) {
         return;
@@ -509,6 +516,20 @@ export class TnfsCarMeshController {
           material.polygonOffsetUnits = INSIDE_POLYGON_OFFSET;
         }
       }
+      if (wheelIndex < 0 && partitionOf(o) === 'outside') {
+        // copies: a texture's material is shared by its meshes of every partition
+        const copied = (Array.isArray(o.material) ? o.material : [o.material]).map(material => {
+          if (!outsideCopies.has(material)) {
+            const copy = material.clone();
+            copy.polygonOffset = true;
+            copy.polygonOffsetFactor = OUTSIDE_POLYGON_OFFSET;
+            copy.polygonOffsetUnits = OUTSIDE_POLYGON_OFFSET;
+            outsideCopies.set(material, copy);
+          }
+          return outsideCopies.get(material)!;
+        });
+        o.material = Array.isArray(o.material) ? copied : copied[0];
+      }
       if (wheelIndex < 0 && partitionOf(o) === 'surface') {
         if (!o.geometry.boundingBox) {
           o.geometry.computeBoundingBox();
@@ -531,6 +552,7 @@ export class TnfsCarMeshController {
         }
       }
     });
+    this.outsideMaterials.push(...outsideCopies.values());
     // no wheels: a model without the wheel labels (COPMUST, low-poly models), only the lights work
     this.hasWheels = this.wheels.every(wheel => !!wheel);
     if (!this.hasWheels) {
@@ -595,6 +617,8 @@ export class TnfsCarMeshController {
 
   public dispose() {
     this.recolored.length = 0;
+    this.outsideMaterials.forEach(material => material.dispose());
+    this.outsideMaterials.length = 0;
     this.frontTyreMaterial?.dispose();
     this.frontTyreMaterial = null;
     this.rearTyreMaterial?.dispose();

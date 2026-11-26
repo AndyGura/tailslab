@@ -392,6 +392,11 @@ def _find_block_class(buffer: [BufferedReader, BytesIO], file_path: str, length=
             from resources.eac.replays import TnfsReplay
 
             return TnfsReplay
+        elif file_path.upper().endswith('.RPY'):
+            # NFS2 SE replay.rpy
+            from resources.eac.replays import Nfs2Replay
+
+            return Nfs2Replay
         elif file_path.upper().endswith('.GEO'):
             from resources.eac.geometries import GeoGeometry
 

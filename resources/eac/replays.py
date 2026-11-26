@@ -1,9 +1,14 @@
+from typing import Dict, List
+
+from library.context import ReadContext, WriteContext
+from library.exceptions import DataIntegrityException, EndOfBufferException
 from library.read_blocks import (
     DeclarativeCompoundBlock,
     IntegerBlock,
     ArrayBlock,
     BytesBlock,
     BitFlagsBlock,
+    FittedBytesBlock,
     UTF8Block,
 )
 from resources.eac.fields.numbers import fixed16, s32, u16, u32, u8
@@ -616,3 +621,336 @@ class TnfsReplay(DeclarativeCompoundBlock):
             {'description': 'State of the race that is not stored in the cars, every keyframe'},
         )
         stats = (ArrayBlock(child=TnfsReplayStats(), length=REPLAY_CARS), {'description': 'Stats of the cars'})
+
+
+# NFS2 SE replay (`replay.rpy`, in the game's folder): nfs2sen.exe 0x45cf70 saves it after a race, 0x45cf00 loads it
+# whole and Replay_InitReplay 0x45d6e0 (from the race start, when the GameSetup's REPLAY field is 2) copies its
+# GameSetup over the game's GameSetup_gData (0x4df518), keeping 11 local dwords of the current setup (+0x3c..+0x67),
+# takes the tick count and plays the packet stream back. Little-endian, always 0x5b4 + 0x1e000 = 124340 bytes:
+# - +0x000 the GameSetup block: 0x16c dwords (0x5b0 bytes), a copy of GameSetup_gData, its REPLAY field set to 2
+# - +0x5b0 u32 the number of sim ticks recorded (64 ticks per second)
+# - +0x5b4 the packet stream, 0x1e000 bytes, unused bytes 0.
+# Recording (Controls_ReadPacket 0x45d170) keeps, per human player, the control packet of every second sim tick
+# (32 per second) in 4 planes of 32 bytes (steering, gas, brake, buttons); every 32 packets 0x45d3f0 appends one chunk
+# to the stream: 4 packed records, one per plane in that order. A record (0x45d7c0 packs, 0x45d750 unpacks): byte 0 =
+# the record's length in bytes, itself included, then items up to that length: `0xff, count, value` = `value` count
+# times (runs of 3 or more), any other byte = itself; a record unpacks to 32 bytes. A record length of 0 ends the
+# stream: the last chunk of a race, under 32 packets, is never saved. Playback (0x45cfe0, every even tick from the
+# human's packet callback Controls_GetPacket 0x45ced0) unpacks a chunk (0x45d230) and gives packet i as steer =
+# (plane0[i] << 2) & 0xff, gas = plane1[i] << 3, brake = plane2[i] << 3, buttons = plane3[i]; at the end of the
+# stream the race starts again (a looping replay). With two human players their chunks interleave in the order each
+# player's 32 packets fill (only one human verified).
+
+NFS2_REPLAY_SETUP_SIZE = 0x5B0
+NFS2_REPLAY_STREAM_SIZE = 0x1E000
+NFS2_REPLAY_SIZE = NFS2_REPLAY_SETUP_SIZE + 4 + NFS2_REPLAY_STREAM_SIZE
+NFS2_REPLAY_CHUNK_PACKETS = 32
+NFS2_REPLAY_SETUP_CARS = 16
+# the run marker of a packed plane record
+NFS2_REPLAY_RUN = 0xFF
+
+_NFS2_CAR_TYPES = (
+    "Car model, index of the exe's model names (0x4c5fe0): 0..14 the race cars 0 MCF1, 1 FF50, 2 F355, 3 GT90, "
+    '4 IDGO, 5 MACH, 6 JAGR, 7 LGT1, 8 ESPR, 9 NAZC, 10 CALA, 11 ISDE, 12 CHEV, 13 DAYT, 14 FUTR; 15 and up '
+    'traffic and other models'
+)
+_NFS2_FIXED_TUNING = 'Car tuning value, 16.16 fixed point'
+
+
+def nfs2_replay_unpack(record: bytes) -> List[int]:
+    """The plane values of a packed NFS2 SE replay record (nfs2sen.exe 0x45d750): `record` without its length byte;
+    `0xff, count, value` = value count times, any other byte = itself"""
+    values = []
+    i = 0
+    while i < len(record):
+        if record[i] == NFS2_REPLAY_RUN:
+            if i + 2 >= len(record):
+                raise ValueError('A run marker 0xff without its count and value at the end of the record')
+            values.extend([record[i + 2]] * record[i + 1])
+            i += 3
+        else:
+            values.append(record[i])
+            i += 1
+    return values
+
+
+def nfs2_replay_pack(values: List[int]) -> bytes:
+    """A packed NFS2 SE replay record of plane values, its length byte included, as nfs2sen.exe 0x45d7c0 packs them:
+    runs of 3 or more equal values as `0xff, count, value`, other values as they are. A value 0xff (none in a
+    recorded plane) is always written as a run, so that it unpacks again"""
+    res = bytearray()
+    i = 0
+    while i < len(values):
+        j = i
+        while j < len(values) and values[j] == values[i] and j - i < 0xFF:
+            j += 1
+        if j - i >= 3 or values[i] == NFS2_REPLAY_RUN:
+            res += bytes([NFS2_REPLAY_RUN, j - i, values[i]])
+        else:
+            res += bytes(values[i:j])
+        i = j
+    if len(res) + 1 > 0xFF:
+        raise ValueError(f'Packed record of {len(res) + 1} bytes, at most 255')
+    return bytes([len(res) + 1]) + bytes(res)
+
+
+def nfs2_replay_packets(chunks: List[Dict]) -> List[Dict]:
+    """The control packets of the chunks of an NFS2 SE replay (`Nfs2Replay` `stream/chunks`), in stream order, as the
+    game plays them back (0x45cfe0): steer (the unsigned steering byte, 0x80..0x7c of a signed steer -128..124), gas and
+    brake (0..248), buttons (the bits of `Nfs2ReplayChunk.buttons`). One human player: packet k is the one of sim tick
+    2 * k"""
+    packets = []
+    for chunk in chunks:
+        for steer, gas, brake, buttons in zip(chunk['steering'], chunk['gas'], chunk['brake'], chunk['buttons']):
+            packets.append(
+                {
+                    'steer': (steer << 2) & 0xFF,
+                    'gas': (gas << 3) & 0xFF,
+                    'brake': (brake << 3) & 0xFF,
+                    'buttons': buttons,
+                }
+            )
+    return packets
+
+
+class Nfs2ReplayPlane(ArrayBlock):
+    """One plane of a chunk of the NFS2 SE replay stream: a packed record (nfs2sen.exe 0x45d7c0 / 0x45d750) whose data
+    is the 32 unpacked values. Read records must be packed as the game packs them (`nfs2_replay_pack`), so that the
+    stream is written back byte-exact and its size is known from the values"""
+
+    def __init__(self, **kwargs):
+        super().__init__(child=u8(), length=NFS2_REPLAY_CHUNK_PACKETS, **kwargs)
+
+    @property
+    def schema(self) -> Dict:
+        return {
+            **super().schema,
+            'block_description': 'Packed record of 32 bytes, the values unpacked: byte 0 = the length of the record '
+            'in bytes (itself included), then up to that length `0xff, count, value` (value count times; runs of 3 '
+            'or more) or a byte that is itself',
+        }
+
+    @property
+    def size_doc_str(self):
+        return '4..33'
+
+    def read(self, ctx: ReadContext, name: str = '', read_bytes_amount=None, resolved_length=None):
+        head = ctx.buffer.read(1)
+        if not head:
+            raise EndOfBufferException(ctx=ctx)
+        if head[0] == 0:
+            raise DataIntegrityException(ctx=ctx, message='Record length 0: the end of the stream')
+        record = ctx.buffer.read(head[0] - 1)
+        if len(record) < head[0] - 1:
+            raise EndOfBufferException(ctx=ctx)
+        try:
+            values = nfs2_replay_unpack(record)
+        except ValueError as ex:
+            raise DataIntegrityException(ctx=ctx, message=str(ex))
+        if len(values) != NFS2_REPLAY_CHUNK_PACKETS:
+            raise DataIntegrityException(ctx=ctx, message=f'Record of {len(values)} values instead of 32')
+        if nfs2_replay_pack(values) != head + record:
+            raise DataIntegrityException(ctx=ctx, message='Record not packed as nfs2sen.exe packs it')
+        return values
+
+    def _packed(self, data, ctx: WriteContext = None) -> bytes:
+        if len(data) != NFS2_REPLAY_CHUNK_PACKETS or any(not 0 <= v <= 0xFF for v in data):
+            raise DataIntegrityException(ctx=ctx, message='A plane holds 32 values of 0..255')
+        return nfs2_replay_pack(data)
+
+    def estimate_packed_size(self, data, ctx: WriteContext = None):
+        return len(self._packed(data, ctx))
+
+    def write(self, data, ctx: WriteContext = None, name: str = '') -> bytes:
+        return self._packed(data, ctx)
+
+
+class Nfs2ReplayChunk(DeclarativeCompoundBlock):
+    block_description = (
+        '32 control packets of a human player (64 sim ticks, 1 s), one plane per packet field (nfs2sen.exe 0x45d3f0 '
+        'writes, 0x45d230 reads): value i of each plane belongs to packet i'
+    )
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        steering = (
+            Nfs2ReplayPlane(),
+            {
+                'description': 'Steering: the signed steering byte (-128 left .. 127 right) / 4 (C division) + 0x40, '
+                '0x20..0x5f. Played back as steer = (value << 2) & 0xff'
+            },
+        )
+        gas = (Nfs2ReplayPlane(), {'description': 'Gas pedal / 8, 0..31. Played back as gas = value << 3'})
+        brake = (Nfs2ReplayPlane(), {'description': 'Brake pedal / 8, 0..31. Played back as brake = value << 3'})
+        buttons = (
+            Nfs2ReplayPlane(),
+            {
+                'description': 'Buttons, bit flags: bit 0 shift down, 1 shift up, 2 horn, 3 handbrake, 6 reset. '
+                'Played back as they are'
+            },
+        )
+
+
+class Nfs2GameSetupCar(DeclarativeCompoundBlock):
+    block_description = (
+        'A car of the NFS2 SE GameSetup, 0x40 bytes (car keys of the setup config file: .carType .carClass '
+        '.Transmission .Colour .RampSteering .RampGas .RampBrake .FrontDownForce .RearDownForce '
+        '.SteeringSensitivity .BrakeBias .GearRatio)'
+    )
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        car_type = (s32(), {'description': _NFS2_CAR_TYPES})
+        car_class = (
+            s32(),
+            {'description': 'Car class: 1 human, 2 AI racer, 4 traffic, 8 cop (never raced), 0x10 object'},
+        )
+        transmission = (s32(), {'description': 'Gearbox: 1 automatic'})
+        colour = (s32(), {'description': 'Paint colour'})
+        ramp_steering = (s32(), {'description': 'Steering ramp option (boolean)'})
+        ramp_gas = (s32(), {'description': 'Gas ramp option (boolean)'})
+        ramp_brake = (s32(), {'description': 'Brake ramp option (boolean)'})
+        front_down_force = (fixed16(), {'description': f'Front down force. {_NFS2_FIXED_TUNING}'})
+        rear_down_force = (fixed16(), {'description': f'Rear down force. {_NFS2_FIXED_TUNING}'})
+        steering_sensitivity = (fixed16(), {'description': f'Steering sensitivity. {_NFS2_FIXED_TUNING}'})
+        brake_bias = (fixed16(), {'description': f'Brake bias. {_NFS2_FIXED_TUNING}'})
+        gear_ratio = (
+            fixed16(),
+            {
+                'description': f"Gear ratio. {_NFS2_FIXED_TUNING}; the simulation style divides the car physics' "
+                '`velocity_to_rpm_ratio` by it at load'
+            },
+        )
+        unk0 = (BytesBlock(length=16), {'is_unknown': True})
+
+
+class Nfs2GameSetup(DeclarativeCompoundBlock):
+    block_description = (
+        "The NFS2 SE race setup, 0x16c dwords (0x5b0 bytes): the game's GameSetup_gData (nfs2sen.exe 0x4df518; "
+        'offsets here = address - 0x4df518). Its setup config file has the tokens RACETYPE NUMLAPS SKILL STYLE '
+        'COMMMODE RAMP LOCALCAR CATCHUPLOGIC TRACK TIME RANDOM NUMCARS REPLAY NUMSMACKABLES NUMPLAYERRACECARS '
+        'NUMOPPONENTRACECARS OPPONENTCARTYPE LANGUAGE SGGE WINDOWSIZE GRAPHICSDETAIL FEI_CARDETAIL VIEWDISTANCE '
+        'HORIZONDISPLAY MUSICLEVEL SFXLEVEL INTERACTIVE BESTLAP BACKWARD MIRRORED WILDARCADE LINEUP (in this order '
+        'in the exe), which name the fields; which token is which field is not confirmed past the fields named here'
+    )
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        race_type = (s32(), {'description': 'Race type: 0 single race, 1 tournament, 2 knockout'})
+        laps = (s32(), {'description': 'Number of laps'})
+        skill = (s32(), {'description': 'Skill: 0 beginner, 1 expert'})
+        style = (s32(), {'description': 'Driving style: 0 simulation, 1 arcade'})
+        comm_mode = (
+            s32(),
+            {'description': 'Communication mode: 0 none, 1 split screen, 2 and up modem, serial or network'},
+        )
+        local_player = (s32(), {'description': 'Local player'})
+        catch_up_logic = (s32(), {'description': 'Catch-up logic option'})
+        replay = (
+            s32(),
+            {
+                'description': 'Replay mode: 2 in a saved replay (0x45cf70 sets it), the race start then plays the '
+                'replay back (Replay_InitReplay 0x45d6e0)'
+            },
+        )
+        flags = (
+            BitFlagsBlock(
+                length=4,
+                flag_names=[
+                    (2, 'jaguar_specs_for_traffic'),
+                    (3, 'alternate_surface_table'),
+                    (4, 'player_1_analog'),
+                    (5, 'player_2_analog'),
+                    (8, 'psycho_opponents'),
+                    (11, 'horn_affects_cars'),
+                    (12, 'body_variant_kept'),
+                ],
+            ),
+            {
+                'description': 'Bit flags: 0x04 Jaguar specs for traffic, 0x08 the alternate surface table, 0x10 / '
+                '0x20 player 1 / 2 on an analog controller, 0x100 psycho opponents, 0x800 the horn affects other '
+                'cars, 0x1000 body variant kept'
+            },
+        )
+        track = (s32(), {'description': 'Track number (`TR<nn>` files)'})
+        unk0 = (s32(), {'is_unknown': True})
+        random_seed = (s32(), {'description': 'Random seed of the race'})
+        backward = (
+            s32(),
+            {'description': 'Boolean, the track is driven backward (AI speed files `TR<nn>B.*`)'},
+        )
+        unk1 = (s32(), {'is_unknown': True})
+        wild_arcade = (s32(), {'description': 'Boolean, Wild arcade style'})
+        local_settings = (
+            ArrayBlock(child=s32(), length=11),
+            {
+                'description': 'At +0x3c..+0x67: 11 local settings, which the replay loader keeps from the current '
+                'setup (not taken from the file)',
+                'is_unknown': True,
+            },
+        )
+        num_cars = (s32(), {'description': 'Number of cars: racers and traffic'})
+        num_player_race_cars = (s32(), {'description': 'Number of race cars of the players'})
+        num_opponent_race_cars = (s32(), {'description': 'Number of race cars of AI opponents'})
+        unk2 = (s32(), {'is_unknown': True})
+        cars = (
+            ArrayBlock(child=Nfs2GameSetupCar(), length=NFS2_REPLAY_SETUP_CARS),
+            {'description': 'At +0x78: the cars, the first `num_cars` used'},
+        )
+        grid_ranks = (
+            ArrayBlock(child=s32(), length=NFS2_REPLAY_SETUP_CARS),
+            {'description': 'At +0x478: start grid rank of each car; rank 0 is the last grid slot'},
+        )
+        unk3 = (
+            BytesBlock(length=NFS2_REPLAY_SETUP_SIZE - 0x4B8),
+            {
+                'is_unknown': True,
+                'description': 'At +0x4b8 (the sample replay has 4, 3, 2, 1 in its dwords +0x4bc..+0x4c8)',
+            },
+        )
+
+
+def _nfs2_replay_stream_rest(ctx) -> int:
+    chunk = Nfs2ReplayChunk()
+    return NFS2_REPLAY_STREAM_SIZE - sum(chunk.estimate_packed_size(c) for c in ctx.data('chunks'))
+
+
+class Nfs2ReplayStream(DeclarativeCompoundBlock):
+    block_description = (
+        "The packet stream of an NFS2 SE replay, 0x1e000 bytes: chunks of 32 control packets, one human player's each, "
+        'up to a record length 0 (nfs2sen.exe 0x45d3f0 writes, playback 0x45cfe0 stops there). One human: chunk c '
+        'holds the packets of sim ticks 64 * c + 2 * i (i 0..31)'
+    )
+
+    @property
+    def size_doc_str(self):
+        return str(NFS2_REPLAY_STREAM_SIZE)
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        chunks = (
+            ArrayBlock(
+                child=Nfs2ReplayChunk(),
+                stop_before=(lambda ctx: ctx.peek(1) in (b'', b'\0'), 'up to a record length 0'),
+            ),
+            {'description': 'The chunks, in the order they were recorded'},
+        )
+        unused = (
+            FittedBytesBlock(length=(_nfs2_replay_stream_rest, '0x1e000 - size of chunks')),
+            {
+                'usage': 'io,doc',
+                'description': 'The rest of the stream, 0: its first byte, a record length 0, ends the stream',
+            },
+        )
+
+
+class Nfs2Replay(DeclarativeCompoundBlock):
+    block_description = (
+        'NFS2 SE replay `replay.rpy`, in the game folder: saved after a race by nfs2sen.exe 0x45cf70, loaded by '
+        '0x45cf00 / Replay_InitReplay 0x45d6e0, which take the race setup from it (but its 11 local settings) and '
+        'play the control packets of the human player back, from the race start. Always 124340 bytes. The packet '
+        'of every second sim tick is recorded, in chunks of 32 packets: the last chunk of a race, under 32 packets, '
+        'is not saved. With two human players their chunks interleave in the order they fill (not verified)'
+    )
+    serializer = 'Nfs2ReplaySerializer'
+
+    class Fields(DeclarativeCompoundBlock.Fields):
+        setup = (Nfs2GameSetup(), {'description': 'Race setup, a copy of GameSetup_gData with `replay` 2'})
+        tick_count = (u32(), {'description': 'Number of sim ticks recorded (64 per second)'})
+        stream = (Nfs2ReplayStream(), {'description': 'The control packets'})
