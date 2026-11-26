@@ -482,6 +482,8 @@ EXPORT_RESOURCES = {
 
 **GAMEDATA/TRACKS/PC/TR\\<nn\\>.HRZ** sky of a track for the software renderer (nfs2sen.exe), plain text. {render_type(eac_horizons.Nfs2HorizonInfo())}
 
+**replay.rpy** (in the game folder) replay of the last saved race: the race setup and the human player's control packets. {render_type(eac.replays.Nfs2Replay())}
+
 **\\*.UV** video, I just use ffmpeg to convert it
 
 **\\*.VIV** archive with some data. {render_type(eac.archives.BigfBlock())}""",
@@ -496,6 +498,13 @@ EXPORT_RESOURCES = {
                 eac.geometries.GeoGeometry(),
                 eac.geometries.GeoMesh(),
                 eac.geometries.GeoPolygon(),
+            ],
+            'Replays': [
+                eac.replays.Nfs2Replay(),
+                eac.replays.Nfs2GameSetup(),
+                eac.replays.Nfs2GameSetupCar(),
+                eac.replays.Nfs2ReplayStream(),
+                eac.replays.Nfs2ReplayChunk(),
             ],
             'Maps': [
                 # TRK

@@ -41,7 +41,13 @@ from .geometries import (
     TnfsSaturnOrixGeometrySerializer,
     NfsuBinGeometrySerializer,
 )
-from .json import JsonSerializer, ReversibleJsonSerializer, Nfs3CarPhysicsSerializer, CarFeDataSerializer
+from .json import (
+    JsonSerializer,
+    ReversibleJsonSerializer,
+    Nfs3CarPhysicsSerializer,
+    CarFeDataSerializer,
+    Nfs2ReplaySerializer,
+)
 from .complete_json import CompleteJsonSerializer
 from .horizons import EacHorizonSettingsSerializer
 from .nfs6_ps2_car_specs import Nfs6Ps2ChunkBundleSerializer

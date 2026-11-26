@@ -382,6 +382,15 @@ NEW_FILE_FORMATS: List[NewFileFormat] = [
         'resources.eac.car_specs.Nfs2Personalities',
         'Driving personalities of the opponents (SIM/AI/PRSONAL.DAT).',
     ),
+    _format(
+        'rpy',
+        [NFS2],
+        GAME_DATA,
+        'Replay (SE)',
+        'replay.rpy',
+        'resources.eac.replays.Nfs2Replay',
+        'The race setup and the controls of the last saved race, in the game folder.',
+    ),
     # NFS 3
     _format(
         'fce3',

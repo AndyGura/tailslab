@@ -354,8 +354,9 @@ class Nfs2AiSpeedRecord(DeclarativeCompoundBlock):
 class Nfs2AiSpeeds(DeclarativeCompoundBlock):
     block_description = (
         'AI target speeds of the track slices (NFS2, NFS2 SE GAMEDATA/TRACKS/SPEEDS/TR<nn>.ASP (arcade), .PSP '
-        '(simulation), TR<nn>B.* backward; TR<nn>.QAS / .QPS the same RefPack or QFS3 packed, which nfs2sen.exe loads, '
-        'AiSpeeds_Load 0x42f120, into 0x4c4cf4). One record per two slices of the COL collision_data ([CollisionExtraDataRecord]'
+        '(simulation); TR<nn>.QAS / .QPS the same RefPack or QFS3 packed, which nfs2sen.exe loads, AiSpeeds_Load '
+        '0x42f120, into 0x4c4cf4). TR<nn>B.* are the backward versions, loaded instead of TR<nn>.* when the track '
+        'is driven backward (GameSetup `backward`; the name built with "%sTr%02d%s.%s" and "b"). One record per two slices of the COL collision_data ([CollisionExtraDataRecord]'
         '(#collisionextradatarecord)): (n / 2) * 2 + 2 bytes for n slices (integer division), the size the game '
         'allocates when the file is missing; for an even n the last record is never read'
     )
@@ -371,8 +372,9 @@ class Nfs2AiSpeeds(DeclarativeCompoundBlock):
 class Nfs2AiLanes(DeclarativeCompoundBlock):
     block_description = (
         'Lanes the AI racers prefer per track slice (NFS2, NFS2 SE GAMEDATA/TRACKS/SPEEDS/TR<nn>.ALN (arcade), .PLN '
-        '(simulation), TR<nn>B.* backward; TR<nn>.QAL / .QPL the same QFS3 packed, which nfs2sen.exe loads, '
-        'AiSpeeds_Load 0x42f120, into 0x4c4cf8). One byte per slice of the COL collision_data '
+        '(simulation); TR<nn>.QAL / .QPL the same QFS3 packed, which nfs2sen.exe loads, AiSpeeds_Load 0x42f120, '
+        'into 0x4c4cf8). TR<nn>B.* are the backward versions, loaded instead of TR<nn>.* when the track is driven '
+        'backward (GameSetup `backward`; the name built with "%sTr%02d%s.%s" and "b"). One byte per slice of the COL collision_data '
         '([CollisionExtraDataRecord](#collisionextradatarecord)), all 0 without the file (0x42f0f0)'
     )
     serializer = 'JsonSerializer'
