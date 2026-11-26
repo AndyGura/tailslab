@@ -201,11 +201,11 @@ class TnfsSaturnTextureBank(DeclarativeCompoundBlock):
         'Texture bank of a Saturn car model: 4-bit textures with 16 colours each (VDP1 colour '
         'mode 1). Pixels: two per byte, the high nibble first (the left pixel), rows of `width` pixels, top to '
         'bottom. Colours: Saturn 16-bit RGB (bits 0-4 red, 5-9 green, 10-14 blue, bit 15 set in every colour), 16 '
-        'per texture, in texture order. In the high-poly textures of five cars (BNR32, BCNR33, PGC10, KPGC110, '
-        '180SX) colour 0 of the rear light texture (the texture of the `bkll` / `bklr` polygons) is pure green, '
-        'the PSX convention for the brake light colour the game writes at run time; the PSX game takes CLUT entries '
-        "of pure green (5-bit red < 2, green > 29, blue < 2), the BCNR33's green is 29. Where the Saturn game "
-        'writes the brake light colours is not known'
+        'per texture, in texture order. Colour 0 of texture 0 of the high-poly bank is the brake light colour: the '
+        'game sets it (and colour 0 of texture 1, `null`) to 0x8006 when it loads the bank (0x06041720) and writes '
+        '0x8006 / 0x803F (unlit / lit, `brake` < / >= 0xb) every frame the car is drawn (0x060333bc). Texture 0 is '
+        'the rear light texture; in five cars (BNR32, BCNR33, PGC10, KPGC110, 180SX) its colour 0 is pure green, '
+        'the PSX convention, in the other three red'
     )
 
     class Fields(DeclarativeCompoundBlock.Fields):

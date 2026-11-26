@@ -51,6 +51,7 @@ from resources.eac.tnfs_saturn import (
 )
 from serializers.audios import SaturnToneBankSerializer, saturn_tone_stereo_pair
 from serializers.geometries import TnfsSaturnOrixGeometrySerializer, tnfs_wheel_labels_by_position
+from serializers.misc.tnfs_saturn_car_colors import tnfs_saturn_car_colors
 from serializers.tnfs_saturn import (
     TnfsSaturnFrontendArtSerializer,
     TnfsSaturnRlePictureSerializer,
@@ -120,13 +121,13 @@ class TestTnfsSaturnCarBundle(unittest.TestCase):
         self.assertEqual(tnfs_saturn_texture_file_name('J000'), 'J000')
         name, block, data = require_file(BUNDLE, lazy=False)
         with tempfile.TemporaryDirectory() as tmp:
-            files = export_tnfs_saturn_texture_bank(data['textures'], tmp)
+            files = export_tnfs_saturn_texture_bank(data['textures'], tmp, True)
             self.assertIn(os.path.join(tmp, 'tyr1.png').replace('\\', '/'), [f.replace('\\', '/') for f in files])
             with open(os.path.join(tmp, 'car_colors.json')) as f:
                 colors = json.load(f)
         self.assertEqual(
             colors,
-            {'tail_lights': {'texture_color': '#00ff00', 'textures': ['J032'], 'off': '#420000', 'on': '#ff0000'}},
+            {'tail_lights': {'texture_color': '#00ff00', 'textures': ['J032'], 'off': '#310000', 'on': '#ff0800'}},
         )
 
     def test_cockpit(self):
@@ -300,8 +301,8 @@ def _rgba(color):
 
 class TestTnfsSaturnTextureBankCarColors(unittest.TestCase):
     @staticmethod
-    def _bank(draw_mode):
-        # one 8x2 texture, colour 0 pure green (the brake light marker colour), pixels of colours 0 and 1
+    def _bank(draw_mode, color_0=0x83E0):
+        # one 8x2 texture, colour 0 pure green by default (the brake light marker colour), pixels of colours 0 and 1
         return {
             'textures': [
                 {
@@ -314,7 +315,7 @@ class TestTnfsSaturnTextureBankCarColors(unittest.TestCase):
                 }
             ],
             'pixels': bytes([0x01] * 8),
-            'colors': [0x83E0, 0x801F] + [0x8000] * 14,
+            'colors': [color_0, 0x801F] + [0x8000] * 14,
         }
 
     def test_key_colour_of_a_cut_out_texture_is_no_brake_light(self):
@@ -322,10 +323,27 @@ class TestTnfsSaturnTextureBankCarColors(unittest.TestCase):
         self.assertEqual(tnfs_saturn_bank_textures(self._bank(0x10C8))['J000'][2], {0, 1})
         self.assertEqual(tnfs_saturn_bank_textures(self._bank(0x1088))['J000'][2], {1})
         with tempfile.TemporaryDirectory() as tmp:
-            export_tnfs_saturn_texture_bank(self._bank(0x10C8), os.path.join(tmp, 'drawn'))
-            export_tnfs_saturn_texture_bank(self._bank(0x1088), os.path.join(tmp, 'cut_out'))
+            export_tnfs_saturn_texture_bank(self._bank(0x10C8), os.path.join(tmp, 'drawn'), True)
+            export_tnfs_saturn_texture_bank(self._bank(0x1088), os.path.join(tmp, 'cut_out'), True)
             self.assertTrue(os.path.isfile(os.path.join(tmp, 'drawn', 'car_colors.json')))
             self.assertFalse(os.path.isfile(os.path.join(tmp, 'cut_out', 'car_colors.json')))
+
+    def test_colour_0_of_texture_0_is_the_brake_light_whatever_its_colour(self):
+        # the 300ZX, Silvia and 240ZG have red there: the game overwrites colour 0 of the high-poly bank's texture 0
+        with tempfile.TemporaryDirectory() as tmp:
+            export_tnfs_saturn_texture_bank(self._bank(0x10C8, 0x801D), os.path.join(tmp, 'high'), True)
+            export_tnfs_saturn_texture_bank(self._bank(0x10C8, 0x801D), os.path.join(tmp, 'low'), False)
+            with open(os.path.join(tmp, 'high', 'car_colors.json')) as f:
+                colors = json.load(f)
+            self.assertFalse(os.path.isfile(os.path.join(tmp, 'low', 'car_colors.json')))
+        self.assertEqual(
+            colors,
+            {'tail_lights': {'texture_color': '#ef0000', 'textures': ['J000'], 'off': '#310000', 'on': '#ff0800'}},
+        )
+
+    def test_no_brake_light_when_another_colour_draws_the_same(self):
+        bank = self._bank(0x10C8, 0x801F)
+        self.assertEqual(tnfs_saturn_car_colors([('J000', bank['colors'], {0, 1})], True), {})
 
 
 def _sprite_entry(width, height, draw_mode, pixel_offset, palette, flags=0x8000):

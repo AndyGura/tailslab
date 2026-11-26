@@ -862,8 +862,9 @@ When you do:
   (nfs-web's `TnfsCarMeshController` works unchanged): textures from the car's `CARS/<car>.ALL` bank (high: first,
   low: second), `frntires` / `rertires` get `tyr4`, wheel labels renamed by their polygon's position
   (`tnfs_wheel_labels_by_position`: the PGC10 labels its left front wheel `rt_frnt`). `car_colors.json`
-  (`serializers/misc/tnfs_saturn_car_colors.py`): pure green (green >= 29) colours drawn = brake light marker (5 cars,
-  colour 0 of the rear light texture; colour 0 of a cut-out texture is not drawn and not counted), off / on colours of the PSX game; not verified in the Saturn code.
+  (`serializers/misc/tnfs_saturn_car_colors.py`, high-poly bank only): colour 0 of the bank's texture 0 is the brake
+  light, whatever its colour (green in 5 cars, red in the 300ZX, Silvia, 240ZG; the 300ZX's is J015, not its `bkll`
+  texture), off / on 0x8006 / 0x803F: the Saturn code's (0x06041720 at load, the car draw 0x060333bc per frame).
 - `0` (`TnfsSaturnGtrExecutable`): the in-car view's 9 cockpit records by car model id (`TnfsSaturnCockpitRecord`,
   0x715b0: needle colour, lengths, centres, angle scale / offset, the steering wheel's place and pivot) and the 8
   speedometer tops (0x71864), model pointers, 9 car AI records (`TnfsSaturnCarAiAndCrashBody`: PDN big-endian, top

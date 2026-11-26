@@ -3695,7 +3695,7 @@ class TnfsSaturnOrixGeometrySerializer(OrixGeometrySerializer):
     morphs, no normals), so nfs-web's TnfsCarMeshController takes it as a PC car: textures from the first (high-poly) or
     second (low-poly) texture bank of `CARS/<car>.ALL`, the tyre textures named `tyr1`..`tyr4`, wheel labels named by
     the position of their polygons (`tnfs_wheel_labels_by_position`: the PGC10 labels its left front wheel `rt_frnt`),
-    `car_colors.json` with the brake light marker next to the PNGs in `assets/`"""
+    `car_colors.json` with the brake light colour next to the PNGs in `assets/` (high-poly)"""
 
     def require_shpi(self, id):
         """(bank id, texture bank block, {'children': [{'alias': exported name, 'item': {'data': {width, height}}}]})
@@ -3713,6 +3713,7 @@ class TnfsSaturnOrixGeometrySerializer(OrixGeometrySerializer):
         bank_name = 'low_poly_textures' if os.path.basename(orix_path).lower().startswith('low') else 'textures'
         bank = bundle_data[bank_name]
         self.texture_bank = bank
+        self.texture_bank_high_poly = bank_name == 'textures'
         children = [
             {
                 'alias': tnfs_saturn_texture_file_name(tnfs_saturn_texture_name(entry)),
@@ -3757,5 +3758,5 @@ class TnfsSaturnOrixGeometrySerializer(OrixGeometrySerializer):
                 scene.mtl_flat_colors[sub_model.texture_id] = (0, 0, 0)
         # as the PC models: nfs-web draws TNFS models unlit
         scene.export_normals = False
-        export_tnfs_saturn_texture_bank(self.texture_bank, path_join(path, 'assets'))
+        export_tnfs_saturn_texture_bank(self.texture_bank, path_join(path, 'assets'), self.texture_bank_high_poly)
         return export_scenes([scene], path, self.settings)
