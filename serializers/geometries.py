@@ -3689,6 +3689,65 @@ def tnfs_wheel_labels_by_position(data: dict) -> Tuple[dict, List[Tuple[int, str
     return {**data, 'labels': labels}, renamed
 
 
+def subdivide_bilinear_quads(sub_model: SubMesh, texture_size: Tuple[int, int], max_texel_error=0.5, max_steps=8):
+    """Lays the quads of a sub-mesh out as the Sega Saturn's VDP1 draws a distorted sprite: the whole texture mapped
+    bilinearly onto the 4 corners (texture row v on the line from lerp(corner 0, corner 3, v) to lerp(corner 1,
+    corner 2, v), texel u along it), not as two triangles split along the 0-2 diagonal, which shear the texture of a
+    quad that is not a parallelogram (the windows' trapezoids). Such a quad becomes a grid of n x n quads on its
+    bilinear patch, positions, UVs, morph deltas and vertex attributes interpolated alike; n is the fewest steps that
+    keep the split's texture error under `max_texel_error` texels (it falls with n squared), at most `max_steps`.
+    Parallelograms (a bilinear mapping of one is affine) and triangles stay as they are"""
+
+    def lerp4(values, s, t):
+        a, b, c, d = values
+        return [
+            (1 - s) * (1 - t) * a[k] + s * (1 - t) * b[k] + s * t * c[k] + (1 - s) * t * d[k] for k in range(len(a))
+        ]
+
+    def length(v):
+        return math.sqrt(sum(x * x for x in v))
+
+    # (values per vertex, whole numbers: the byte attributes)
+    per_vertex_lists = [(sub_model.vertices, False), (sub_model.vertex_uvs, False)]
+    per_vertex_lists += [(x, False) for x in sub_model.morph_targets.values()]
+    per_vertex_lists += [(x, False) for x in sub_model.morph_target_normals.values()]
+    per_vertex_lists += [(x, True) for x in sub_model.vertex_byte_attributes.values()]
+    for values in (sub_model.vertex_colors, sub_model.vertex_normals):
+        if len(values) == len(sub_model.vertices):
+            per_vertex_lists.append((values, False))
+    polygons = []
+    for polygon in sub_model.polygons:
+        if len(polygon) != 4:
+            polygons.append(polygon)
+            continue
+        a, b, c, d = (sub_model.vertices[i] for i in polygon)
+        # the bilinear term (zero for a parallelogram) against the mean edge length
+        twist = length([a[k] - b[k] + c[k] - d[k] for k in range(3)])
+        mean_edge = sum(length([q[k] - p[k] for k in range(3)]) for p, q in ((a, b), (b, c), (c, d), (d, a))) / 4
+        if mean_edge == 0:
+            polygons.append(polygon)
+            continue
+        # the two triangles' texture error at the quad's middle, about an eighth of the relative twist in texels
+        texel_error = twist / mean_edge * max(texture_size) / 8
+        steps = min(max_steps, max(1, math.ceil(math.sqrt(texel_error / max_texel_error))))
+        if steps == 1:
+            polygons.append(polygon)
+            continue
+        grid = {(0, 0): polygon[0], (steps, 0): polygon[1], (steps, steps): polygon[2], (0, steps): polygon[3]}
+        for j in range(steps + 1):
+            for i in range(steps + 1):
+                if (i, j) in grid:
+                    continue
+                for values, whole in per_vertex_lists:
+                    point = lerp4([values[x] for x in polygon], i / steps, j / steps)
+                    values.append([round(x) for x in point] if whole else point)
+                grid[(i, j)] = len(sub_model.vertices) - 1
+        for j in range(steps):
+            for i in range(steps):
+                polygons.append([grid[(i, j)], grid[(i + 1, j)], grid[(i + 1, j + 1)], grid[(i, j + 1)]])
+    sub_model.polygons = polygons
+
+
 class TnfsSaturnOrixGeometrySerializer(OrixGeometrySerializer):
     """Sega Saturn TNFS (Over Drivin' GT-R) car model (`TnfsSaturnOrixGeometry`, `MODELS/<car>/high.orix` /
     `low.orix`), exported like the PC and PSX models (mesh names by label, texture and partition, fx dummies, steering
@@ -3740,6 +3799,12 @@ class TnfsSaturnOrixGeometrySerializer(OrixGeometrySerializer):
         for polygon, old, new in renamed:
             logging.info(f'{id}: wheel label "{old}" of polygon {polygon} exported as "{new}" (its position)')
         bank_id, bank_block, bank_data, sub_models = self.build_mesh(data, id)
+        # the game draws every polygon as a VDP1 distorted sprite (`TnfsSaturnOrixPolygon`): the texture bilinear
+        texture_sizes = {c['alias']: self._texture_size(c['item']['data']) for c in bank_data['children']}
+        for sub_model in sub_models.values():
+            texture_size = texture_sizes.get(orip_material_texture(sub_model.texture_id or ''))
+            if texture_size:
+                subdivide_bilinear_quads(sub_model, texture_size)
 
         scene = Scene()
         scene.sub_meshes = [sm for sm in sub_models.values()]

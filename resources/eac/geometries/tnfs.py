@@ -900,14 +900,21 @@ class OrixGeometry(PsxItemCrcFooterMixin, DeclarativeCompoundBlock):
 
 # "Checked" in the Saturn descriptions below: against every ORIX of Over Drivin' GT-R (the 8 cars' high and low-poly
 # models, `games/tnfs_saturn_gtr/MODELS`, sliced from the executable). The field meanings are the PSX ORIX's, verified
-# in the PSX executable; the Saturn executable is not disassembled
+# in the PSX executable; "verified" ones in the Saturn executable (nfs-web's decomp/tnfs_saturn_gtr, 0.gzf)
 
 
 class TnfsSaturnOrixPolygon(DeclarativeCompoundBlock):
     block_description = (
         'A polygon of a Sega Saturn geometry: the PSX ORIX polygon, its first 8 bytes in reverse '
         'order (the GPU primitive word first, then the bytes `unk`, `material_index`, `mapping`, `polygon_type`), '
-        'the offsets big-endian'
+        'the offsets big-endian. The game draws each polygon as one VDP1 distorted sprite (verified: '
+        '`Ori_BuildPolygonDrawRecords` 0x06065030, `Ori_DrawPolygonFrontFace` 0x06064d9c...; CMDCTRL 2, no flip): its '
+        'whole texture on the quad, the top left texel on corner 0, top right on corner 1, bottom right on corner 2, '
+        'bottom left on corner 3, filled as lines from edge 0-3 to edge 1-2 (a bilinear mapping, not two triangles). '
+        "The texture's draw mode replaces the colours (no Gouraud shading). `use_uv` polygons are not drawn, "
+        '`two_sided` ones have no back face test, `flip_normal` ones are drawn when the projected corners 0, 1, 2 turn '
+        'the other way. The export lays a quad that is not a parallelogram out as a grid on its bilinear patch '
+        '(`subdivide_bilinear_quads`)'
     )
 
     class Fields(DeclarativeCompoundBlock.Fields):

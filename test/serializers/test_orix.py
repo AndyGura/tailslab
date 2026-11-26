@@ -300,3 +300,66 @@ class TestTnfsPsxCarColors(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             files = ShppArchiveSerializer().serialize(data, os.path.join(tmp, 'psh') + '/', id, block)
             self.assertIn('car_colors.json', [os.path.basename(x) for x in files])
+
+
+class TestSubdivideBilinearQuads(unittest.TestCase):
+    """The Saturn's VDP1 maps a polygon's whole texture bilinearly onto its 4 corners (`subdivide_bilinear_quads`)"""
+
+    @staticmethod
+    def quad(corners, deltas=None):
+        from serializers.common.three_d import SubMesh
+
+        mesh = SubMesh()
+        mesh.vertices = [list(c) for c in corners]
+        mesh.vertex_uvs = [[0, 0], [1, 0], [1, 1], [0, 1]]
+        if deltas:
+            mesh.morph_targets['left_turn'] = [list(d) for d in deltas]
+        mesh.polygons = [[0, 1, 2, 3]]
+        return mesh
+
+    def test_parallelogram_stays_one_quad(self):
+        from serializers.geometries import subdivide_bilinear_quads
+
+        mesh = self.quad([(0, 0, 0), (2, 0, 0), (3, 1, 0), (1, 1, 0)])
+        subdivide_bilinear_quads(mesh, (32, 32))
+        self.assertEqual(mesh.polygons, [[0, 1, 2, 3]])
+        self.assertEqual(len(mesh.vertices), 4)
+
+    def test_trapezoid_becomes_a_grid_on_its_bilinear_patch(self):
+        from serializers.geometries import subdivide_bilinear_quads
+
+        corners = [(0, 0, 0), (4, 0, 0), (3, 2, 0), (1, 2, 0)]
+        deltas = [(0, 0, 0), (1, 0, 0), (1, 0, 0), (0, 0, 0)]
+        mesh = self.quad(corners, deltas)
+        subdivide_bilinear_quads(mesh, (32, 32))
+        steps = int(len(mesh.polygons) ** 0.5)
+        self.assertGreater(steps, 1)
+        self.assertEqual(len(mesh.polygons), steps * steps)
+        self.assertEqual(len(mesh.vertices), (steps + 1) ** 2)
+        self.assertEqual(len(mesh.vertex_uvs), len(mesh.vertices))
+        self.assertEqual(len(mesh.morph_targets['left_turn']), len(mesh.vertices))
+        # every vertex: the bilinear point of its UV (s along corner 0 -> 1, t along corner 0 -> 3), the morph alike
+        for vertex, (s, t), delta in zip(mesh.vertices, mesh.vertex_uvs, mesh.morph_targets['left_turn']):
+            a, b, c, d = corners
+            expected = [
+                (1 - s) * (1 - t) * a[k] + s * (1 - t) * b[k] + s * t * c[k] + (1 - s) * t * d[k] for k in range(3)
+            ]
+            for k in range(3):
+                self.assertAlmostEqual(vertex[k], expected[k])
+            self.assertAlmostEqual(delta[0], s)
+        # the corners keep their vertices, the grid's quads keep the polygon's winding (corner order)
+        self.assertEqual(mesh.polygons[0][0], 0)
+        self.assertEqual(mesh.polygons[steps - 1][1], 1)
+        self.assertEqual(mesh.polygons[-1][2], 2)
+        self.assertEqual(mesh.polygons[-steps][3], 3)
+
+    def test_triangle_stays(self):
+        from serializers.common.three_d import SubMesh
+        from serializers.geometries import subdivide_bilinear_quads
+
+        mesh = SubMesh()
+        mesh.vertices = [[0, 0, 0], [1, 0, 0], [0, 1, 0]]
+        mesh.vertex_uvs = [[0, 0], [1, 0], [0, 1]]
+        mesh.polygons = [[0, 1, 2]]
+        subdivide_bilinear_quads(mesh, (32, 32))
+        self.assertEqual(mesh.polygons, [[0, 1, 2]])
