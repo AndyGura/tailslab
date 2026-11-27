@@ -1078,14 +1078,24 @@ class Nfs6Ps2CarAero(DeclarativeCompoundBlock):
         front_downforce = (
             DecimalBlock(length=4),
             {
-                'description': 'Front downforce per m/s (0.0685..0.21), at (1, 0, 0) in car coordinates '
-                '(Aerodynamics::GetDownforceAtSpeed 0x1adfb8); Car::AverageAir adds (front + rear) x 0.3 x speed / '
-                'mass downwards in the air'
+                'description': 'Front downforce, kN per m/s (0.0685..0.21: 7..21 kg-force per m/s, as the PC '
+                "car.ini's AeroFrontDownforceCoefficient, 5..13): linear in the speed, not its square. Pushes the "
+                'car down at (1, 0, 0) in car coordinates (Aerodynamics::ResolveForces 0x1add70): it x |v| x d^4 '
+                "x u, d = max(0, the direction of travel . the car's forward axis) (none sliding sideways or "
+                "backwards), u = 1 with half the wheels or more on the ground, else max(0, the car's up axis z); "
+                'no wheel on the ground: 0.4 x |v| x d^4 x u x (front + rear) instead. |v| is divided by the '
+                'catch-up boost (PhysicsCar::SetBoost 0x139490, 1 without it). '
+                'Aerodynamics::GetDownforceAtSpeed 0x1adfb8: max(0, speed) x (front + rear); Car::AverageAir adds '
+                '(front + rear) x 0.3 x speed / mass downwards in the air'
             },
         )
         rear_downforce = (
             DecimalBlock(length=4),
-            {'description': 'Rear downforce per m/s (0.0805..0.25), at (-1, 0, 0) in car coordinates'},
+            {
+                'description': 'Rear downforce, kN per m/s (0.0805..0.25: 8..25 kg-force per m/s; PC car.ini '
+                'AeroRearDownforceCoefficient 5..15), like `front_downforce` at (-1, 0, 0) in car coordinates; '
+                'no wheel on the ground: 0.41 x |v| x d^4 x u x (front + rear)'
+            },
         )
         downforce_factor = (
             DecimalBlock(length=4),
