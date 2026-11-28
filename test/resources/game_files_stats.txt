@@ -398,4 +398,4 @@ Files with compressor round-trip failures: 0
 .WSM: 100.00% (18/18)
 
 --- Time Spent ---
-Total time: 00:04:6.91
+Total time: 00:08:12.61
