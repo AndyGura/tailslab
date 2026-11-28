@@ -374,9 +374,7 @@ $extra_script
             for scene in scenes:
                 scene_file_path = path_join(os.getcwd(), output_path, scene.directory, scene.name)
                 # the gg-web-engine exporter writes no morph targets
-                morph_meshes = [sm for sm in scene.sub_meshes if sm.morph_targets]
-                if morph_meshes:
-                    add_glb_morph_targets(scene_file_path + '.glb', morph_meshes)
+                add_glb_morph_targets(scene_file_path + '.glb', scene.sub_meshes)
                 # nor custom normals
                 add_glb_vertex_attributes(scene_file_path + '.glb', scene.sub_meshes)
                 _add_meta_curve_properties(scene_file_path + '.meta', scene.curves)

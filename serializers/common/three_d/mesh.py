@@ -1,3 +1,4 @@
+import itertools
 import math
 from abc import ABC, abstractmethod
 from collections import defaultdict
@@ -28,9 +29,10 @@ class BaseMesh(ABC):
         # `_game_normal_<target>`), not to the OBJ. Only `change_axes` keeps them in sync with the vertices
         self.morph_target_normals = {}
         # [r, g, b, a] or [r, g, b] (0..1) per vertex (parallel to `vertices`) or empty: written to the OBJ as
-        # `v x y z r g b` (the alpha left out; three.js OBJLoader reads them as the geometry attribute `color`, decoded
-        # from sRGB) and by the gg-web-engine export to the GLB as the vertex attribute COLOR_0, float VEC4 or VEC3 as
-        # given, the values as they are (`add_glb_vertex_attributes`; Blender then writes no COLOR_0 of its own)
+        # `v x y z r g b` (4 decimals, the alpha left out; three.js OBJLoader reads them as the geometry attribute
+        # `color`, Blender's OBJ import as the colour attribute "Color" of the `.blend`, both decoded from sRGB) and by
+        # the gg-web-engine export to the GLB as the vertex attribute COLOR_0, float VEC4 or VEC3 as given, the values
+        # as they are (`add_glb_vertex_attributes`; Blender then writes no COLOR_0 of its own)
         self.vertex_colors = []
         # application-specific GLB vertex attribute name (`_PSX_GOURAUD`) -> unsigned bytes per vertex (parallel to
         # `vertices`, the same count for every vertex): written by the gg-web-engine export as unsigned byte normalized
@@ -101,74 +103,106 @@ class BaseMesh(ABC):
         if pivot:
             self.pivot_offset = tuple(convert([self.pivot_offset])[0])
 
+    def _keep_vertices(self, indices: List[int]):
+        """Keeps the vertices of `indices` (old indices, in their new order) with their texture coordinates and every
+        per-vertex list (normals, colours, byte attributes, morph targets and their normals) of one value per vertex.
+        The polygons are not changed"""
+        count = len(self.vertices)
+
+        def kept(values):
+            return [values[i] for i in indices] if len(values) == count else values
+
+        self.vertices = [self.vertices[i] for i in indices]
+        self.vertex_uvs = [self.vertex_uvs[i] for i in indices] if len(self.vertex_uvs) else self.vertex_uvs
+        self.vertex_normals = kept(self.vertex_normals)
+        self.vertex_colors = kept(self.vertex_colors)
+        self.morph_targets = {name: kept(values) for name, values in self.morph_targets.items()}
+        self.morph_target_normals = {name: kept(values) for name, values in self.morph_target_normals.items()}
+        self.vertex_byte_attributes = {name: kept(values) for name, values in self.vertex_byte_attributes.items()}
+
     # after deleting polygons should call this function
     def remove_orphaned_vertices(self):
-        usage_map = [False] * len(self.vertices)
-        for p in self.polygons:
-            for vi in p:
-                usage_map[vi] = True
-        orphans = [vi for vi, used in enumerate(usage_map) if not used]
-        self.vertices = [v for (i, v) in enumerate(self.vertices) if i not in orphans]
-        self.vertex_uvs = [v for (i, v) in enumerate(self.vertex_uvs) if i not in orphans]
-        for removed_index in orphans:
-            for j, p in enumerate(self.polygons):
-                self.polygons[j] = [idx if idx <= removed_index else idx - 1 for idx in p]
+        used = sorted({vi for p in self.polygons for vi in p})
+        if len(used) == len(self.vertices):
+            return
+        new_index = {old: new for new, old in enumerate(used)}
+        self._keep_vertices(used)
+        self.polygons = [[new_index[vi] for vi in p] for p in self.polygons]
 
     def extend(self, mesh: 'BaseMesh'):
+        """Appends the vertices and polygons of `mesh` (its positions moved to this mesh's pivot), with their texture
+        coordinates; colours when either mesh has them (white for the vertices of the other one), normals, morph
+        targets and byte attributes when both have them"""
         v_offset = (
             self.pivot_offset[0] - mesh.pivot_offset[0],
             self.pivot_offset[1] - mesh.pivot_offset[1],
             self.pivot_offset[2] - mesh.pivot_offset[2],
         )
-        v_index_surplus = len(self.vertices)
+        count, other_count = len(self.vertices), len(mesh.vertices)
+
+        def per_vertex(values, n):
+            return n > 0 and len(values) == n
+
+        own_colors, other_colors = per_vertex(self.vertex_colors, count), per_vertex(mesh.vertex_colors, other_count)
+        if own_colors or other_colors:
+            channels = len((self.vertex_colors if own_colors else mesh.vertex_colors)[0])
+            self.vertex_colors = (
+                [list(c) for c in self.vertex_colors] if own_colors else [[1.0] * channels for _ in range(count)]
+            )
+            self.vertex_colors.extend(
+                [list(c) for c in mesh.vertex_colors]
+                if other_colors
+                else [[1.0] * channels for _ in range(other_count)]
+            )
+        if (per_vertex(self.vertex_normals, count) or not count) and per_vertex(mesh.vertex_normals, other_count):
+            self.vertex_normals = [*self.vertex_normals, *mesh.vertex_normals]
+        elif other_count:
+            self.vertex_normals = []
+        if other_count:
+            # morph targets and byte attributes of both meshes, the others left out
+            for name in ('morph_targets', 'morph_target_normals', 'vertex_byte_attributes'):
+                own, other = getattr(self, name), getattr(mesh, name)
+                setattr(
+                    self,
+                    name,
+                    {
+                        key: [*own.get(key, []), *values]
+                        for key, values in other.items()
+                        if per_vertex(values, other_count) and (per_vertex(own.get(key, []), count) or not count)
+                    },
+                )
+        v_index_surplus = count
         self.vertices.extend([[v[0] + v_offset[0], v[1] + v_offset[1], v[2] + v_offset[2]] for v in mesh.vertices])
         self.polygons.extend([[v + v_index_surplus for v in p] for p in mesh.polygons])
         self.vertex_uvs.extend(mesh.vertex_uvs)
 
     def collapse_vertices(self):
+        """Merges the vertices closer than 1 cm on every axis into the first of them, which keeps its texture
+        coordinates, normal, colour and other per-vertex values"""
         self.remove_orphaned_vertices()
-        new_vertices = []
-        new_uvs = []
-
-        # spatial hash
+        # spatial hash: grid cell -> indices of the kept vertices in it
         grid_size = 0.01
         grid = defaultdict(list)
-
-        def get_key(v):
-            return (int(v[0] // grid_size), int(v[1] // grid_size), int(v[2] // grid_size))
-
-        # smart references to vertex for fast polygons migration
-        self_vertices_map = [[i, v] for (i, v) in enumerate(self.vertices)]
-        self_polygons_map = [[self_vertices_map[vi] for vi in p] for p in self.polygons]
-
-        for i, vi in enumerate(self.vertices):
-            key = get_key(vi)
-            existing_v_index = None
-            for dx in [-1, 0, 1]:
-                for dy in [-1, 0, 1]:
-                    for dz in [-1, 0, 1]:
-                        neighbor_key = (key[0] + dx, key[1] + dy, key[2] + dz)
-                        for j, vj in grid[neighbor_key]:
-                            if abs(vi[0] - vj[0]) < 0.01 and abs(vi[1] - vj[1]) < 0.01 and abs(vi[2] - vj[2]) < 0.01:
-                                existing_v_index = j
-                                break
-                        if existing_v_index is not None:
-                            break
-                    if existing_v_index is not None:
-                        break
-                if existing_v_index is not None:
-                    break
-            if existing_v_index is None:
-                self_vertices_map[i][0] = len(new_vertices)
-                new_vertices.append(vi)
-                new_uvs.append(self.vertex_uvs[i])
-                grid[key].append((i, vi))
-            else:
-                self_vertices_map[i][0] = self_vertices_map[existing_v_index][0]
-                self_vertices_map[i][1] = None
-        self.vertices = new_vertices
-        self.vertex_uvs = new_uvs
-        self.polygons = [[vi for (vi, _) in p] for p in self_polygons_map]
+        kept = []
+        new_index = []
+        for v in self.vertices:
+            key = tuple(int(v[k] // grid_size) for k in range(3))
+            match = next(
+                (
+                    j
+                    for dx, dy, dz in itertools.product((-1, 0, 1), repeat=3)
+                    for j in grid[(key[0] + dx, key[1] + dy, key[2] + dz)]
+                    if all(abs(v[k] - self.vertices[kept[j]][k]) < 0.01 for k in range(3))
+                ),
+                None,
+            )
+            if match is None:
+                match = len(kept)
+                kept.append(len(new_index))
+                grid[key].append(match)
+            new_index.append(match)
+        self._keep_vertices(kept)
+        self.polygons = [[new_index[vi] for vi in p] for p in self.polygons]
 
 
 # Mesh with one single texture
@@ -190,7 +224,7 @@ class SubMesh(BaseMesh):
             [
                 'v '
                 + ' '.join([str(coordinates[i] - pivot_offset[i]) for i in range(3)])
-                + (' ' + ' '.join(str(c) for c in self.vertex_colors[n][:3]) if has_colors else '')
+                + (' ' + ' '.join(str(round(c, 4)) for c in self.vertex_colors[n][:3]) if has_colors else '')
                 for n, coordinates in enumerate(self.vertices)
             ]
         )

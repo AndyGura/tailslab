@@ -242,3 +242,231 @@ class TestGgExportOptionsScript(unittest.TestCase):
 
         self.assertEqual(self._options(partial, export_normals=False, export_tangents=False), {'export_normals': False})
         self.assertEqual(self._options(any_kwargs, export_tangents=False), {'export_tangents': False})
+
+
+def _colored_scene(directory: str = '') -> Scene:
+    """A scene of a mesh with RGBA vertex colours and a mesh without colours, one texture"""
+    colored = SubMesh()
+    colored.name = 'block_0__tex'
+    colored.vertices = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0]]
+    colored.vertex_uvs = [[0, 0], [1, 0], [0, 1], [1, 1]]
+    colored.vertex_colors = [[0.25, 0.5, 1.0, 1.0], [1.0, 0.0, 0.5, 0.5], [0.0, 0.0, 0.0, 1.0], [1.0, 1.0, 1.0, 1.0]]
+    colored.polygons = [[0, 1, 2], [2, 1, 3]]
+    colored.texture_id = 'tex'
+    plain = SubMesh()
+    plain.name = 'block_1__tex'
+    plain.vertices = [[3, 0, 0], [4, 0, 0], [3, 1, 0]]
+    plain.vertex_uvs = [[0, 0], [1, 0], [0, 1]]
+    plain.polygons = [[0, 1, 2]]
+    plain.texture_id = 'tex'
+    return Scene(
+        name='map',
+        obj_name='map',
+        sub_meshes=[colored, plain],
+        mtl_texture_names=['tex'],
+        mtl_texture_path_func=lambda x: f'{x}.png',
+        directory=directory,
+    )
+
+
+def _obj_vertex_lines(path: str) -> dict:
+    """Object name -> its `v` lines of an OBJ file"""
+    objects = {}
+    name = None
+    with open(path) as f:
+        for line in f:
+            if line.startswith('o '):
+                name = line[2:].strip()
+                objects[name] = []
+            elif line.startswith('v '):
+                objects[name].append(line.strip())
+    return objects
+
+
+class TestExportScenesVertexColors(unittest.TestCase):
+    def test_obj_has_the_colors_of_the_colored_meshes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            export_scenes([_colored_scene()], tmp + '/', _Settings())
+            vertices = _obj_vertex_lines(os.path.join(tmp, 'map.obj'))
+        # the alpha left out
+        self.assertEqual(
+            vertices['block_0__tex'],
+            ['v 0 0 0 0.25 0.5 1.0', 'v 1 0 0 1.0 0.0 0.5', 'v 0 1 0 0.0 0.0 0.0', 'v 1 1 0 1.0 1.0 1.0'],
+        )
+        self.assertEqual(vertices['block_1__tex'], ['v 3 0 0', 'v 4 0 0', 'v 3 1 0'])
+
+    def test_glb_gets_the_colors_as_color_0(self):
+        from serializers.common.three_d.glb_morph_targets import read_accessor, read_glb
+        from test.serializers.test_geometries import write_glb_of_sub_meshes
+
+        scene = _colored_scene()
+        with tempfile.TemporaryDirectory() as tmp:
+            scripts = []
+
+            def run_blender(path, script):
+                # the GLB and `.meta` the gg-web-engine exporter writes of the OBJ: no COLOR_0
+                scripts.append(script)
+                write_glb_of_sub_meshes(os.path.join(tmp, 'map.glb'), scene.sub_meshes)
+                with open(os.path.join(tmp, 'map.meta'), 'w') as f:
+                    json.dump({'formatVersion': 2, 'curves': [], 'dummies': []}, f)
+
+            with (
+                patch.object(scenes_module, 'ensure_gg_web_engine_exporter_installed', return_value=tmp),
+                patch.object(scenes_module, 'run_blender', side_effect=run_blender),
+            ):
+                files = export_scenes([scene], tmp + '/', _GgSettings())
+            gltf, binary = read_glb(os.path.join(tmp, 'map.glb'))
+        self.assertIn(os.path.join(tmp, 'map.glb'), [os.path.normpath(x) for x in files])
+        # Blender writes no COLOR_0 of its own: the converter's are the values as they are
+        self.assertIn("export_vertex_color='NONE'", scripts[0])
+        nodes = {node['name']: gltf['meshes'][node['mesh']]['primitives'][0] for node in gltf['nodes']}
+        colors = nodes['block_0__tex']['attributes']['COLOR_0']
+        self.assertEqual(gltf['accessors'][colors]['type'], 'VEC4')
+        # the test GLB has the vertices in reversed order
+        self.assertEqual(
+            read_accessor(gltf, binary, colors),
+            [(1.0, 1.0, 1.0, 1.0), (0.0, 0.0, 0.0, 1.0), (1.0, 0.0, 0.5, 0.5), (0.25, 0.5, 1.0, 1.0)],
+        )
+        self.assertNotIn('COLOR_0', nodes['block_1__tex']['attributes'])
+
+    def test_glb_colors_of_corners_at_one_place_follow_their_triangles(self):
+        # two triangles sharing an edge with corners of their own colours there (NFS5 track `fd` colours)
+        from serializers.common.three_d.glb_morph_targets import add_glb_vertex_attributes, read_accessor, read_glb
+        from test.serializers.test_geometries import write_glb_of_sub_meshes
+
+        mesh = SubMesh()
+        mesh.name = 'RD0000C_a0_LOD0_ai0_cla2'
+        mesh.vertices = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]]
+        mesh.vertex_uvs = [[0, 0], [1, 0], [0, 1], [1, 0], [1, 1], [0, 1]]
+        mesh.vertex_colors = [[1.0, 0.0, 0.0, 1.0]] * 3 + [[0.0, 0.0, 1.0, 1.0]] * 3
+        mesh.polygons = [[0, 1, 2], [3, 4, 5]]
+        # and two triangles on top of each other, of other colours
+        mesh.vertices += [[5, 0, 0], [6, 0, 0], [5, 1, 0]] * 2
+        mesh.vertex_uvs += [[0, 0], [1, 0], [0, 1]] * 2
+        mesh.vertex_colors += [[0.0, 1.0, 0.0, 1.0]] * 3 + [[1.0, 1.0, 0.0, 1.0]] * 3
+        mesh.polygons += [[6, 7, 8], [9, 10, 11]]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'map.glb')
+            write_glb_of_sub_meshes(path, [mesh])
+            with self.assertNoLogs(level='WARNING'):
+                add_glb_vertex_attributes(path, [mesh])
+            gltf, binary = read_glb(path)
+        primitive = gltf['meshes'][0]['primitives'][0]
+        colors = read_accessor(gltf, binary, primitive['attributes']['COLOR_0'])
+        indices = [x[0] for x in read_accessor(gltf, binary, primitive['indices'])]
+        triangle_colors = [{colors[i] for i in indices[k : k + 3]} for k in range(0, len(indices), 3)]
+        self.assertEqual(triangle_colors[:2], [{(1.0, 0.0, 0.0, 1.0)}, {(0.0, 0.0, 1.0, 1.0)}])
+        # one colour per triangle, each of the two
+        self.assertEqual(sorted(triangle_colors[2:], key=sorted), [{(0.0, 1.0, 0.0, 1.0)}, {(1.0, 1.0, 0.0, 1.0)}])
+
+    def test_glb_colors_of_meshes_of_one_name_go_to_their_nodes(self):
+        # names cut to 27 characters repeat (NFSU car parts): Blender names the later objects "<name>.001"..., in no
+        # fixed order, so the nodes are told apart by their positions
+        from serializers.common.three_d.glb_morph_targets import add_glb_vertex_attributes, read_accessor, read_glb
+        from test.serializers.test_geometries import write_glb_of_sub_meshes
+
+        name = '350Z_KIT00_LEFT_SIDE_MIRRO__untextured'
+        meshes = []
+        # the third one has the places of the first one and more (a level of detail)
+        for color, vertices in [
+            ([1.0, 0.0, 0.0, 1.0], [[0, 0, 0], [1, 0, 0], [0, 1, 0]]),
+            (None, [[5, 0, 0], [6, 0, 0], [5, 1, 0]]),
+            ([0.0, 0.0, 1.0, 1.0], [[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0]]),
+        ]:
+            mesh = SubMesh()
+            mesh.name = name
+            mesh.vertices = vertices
+            mesh.vertex_uvs = [[x, y] for x, y, _ in vertices]
+            mesh.vertex_colors = [color] * len(vertices) if color else []
+            mesh.polygons = [[0, 1, 2]] + ([[2, 1, 3]] if len(vertices) == 4 else [])
+            meshes.append(mesh)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'body.glb')
+            nodes = []
+            for mesh, node_name in zip(meshes, [name + '.002', name, name + '.001']):
+                node = SubMesh()
+                node.name, node.vertices, node.vertex_uvs, node.polygons = (
+                    node_name,
+                    mesh.vertices,
+                    mesh.vertex_uvs,
+                    mesh.polygons,
+                )
+                nodes.append(node)
+            write_glb_of_sub_meshes(path, nodes)
+            add_glb_vertex_attributes(path, meshes)
+            gltf, binary = read_glb(path)
+        attributes = {n['name']: gltf['meshes'][n['mesh']]['primitives'][0]['attributes'] for n in gltf['nodes']}
+        self.assertEqual(set(read_accessor(gltf, binary, attributes[name + '.002']['COLOR_0'])), {(1.0, 0.0, 0.0, 1.0)})
+        self.assertNotIn('COLOR_0', attributes[name])
+        self.assertEqual(set(read_accessor(gltf, binary, attributes[name + '.001']['COLOR_0'])), {(0.0, 0.0, 1.0, 1.0)})
+
+
+def _blender_executable():
+    from serializers.common.three_d import blender_scripts
+
+    executable = blender_scripts.general_config.blender_executable
+    return executable if executable and os.path.isfile(executable) else None
+
+
+@unittest.skipUnless(_blender_executable(), 'needs Blender (general setting blender_executable)')
+class TestExportScenesVertexColorsThroughBlender(unittest.TestCase):
+    """The OBJ, `.blend` and (with a gg-web-engine exporter downloaded before: no network in tests) GLB of a scene
+    with vertex colours, exported by Blender"""
+
+    def test_blend_and_glb_have_the_colors(self):
+        from serializers.common.three_d import gg_web_engine_exporter
+        from serializers.common.three_d.blender_scripts import run_blender
+        from serializers.common.three_d.glb_morph_targets import read_accessor, read_glb
+
+        exporter_dir = os.path.dirname(gg_web_engine_exporter._EXPORTER_FILE)
+        with_glb = os.path.isfile(gg_web_engine_exporter._EXPORTER_FILE)
+
+        class Settings(_Settings):
+            geometry__save_blend = True
+            geometry__export_to_gg_web_engine = with_glb
+
+        with tempfile.TemporaryDirectory() as tmp:
+            from PIL import Image
+
+            Image.new('RGBA', (4, 4), (255, 255, 255, 255)).save(os.path.join(tmp, 'tex.png'))
+            with patch.object(scenes_module, 'ensure_gg_web_engine_exporter_installed', return_value=exporter_dir):
+                export_scenes([_colored_scene()], tmp + '/', Settings())
+            # the colour attributes of the `.blend`, as Blender shows them (sRGB)
+            colors_path = os.path.join(tmp, 'colors.json')
+            run_blender(
+                path=tmp,
+                script=f"""
+import json
+bpy.ops.wm.open_mainfile(filepath="{os.path.join(tmp, 'map.blend')}")
+colors = {{}}
+for o in bpy.data.objects:
+    if o.type == 'MESH':
+        colors[o.name] = {{a.name: [list(d.color_srgb) for d in a.data] for a in o.data.color_attributes}}
+with open("{colors_path}", "w") as f:
+    json.dump(colors, f)
+""",
+            )
+            with open(colors_path) as f:
+                blend_colors = json.load(f)
+            glb = read_glb(os.path.join(tmp, 'map.glb')) if with_glb else None
+
+        self.assertEqual(set(blend_colors['block_0__tex']), {'Color'})
+        # the OBJ has no alpha: opaque in the `.blend`
+        expected = [[0.25, 0.5, 1.0, 1.0], [1.0, 0.0, 0.5, 1.0], [0.0, 0.0, 0.0, 1.0], [1.0, 1.0, 1.0, 1.0]]
+        self.assertEqual(len(blend_colors['block_0__tex']['Color']), len(expected))
+        for got, want in zip(sorted(blend_colors['block_0__tex']['Color']), sorted(expected)):
+            for a, b in zip(got, want):
+                self.assertAlmostEqual(a, b, 4)
+        self.assertEqual(blend_colors['block_1__tex'], {})
+        if glb is None:
+            return
+        gltf, binary = glb
+        nodes = {
+            node['name']: gltf['meshes'][node['mesh']]['primitives'][0] for node in gltf['nodes'] if 'mesh' in node
+        }
+        attributes = nodes['block_0__tex']['attributes']
+        self.assertEqual(
+            sorted(read_accessor(gltf, binary, attributes['COLOR_0'])),
+            sorted(tuple(c) for c in _colored_scene().sub_meshes[0].vertex_colors),
+        )
+        self.assertNotIn('COLOR_0', nodes['block_1__tex']['attributes'])

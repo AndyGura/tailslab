@@ -663,13 +663,13 @@ class TestEacTrackSerializers(unittest.TestCase):
 
     def _assert_corners_have_vertex_colors(self, obj_path, pivot, vertices, colors, scale=1):
         """Every vertex of the chunk OBJ (export axes, relative to the chunk `pivot`, game axes) has the colour of a
-        track vertex (game axes, file units times `scale`) at its place"""
+        track vertex (game axes, file units times `scale`) at its place, to the 4 decimals of the OBJ"""
         import math
 
         by_position = {}
         for v, c in zip(vertices, colors):
             key = tuple(round(v[k] * scale, 2) for k in 'xyz')
-            by_position.setdefault(key, set()).add(tuple(round(x, 6) for x in c))
+            by_position.setdefault(key, set()).add(tuple(round(x, 4) for x in c))
         corners = self._obj_colored_vertices(obj_path)
         self.assertGreater(len(corners), 0)
         for x, y, z, *color in corners:
@@ -679,7 +679,7 @@ class TestEacTrackSerializers(unittest.TestCase):
             near = by_position.get(key) or next(
                 (cs for k, cs in by_position.items() if math.dist(k, game) < 0.02), set()
             )
-            self.assertIn(tuple(round(c, 6) for c in color), near)
+            self.assertIn(tuple(round(c, 4) for c in color), near)
 
     def test_frd_meshes_should_have_the_vertex_shading_as_colors(self):
         import os
@@ -704,10 +704,10 @@ class TestEacTrackSerializers(unittest.TestCase):
             # an extra object: its own shading
             xobj = data['extraobject_blocks'][96][0]
             prop_colors = {
-                tuple(round(c, 6) for c in v[3:])
+                tuple(round(c, 4) for c in v[3:])
                 for v in self._obj_colored_vertices(os.path.join(out, 'props', 'xobj_96_0', 'geometry.obj'))
             }
-            expected = {tuple(round((s >> k & 0xFF) / 255, 6) for k in (16, 8, 0)) for s in xobj['vertex_shading']}
+            expected = {tuple(round((s >> k & 0xFF) / 255, 4) for k in (16, 8, 0)) for s in xobj['vertex_shading']}
             self.assertTrue(prop_colors and prop_colors <= expected)
             # COL props have no shading
             for v in self._obj_colored_vertices(os.path.join(out, 'props', 'col_0', 'geometry.obj')):
@@ -763,11 +763,11 @@ class TestEacTrackSerializers(unittest.TestCase):
                 )
                 xobj = data['global_objects_1']['objects'][94]
                 prop_colors = {
-                    tuple(round(c, 6) for c in v[3:])
+                    tuple(round(c, 4) for c in v[3:])
                     for v in self._obj_colored_vertices(os.path.join(out, 'props', 'xobj_global_1_94', 'geometry.obj'))
                 }
                 expected = {
-                    tuple(round(nfs4_shading_tint(s >> k & 0xFF, a) / 255, 6) for k, a in zip((16, 8, 0), ambient))
+                    tuple(round(nfs4_shading_tint(s >> k & 0xFF, a) / 255, 4) for k, a in zip((16, 8, 0), ambient))
                     for s in xobj['vertex_shading']
                 }
                 self.assertTrue(prop_colors and prop_colors <= expected)

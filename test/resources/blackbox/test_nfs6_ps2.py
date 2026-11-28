@@ -168,8 +168,9 @@ class TestNfs6Ps2TrackBundle(unittest.TestCase):
         world.collect(data)
         _, infos, instances = world.sceneries[0]
         for vertices, _, _, colors in world.scenery_parts(infos, instances, with_colors=True).values():
-            self.assertEqual(colors.shape, (len(vertices), 4))
-            self.assertTrue(((colors >= 0) & (colors <= 255)).all())
+            # RGBA ints (0xRRGGBBAA)
+            self.assertEqual(colors.shape, (len(vertices),))
+            self.assertEqual(colors.dtype.name, 'uint32')
 
     def test_serializer_should_export_chunks_with_textures_and_route(self):
         (name, block, data) = require_file(BUNDLE)

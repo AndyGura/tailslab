@@ -77,7 +77,10 @@ class EaglModel(DeclarativeCompoundBlock):
     block_description = (
         'EAGL model, used by NFS6 for track compartments, sky, cars and other geometry. A 32-bit '
         'little-endian MIPS ELF relocatable object file with model data in ".data" section, where named symbols '
-        'point to render methods, vertex/index buffers and texture references'
+        'point to render methods, vertex/index buffers and texture references. Vertex buffers with a diffuse colour '
+        '(Direct3D FVF): the export of a model which is no car gives the vertices these colours (the baked lighting '
+        "of the track compartments and props, the sky's colours; OBJ `v` colours, GLB COLOR_0: RGBA / 255), a car "
+        'only to its glass (the other car shaders compute the vertex colour from the lighting)'
     )
     serializer = 'EaglModelSerializer'
 

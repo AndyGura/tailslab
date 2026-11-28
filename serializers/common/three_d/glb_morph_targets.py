@@ -18,6 +18,7 @@ import itertools
 import json
 import logging
 import math
+import re
 import struct
 from typing import List, Tuple
 
@@ -283,19 +284,70 @@ def _match_vertices(sub_mesh: SubMesh, index: dict, positions, uvs, triangles, t
     return matches
 
 
+def _mesh_nodes(
+    gltf: dict, binary: bytes, sub_meshes: List[SubMesh], wanted, glb_path: str, what: str, tolerance: float
+) -> List[Tuple[SubMesh, dict]]:
+    """(sub-mesh, its GLB node) of the `wanted` sub-meshes (a predicate) of all the scene's `sub_meshes`: the node of the
+    sub-mesh's name. Sub-meshes of one name (Blender names the later objects "<name>.001", "<name>.002"..., in no fixed
+    order) take the nodes of these names whose positions are all theirs, those covering most of their positions first"""
+    nodes = {node.get('name'): node for node in gltf.get('nodes', []) if 'mesh' in node}
+    by_name = {}
+    for sub_mesh in sub_meshes:
+        by_name.setdefault(sub_mesh.name, []).append(sub_mesh)
+    result = []
+    for name, group in by_name.items():
+        if not any(wanted(sm) for sm in group):
+            continue
+        if len(group) == 1:
+            if name not in nodes:
+                raise ValueError(f'Cannot add {what}: no mesh node "{name}" in {glb_path}')
+            result.append((group[0], nodes[name]))
+            continue
+        candidates = [
+            node for key, node in nodes.items() if key == name or re.fullmatch(re.escape(name) + r'\.\d{3,}', key)
+        ]
+        node_positions = [
+            [
+                p
+                for primitive in gltf['meshes'][node['mesh']]['primitives']
+                for p in read_accessor(gltf, binary, primitive['attributes']['POSITION'])
+            ]
+            for node in candidates
+        ]
+        # (share of the sub-mesh's places the node covers, sub-mesh, node) of the nodes within a sub-mesh
+        fits = []
+        for i, sub_mesh in enumerate(group):
+            index = _position_index(sub_mesh)
+            for j, positions in enumerate(node_positions):
+                places = [tuple(round(x, 3) for x in p) for p in positions]
+                if all(
+                    index.get(k) or _vertices_near(sub_mesh, index, p, tolerance) for k, p in zip(places, positions)
+                ):
+                    fits.append((len(set(places)) / max(len(index), 1), i, j))
+        node_of = {}
+        for _, i, j in sorted(fits, reverse=True):
+            if i not in node_of and j not in node_of.values():
+                node_of[i] = j
+        for i, sub_mesh in enumerate(group):
+            if i not in node_of:
+                raise ValueError(
+                    f'Cannot add {what}: no mesh node "{name}" with the vertices of the mesh in {glb_path}'
+                )
+            if wanted(sub_mesh):
+                result.append((sub_mesh, candidates[node_of[i]]))
+    return result
+
+
 def add_glb_morph_targets(glb_path: str, sub_meshes: List[SubMesh], tolerance: float = 1e-4):
-    """Adds the `morph_targets` of `sub_meshes` to the meshes of the nodes with their names in the GLB file, and their
-    `morph_target_normals` as the vertex attributes `_GAME_NORMAL_<TARGET>` (float VEC3, the same vertices)"""
-    sub_meshes = [sm for sm in sub_meshes if sm.morph_targets]
-    if not sub_meshes:
+    """Adds the `morph_targets` of the scene's `sub_meshes` (all of them: meshes of one name are told apart by their
+    positions, `_mesh_nodes`) to the meshes of their nodes in the GLB file, and their `morph_target_normals` as the
+    vertex attributes `_GAME_NORMAL_<TARGET>` (float VEC3, the same vertices)"""
+    if not any(sm.morph_targets for sm in sub_meshes):
         return
     gltf, binary = read_glb(glb_path)
     binary = bytearray(binary)
-    nodes = {node.get('name'): node for node in gltf.get('nodes', []) if 'mesh' in node}
-    for sub_mesh in sub_meshes:
-        node = nodes.get(sub_mesh.name)
-        if node is None:
-            raise ValueError(f'Cannot add morph targets: no mesh node "{sub_mesh.name}" in {glb_path}')
+    meshes = _mesh_nodes(gltf, binary, sub_meshes, lambda sm: sm.morph_targets, glb_path, 'morph targets', tolerance)
+    for sub_mesh, node in meshes:
         mesh = gltf['meshes'][node['mesh']]
         target_names = list(sub_mesh.morph_targets.keys())
         index = _position_index(sub_mesh)
@@ -342,34 +394,22 @@ def _match_normal(sub_mesh: SubMesh, index: dict, position, uv, gltf_normal, tol
     return sub_mesh.vertex_normals[candidates[0]]
 
 
-def _match_values(
-    sub_mesh: SubMesh, values: List[list], index: dict, position, uv, tolerance: float, what: str, warn: bool = True
-) -> list:
-    """Values (parallel to the sub-mesh vertices) of the sub-mesh vertex exported as the glTF vertex at `position`: of
-    the vertices at that position (rounded to 1 mm, else within `tolerance`), one with the texture coordinates `uv`.
-    `warn`: a warning when those still differ in their values (two corners the GLB cannot tell apart)"""
-    candidates = index.get(tuple(round(x, 3) for x in position)) or _vertices_near(sub_mesh, index, position, tolerance)
-    if not candidates:
-        raise ValueError(f'Mesh "{sub_mesh.name}": no vertex at {position} for the {what}')
-    if uv is not None:
-        candidates = [i for i in candidates if _close(sub_mesh.vertex_uvs[i], uv, tolerance)] or candidates
-    if warn and len({tuple(values[i]) for i in candidates}) > 1:
-        logging.warning(f'Mesh "{sub_mesh.name}": vertices at {position} with other attribute values, the first taken')
-    return list(values[candidates[0]])
-
-
-def _match_byte_values(sub_mesh: SubMesh, values: List[list], index: dict, positions, uvs, triangles, tolerance):
-    """Values (parallel to the sub-mesh vertices) of the glTF vertices as `_match_values` gives them; where the
-    vertices at a glTF vertex's place (position and texture coordinates) differ in their values (corners of polygons
-    of their own, e.g. NFS5's `_NFS5_MATERIAL` at the edge of two materials), the value of the vertex the glTF
-    triangles give (`_triangle_corner_vertices`), else the first one with a warning"""
+def _match_corner_values(
+    sub_mesh: SubMesh, values: List[list], index: dict, positions, uvs, triangles, tolerance: float, what: str
+) -> List[list]:
+    """Values (parallel to the sub-mesh vertices) of the sub-mesh vertex exported as each glTF vertex: of the vertices
+    at its position (rounded to 1 mm, else within `tolerance`), one with its texture coordinates; where those differ in
+    their values (corners of polygons of their own at one place: NFS5's `_NFS5_MATERIAL` at the edge of two materials,
+    the corner colours of NFS5 tracks), the value of the vertex the glTF triangles give (`_triangle_corner_vertices`;
+    triangles on top of each other each take a polygon of their own), else the first one (one warning per mesh).
+    `triangles`: a function giving the glTF triangles, called for such places only"""
     result = []
     ambiguous = set()
     candidates = []
     for g, (p, uv) in enumerate(zip(positions, uvs)):
         near = index.get(tuple(round(x, 3) for x in p)) or _vertices_near(sub_mesh, index, p, tolerance)
         if not near:
-            raise ValueError(f'Mesh "{sub_mesh.name}": no vertex at {p} for the vertex attributes')
+            raise ValueError(f'Mesh "{sub_mesh.name}": no vertex at {p} for the {what}')
         candidates.append(near)
         same_place = [i for i in near if uv is None or _close(sub_mesh.vertex_uvs[i], uv, tolerance)] or near
         if len({tuple(values[i]) for i in same_place}) > 1:
@@ -377,55 +417,71 @@ def _match_byte_values(sub_mesh: SubMesh, values: List[list], index: dict, posit
         result.append(list(values[same_place[0]]))
     if ambiguous:
         polygons_of = _polygons_by_vertex(sub_mesh)
-        for g, vertices in _triangle_corner_vertices(sub_mesh, polygons_of, candidates, triangles, ambiguous).items():
+        for g, vertices in _triangle_corner_vertices(sub_mesh, polygons_of, candidates, triangles(), ambiguous).items():
             if len({tuple(values[i]) for i in vertices}) == 1:
                 result[g] = list(values[min(vertices)])
                 ambiguous.discard(g)
-        for g in sorted(ambiguous):
+        # left: corners of glTF triangles matching several polygons (two triangles on top of each other), each
+        # triangle taking a polygon of its own where it can
+        taken = set()
+        for triangle in triangles() if ambiguous else []:
+            if not ambiguous.intersection(triangle):
+                continue
+            matching = _matching_polygons(sub_mesh, polygons_of, [set(candidates[g]) for g in triangle])
+            if not matching:
+                continue
+            p, corners = next((m for m in matching if m[0] not in taken), matching[0])
+            taken.add(p)
+            for g, c in zip(triangle, corners):
+                if g in ambiguous:
+                    result[g] = list(values[c])
+                    ambiguous.discard(g)
+        if ambiguous:
             logging.warning(
-                f'Mesh "{sub_mesh.name}": vertices at {positions[g]} with other vertex attributes, the first taken'
+                f'Mesh "{sub_mesh.name}": {len(ambiguous)} vertices (the first at {positions[min(ambiguous)]}) of '
+                f'places with other {what}, the first taken'
             )
     return result
 
 
 def add_glb_vertex_attributes(glb_path: str, sub_meshes: List[SubMesh], tolerance: float = 1e-4):
-    """Adds the `vertex_normals` of `sub_meshes` to the meshes of the nodes with their names in the GLB file, as the
-    vertex attribute `_GAME_NORMAL` (an application-specific glTF attribute; three.js GLTFLoader reads it as the
+    """Adds the `vertex_normals` of the scene's `sub_meshes` (all of them: meshes of one name are told apart by their
+    positions, `_mesh_nodes`) to the meshes of their nodes in the GLB file, as the vertex attribute `_GAME_NORMAL` (an application-specific glTF attribute; three.js GLTFLoader reads it as the
     geometry attribute `_game_normal`), their `vertex_colors` as COLOR_0 (float VEC4, or VEC3 for colours without
     alpha; replacing one Blender wrote) and their `vertex_byte_attributes` as unsigned byte normalized attributes of
     their names (three.js: the name in lower case, value / 255; `_PSX_GOURAUD`; vertices at one place with other
-    values told apart by the glTF triangles, `_match_byte_values`). The GLB
+    values told apart by the glTF triangles, `_match_corner_values`, colours alike). The GLB
     keeps Blender's NORMAL: the game normals are for code that follows the game's own shading (FCE chrome,
     `FceCarMeshController`). Sub-meshes with `glb_game_normals` off get no `_GAME_NORMAL`. Vertices are matched as for
     the morph targets"""
-    with_normals = {
-        sm.name
-        for sm in sub_meshes
-        if sm.glb_game_normals and len(sm.vertices) and len(sm.vertex_normals) == len(sm.vertices)
-    }
-    with_colors = {sm.name for sm in sub_meshes if len(sm.vertices) and len(sm.vertex_colors) == len(sm.vertices)}
-    with_bytes = {
-        sm.name
-        for sm in sub_meshes
-        if len(sm.vertices) and any(len(v) == len(sm.vertices) for v in sm.vertex_byte_attributes.values())
-    }
-    sub_meshes = [sm for sm in sub_meshes if sm.name in with_normals or sm.name in with_colors or sm.name in with_bytes]
-    if not sub_meshes:
+
+    def per_vertex(sm, values) -> bool:
+        return len(sm.vertices) > 0 and len(values) == len(sm.vertices)
+
+    def with_normals(sm) -> bool:
+        return sm.glb_game_normals and per_vertex(sm, sm.vertex_normals)
+
+    def with_colors(sm) -> bool:
+        return per_vertex(sm, sm.vertex_colors)
+
+    def with_bytes(sm) -> bool:
+        return any(per_vertex(sm, values) for values in sm.vertex_byte_attributes.values())
+
+    def wanted(sm) -> bool:
+        return with_normals(sm) or with_colors(sm) or with_bytes(sm)
+
+    if not any(wanted(sm) for sm in sub_meshes):
         return
     gltf, binary = read_glb(glb_path)
     binary = bytearray(binary)
-    nodes = {node.get('name'): node for node in gltf.get('nodes', []) if 'mesh' in node}
-    for sub_mesh in sub_meshes:
-        node = nodes.get(sub_mesh.name)
-        if node is None:
-            raise ValueError(f'Cannot add vertex attributes: no mesh node "{sub_mesh.name}" in {glb_path}')
+    for sub_mesh, node in _mesh_nodes(gltf, binary, sub_meshes, wanted, glb_path, 'vertex attributes', tolerance):
         index = _position_index(sub_mesh)
         for primitive in gltf['meshes'][node['mesh']]['primitives']:
             attributes = primitive['attributes']
             positions = read_accessor(gltf, binary, attributes['POSITION'])
             none = [None] * len(positions)
             uvs = read_accessor(gltf, binary, attributes['TEXCOORD_0']) if 'TEXCOORD_0' in attributes else none
-            if sub_mesh.name in with_normals:
+            if with_normals(sub_mesh):
                 normals = read_accessor(gltf, binary, attributes['NORMAL']) if 'NORMAL' in attributes else none
                 attributes['_GAME_NORMAL'] = _append_float_accessor(
                     gltf,
@@ -434,23 +490,30 @@ def add_glb_vertex_attributes(glb_path: str, sub_meshes: List[SubMesh], toleranc
                     'VEC3',
                     bounds=True,
                 )
-            if sub_mesh.name in with_colors:
-                colors = [
-                    _match_values(sub_mesh, sub_mesh.vertex_colors, index, p, uv, tolerance, 'vertex colors', False)
-                    for p, uv in zip(positions, uvs)
-                ]
+            primitive_triangles = []
+
+            def triangles():
+                if not primitive_triangles:
+                    primitive_triangles.append(_primitive_triangles(gltf, binary, primitive, len(positions)))
+                return primitive_triangles[0]
+
+            if with_colors(sub_mesh):
+                colors = _match_corner_values(
+                    sub_mesh, sub_mesh.vertex_colors, index, positions, uvs, triangles, tolerance, 'vertex colors'
+                )
                 attributes['COLOR_0'] = _append_float_accessor(
                     gltf, binary, colors, f'VEC{len(colors[0]) if colors else 4}'
                 )
-            if sub_mesh.name in with_bytes:
-                triangles = None
+            if with_bytes(sub_mesh):
                 for name, values in sorted(sub_mesh.vertex_byte_attributes.items()):
-                    if len(values) != len(sub_mesh.vertices):
+                    if not per_vertex(sub_mesh, values):
                         continue
-                    if triangles is None:
-                        triangles = _primitive_triangles(gltf, binary, primitive, len(positions))
                     attributes[name] = _append_byte_accessor(
-                        gltf, binary, _match_byte_values(sub_mesh, values, index, positions, uvs, triangles, tolerance)
+                        gltf,
+                        binary,
+                        _match_corner_values(
+                            sub_mesh, values, index, positions, uvs, triangles, tolerance, 'vertex attributes'
+                        ),
                     )
     gltf['buffers'][0]['byteLength'] = len(binary) + (-len(binary) % 4)
     write_glb(glb_path, gltf, bytes(binary))

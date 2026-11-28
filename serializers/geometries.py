@@ -13,6 +13,7 @@ from PIL import Image
 from library import require_resource_as
 from library.exceptions import DataIntegrityException
 from library.utils import path_join
+from library.utils.colors import decode_colors, rgba_floats
 from library.utils.file_utils import find_file_case_insensitive, find_folder_case_insensitive
 from library.utils.id import is_file_id, join_id, parse_item_id, split_id, split_last_id_part
 from resources.blackbox.chunks import find_chunk, find_chunks
@@ -1505,9 +1506,7 @@ class CrpGeometrySerializer(BaseFileSerializer):
         scene.mtl_texture_path_func = lambda name: f'textures/{name}.png'
         is_track = data['resource_id'] == 'karT'
         meshes = list(
-            self._build_article_meshes(
-                data, block, material_texture, article_index_in_names=not is_track, car=not is_track
-            )
+            self._build_article_meshes(data, block, material_texture, article_index_in_names=True, car=not is_track)
         )
         for _, _, part_info, sub_mesh, _ in meshes:
             # a track's lower levels of detail only with maps__save_all_lods (mesh names have "_LOD<level>_")
@@ -1670,13 +1669,14 @@ class CrpGeometrySerializer(BaseFileSerializer):
         """Yields (article index, article name, vertex part info, sub-mesh, vertex sources) of every vertex part and
         texture of each article: the sub-mesh is in CRP coordinates (Y up), with the article transformation applied;
         the sources are the `vt` part's vertex index of each of its vertices. Mesh names
-        "<article>[_a<article index>]_LOD<lod>_ai<animation frame>[_<texture>][_damaged]" (cars: with the index, the
-        names repeat: two "DoorOut", "WheelFront"...).
+        "<article>[_a<article index>]_LOD<lod>_ai<animation frame>[_<texture>][_damaged]" (`article_index_in_names`:
+        with the index, article names repeat: two "DoorOut", "WheelFront"... in a car, "OBJECT01"... in a track).
         `car`: the sub-meshes get the game's vertex normals (the `mn` part of the level's first frame, one per `vt`
         vertex: the normals Porsche.exe lights and maps the specular texture by, the layer `nm` of its render
         methods), turned by the article transformation, and the vertex byte attribute `_NFS5_MATERIAL` (the CRP `tm`
         index of the vertex's triangles, 255 above 254): the corners of triangles of different materials are vertices
-        of their own"""
+        of their own. Tracks: the sub-meshes get the corner colours of the triangle parts' `fd` rows (`vertex_colors`,
+        RGBA / 255 of the `fd` part of the row's level), corners of other colours are vertices of their own"""
         # Identify choice indexes for part types
         choice = block.field_blocks_map['parts'].child
         vertex_choice_index = choice.get_choice_index_by_class_name('VertexPart')
@@ -1689,12 +1689,15 @@ class CrpGeometrySerializer(BaseFileSerializer):
         info_row_block = triangle_data_block.field_blocks_map['info_rows'].child
         uv_info_row_choice_index = info_row_block.get_choice_index_by_class_name('UVInfoRow')
         vertex_info_row_choice_index = info_row_block.get_choice_index_by_class_name('VertexInfoRow')
+        color_info_row_choice_index = info_row_block.get_choice_index_by_class_name('VertexColorInfoRow')
+        color_choice_index = choice.get_choice_index_by_class_name('CrpVertexColorPart')
 
         def extract_vertices(part):
             return [[v['position']['x'], v['position']['y'], v['position']['z']] for v in part['data']]
 
-        def extract_triangles(part):
-            """Returns the triangles of the triangle part, as 3 corners (vertex index, uv index or None) each"""
+        def extract_triangles(part, colors_by_level):
+            """Returns the triangles of the triangle part, as 3 corners (vertex index, uv index or None, colour
+            0xAARRGGBB of its `fd` row or None) each"""
             part_data = part['data']
             # info row blocks are picked by row type: vertex rows are the `vt` ones
             info_rows = {x['choice_index']: x['data'] for x in part_data['info_rows']}
@@ -1707,7 +1710,13 @@ class CrpGeometrySerializer(BaseFileSerializer):
             uv_indices = None
             if uv_info_row_choice_index in info_rows:
                 uv_indices = crp_stream_indices(part_data, count, info_rows[uv_info_row_choice_index], 8)
-            corners = list(zip(vertex_indices, uv_indices or [None] * count))
+            colors = [None] * count
+            color_row = info_rows.get(color_info_row_choice_index)
+            level_colors = colors_by_level.get(color_row['level_index']) if color_row else None
+            if level_colors is not None:
+                color_indices = crp_stream_indices(part_data, count, color_row, 4) or []
+                colors = [level_colors[c] if c < len(level_colors) else None for c in color_indices] or colors
+            corners = list(zip(vertex_indices, uv_indices or [None] * count, colors))
             return [
                 [corners[j] for j in triangle]
                 for triangle in crp_primitive_triangles(part_data['primitive_type'], count)
@@ -1728,6 +1737,16 @@ class CrpGeometrySerializer(BaseFileSerializer):
             tri = [x['data'] for x in article['parts'] if x['choice_index'] == triangle_choice_index]
             t = [x['data'] for x in article['parts'] if x['choice_index'] == transform_choice_index]
             normal_parts = [x['data'] for x in article['parts'] if x['choice_index'] == normal_choice_index]
+            # the `fd` parts by index: the `level_index` of the triangle parts' `fd` rows (tracks)
+            colors_by_level = (
+                {}
+                if car
+                else {
+                    x['data']['idx']: x['data']['data']
+                    for x in article['parts']
+                    if x['choice_index'] == color_choice_index
+                }
+            )
 
             for vx in v:
                 lod_level = vx['part_info']['lod']
@@ -1778,33 +1797,40 @@ class CrpGeometrySerializer(BaseFileSerializer):
                 mesh = Mesh()
                 mesh.name = mesh_name
                 corner_map = {}
-                # the `vt` vertex and (cars) the material of each mesh vertex
+                # the `vt` vertex, (cars) the material and (tracks) the colour of each mesh vertex
                 corner_vertices = []
                 corner_materials = []
+                corner_colors = []
                 for trix in (x for x in tri if x['part_info']['lod'] == lod_level):
                     material_index = trix['data']['material_index']
                     # explicit material for untextured polygons, otherwise OBJ readers keep using the previous
                     # mesh's material
                     texture_id = material_texture(material_index) or 'untextured'
-                    for triangle in extract_triangles(trix):
-                        if any(vi >= len(vertices) for vi, _ in triangle):
+                    for triangle in extract_triangles(trix, colors_by_level):
+                        if any(vi >= len(vertices) for vi, _, _ in triangle):
                             continue
-                        for vi, uvi in triangle:
-                            key = (vi, uvi, material_index) if car else (vi, uvi)
+                        polygon = []
+                        for vi, uvi, color in triangle:
+                            key = (vi, uvi, material_index if car else color)
                             if key not in corner_map:
                                 corner_map[key] = len(mesh.vertices)
                                 corner_vertices.append(vi)
                                 corner_materials.append(material_index)
+                                corner_colors.append(color)
                                 mesh.vertices.append(list(vertices[vi]))
                                 mesh.vertex_uvs.append(uvs[uvi] if uvi is not None and uvi < len(uvs) else [0, 0])
                                 if normals is not None:
                                     mesh.vertex_normals.append(list(normals[vi]))
-                        mesh.polygons.append(
-                            [corner_map[(vi, uvi, material_index) if car else (vi, uvi)] for vi, uvi in triangle]
-                        )
+                            polygon.append(corner_map[key])
+                        mesh.polygons.append(polygon)
                         mesh.texture_ids.append(texture_id)
                 if not mesh.polygons:
                     continue
+                if any(c is not None for c in corner_colors):
+                    # white for corners of triangle parts without an `fd` row
+                    mesh.vertex_colors = rgba_floats(
+                        decode_colors('argb8888', [0xFFFFFFFF if c is None else c for c in corner_colors])
+                    ).tolist()
 
                 for sub_mesh, vertex_indices, _ in mesh.split_by_texture_ids():
                     sub_mesh.name = mesh_name + (
@@ -2007,8 +2033,8 @@ def nfsmw_car_runtime_texture(texture_id: int, mesh_name: str, textures: dict) -
 
 class NfsuBinGeometrySerializer(BaseFileSerializer):
     """NFS Underground car geometry: every mesh (car part) is exported as one OBJ object per texture, named
-    "<mesh name>__<texture name>". Textures are taken from TEXTURES.BIN files of the car and of all cars (see
-    `find_nfsu_car_textures`) and saved to "textures/<texture name>.png"""
+    "<mesh name>__<texture name>", with its vertex colours (RGBA / 255). Textures are taken from TEXTURES.BIN files of
+    the car and of all cars (see `find_nfsu_car_textures`) and saved to "textures/<texture name>.png"""
 
     def __init__(self):
         super().__init__(is_dir=True)
@@ -2044,6 +2070,7 @@ class NfsuBinGeometrySerializer(BaseFileSerializer):
             mesh.name = nfsu_mesh.name
             mesh.vertices = [list(v) for v in nfsu_mesh.vertices]
             mesh.vertex_uvs = [list(uv) for uv in nfsu_mesh.uvs]
+            mesh.vertex_colors = rgba_floats(nfsu_mesh.colors).tolist()
             for texture_id, triangles in nfsu_mesh.parts:
                 if texture_id not in textures:
                     texture_id = nfsmw_car_runtime_texture(texture_id, nfsu_mesh.name, textures)
@@ -2580,9 +2607,18 @@ def export_fsh_textures(
     return names, alpha_modes
 
 
+def eagl_vertex_colors(mesh) -> List[List[float]]:
+    """RGBA (0..1, the bytes / 255) of the vertex colours of an EAGL mesh (`EaglMesh.colors`), empty when its vertex
+    format has none"""
+    if not mesh.colors or len(mesh.colors) != len(mesh.vertices):
+        return []
+    return rgba_floats(mesh.colors).tolist()
+
+
 def eagl_sub_meshes(meshes, texture_names: Dict[str, str], mesh_name_prefix: str, pivot=(0, 0, 0)) -> List[SubMesh]:
-    """One SubMesh per EAGL mesh, textured with its main texture, in game coordinates relative to `pivot`. Mesh
-    names end with "_<texture name>" (texture names have no "_")"""
+    """One SubMesh per EAGL mesh, textured with its main texture, in game coordinates relative to `pivot`, with the
+    vertex colours of its vertex format (`eagl_vertex_colors`: the track compartments' and props' baked lighting, the
+    sky's colours). Mesh names end with "_<texture name>" (texture names have no "_")"""
     sub_meshes = []
     for i, m in enumerate(meshes):
         if not m.triangles:
@@ -2593,6 +2629,7 @@ def eagl_sub_meshes(meshes, texture_names: Dict[str, str], mesh_name_prefix: str
         sm.vertices = [[v[0] - pivot[0], v[1] - pivot[1], v[2] - pivot[2]] for v in m.vertices]
         uvs = m.main_uvs
         sm.vertex_uvs = [[u, v] for (u, v) in uvs] if uvs else [[0, 0]] * len(m.vertices)
+        sm.vertex_colors = eagl_vertex_colors(m)
         sm.polygons = [list(t) for t in m.triangles]
         sub_meshes.append(sm)
     return sub_meshes
@@ -2953,7 +2990,7 @@ def nfs6_car_scene(data: dict, meshes, path: str, id: str) -> Tuple[Scene, List[
         shader = NFS6_CAR_SHADERS.get(m.shader, 'paint')
         properties = {'eaglShader': shader, 'eaglBlend': nfs6_car_blend(m.geometry_name)}
         if shader == 'glass' and len(m.colors) == len(m.vertices) and m.colors:
-            sm.vertex_colors = [[(c >> s & 0xFF) / 255 for s in (24, 16, 8, 0)] for c in m.colors]
+            sm.vertex_colors = eagl_vertex_colors(m)
             properties['eaglVertexAlpha'] = Counter(c & 0xFF for c in m.colors).most_common(1)[0][0] / 255
         object_properties[sm.name] = properties
         sub_meshes.append(sm)
@@ -2978,19 +3015,31 @@ def nfs6_car_scene(data: dict, meshes, path: str, id: str) -> Tuple[Scene, List[
 
 
 class NfsuMesh:
-    """Mesh of NFS Underground geometry pack, in its local coordinates: vertex positions, UVs and triangles per
-    texture id (hash of texture name)"""
+    """Mesh of NFS Underground geometry pack, in its local coordinates: vertex positions, UVs, vertex colours (RGBA ints
+    0xRRGGBBAA parallel to the vertices, None if not read) and triangles per texture id (hash of texture name)"""
 
     def __init__(self, mesh_id: int, name: str):
         self.mesh_id = mesh_id
         self.name = name
         self.vertices: List[Tuple[float, float, float]] = []
         self.uvs: List[Tuple[float, float]] = []
+        self.colors = None
         self.parts: List[Tuple[Optional[int], List[List[int]]]] = []
 
 
+def nfsu_vertex_colors(vertices: list):
+    """RGBA ints (0xRRGGBBAA) of the ARGB colours of NFS Underground / NFSU2 / NFSMW vertices"""
+    return decode_colors('argb8888', [v['color'] for v in vertices])
+
+
+# the vertex colour values of 1.0 of NFS Hot Pursuit 2 (PS2) meshes as the car and track exports write them: RGB / 255,
+# alpha / 128 (the GS's 1.0; the game draws a texel times its vertex colour / 128, the textures are stored at half
+# brightness)
+NFS6_PS2_VERTEX_COLOR_ONE = (255, 255, 255, 128)
+
+
 def nfsu_geometry_meshes(geometry_data: dict) -> List[NfsuMesh]:
-    """Meshes of NFS Underground geometry pack (NfsuBinGeometry data)"""
+    """Meshes of NFS Underground geometry pack (NfsuBinGeometry data), with their vertex colours"""
     meshes = []
     for c in geometry_data['chunks']:
         if c['data'].get('chunk_id') != 0x80_13_40_10:
@@ -3016,6 +3065,7 @@ def nfsu_geometry_meshes(geometry_data: dict) -> List[NfsuMesh]:
         vertices = vertices_chunk['vertices']['data']
         mesh.vertices = [(v['position']['x'], v['position']['y'], v['position']['z']) for v in vertices]
         mesh.uvs = [(v['u'], v['v']) for v in vertices]
+        mesh.colors = nfsu_vertex_colors(vertices)
         faces = faces_chunk['faces']
         materials = materials_chunk['materials'] if materials_chunk else []
         if not materials:
@@ -3059,7 +3109,7 @@ def nfs6_ps2_strip_skips(num_vertices: int, mask: List[int]) -> List[bool]:
 
 def nfs6_ps2_mesh(mesh_data: dict) -> Optional[NfsuMesh]:
     """Mesh of NFS Hot Pursuit 2 (PS2) mesh chunk (`Nfs6Ps2Mesh` data), in its local coordinates, with RGBA vertex
-    colours (`colors`, 0x80 = 1.0: the GS multiplies the texture by colour / 0x80), vertex normals (`normals`, signed
+    colours (`colors`, 0xRRGGBBAA, 0x80 = 1.0: the GS multiplies the texture by colour / 0x80), vertex normals (`normals`, signed
     bytes, 127 = 1.0: the VU1 divides them by 127; None in draw groups without `vu_flags` 0x4000) and the draw group of
     every vertex (`vertex_groups`: index in `draw_groups`, dicts of "texture_id", "vu_flags", "material_hash" (name
     hash of the lighting material of `Nfs6Ps2MeshLightingMaterials`, None: "Default"); vertices are never shared by
@@ -3116,7 +3166,8 @@ def nfs6_ps2_mesh(mesh_data: dict) -> Optional[NfsuMesh]:
                 mesh.uvs.append(
                     (as_float(uv[0]), as_float(uv[1])) if k % 2 == 0 else (as_float(uv[3]), as_float(uv[2]))
                 )
-                mesh.colors.append(tuple(memory.get(0x34 + k, [0x80, 0x80, 0x80, 0x80])))
+                r, g, b, a = memory.get(0x34 + k, [0x80, 0x80, 0x80, 0x80])
+                mesh.colors.append(r << 24 | g << 16 | b << 8 | a)
                 mesh.normals.append(
                     tuple(memory.get(0x5C + 3 * group_index + c, [0, 0, 0, 0])[lane] for c in range(3))
                     if has_normals
@@ -3511,9 +3562,7 @@ class Nfs6Ps2CarSerializer(BaseFileSerializer):
                         normals.append([-y / 127, x / 127, z / 127])
                     sm.vertex_normals = normals
                 sm.vertex_uvs = [list(mesh.uvs[i]) for i in used]
-                sm.vertex_colors = [
-                    [r / 255, g / 255, b / 255, min(1.0, a / 128)] for r, g, b, a in (mesh.colors[i] for i in used)
-                ]
+                sm.vertex_colors = rgba_floats([mesh.colors[i] for i in used], NFS6_PS2_VERTEX_COLOR_ONE).tolist()
                 sm.polygons = [[remap[i] for i in t] for t in triangles]
                 sub_meshes.append(sm)
                 mesh_lighting[sm.name] = {'lighting_material': light_name, 'vu_flags': vu_flags}
@@ -3626,6 +3675,7 @@ def _nfsmw_mesh(header: dict, texture_ids: list, container: dict, faces_chunk, m
         buffer_offsets.append(len(mesh.vertices))
         mesh.vertices.extend((v['position']['x'], v['position']['y'], v['position']['z']) for v in vertices)
         mesh.uvs.extend((v['u'], v['v']) for v in vertices)
+    mesh.colors = nfsu_vertex_colors([v for vertices in buffers for v in vertices])
     material_buffer = {i: g for g, group in enumerate(groups) for i in group}
     faces = faces_chunk['faces']
     start = 0

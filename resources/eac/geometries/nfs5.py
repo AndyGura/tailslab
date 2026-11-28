@@ -502,7 +502,8 @@ class UVInfoRow(DeclarativeCompoundBlock):
 class VertexColorInfoRow(DeclarativeCompoundBlock):
     block_description = (
         'Info row referencing the vertex colours ([CrpVertexColorPart](#crpvertexcolorpart) '
-        '`fd`, `row_type` 3, tracks only) used by the triangle part'
+        '`fd`, `row_type` 3, tracks only) used by the triangle part: the corner colours of its positions, from the '
+        '`fd` part whose `idx` is `level_index`'
     )
 
     class Fields(DeclarativeCompoundBlock.Fields):
@@ -927,9 +928,12 @@ class CrpBasePart(DeclarativeCompoundBlock):
 class CrpVertexColorPart(DeclarativeCompoundBlock):
     block_description = (
         'Part "fd" (tracks only): vertex colours, one u32 per entry (B, G, R, A from the '
-        'low byte), one part per level of detail. The `fd` info rows of [TrianglePartData](#trianglepartdata) '
-        'index them; the collision faces keep each corner as 15-bit (b >> 3) << 10 | (g >> 3) << 5 | r >> 3 '
-        '(Porsche.exe 0x4750b0)'
+        'low byte), one part per level of detail (`idx` = the `level_index` of the rows using it). The `fd` info rows '
+        'of [TrianglePartData](#trianglepartdata) index them, one colour per triangle corner (every track part has '
+        'such a row, consecutive indices); the collision faces keep each corner as 15-bit (b >> 3) << 10 | '
+        '(g >> 3) << 5 | r >> 3 (Porsche.exe 0x4750b0). The export gives the corners these colours (OBJ `v` colours, '
+        'GLB COLOR_0: RGBA / 255; corners of a vertex with other colours are vertices of their own); how the game '
+        'draws them is not traced'
     )
 
     class Fields(DeclarativeCompoundBlock.Fields):

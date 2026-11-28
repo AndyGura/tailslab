@@ -1191,6 +1191,120 @@ class TestCrpGeometrySerializer(unittest.TestCase):
             serializer.patch_settings({'maps__save_as_chunked': False})
 
 
+class TestCrpTrackVertexColors(unittest.TestCase):
+    """The corner colours of a track CRP: the `fd` rows of its triangle parts"""
+
+    # B, G, R, A from the low byte: red; then blue, half transparent, and green at the second triangle
+    COLORS = [0xFFFF0000] * 3 + [0x800000FF] * 2 + [0xFF00FF00]
+
+    def _article(self, color_rows: bool, colors: list):
+        """The CRP block and the data of a track with one article: a square of two triangles"""
+        from resources.eac.geometries.nfs5 import CrpGeometry
+
+        block = CrpGeometry()
+        parts = block.field_blocks_map['parts'].child
+        rows = parts.possible_blocks[parts.get_choice_index_by_class_name('TrianglePart')].field_blocks_map['data']
+        rows = rows.field_blocks_map['info_rows'].child
+
+        def part(name, data):
+            return {'choice_index': parts.get_choice_index_by_class_name(name), 'data': data}
+
+        def row(name, row_type, index_stream):
+            data = {'offset': 0, 'row_type': row_type, 'level_index': 0, 'index_stream': index_stream}
+            return {'choice_index': rows.get_choice_index_by_class_name(name), 'data': data}
+
+        level = {'lod': 0, 'animation_index': 0, 'damage': 0}
+        info_rows = [row('VertexInfoRow', 0, 0), row('UVInfoRow', 2, 0)]
+        if color_rows:
+            # one colour per position of the part
+            info_rows.insert(0, row('VertexColorInfoRow', 3, 0xFFFF))
+        square = [(0, 0), (1, 0), (0, 1), (1, 1)]
+        article = {
+            'parts': [
+                part('TextPart4', {'identifier': 'emaN', 'data': 'RD0000C'}),
+                part(
+                    'VertexPart',
+                    {'part_info': level, 'data': [{'position': {'x': x, 'y': 0, 'z': z}} for x, z in square]},
+                ),
+                part('UVPart', {'part_info': level, 'data': [{'u': x, 'v': z} for x, z in square]}),
+                part('CrpVertexColorPart', {'idx': 0, 'data': colors}),
+                part(
+                    'TrianglePart',
+                    {
+                        'part_info': level,
+                        'num_data': 6,
+                        'data': {
+                            'primitive_type': 3,
+                            'material_index': 0,
+                            'info_rows': info_rows,
+                            'index_rows': [{'idx': 0, 'identifier': 'vI', 'offset': 0}],
+                            # the corners 2 and 1 in both triangles
+                            'index_table': [0, 1, 2, 2, 1, 3],
+                            'uv_index_table': [],
+                        },
+                    },
+                ),
+            ]
+        }
+        return block, {'articles': [article]}
+
+    def _meshes(self, color_rows: bool = True, colors: list = COLORS):
+        from serializers import CrpGeometrySerializer
+
+        block, data = self._article(color_rows, colors)
+        return [
+            sub_mesh
+            for _, _, _, sub_mesh, _ in CrpGeometrySerializer()._build_article_meshes(
+                data, block, lambda material: 'cla2', article_index_in_names=True
+            )
+        ]
+
+    def test_corners_of_other_colours_are_vertices_of_their_own(self):
+        (mesh,) = self._meshes()
+        self.assertEqual(mesh.name, 'RD0000C_a0_LOD0_ai0_cla2')
+        red, blue, green = [1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 1.0, 128 / 255], [0.0, 1.0, 0.0, 1.0]
+        self.assertEqual(len(mesh.vertices), 6)
+        self.assertEqual([[mesh.vertex_colors[i] for i in p] for p in mesh.polygons], [[red] * 3, [blue, blue, green]])
+        # the shared corners at the same places
+        self.assertEqual([mesh.vertices[i] for i in mesh.polygons[1][:2]], [[0, 0, 1], [1, 0, 0]])
+
+    def test_corners_of_one_colour_stay_one_vertex(self):
+        (mesh,) = self._meshes(colors=[0xFF102030] * 6)
+        self.assertEqual(len(mesh.vertices), 4)
+        self.assertEqual(mesh.vertex_colors, [[0x10 / 255, 0x20 / 255, 0x30 / 255, 1.0]] * 4)
+
+    def test_parts_without_color_rows_have_none(self):
+        (mesh,) = self._meshes(color_rows=False)
+        self.assertEqual(len(mesh.vertices), 4)
+        self.assertEqual(mesh.vertex_colors, [])
+
+
+class TestEaglVertexColors(unittest.TestCase):
+    def test_sub_meshes_get_the_colours_of_their_vertex_format(self):
+        from resources.eac.geometries.nfs6 import EaglMesh
+        from serializers.geometries import eagl_sub_meshes
+
+        def mesh(colors):
+            return EaglMesh(
+                name='m',
+                shader='NamedTexture',
+                textures=['0001'],
+                vertices=[(0, 0, 0), (1, 0, 0), (0, 1, 0)],
+                colors=colors,
+                uv_sets=[[(0, 0), (1, 0), (0, 1)]],
+                triangles=[(0, 1, 2)],
+            )
+
+        # 0xRRGGBBAA: the track compartments' baked lighting
+        lit, unlit = eagl_sub_meshes([mesh([0xFFE5B2FF, 0x2F383580, 0x000000FF]), mesh([])], {'0001': 'tex'}, 'comp01_')
+        self.assertEqual(lit.name, 'comp01_0_tex')
+        self.assertEqual(
+            lit.vertex_colors,
+            [[1.0, 229 / 255, 178 / 255, 1.0], [47 / 255, 56 / 255, 53 / 255, 128 / 255], [0, 0, 0, 1.0]],
+        )
+        self.assertEqual(unlit.vertex_colors, [])
+
+
 class TestFce3GeometrySerializer(unittest.TestCase):
     def setUp(self):
         self.tmp_dir = tempfile.mkdtemp()
@@ -1680,7 +1794,7 @@ class TestFce4GeometrySerializer(unittest.TestCase):
         scene, _ = self._exported_scene(self._chrome_model)
         path = os.path.join(self.tmp_dir, 'body.glb')
         write_glb_of_sub_meshes(path, scene.sub_meshes)
-        add_glb_morph_targets(path, [m for m in scene.sub_meshes if m.morph_targets])
+        add_glb_morph_targets(path, scene.sub_meshes)
         add_glb_vertex_attributes(path, scene.sub_meshes)
         gltf, binary = read_glb(path)
         nodes = {node['name']: gltf['meshes'][node['mesh']] for node in gltf['nodes']}
@@ -1761,7 +1875,7 @@ class TestFce4GeometrySerializer(unittest.TestCase):
         scene, _ = self._exported_scene(self._damage_model)
         path = os.path.join(self.tmp_dir, 'body.glb')
         write_glb_of_sub_meshes(path, scene.sub_meshes)
-        add_glb_morph_targets(path, [m for m in scene.sub_meshes if m.morph_targets])
+        add_glb_morph_targets(path, scene.sub_meshes)
         gltf, binary = read_glb(path)
         nodes = {node['name']: gltf['meshes'][node['mesh']] for node in gltf['nodes']}
         mesh = nodes['hp_2_OL__car00']

@@ -13,7 +13,15 @@ import {
   Object3D,
 } from 'three';
 
-export type ViewMode = 'material' | 'wireframe' | 'unlit' | 'edges';
+export type ViewMode = 'material' | 'wireframe' | 'unlit' | 'edges' | 'vertex_colors';
+
+// Colour of the meshes without vertex colours in the 'vertex_colors' view mode
+export const NO_VERTEX_COLORS_COLOR = 0x808080;
+
+// The mesh has vertex colours: the geometry attribute `color` (the OBJ's `v` colours, decoded from sRGB by OBJLoader)
+export function hasVertexColors(mesh: Mesh): boolean {
+  return !!mesh.geometry?.getAttribute('color');
+}
 
 // `userData` key of objects the view modes leave alone, with everything under them (viewer overlays)
 export const VIEW_MODE_IGNORE = 'viewModeIgnore';
@@ -25,6 +33,8 @@ export class ViewModeController {
   private edgeLines: LineSegments[] = [];
   private meshesWithViewModeMaterials: Set<Mesh> = new Set();
   private controllerManagedMaterials: Map<Mesh, Material | Material[]> = new Map();
+  // meshes of the tree with vertex colours: the 'vertex_colors' view mode is offered while there is one
+  private meshesWithVertexColors: Set<Mesh> = new Set();
   private onChildAddedBound: (event: any) => void;
   private onChildRemovedBound: (event: any) => void;
 
@@ -40,7 +50,8 @@ export class ViewModeController {
   }
 
   get listViewModes(): ViewMode[] {
-    return ['material', 'wireframe', 'unlit', 'edges'];
+    const modes: ViewMode[] = ['material', 'wireframe', 'unlit', 'edges'];
+    return this.meshesWithVertexColors.size ? [...modes, 'vertex_colors'] : modes;
   }
 
   get viewMode(): ViewMode {
@@ -74,7 +85,14 @@ export class ViewModeController {
     this.originalMaterials.clear();
     this.forEachMesh(this.rootObject, obj => {
       this.originalMaterials.set(obj, Array.isArray(obj.material) ? [...obj.material] : obj.material.clone());
+      this.noteVertexColors(obj);
     });
+  }
+
+  private noteVertexColors(mesh: Mesh): void {
+    if (hasVertexColors(mesh)) {
+      this.meshesWithVertexColors.add(mesh);
+    }
   }
 
   private clearEdgeLines(): void {
@@ -108,78 +126,60 @@ export class ViewModeController {
 
     switch (this._viewMode) {
       case 'material':
-        if (this.meshesWithViewModeMaterials.has(obj)) {
-          const storedMaterial = this.controllerManagedMaterials.get(obj);
-          if (storedMaterial) {
-            obj.material = storedMaterial;
-            this.controllerManagedMaterials.delete(obj);
-          }
-          this.meshesWithViewModeMaterials.delete(obj);
-        }
+        this.restoreMaterials(obj);
         this.ambientLight.intensity = 2;
         break;
       case 'wireframe':
-        if (!this.meshesWithViewModeMaterials.has(obj)) {
-          this.controllerManagedMaterials.set(obj, obj.material);
-        }
-        const currentMaterial = this.controllerManagedMaterials.get(obj) || obj.material;
-        const wireframeMaterials = Array.isArray(currentMaterial) ? currentMaterial : [currentMaterial];
-        const newWireframeMaterials = wireframeMaterials.map(mat => {
-          return new MeshBasicMaterial({
-            color: mat instanceof MeshBasicMaterial ? mat.color : 0xffffff,
-            wireframe: true,
-            transparent: true,
-            opacity: 0.8,
-          });
-        });
-        obj.material = newWireframeMaterials.length === 1 ? newWireframeMaterials[0] : newWireframeMaterials;
-        this.meshesWithViewModeMaterials.add(obj);
+        this.replaceMaterials(
+          obj,
+          mat =>
+            new MeshBasicMaterial({
+              color: mat instanceof MeshBasicMaterial ? mat.color : 0xffffff,
+              wireframe: true,
+              transparent: true,
+              opacity: 0.8,
+            }),
+        );
         this.ambientLight.intensity = 2;
         break;
       case 'unlit':
-        if (!this.meshesWithViewModeMaterials.has(obj)) {
-          this.controllerManagedMaterials.set(obj, obj.material);
-        }
-        const currentUnlitMaterial = this.controllerManagedMaterials.get(obj) || obj.material;
-        const unlitMaterials = Array.isArray(currentUnlitMaterial) ? currentUnlitMaterial : [currentUnlitMaterial];
-        const newUnlitMaterials = unlitMaterials.map(mat => {
+        this.replaceMaterials(obj, mat => {
           let textureMap = null;
           let materialColor = 0xffffff;
-          if (mat instanceof MeshBasicMaterial) {
-            textureMap = mat.map;
-            materialColor = mat.color.getHex();
-          } else if (mat instanceof MeshLambertMaterial) {
-            textureMap = mat.map;
-            materialColor = mat.color.getHex();
-          } else if (mat instanceof MeshStandardMaterial) {
-            textureMap = mat.map;
-            materialColor = mat.color.getHex();
-          } else if (mat instanceof MeshPhongMaterial) {
+          if (
+            mat instanceof MeshBasicMaterial ||
+            mat instanceof MeshLambertMaterial ||
+            mat instanceof MeshStandardMaterial ||
+            mat instanceof MeshPhongMaterial
+          ) {
             textureMap = mat.map;
             materialColor = mat.color.getHex();
           }
-          const unlitMat = new MeshBasicMaterial({
+          return new MeshBasicMaterial({
             color: materialColor,
             map: textureMap,
             transparent: mat.transparent,
             opacity: mat.opacity,
             side: mat.side,
           });
-          return unlitMat;
         });
-        obj.material = newUnlitMaterials.length === 1 ? newUnlitMaterials[0] : newUnlitMaterials;
-        this.meshesWithViewModeMaterials.add(obj);
+        this.ambientLight.intensity = 0;
+        break;
+      case 'vertex_colors':
+        // the colours alone, unlit; meshes without them grey
+        this.replaceMaterials(obj, mat =>
+          hasVertexColors(obj)
+            ? new MeshBasicMaterial({
+                vertexColors: true,
+                transparent: obj.geometry.getAttribute('color').itemSize === 4,
+                side: mat.side,
+              })
+            : new MeshBasicMaterial({ color: NO_VERTEX_COLORS_COLOR, side: mat.side }),
+        );
         this.ambientLight.intensity = 0;
         break;
       case 'edges':
-        if (this.meshesWithViewModeMaterials.has(obj)) {
-          const storedMaterial = this.controllerManagedMaterials.get(obj);
-          if (storedMaterial) {
-            obj.material = storedMaterial;
-            this.controllerManagedMaterials.delete(obj);
-          }
-          this.meshesWithViewModeMaterials.delete(obj);
-        }
+        this.restoreMaterials(obj);
         this.ambientLight.intensity = 2;
 
         const edges = new EdgesGeometry(obj.geometry as BufferGeometry);
@@ -191,7 +191,36 @@ export class ViewModeController {
     }
   }
 
+  // Gives the mesh back its own materials
+  private restoreMaterials(obj: Mesh): void {
+    if (this.meshesWithViewModeMaterials.has(obj)) {
+      const storedMaterial = this.controllerManagedMaterials.get(obj);
+      if (storedMaterial) {
+        obj.material = storedMaterial;
+        this.controllerManagedMaterials.delete(obj);
+      }
+      this.meshesWithViewModeMaterials.delete(obj);
+    }
+  }
+
+  // Replaces the mesh's materials by the view mode's materials made of its own ones (kept to restore them)
+  private replaceMaterials(obj: Mesh, make: (material: Material) => Material): void {
+    if (!this.meshesWithViewModeMaterials.has(obj)) {
+      this.controllerManagedMaterials.set(obj, obj.material);
+    }
+    const current = this.controllerManagedMaterials.get(obj) || obj.material;
+    const materials = (Array.isArray(current) ? current : [current]).map(make);
+    obj.material = materials.length === 1 ? materials[0] : materials;
+    this.meshesWithViewModeMaterials.add(obj);
+  }
+
   private onChildAdded(event: any): void {
+    this.forEachMesh(event.child, obj => this.noteVertexColors(obj));
+    if (this._viewMode === 'vertex_colors' && !this.meshesWithVertexColors.size) {
+      // a model without vertex colours replaced the one with them
+      this.setViewMode('material');
+      return;
+    }
     this.applyViewModeToTree(event.child);
   }
 
@@ -200,6 +229,7 @@ export class ViewModeController {
       this.originalMaterials.delete(obj);
       this.controllerManagedMaterials.delete(obj);
       this.meshesWithViewModeMaterials.delete(obj);
+      this.meshesWithVertexColors.delete(obj);
     });
   }
 
@@ -210,5 +240,6 @@ export class ViewModeController {
     this.originalMaterials.clear();
     this.controllerManagedMaterials.clear();
     this.meshesWithViewModeMaterials.clear();
+    this.meshesWithVertexColors.clear();
   }
 }

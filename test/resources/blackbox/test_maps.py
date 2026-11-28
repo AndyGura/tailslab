@@ -65,6 +65,40 @@ class TestNfsuChunkBundle(unittest.TestCase):
             for _, triangles in mesh.parts:
                 self.assertTrue(all(0 <= i < len(mesh.vertices) for t in triangles for i in t))
 
+    def test_meshes_should_have_vertex_colors(self):
+        (_, _, data) = require_file(SECTION)
+        geometry = _chunk(data, 'header', 0x80134000)
+        meshes = nfsu_geometry_meshes(geometry)
+        vertices = [
+            v
+            for c in geometry['chunks']
+            if c['data'].get('chunk_id') == 0x80134010
+            for x in c['data']['sub_chunks']
+            if x['data'].get('chunk_id') == 0x80134100
+            for y in x['data']['sub_chunks']
+            if y['data'].get('chunk_id') == 0x00134B01
+            for v in y['data']['vertices']['data']
+        ]
+        self.assertEqual(sum(len(m.colors) for m in meshes), len(vertices))
+        for mesh in meshes:
+            self.assertEqual(len(mesh.colors), len(mesh.vertices))
+        # ARGB stored, RGBA read: the baked lighting of the world
+        argb = vertices[0]['color']
+        self.assertEqual(meshes[0].colors[0], (argb & 0xFFFFFF) << 8 | argb >> 24)
+        self.assertGreater(len({int(c) for m in meshes for c in m.colors}), 10)
+
+    def test_scenery_parts_should_have_the_vertex_colors_of_the_meshes(self):
+        import numpy as np
+
+        lit = _quad_mesh('XB_WALL', 0, 0, 10, 10, 0)
+        lit.colors = np.array([0x0A141EFF, 0x28323CFF, 0x46505A80, 0x646E78FF], dtype=np.uint32)
+        world = _world([lit, _quad_mesh('XB_ROOF', 0, 0, 10, 10, 5)])
+        _, infos, instances = world.sceneries[0]
+        ((vertices, _, _, colors),) = world.scenery_parts(infos, instances, with_colors=True).values()
+        self.assertEqual(colors.tolist()[:4], lit.colors.tolist())
+        # a mesh without colours: white
+        self.assertEqual(colors.tolist()[4:], [0xFFFFFFFF] * 4)
+
     def test_texture_should_be_decoded(self):
         (_, _, data) = require_file(SECTION)
         textures = nfsu_texture_pack_textures(_chunk(data, 'chunk_id', 0xB3300000))

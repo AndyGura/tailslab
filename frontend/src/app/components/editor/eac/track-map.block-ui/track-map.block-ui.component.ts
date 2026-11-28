@@ -42,7 +42,11 @@ import {
 } from 'three';
 import { ThreeGgWorld, ThreeSceneComponent, ThreeVisualTypeDocRepo } from '@gg-web-engine/three';
 import { BlockSchema, Resource } from '../../types';
-import { ViewMode, ViewModeController } from '../../common/obj-viewer/view-mode-toolbar/view-mode.controller';
+import {
+  VIEW_MODE_IGNORE,
+  ViewMode,
+  ViewModeController,
+} from '../../common/obj-viewer/view-mode-toolbar/view-mode.controller';
 import { setViewerSky } from '../../common/obj-viewer/viewer-sky';
 import { joinId } from '../../../../utils/join-id';
 import {
@@ -210,6 +214,8 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
       ),
     });
     ((this.skySphere.object3D!.nativeMesh as Mesh).material as Material).side = DoubleSide;
+    // overlays: the shading view modes leave them as they are
+    this.skySphere.object3D!.nativeMesh.userData[VIEW_MODE_IGNORE] = true;
     this.world.addEntity(this.skySphere);
     this.setSkyTexture(null);
     this.selectionSphere = new Entity3d({
@@ -223,6 +229,7 @@ export class TrackMapBlockUiComponent extends GuiComponent implements AfterViewI
     });
     ((this.selectionSphere.object3D!.nativeMesh as Mesh).material as Material).opacity = 0.4;
     ((this.selectionSphere.object3D!.nativeMesh as Mesh).material as Material).transparent = true;
+    this.selectionSphere.object3D!.nativeMesh.userData[VIEW_MODE_IGNORE] = true;
     this.world.addEntity(this.selectionSphere);
 
     let rendererSize$: BehaviorSubject<Point2> = new BehaviorSubject<Point2>({ x: 1, y: 1 });

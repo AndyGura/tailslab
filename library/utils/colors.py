@@ -65,6 +65,17 @@ def encode_colors(fmt: str, rgba) -> np.ndarray:
     return alpha << (r + g + b) | red << (g + b) | green << b | blue
 
 
+def rgba_channels(rgba) -> np.ndarray:
+    """(n, 4) uint8 rows (r, g, b, a) of RGBA ints (0xRRGGBBAA)"""
+    return _uint32(rgba).astype('>u4').view(np.uint8).reshape(-1, 4)
+
+
+def rgba_floats(rgba, one=(255, 255, 255, 255)) -> np.ndarray:
+    """(n, 4) float rows (r, g, b, a) of RGBA ints (0xRRGGBBAA), each channel divided by its value of 1.0 in `one`, at
+    most 1: vertex colours (`BaseMesh.vertex_colors`)"""
+    return np.minimum(rgba_channels(rgba) / np.asarray(one, dtype=np.float64), 1.0)
+
+
 def rgba_image(width: int, height: int, colors):
     """RGBA PIL image of RGBA ints (0xRRGGBBAA), row by row"""
     from PIL import Image

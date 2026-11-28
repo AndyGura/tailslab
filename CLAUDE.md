@@ -161,12 +161,18 @@ When you do:
   (`serializers/audios.py`); textures written on first use `TextureExporter` (`serializers/geometries.py`); track
   exports `track_map_scene`, `terrain_chunk_scene`, `road_path_curve`, `write_terrain_chunks_json`
   (`serializers/common/three_d/scenes.py`); `Mesh.sub_meshes()`, `change_axes(..., pivot=True)`; vertex colours
-  `vertex_colors` (OBJ `v` colours, which three.js OBJLoader decodes from sRGB; GLB COLOR_0 float VEC3 / VEC4 as
-  given, not linearized, by `add_glb_vertex_attributes`, Blender told to write none: `_gg_scene_export_options`).
+  `vertex_colors` (OBJ `v` colours with 4 decimals, which three.js OBJLoader and Blender's OBJ import (the `.blend`'s
+  colour attribute "Color", no alpha) decode from sRGB; GLB COLOR_0 float VEC3 / VEC4 as given, not linearized, by
+  `add_glb_vertex_attributes`, corners at one place told apart by their triangles (`_match_corner_values`), Blender
+  told to write none: `_gg_scene_export_options`; `Mesh` operations keep every per-vertex list in sync). A serializer
+  fills `vertex_colors` from the game's colours with `rgba_floats` (`library/utils/colors.py`); the exporter knows no
+  game. The GLB steps take the scene's sub-meshes in OBJ order: sub-meshes of one name (Blender's `.001` nodes, in no
+  fixed order) are told apart by their positions (`_mesh_nodes`).
   Lookups: `require_resource_as(id, ShpiBlock)` (through compressed wrappers), `find_chunk(s)` (data of chunks by id,
   `resources/blackbox/chunks.py`), `find_file_case_insensitive` / `find_folder_case_insensitive`
   (`library/utils/file_utils.py`). Colours: `library/utils/colors.py` (`decode_colors` / `encode_colors` of whole
-  arrays: packed ARGB formats, BGR555, DOS 6-bit; `rgba_image`, `image_rgba`, `rgb_palette`), never per pixel.
+  arrays: packed ARGB formats, BGR555, DOS 6-bit; `rgba_channels`, `rgba_floats`, `rgba_image`, `image_rgba`,
+  `rgb_palette`), never per pixel.
 - Resource ids (`library/utils/id.py`, `frontend/src/app/utils/join-id.ts`, the same rules): a file's id is
   `path_to_name` of its path (`__` escaped as `_%5F`, `:` as `---DRIVE`), a resource in it adds `__` and its path in
   the file's data (`children/3/item/data`), which never contains `__` nor starts with `_`; ids split at their last
@@ -206,8 +212,9 @@ When you do:
   WASD flies); the field of view is fixed. Adapters with `chunkExport` (TNFS) get chunk files from `serialize_chunks`
   (`serializers/common/chunk_export.py`): only the chunks the viewer loads are written, and after a change only the
   loaded chunks whose data fingerprint changed are written and reloaded.
-  Viewer overlays (the gizmo, markers) are marked `userData.viewModeIgnore` (`VIEW_MODE_IGNORE`): the shading modes
-  (`ViewModeController`) leave them alone; an edge line on a gizmo picking mesh would take the gizmo's hits.
+  Viewer overlays (the gizmo, the selection marker, the sky sphere) are marked `userData.viewModeIgnore`
+  (`VIEW_MODE_IGNORE`): the shading modes (`ViewModeController`) leave them alone; an edge line on a gizmo picking mesh
+  would take the gizmo's hits.
 - Track viewer minimap (`common/minimap`): the adapter's road spline (the race route: "Spline item" fly-to, track
   length) and its other roads (`TrackLayout.roads` / `TrackMapAdapter.roads`: alternative routes, shortcuts, branches,
   roads of junctions; `TrackRoad`, game coordinates, Y up), drawn thinner; Shift drags the pointer along any of them.
@@ -225,6 +232,15 @@ When you do:
   `block_<i>__lin<n>`, lifted `NFS2_ROAD_LINE_LIFT` (2 cm) along the slice normals; the `lin<n>` images come from the
   game's `RENDER/PC/DTEXTURE.FSH` (two folders up from the track) into the track's `textures/`. The GUI's track viewer
   falls back to that folder for a texture its QFS archive lacks.
+- Vertex colours (`vertex_colors`) of the models: NFS3 / NFS4 FRD vertex shading, NFS5 CRP track corner colours
+  (`fd`), NFS6 PC EAGL models other than cars (track compartments, props, sky, actors) and car glass, NFS HP2 PS2 tracks
+  and cars, NFSU / NFSU2 / NFSMW worlds and cars (RGBA / 255; PS2 alpha / 128). The Skyline Memorial PSX Gouraud
+  colours (128 = 1.0) are the GLB attribute `_PSX_GOURAUD` and `geometry_extra.json` `psx_gouraud` instead. Not
+  exported: NFS6 PC car parts but glass (its shaders compute the vertex colour). None in TNFS ORIP / TRI / Saturn ORIX,
+  NFS2 GEO / TRK, FCE3 / FCE4. The GUI's model and track viewers show them in the view mode `vertex_colors`
+  (`ViewModeController`: the colours alone, unlit, meshes without the geometry attribute `color` grey; offered only while
+  a mesh has them); in the `material` mode only the NFS3 / NFS4 track viewer draws them (`terrainVertexShading`, texel x
+  colour; the model viewer's MTL materials draw none): how the other games blend them is not traced.
 - Track textures (NFS2 TRK, NFS3 / NFS4 FRD): polygons pick the image of the track QFS by SHPI index, and the names
   repeat (NFS2 SE TR060.QFS has 16 `CLIF` images): mesh names `<block>__<texture>` carry the file name the image gets
   in `textures/` (`shpi_texture_names` = `ShpiArchiveSerializer.export_file_names`: `CLIF`, `CLIF0` .. `CLIF14`),
@@ -675,8 +691,10 @@ When you do:
   The race composes a page once per model from the style, the night flag and the parts' slots: a viewer switching
   them keeps the default style's pages.
 - In the CRP, the track parts `DmiS` / `TmiS` (road spline slices and sections; a slice's lanes, lane bits and widths
-  as the AI reads them), `esaB` (`CrpBasePart`: flags, bounds, object tag, levels of detail) and `fd` (vertex
-  colours) are parsed.
+  as the AI reads them), `esaB` (`CrpBasePart`: flags, bounds, object tag, levels of detail) and `fd` (colours of the
+  triangle corners, by the `fd` rows of the `pr` parts, `idx` = the rows' `level_index`) are parsed. The track export
+  gives the corners these colours (RGBA / 255; corners of other colours are vertices of their own), its whole-track
+  mesh names are the cars' `<article>_a<article index>_LOD<lod>_ai0[_<texture>]` (article names repeat: `OBJECT01`).
 - CRP car parts: `zd` (`CrpDamageZonesPart`: the damage zone of each vertex of the `vt` part of the same index) and
   the base part's car bytes (`CrpBasePartData` `tag` = slot, value, order, id; `car_*` fields, `light`).
 - CRP layout (`CrpGeometry`): 16-byte chunks (header, articles, common parts, parts; parts picked by identifier,

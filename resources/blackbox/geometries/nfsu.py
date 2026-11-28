@@ -89,6 +89,14 @@ class NfsuMeshFacesChunk(ChunkBlock):
         padding = (chunk_rest(), {'description': 'Padding to the end of the chunk'})
 
 
+_VERTEX_COLOR_DESCRIPTION = (
+    'Vertex colour, 32-bit ARGB (Direct3D D3DCOLOR: bytes B, G, R, A): world meshes the baked lighting, car meshes '
+    'mostly white with black or grey parts (NFSU: whole parts black, such as engines, brake lights and mirrors, and '
+    'odd colours such as 0xff99105f). Exported as the vertex colours of the track and car models (OBJ `v` colours, '
+    'GLB COLOR_0: RGBA / 255); how the game draws them is not traced'
+)
+
+
 class NfsuVertex(DeclarativeCompoundBlock):
     block_description = 'A single mesh vertex with normal (36 bytes). The most common vertex layout'
 
@@ -106,7 +114,7 @@ class NfsuVertex(DeclarativeCompoundBlock):
             IntegerBlock(length=4),
             {'description': 'Presumably Z component of the vertex normal, stored as 32-bit float', 'is_unknown': True},
         )
-        unk3 = (IntegerBlock(length=4), {'description': 'Presumably vertex color, 32-bit ARGB', 'is_unknown': True})
+        color = (IntegerBlock(length=4), {'description': _VERTEX_COLOR_DESCRIPTION})
         u = (DecimalBlock(length=4), {'description': 'U texture coordinate'})
         v = (
             DecimalBlock(length=4),  # hmm, Bin2Ase renders different values, though x,y,z,u are identical
@@ -123,7 +131,7 @@ class NfsuVertexNoNormal(DeclarativeCompoundBlock):
 
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (Point3D(child=DecimalBlock(length=4)), {'description': 'Vertex position'})
-        unk3 = (IntegerBlock(length=4), {'description': 'Presumably vertex color, 32-bit ARGB', 'is_unknown': True})
+        color = (IntegerBlock(length=4), {'description': _VERTEX_COLOR_DESCRIPTION})
         u = (DecimalBlock(length=4), {'description': 'U texture coordinate'})
         v = (DecimalBlock(length=4), {'description': 'V texture coordinate'})
 
@@ -137,7 +145,7 @@ class NfsuVertexSkinned(DeclarativeCompoundBlock):
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (Point3D(child=DecimalBlock(length=4)), {'description': 'Vertex position'})
         normal = (Point3D(child=DecimalBlock(length=4)), {'description': 'Vertex normal'})
-        unk3 = (IntegerBlock(length=4), {'description': 'Presumably vertex color, 32-bit ARGB', 'is_unknown': True})
+        color = (IntegerBlock(length=4), {'description': _VERTEX_COLOR_DESCRIPTION})
         u = (DecimalBlock(length=4), {'description': 'U texture coordinate'})
         v = (DecimalBlock(length=4), {'description': 'V texture coordinate'})
         blend_weights = (Point3D(child=DecimalBlock(length=4)), {'description': 'Blend weights', 'is_unknown': True})
@@ -434,7 +442,7 @@ class NfsmwVertex44(DeclarativeCompoundBlock):
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (Point3D(child=DecimalBlock(length=4)), {'description': 'Vertex position'})
         normal = (Point3D(child=DecimalBlock(length=4)), {'description': 'Vertex normal'})
-        color = (IntegerBlock(length=4), {'description': 'Vertex color, 32-bit ARGB'})
+        color = (IntegerBlock(length=4), {'description': _VERTEX_COLOR_DESCRIPTION})
         u = (DecimalBlock(length=4), {'description': 'U texture coordinate'})
         v = (DecimalBlock(length=4), {'description': 'V texture coordinate'})
         uv2 = (ArrayBlock(child=DecimalBlock(length=4), length=2), {'is_unknown': True})
@@ -446,7 +454,7 @@ class NfsmwVertex60(DeclarativeCompoundBlock):
     class Fields(DeclarativeCompoundBlock.Fields):
         position = (Point3D(child=DecimalBlock(length=4)), {'description': 'Vertex position'})
         normal = (Point3D(child=DecimalBlock(length=4)), {'description': 'Vertex normal'})
-        color = (IntegerBlock(length=4), {'description': 'Vertex color, 32-bit ARGB'})
+        color = (IntegerBlock(length=4), {'description': _VERTEX_COLOR_DESCRIPTION})
         u = (DecimalBlock(length=4), {'description': 'U texture coordinate'})
         v = (DecimalBlock(length=4), {'description': 'V texture coordinate'})
         uv2 = (ArrayBlock(child=DecimalBlock(length=4), length=2), {'is_unknown': True})

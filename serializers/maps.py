@@ -8,6 +8,7 @@ from typing import List, Dict, NamedTuple, Optional, Tuple
 
 import config
 from library.utils import path_join
+from library.utils.colors import decode_colors, rgba_channels, rgba_floats
 from resources.blackbox.chunks import find_chunk, find_chunks
 from resources.eac.maps import RoadSplinePoint
 from resources.eac.utils import rotate_list
@@ -23,6 +24,7 @@ from serializers.common.three_d import (
     track_map_scene,
     write_terrain_chunks_json,
 )
+from serializers.geometries import NFS6_PS2_VERTEX_COLOR_ONE
 
 general_config = config.general_config()
 
@@ -1015,14 +1017,12 @@ def track_shading_colors(shading: list, percents: Tuple[int, int, int], tint) ->
     shading (0xAARRGGBB), each channel tinted by `tint(c, percent)` with the ambient light percentage
     of its channel (`nfs3_shading_tint`, `nfs4_shading_tint`); the alpha is left out. The games draw a polygon's
     texel times its corners' colour (Direct3D modulate)"""
-    cache = {}
-    res = []
-    for value in shading:
-        color = cache.get(value)
-        if color is None:
-            color = cache[value] = [tint(value >> shift & 0xFF, p) / 255 for shift, p in zip((16, 8, 0), percents)]
-        res.append(color)
-    return res
+    import numpy as np
+
+    # tinted value of every byte, per channel
+    tinted = np.array([[tint(c, p) for c in range(256)] for p in percents], dtype=np.float64)
+    channels = rgba_channels(decode_colors('argb8888', shading))[:, :3]
+    return (tinted[np.arange(3), channels] / 255).tolist()
 
 
 def _track_sibling_text(id: str, file_name: str) -> Optional[str]:
@@ -2174,6 +2174,10 @@ class NfsuWorld:
     # meshes of the road surface, kept apart from the rest in `scenery_parts` (keys (texture id, is road)) and named
     # "scenery<section>_<n>_road_<texture>" in the chunk export. None: parts by texture only
     road_part_prefixes = None
+    # vertex colour (0xRRGGBBAA) of the meshes without any (`scenery_parts` with colours), and the channel values
+    # exported as 1.0 (`NfsuTrackBundleSerializer`: the chunks' vertex colours, `rgba_floats`)
+    default_vertex_color = 0xFFFFFFFF
+    vertex_color_one = (255, 255, 255, 255)
 
     def __init__(self):
         self.meshes = {}
@@ -2222,7 +2226,7 @@ class NfsuWorld:
     ) -> Dict[Optional[int], tuple]:
         """World geometry of scenery: texture id (with `road_part_prefixes`: (texture id, whether the mesh is of the road
         surface)) -> (vertices, uvs, triangles), with `with_colors` also the vertex
-        colours (r, g, b, a 0..255 rows; meshes without colours give 128 grey: the GS's 1.0). Meshes named with
+        colours (RGBA ints 0xRRGGBBAA; meshes without colours give `default_vertex_color`). Meshes named with
         `skipped_mesh_prefixes` (or `more_skipped_prefixes`) are skipped, so are all but those named with
         `kept_prefixes` if given"""
         import numpy as np
@@ -2243,10 +2247,10 @@ class NfsuWorld:
             mesh_uvs = np.asarray(mesh.uvs, dtype=np.float64)
             mesh_colors = None
             if with_colors:
-                mesh_colors = np.full((len(world), 4), 128, dtype=np.float64)
+                mesh_colors = np.full(len(world), self.default_vertex_color, dtype=np.uint32)
                 colors = getattr(mesh, 'colors', None)
                 if colors is not None and len(colors) == len(world):
-                    mesh_colors = np.asarray(colors, dtype=np.float64).reshape(-1, 4)
+                    mesh_colors = np.asarray(colors, dtype=np.uint32)
             for texture_id, triangles in mesh.parts:
                 if not len(triangles):
                     continue
@@ -2536,10 +2540,8 @@ class NfsuTrackBundleSerializer(BaseFileSerializer):
     """NFS Underground race world: scenery of every streamed section (from the STREAM*.BUN file next to the race
     bundle) is a terrain chunk; textures are saved to "textures/<texture id>.png". Chunk positions (centers of
     bounding boxes, Y up) are saved to "terrain_chunks.json", the race route and the other roads (`track_paths`) to
-    "track_route.json". Game coordinates are Z up, chunk OBJs keep them"""
-
-    # the meshes' vertex colours as the chunk GLBs' COLOR_0
-    vertex_colors = False
+    "track_route.json". Game coordinates are Z up, chunk OBJs keep them. The meshes have their vertex colours (the
+    baked lighting of the world: OBJ `v` colours, GLB COLOR_0; RGBA / `NfsuWorld.vertex_color_one`, at most 1)"""
 
     def __init__(self):
         super().__init__(is_dir=True)
@@ -2592,7 +2594,7 @@ class NfsuTrackBundleSerializer(BaseFileSerializer):
         scenes = [map_scene]
         chunk_positions = []
         for i, (section_number, infos, instances) in enumerate(world.sceneries):
-            parts = world.scenery_parts(infos, instances, with_colors=self.vertex_colors)
+            parts = world.scenery_parts(infos, instances, with_colors=True)
             if not parts:
                 continue
             all_vertices = np.concatenate([part[0] for part in parts.values()])
@@ -2609,8 +2611,7 @@ class NfsuTrackBundleSerializer(BaseFileSerializer):
                 sm.vertex_uvs = uvs.round(5)
                 sm.polygons = polygons
                 if colors:
-                    # as the car exports: RGB / 255, alpha / 128 (the GS's 1.0)
-                    sm.vertex_colors = np.minimum(colors[0] / [255, 255, 255, 128], 1.0)
+                    sm.vertex_colors = rgba_floats(colors[0], world.vertex_color_one)
                 sub_meshes.append(sm)
             if chunked:
                 chunk_positions.append({'x': pivot[0], 'y': pivot[2], 'z': pivot[1]})
@@ -2745,6 +2746,9 @@ class Nfs6Ps2World(NfsuWorld):
     track. The sky domes are not part of the world geometry: `sky_instances` (mesh, instance) of SKYDOME"""
 
     skipped_mesh_prefixes = NfsuWorld.skipped_mesh_prefixes + ('SKYDOME',)
+    # the GS's 1.0 is 128: meshes without colours get it; exported as the cars, `NFS6_PS2_VERTEX_COLOR_ONE`
+    default_vertex_color = 0x80808080
+    vertex_color_one = NFS6_PS2_VERTEX_COLOR_ONE
     floor_mesh_prefixes = None
     floor_faces_up = False
     road_mesh_marker = None
@@ -2796,10 +2800,7 @@ class Nfs6Ps2TrackBundleSerializer(NfsuTrackBundleSerializer):
     Z up), textures from the texture packs of the track (`nfs6_ps2_texture_pack_paths`) saved to
     "textures/<texture id>.png", chunk positions (centers of bounding boxes, Y up) to "terrain_chunks.json". With
     `maps__save_spherical_skybox_texture`, the sky dome SKYDOME on "spherical.png" (`nfs6_ps2_sky_to_spherical.py`).
-    The chunk GLBs have the meshes' vertex colours as COLOR_0 (RGB / 255, alpha / 128, as the cars'): the game draws a
-    texel times its vertex colour / 128 (GS modulate), the textures are stored at half brightness"""
-
-    vertex_colors = True
+    The chunks have the meshes' vertex colours as the cars (`NFS6_PS2_VERTEX_COLOR_ONE`)"""
 
     def load_world(self, data: dict, id: str) -> NfsuWorld:
         from library import require_resource
@@ -2846,12 +2847,11 @@ class Nfs6Ps2TrackBundleSerializer(NfsuTrackBundleSerializer):
         # the eye at the centre of the dome: its rotation only
         vertices = np.asarray(mesh.vertices) @ np.array(instance['rotation'], dtype=np.float64).reshape(3, 3)
         meshes = []
-        colors = [(r << 24) | (g << 16) | (b << 8) | a for r, g, b, a in mesh.colors]
         for texture_id, triangles in mesh.parts:
             if texture_id not in world.textures:
                 continue
             image = nfs6_ps2_texture_to_image(*world.textures[texture_id]).convert('RGBA')
-            meshes.append((vertices, triangles, mesh.uvs, colors, np.asarray(image, dtype=np.float64)))
+            meshes.append((vertices, triangles, mesh.uvs, mesh.colors, np.asarray(image, dtype=np.float64)))
         if not meshes:
             return []
         out_path = path_join(path, 'spherical.png')

@@ -44,6 +44,26 @@ class TestNfsuGeometry(unittest.TestCase):
             self.assertEqual(c['elevens'], b'\x11' * len(c['elevens']))
             self.assertLess(len(c['elevens']), 128)
 
+    def test_car_export_should_have_the_vertex_colors(self):
+        import tempfile
+
+        from serializers import NfsuBinGeometrySerializer
+
+        (name, block, data) = require_file('test/samples/GEOMETRY.BIN')
+        serializer = NfsuBinGeometrySerializer()
+        serializer.patch_settings(
+            {'geometry__save_obj': True, 'geometry__save_blend': False, 'geometry__export_to_gg_web_engine': False}
+        )
+        with tempfile.TemporaryDirectory() as out:
+            serializer.serialize(data, out, id=name, block=block)
+            with open(os.path.join(out, 'geometry.obj')) as f:
+                vertex_lines = [line.split() for line in f if line.startswith('v ')]
+        # every vertex coloured, the stored ARGB as RGB / 255
+        stored = [v['color'] for c in _vertices_chunks(data) for v in c['vertices']['data']]
+        self.assertTrue(vertex_lines and all(len(line) == 7 for line in vertex_lines))
+        exported = {tuple(round(float(x) * 255) for x in line[4:]) for line in vertex_lines}
+        self.assertEqual(exported, {(c >> 16 & 0xFF, c >> 8 & 0xFF, c & 0xFF) for c in stored})
+
 
 NFSU2_CAR_DIR = 'test/samples/claude_tmp/nfsu2/CARS/SUPRA'
 
